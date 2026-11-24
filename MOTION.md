@@ -13,8 +13,8 @@ owns, on his own home network. Plain wording throughout (`CLAUDE.md`).
 a default, or a winner** — each is a thing that *could* move, priced where a doc gives a number and marked
 "modeled" otherwise. **§6 is the refinery, RULED by Adam on 2026-11-13**; it fixes the first flash's verb set and
 `FIRMWARE.md` §5 is written on it. Read `DESIGN.md` §6 (the motion contract) and §0 (what is excluded) first;
-this file does not restate them. *(2026-11-23: §7, the animation plan, was ruled on 2026-11-19 and amended on 11-21;
-what is built of it is the note at §7's end.)*
+this file does not restate them. **§7, the animation plan, ruled on 2026-11-19 and amended on 11-21, wins over §6
+where they differ**; what is built of it is the note at its end.
 
 ---
 
@@ -27,7 +27,7 @@ easing tables, one step per tick):
 |---|---|---|
 | **MV** | move rect, per lens | translate a rect by an integer step each tick; a per-lens x carries depth during the move |
 | **FILL** | fill rect | paint a rect one level (the newly exposed strip after a move) |
-| **CB** | cached blit + LUT ramp | draw a cached image/glyph, its LUT top nibble stepped per tick — a brightness rise/fall or dim in place. Flat in v1 (modes 13/14); Phase 2's per-lens cached draws (`FIRMWARE.md` §4, flashed 2026-09-16) give it a per-lens form, so a CB candidate can carry depth |
+| **CB** | cached blit + LUT ramp | draw a cached image/glyph, its LUT top nibble stepped per tick — a brightness rise/fall or dim in place. Flat in v1 (modes 13/14); Phase 2's per-lens cached draws (`FIRMWARE.md` §4) give it a per-lens form, so a CB candidate can carry depth |
 | **VS** | vertical-scale blit | draw a cached image scaled vertically (fixed-point step, nearest row) — vertical squash/stretch |
 | **PB** | progressive blit + offset | reveal a cached page from an edge, more of it each tick — the unfurl / slide-in |
 | **WAIT** | wait | hold N ticks (stagger, dwell) |
@@ -58,12 +58,12 @@ whatever content had to be staged, not N frames on the wire.
 
 | # | trigger | candidate motion | verbs | staged on glass | phase | notes |
 |---|---|---|---|---|---|---|
-| M1 | scroll one notch | the list pans one row through the fixed lens band, ease-out | MV + FILL | the neighbour rows as cached rows | P4 | today: COPY+STRIP per frame (§4.2, 880–1,460 B/notch measured). The list-pan is the flagship local case. *2026-11-23: built — the glasses draw it at ladder stages 4 and 5, M3's ramp in the same program (`FIRMWARE.md` §6.9, §7.11)* |
+| M1 | scroll one notch | the list pans one row through the fixed lens band, ease-out | MV + FILL | the neighbour rows as cached rows | P4 | today: COPY+STRIP per frame (§4.2, 880–1,460 B/notch measured). The list-pan is the flagship local case. Built: the glasses draw it at ladder stages 4 and 5, M3's ramp in the same program (`FIRMWARE.md` §6.9, §7.11) |
 | M2 | notch settles on a new row | the lens icon grows from row-size (20 px) to band-size (56 px) as the row enters the band | VS or CB | both icon scales cached | P4 | the focused-row icon is band-height (§4.5b); a grow reads the focus. **CUT by Adam, 2026-11-18** ("it already does that enough plus the come-forward depth effect") — no size change in Main's focus motion |
 | M3 | notch settles | the entering row's summary brightens from DIM to BODY as it reaches the lens; the leaving row dims | CB | the row text cached at two levels | P4 | brightness is the primary focus cue (§4.2); a ramp instead of a snap |
 | M4 | resting → active (input arrives) | the dropped rows rise from level 2–3 back to full ink | CB | the resting and active row sets | P3 | §4.2 resting state; a fade-up on wake-from-idle |
 | M5 | active → resting (input goes quiet) | the reverse: non-lens rows fade toward level 0 | CB | — | P3 | "input has gone quiet" is scheduler priority, not a timer (§4.2) |
-| M6 | wrap from top row to Settings | the list wraps; the pan could continue in the same direction rather than jumping | MV + FILL | the Settings row cached | P4 | §4.2 "one scroll up lands on Settings"; a wrap that animates vs snaps. *2026-11-23: built — the phone's PLAY at the edge report since APK 0.80; at stage 5 a ring list the glasses fire where Main's paint wraps (`FIRMWARE.md` §7.8, §7.11)* |
+| M6 | wrap from top row to Settings | the list wraps; the pan could continue in the same direction rather than jumping | MV + FILL | the Settings row cached | P4 | §4.2 "one scroll up lands on Settings"; a wrap that animates vs snaps. Built: the phone's PLAY at the edge report; at stage 5 a ring list the glasses fire where Main's paint wraps (`FIRMWARE.md` §7.8, §7.11) |
 | M7 | the ▸ continuation mark on the focused row | the lens second line marquees horizontally to show the clipped tail | COPY + STRIP | the full line cached | P4 | §4.2 "the lens can marquee its second line" — held in reserve today |
 | M8 | Main lens depth | the lens band rises from the content plane to plane 0 on becoming focal | MV per lens | — | P3 | +4 B stereo box pair (§3.1); a depth step vs an instant plane change |
 
@@ -288,8 +288,8 @@ alternative. The fade/dim verbs are needed only if Adam reverses a §0 exclusion
 Per **D6** (motion answers input; nothing moves on its own; games while playing are the exception):
 
 - **No idle/ambient animation** — nothing loops, drifts, breathes or pulses without an input, except
-  the two established exceptions that are *content*, not decoration: the ≤20 % battery pulse (§4.1,
-  already shipped) and the Music Mode visualizer (§8.3, answers the audio while playing). The HUD
+  the two established exceptions that are *content*, not decoration: the ≤20 % battery pulse (§4.1)
+  and the Music Mode visualizer (§8.3, answers the audio while playing). The HUD
   stays ignorable at FAR and while driving.
 - **No motion a window invents** — frames-per-notch is the shell's setting (`WINDOWS.md` §6 r6); a
   window never adds frames. Every candidate above is the *shell's* motion on the window's behalf, or
@@ -430,15 +430,11 @@ and create the one we are transitioning to, rather than just smashing over the p
 and the new screen just appearing." The reading kept for every later effect (the lead's, not his words): an effect
 turns the old picture INTO the new one as one motion; a cover and then a reveal read to him as two beats.
 
-**As built (2026-11-23, APK 0.84 on the PC; `HANDOFF.md` §100, §101):** the `Animations` category (on a build with
-local input) is one row per tier — Scroll, then Select, Close / Back and Lock Screen at ladder stage 5 only, then
-Popups — each opening its sub menu (`SettingsWindow.kt`, `ShellSettings.kt`). **Scroll:** one Global `Scroll effect`
-— None, Depth (the default), Slide, Flip, Fall, Crush (`ScrollEffect`) — with `Scroll length` 300 ms and `Scroll
-frames` Auto; it plays on Main's bound list, the only list bound so far, so no app has its own `Scroll effect` row yet;
-Glitch, Scramble/Encode and Matrix are not built as scroll effects. **Select and Close / Back:** the table's eight
-effects as checkboxes (default Depth), Close / Back each reversed in time; **Lock Screen:** its six (default Fade);
-each tier 450 ms / 10 frames (`Transitions.kt`). **Popups:** the arrival styles Unfurl (the phone's frames, on by
-default), Fade and Slide (drawn by the glasses), 300 ms / Auto, and the focus timer as one engine program
-(`PopupPrograms.kt`). **The wheel** is still phone-drawn; the glasses' form of its drum exists as records and
-programs not yet placed (`Wheel.kt`, C3 DW-0). Measured since the modeled ≈ 50 ms a step above: Warp's and Flip's out
-halves took 58.6 and 60.3 ms a step on his glasses, and their fit was raised to that (`HANDOFF.md` §101.2).
+**As built** (`HANDOFF.md` §100, §101; the rows and their defaults are `DESIGN.md` §4.2's `Animations`): every tier
+is built, the transition tiers shown at ladder stage 5 only. Scroll's one effect is a Global row and plays on Main's bound list, the
+only list bound so far — no app has its own `Scroll effect` row yet; Glitch, Scramble/Encode and Matrix are not built
+as scroll effects. Popups: Unfurl (the phone's frames), Fade and Slide (drawn by the glasses), and the focus timer as
+one engine program (`PopupPrograms.kt`). The wheel is still phone-drawn; the glasses' form of its drum exists as
+records and programs not yet placed (`Wheel.kt`, C3 DW-0). Measured since the modeled ≈ 50 ms a step above: Warp's
+and Flip's out halves took 58.6 and 60.3 ms a step on his glasses, and their fit was raised to that (`HANDOFF.md`
+§101.2).

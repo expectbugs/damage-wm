@@ -1,14 +1,13 @@
 # Torrents on glass — design + build record (2026-09-01)
 
-**Status: DESIGN SETTLED with Adam 2026-09-01 (evening); BUILT the same night; four review
-rounds (`HANDOFF.md` §23.1–§23.4, ~114 findings, every one verified before a fix; PAUSED at
-Adam's word, not converged — §23.4 names where a pass resumes).** Second window of
+**Design settled with Adam 2026-09-01**; the build and its review rounds (paused at his word; §23.4 names where a
+pass resumes) are `HANDOFF.md` §23. Second window of
 the app wave after Files (`EXPLOSION.md` §20); not a G2CC conversion — Reader, Tmux and Files
 are the precedents. `IMPLEMENTATION.md` → "Torrents + the keyboard" is what runs; the keyboard's
 design is `DESIGN.md` §4.8.
 
-**Status since build S1-2 (APK 0.68, deployed 2026-11-17, inside the cleanup L1; `HANDOFF.md` §84 the record,
-`CONTRACT.md` §12 the contract): Torrents is on the PC's record, with a page;** its notices are raised once on the PC.
+**Torrents is on the PC's record, with a page;** its notices are raised once on the PC (`HANDOFF.md` §84 the record,
+`CONTRACT.md` §12 the contract).
 
 His intent, verbatim (§19): *"the ability to log into and browse my private torrent site and
 add torrents to qbittorrent all within G2. Especially useful for things like linux distros I
@@ -158,37 +157,33 @@ torrent (38 on 2026-09-01); after a restart whatever finished meanwhile announce
 reconnecting shell replays events since its last sequence (`truncated` past the host's 200-deep
 ring). New host epoch: a previously-connected phone replays the fresh log; a first-contact phone
 adopts the current sequence with no replay, so an app restart never re-shows old announcements.
-*2026-11-23: since S1-2 the PC raises them into its notice record (`TorrentsCore.attachNotices`); on the phone the
-events only mark the window dirty while the PC shares `torrents` and `notices` (`TorrentsGlasses.kt` header).*
+The PC raises them into its notice record (`TorrentsCore.attachNotices`); on the phone the events only mark the
+window dirty while the PC shares `torrents` and `notices` (`TorrentsGlasses.kt` header).
 
 ### 3.3 Settings → Torrents
 
 `Notify · done` · `Notify · errors` · `Poll` (1 s / 2 s / 5 s while focused; idle is always
 15 s) · `Size` (global / 288 / 352 / 416 / 480). Font / Font size / Font style / Depth rows are
-added by the shell. Persisted in the window's main record (synced, last-write-wins). (Since S1-2 the Notify rows
-and Size are the PC record's; Poll stays per device, unsynced — §3.5's dated line.)
+added by the shell. The Notify rows and Size are the PC record's (§3.5); Poll stays per device, unsynced.
 
 ### 3.4 Main summary (cheap, cached — §4.6)
 
 Line 1: `2 downloading · 1.2 MB/s` (or `31 seeding · 420 KB/s up` when nothing downloads,
 `idle` when empty); line 2: `31 seeding · 5 stopped · 1 error`; `progress` = the most advanced
 active download (Main's block bar); `more` while transfers exist. A provider state line (`PC
-unreachable 40s` — since S1-3 `PC unreachable since 14:02`, `bf4644cf` —, `qBittorrent unreachable 12s`, `TorrentLeech: login failed`) replaces line 1
+unreachable since 14:02`, `qBittorrent unreachable 12s`, `TorrentLeech: login failed`) replaces line 1
 — staleness is said with duration (§10.5).
 
 ### 3.5 State
 
-As built (from S1 the shared part is one record on the PC and the view state per interface —
-`CONTRACT.md` §2.1, §12): `window.torrents` (main record, synced): level · cursors (the
-transfers cursor also by hash) · filter · sort · open hash · browse category · search query + recents · the settings rows · the
-keyboard draft. Restored positions wait for their content (a document's top; a listing cursor
+The PC record holds the search recents, the two Notify rows and the glasses' Size (`TorrentsCore.kt` header;
+`CONTRACT.md` §2.1, §12); `window.torrents` keeps the rest per device, unsynced (`Persistence.syncable`,
+`Windows.converted`): level · cursors (the transfers cursor also by hash) · filter · sort · open hash · browse
+category · search query · Poll · the keyboard draft. Restored positions wait for their content (a document's top; a listing cursor
 for its page; the transfers row — by hash, by the wrap-end menu row, or by index — for the first
 snapshot, once). A live-synced record reloads its open document at once only while focused;
 unfocused, on the next activation. No per-item state, so no sub-records. `open("t:<hash>")` and
 `open("tl:<fid>")` synthesize the level path so back behaves as if navigated by hand (§16.1).
-*2026-11-22, as built since S1-2 (APK 0.68): the PC record holds the search recents, the two Notify rows and the
-glasses' Size (`TorrentsCore.kt` header); `window.torrents` keeps the rest per device and no longer syncs
-(`Persistence.syncable`, `Windows.converted`).*
 
 ## 4. Providers (§16.10)
 
@@ -222,7 +217,7 @@ reads at most one host interval behind — simpler than an on-demand `maxAge` po
   on a redirect to the login page, the login form, or HTML in place of the listing JSON —
   **at most one login a minute, enforced inside `login()` so every path is paced (the empty-jar
   path included); a refusal latches for the process only when the login POST is answered with
-  the login FORM**, anything else is paced and reported (review rounds 3–4; `WINDOWS.md` §5).
+  the login FORM**, anything else is paced and reported (`WINDOWS.md` §5).
   HTML parsed with a small stdlib tokenizer, every landmark checked. Credentials from
   `~/.damage/config.json` (`torrentleechUser` / `torrentleechPass`) — nothing in the repo.
 - **`LocalTorrentsProvider`**: owns both clients and the poll loop; a driver's focus is
@@ -234,11 +229,9 @@ reads at most one host interval behind — simpler than an on-demand `maxAge` po
   `start`, `stop`, `recheck`, `delete`, `tlcats`, `tlbrowse`, `tlsearch`, `tldetail`, `tladd`,
   `tlaccount`, `open`. The remote `stateLine` is the channel's (`PC unreachable since H:MM`) first,
   the host's own (`qBittorrent unreachable Ns`, `host answer not understood`) second.
-  App-alone the window is honestly unavailable — a torrent client does not cache. (As built; from
-  S1 the phone keeps the last snapshot and shows it with its age, actions dim — `REPLAN.md` §14.3
-  #2, `CONTRACT.md` §12.) *2026-11-22: the phone has kept the last snapshot across restarts since §47 (`TorrentsNet.kt`
-  110, `wincache/torrents`), shown under the channel's `PC unreachable since H:MM`; no dimming of actions while away
-  is in `TorrentsGlasses.kt`.*
+  App-alone the phone shows the last snapshot, kept across restarts (`RemoteTorrentsProvider`'s `cacheDir`,
+  `wincache/torrents`; `HANDOFF.md` §47), under the channel's `PC unreachable since H:MM`; the ruled dimming of its
+  actions while away (`REPLAN.md` §14.3 #2, `CONTRACT.md` §12) is not built.
 
 ## 5. Failure discipline (the absolute rules, applied)
 
@@ -255,28 +248,28 @@ reads at most one host interval behind — simpler than an on-demand `maxAge` po
 
 ## 6. Tests and gates (as built — all green at `390a25c`)
 
-- **core `TorrentsTest` ×7**: `QbtClient` against a fake HTTP server; the TorrentLeech adapter
+- **core `TorrentsTest`**: `QbtClient` against a fake HTTP server; the TorrentLeech adapter
   against fixtures (a changed-format page → loud refusal, login redirect → one re-login); the
   provider's event diff (done fires once, baseline suppresses, same stamp silent / new stamp
   announces, sequence/epoch replay incl. host restart); the window grammar over a fake
   provider (both walks, keyboard search, the under-a-week filter); persistence round trip + the
   continuity test (§16.4c); the remote provider through a real loopback host (the FilesTest
   rig), detach removing the listener.
-- **core `KeyboardTest` ×22**: the `DESIGN.md` §4.8 contract (every row sums to twelve units in
+- **core `KeyboardTest`**: the `DESIGN.md` §4.8 contract (every row sums to twelve units in
   every layer and layout, every printable ASCII reachable, harmless rests, wrap on both axes,
-  caret editing, the abc layout) plus the round-1 pins (live rows chunk 8 → 4+4 and 13 is
+  caret editing, the abc layout) plus pins (live rows chunk 8 → 4+4 and 13 is
   refused; a seven-row board fits every Size; uncovered glyphs display as `?` without moving
   the caret; a long prompt stays in the box; a shell stop hands the draft back).
-- Later review-round pins (refusal before the surface opens, harmless live-row heads, the
+- Further pins (refusal before the surface opens, harmless live-row heads, the
   failed first page's retry, the login latch and paced re-login, the surrogate-safe pan, a
   second ask refused while a keyboard is open) sit in those two classes.
-- **`--selfcheck`** (89 then): `ScriptedTorrents` drives the whole walk — transfers → menu →
+- **`--selfcheck`**: `ScriptedTorrents` drives the whole walk — transfers → menu →
   details → browse → listing → page → add-confirm → keyboard search → the done notification —
   plus the ink budgets. Measured 2026-09-01: transfers list 9.0 %, details 6.4 %, the open
   keyboard 9–11 % (list budget ≤ 15 %).
 - **`--snapshot`**: scenes 15–22 (transfers, lens+menu, details, categories, listing, torrent
   page, the keyboard at its two stages), looked at, at true 1×.
-- Battery after round 4: `HANDOFF.md` §23.4; the battery at HEAD: `REMINDER.md`.
+- The battery at HEAD: `REMINDER.md`.
 
 **A host that has stopped answering says so on every level** (`HANDOFF.md` §30): the window's
 TITLE carries `stateLine` wherever the level does not paint it, so frozen figures never read as
@@ -284,7 +277,4 @@ current.
 
 ## 7. Build order — shipped
 
-Built in the planned order in one pass (the keyboard + its shell wiring → `QbtClient` + the
-provider + the window → the tracker adapter + browse/search/add → `TorrentsNet` + both
-registrations + the harnesses + the Settings notify-row move); the commits and the four review
-rounds are `HANDOFF.md` §23.
+The build order, its commits and the review rounds: `HANDOFF.md` §23.

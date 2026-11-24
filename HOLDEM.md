@@ -1,9 +1,9 @@
 # Games · Texas Hold'em — the design record and build plan
 
-**Status: BUILT 2026-09-04** (M1–M6, two review passes and a live session — `HANDOFF.md` §26). *2026-11-22:* its
-move onto the PC's record (`CONTRACT.md` §2.7, §12) is build S1-5, not started (`REPLAN.md` §16.1).
-Verdicts first, then the design, then the build order, then **§17: what the build did and where
-it departed from this design. Where §17 and an earlier section disagree, §17 is what runs.**
+**Built 2026-09-04** (`HANDOFF.md` §26). Its move onto the PC's record (`CONTRACT.md` §2.7, §12) is step S1-5
+(`REPLAN.md` §16.1); state today: `REMINDER.md`. Verdicts first, then the design, then the build order, then
+**§17: what the build did and where it departed from this design. Where §17 and an earlier section disagree,
+§17 is what runs.**
 
 This file wins on Hold'em; `DESIGN.md` on shell design; `overview.md` on hardware facts;
 `WINDOWS.md` §1 on what every window owes. Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md`
@@ -124,8 +124,8 @@ Numbered so later work can cite them.
 **The texture cache is deliberately NOT used here** (as of the build): nothing shipped emitted
 modes 12/13/14 then (the simulator models them, `TextureCache.kt` builds them), and 13/14 have
 no stereo variant (cached art locks to zero disparity).
-Hold'em paints ordinary pixels through `CanvasView`. *(Since 2026-09-06 text and icons ship
-through the cache shell-wide — `CLAUDE.md` latency standards.)*
+Hold'em paints ordinary pixels through `CanvasView`. *(Text and icons ship through the cache
+shell-wide — `CLAUDE.md` latency standards.)*
 
 **Licence posture.** Everything here is ours. External artefacts: published **rules text**
 (Robert's Rules of Poker, TDA) and an MIT reference used **only as a test oracle in a scratch
@@ -310,17 +310,14 @@ core/src/main/kotlin/wm/damage/core/
                             Pots · ActionLevel · Money · Bankroll · Rng               §6, §9, §11.2, §12
   windows/games/roster/     Character · Mood · Roster · Background                    §7
   windows/games/holdem/     HoldemTable · HoldemRules · HoldemBot · HoldemView ·
-                            HoldemLevels                                              §5.2, §12, §8, §9.2, §10
+                            Equity (Monte-Carlo)                                      §5.2, §12, §8, §9.2
+                            (the levels, §10, are GamesWindow's)
 desktop/src/main/kotlin/…/Main.kt        registration + --games-check                 §13.4
 phone/src/main/kotlin/…/ShellService.kt  registration
-core/src/test/…/games/                   engine, oracle, persistence, activation      §13
-core/src/test/resources/holdem/sidepots.json   the corpus we own                      §13.2
+core/src/test/kotlin/wm/damage/core/     GamesKitTest · GamesWindowTest · HoldemEngineTest ·
+                                         HoldemBotTest · …                            §13
+core/src/test/resources/holdem/          sidepots.json (the corpus we own) · hands.json §13.2
 ```
-
-*2026-11-23, as built: `holdem/` holds `HoldemTable · HoldemRules · HoldemBot · HoldemView · Equity` (the
-Monte-Carlo equity); there is no `HoldemLevels` — the levels are `GamesWindow`'s; the tests sit flat in
-`core/src/test/kotlin/wm/damage/core/` (`GamesKitTest`, `GamesWindowTest`, `HoldemEngineTest`, `HoldemBotTest`, …),
-beside `holdem/hands.json`.*
 
 `holdem/` is the only package that knows what Hold'em is — the seam that makes blackjack and
 the trick-takers cheap later (verdict 2).
@@ -673,10 +670,7 @@ finish**; **roster differentiation** over a realistic number of sessions; **outc
 
 ## 14. Build order — six milestones, a commit after each
 
-✅ All six landed 2026-09-04 — M1 the shell rule and the retrofit (§3) · M2 the card kit (§6),
-the card render Adam judged first, the side-pot oracle · M3 the engine (§5, §12) · M4 the table
-(§9, §10) + M5 the ecology (§7) · M6 integration; the commits and what each held are
-`HANDOFF.md` §26.1, the review passes §26.2.
+The milestones, their commits and what each held: `HANDOFF.md` §26.1; the review passes §26.2.
 
 **Settings → Games rows:** `Size` (global / 288 / 352 / 416 / 480) · `Font` / `Font size` /
 `Font style` · `Confirm` (All actions / Money only / All-in only) · `Bot pace` (0 / 300 / 600 /
@@ -719,8 +713,7 @@ category, never Global (`WINDOWS.md` §1).
 ✅ Spent 2026-09-04. A later game (blackjack, hearts, gin) starts the same way: read
 `CLAUDE.md` · `REMINDER.md` · `HANDOFF.md` §19–§25 · `WINDOWS.md` §1–§5 · `DESIGN.md` §1, §2,
 §4.6, §4.8, §6, §9.1 · this file · `/home/user/G2CC/games/gamelist.md` §"Card games"
-(read-only); verify the battery green on `main` first (the Games kickoff was `:core:test` 329 ·
-`--selfcheck` 139 · lint 0 at `697a062`); land the smallest cross-cutting piece first, with its
+(read-only); verify the battery green on `main` first; land the smallest cross-cutting piece first, with its
 tests, and commit. A later game comes after the re-plan's steps and is built once for every
 interface (`REPLAN.md` §4, `CONTRACT.md` §3.4's card table). Open: §17.4.
 
@@ -728,9 +721,7 @@ interface (`REPLAN.md` §4, `CONTRACT.md` §3.4's card table). Open: §17.4.
 
 ## 17. What was built (2026-09-04) — and where it departed from the design
 
-M1–M6 in one unattended session, then two review passes (11 + 8 verified defects) and a live
-session through the browser replica (13 more). `HANDOFF.md` §26 is the narrative; this section
-is the **delta** from §1–§16.
+`HANDOFF.md` §26 is the narrative; this section is the **delta** from §1–§16.
 
 ### 17.1 Deviations from the design, with the reason
 
@@ -787,9 +778,6 @@ Thirteen findings no unit test or offline render caught. Beyond items 5, 7 and 8
 - **Coming in from Main landed wherever the cursor was left** — `goRoot` resets the root cursor
   and clears `standFrom` (the Reader precedent).
 - **"time(s)"** became `once` / `N times`.
-- Outside Games: `PathTransportTest.aStartCancelledWhileALoserRollsBackStopsTheCompletedWinner`
-  asserted "start() has not completed yet" after a fixed 100 ms wait and failed once on a
-  loaded machine; it asserts the ORDER now (rollback finished, or start() not completed).
 
 ### 17.2b The second review round, and the second live session (2026-09-04, later)
 
@@ -843,77 +831,43 @@ accepted negative counts that `avgFinish` and `vpip` divide by; the Bankroll doc
 "puts you back to $1,000" — it **sets** the cash; the cash-out's notice was overwritten by the
 settlement's outcome line (a reorder, once synchronous); `SettingsWindow.open`'s adjust-clearing
 duplicated `onActivate`'s four assignments (factored); the decided-table guard used
-`winner() != null`, which misses a table every seat has LEFT.
-
-**Test quality:** one new pin asserted a return value that was 0 with and without its fix — a
-vacuous pin, rewritten to capture the log line that changed and confirmed to fail without the
-fix; one pin's comment claimed to reproduce the hand-off race (milliseconds wide) and now says
-what it actually locks.
+`winner() != null`, which misses a table every seat has LEFT. The two test-quality fixes: `HANDOFF.md` §26.5.
 
 ### 17.2d The 2026-09-05 whole-codebase review
 
-**A cash-out was booked as a total loss.** `finishTournament` recorded Adam's lifetime net as
-`prize − myStake`; after a cash-out the chips are already in the bankroll and `winner != seat`,
-so leaving with a stack read like busting out — and the line omitted the entry FEE every bot's
-net carried since `castStake`. The settlement is `prize + cashedOut − stake − fee`;
-`myCashedOut` and `myFee` persist with the table;
-`Review20260905Test.cashingOutCreditsTheChipsItTookOffTheTable` fails against the unfixed tree
-(−$200 where the truth is −$10). The class, for the third time in this file: **an accounting
-line exercised on only one path.**
-
-**In the harness:** `--snapshot`'s showdown scene took one action and waited for a result, which
-only worked when that action happened to be *Fold* (with no bet to call the contextual row
-checked and the table waited for Adam, correctly, forever), and the world was seeded from the
-wall clock, so the scene passed or stalled by luck. It acts every time it is his turn, choosing
-the contextual row BY NAME, and both harnesses pin the world seed (`HANDOFF.md` §27.6;
-`50-games-showdown` is a real showdown again).
+`HANDOFF.md` §27.1 and §27.6 are the record. Adam's lifetime net from a table is `prize + cashedOut − stake − fee`;
+`myCashedOut` and `myFee` persist with the table (`Review20260905Test.cashingOutCreditsTheChipsItTookOffTheTable`:
+−$200 on the unfixed tree where the truth is −$10). The class, for the third time in this file: **an accounting
+line exercised on only one path.** `--snapshot`'s showdown scene acts every time it is his turn, choosing the
+contextual row BY NAME, and both harnesses pin the world seed.
 
 ### 17.2e The third whole-codebase review and the live walk (2026-09-04, late)
 
-`HANDOFF.md` §28 is the record; the Games items:
+`HANDOFF.md` §28 is the record; what runs since:
 
-- 🔴 **The pacer stalled after a back-and-return inside one bot's pace** (also after leaving for
-  another window, and after a peer's table record replaced the live one): every invalidation
-  bumped the generation and left the stale completion to clear `thinking`; that completion,
-  seeing the bumped generation, returned without pumping, and the re-entry's pump had been
-  refused by the flag. `cancelPacer()` clears both together; a superseded completion never
-  touches the flag; a replaced table re-pumps. Two pins drive it through the real shell.
-- 🔴 **The status line was cut by the hole-card plane under a per-app scale** — a 24 px
-  constant; at 130 % the 33 px line ran into the plane-0 region, whose pixels render unshifted
-  (seen live at 480, 416, 352). `TableLayout` takes the status band and your line from MEASURED
-  ink (30 and 24 at 100 %: Clear Sans 17 bold inks 25 rows; the seat strip gives up the six
-  rows), seat row pitches follow the ink, a seat line that would run past its cell is dropped,
-  the holding mark sits under the name's ink. `Review28PaintTest` paints at 130 % on a
-  rasterizer whose ink follows the size.
-- "1 hands", "1 tournaments", "1 lines" — `HoldemView.plural`.
-- Verified live at 480/416/352/288, 100 % and 130 %: the action menu's title, the sizing
-  ladder, the Custom keyboard, the showdown line, cash-out and settlement.
+- 🔴 **The pacer:** `cancelPacer()` bumps the generation and clears `thinking` together; a superseded completion
+  never touches the flag; a replaced table re-pumps. Two pins drive it through the real shell.
+- 🔴 **The status band and your line come from MEASURED ink** (30 and 24 at 100 %: Clear Sans 17 bold inks 25 rows;
+  the seat strip gives up the six rows), so no line runs into the hole-card plane under a per-app scale; seat row
+  pitches follow the ink, a seat line that would run past its cell is dropped, the holding mark sits under the name's
+  ink. `Review28PaintTest` paints at 130 % on a rasterizer whose ink follows the size.
+- Counts take `HoldemView.plural` ("1 hand", never "1 hands").
 
 ### 17.2f The fifth whole-codebase review and the third live walk (2026-09-05)
 
-`HANDOFF.md` §30 is the record; the Games items:
+`HANDOFF.md` §30 is the record; what runs since:
 
-- 🔴 **The seat strip drew every opponent's stack THROUGH the board.** §17.2e left the strip as
-  the leftover: at 288 with the global scale at 130 % the status band grows to 38 and the strip
-  gets a 120×34 cell while the 15 px name and 14 px stack want 52 rows. The seat FACES step down
-  until the two rows fit; where even the smallest pair will not fit the strip goes **COMPACT** —
-  one row per seat, the money right-aligned and placed FIRST, the name fitted into what is left
-  at the largest face whose name-plus-money measures inside the cell; every line is guarded
-  against its cell. ⚠ The first fix dropped the stack row instead (every opponent's money off a
-  poker screen); the pin asserts BOTH nothing outside the band and something in the money
-  column of every cell.
-- **The Games documents (character, bankroll, hand history) sized their line box from
-  `metrics().lineHeight`**, one to two rows SHORTER than Clear Sans's ink, with a 17 px bold
-  heading in a 13/16 px body, so `Shell.paintDocSlice` chopped descenders on the first scroll. `docLineH(vararg faces)` takes
-  the tallest ink; each line is centred in it.
-- **The medium seven-segment readout** had its last minute digit at an 84 px offset where the
-  pitch is 32 ("10:2 1"). 80 now.
-- 🔴 **`TableLayout`'s "the bottom bands give way" was not true** — it floored the seat strip
-  and pushed the bottom band past `content`; only `check()` would have caught it and nothing on
-  the paint path calls it. The optional bands give way bottom first, loudly; `showsYourLine` /
-  `showsHistory` answer from the BAND, so a painter and the allocator cannot disagree.
-- Verified live at 288/352/480, 100 % and 130 %: the action menu, the sizing ladder, the Custom
-  keyboard, the buy-in confirm.
+- 🔴 **The seat strip** is the leftover band (at 288 with the global scale at 130 % the status band grows to 38 and
+  the strip gets a 120×34 cell while the 15 px name and 14 px stack want 52 rows). The seat FACES step down until the
+  two rows fit; where even the smallest pair will not fit the strip goes **COMPACT** — one row per seat, the money
+  right-aligned and placed FIRST, the name fitted into what is left at the largest face whose name-plus-money
+  measures inside the cell; every line is guarded against its cell. The pin asserts BOTH nothing outside the band
+  and something in the money column of every cell (a stack row must never be dropped).
+- **The Games documents** (character, bankroll, hand history) size their line box with `docLineH(vararg faces)`,
+  the tallest ink, each line centred in it — never `metrics().lineHeight`.
+- **The medium seven-segment readout's** last minute digit sits at 80.
+- 🔴 **`TableLayout`'s optional bands give way bottom first, loudly**; `showsYourLine` / `showsHistory` answer from
+  the BAND, so a painter and the allocator cannot disagree.
 
 ### 17.2g The showdown sentence with side pots (2026-09-06, `HANDOFF.md` §39)
 
@@ -928,10 +882,8 @@ $140 side pot"); one pot reads as before. Pinned by
 
 ### 17.3 The battery, after the build
 
-*(the Games build's own numbers, after §17.2e — `HANDOFF.md` §28.4; the battery at HEAD is
-`REMINDER.md`)* `:core:test` **430** · `:desktop:test` **11** · `--selfcheck` **189** ·
-`--snapshot` **13 Games scenes** among 49 · `--games-check` · `--card-render`
-(`design/shots/cards/`) · `tools/lint.py` **21 rules, 0 findings** · APK 0.28.
+The Games build's own numbers: `HANDOFF.md` §28.4 (and §26.6 for the 13 Games scenes); the battery at HEAD:
+`REMINDER.md`.
 
 ### 17.4 Still open
 

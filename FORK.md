@@ -10,20 +10,17 @@ animate and answer the ring themselves. Everything here runs on hardware Adam ow
 network, for his own use. It is display-rendering and UI work. Keep the wording plain (`CLAUDE.md`,
 "Plain engineering wording") in every file, comment and commit this plan produces.
 
-**What is live in this file (2026-11-22).**
+**What is live in this file.** State today: `REMINDER.md`.
 1. **The order of work is `REPLAN.md`** (its §4 as amended by §14 and §17), not §5; the suspension of 2026-09-12 (no new
    windows, no Feed polish, no popover build outside the plan) carries over under it (`CLAUDE.md`).
 2. **Binding:** §2's decisions (with the amendments its status line names), §3's principles — §3.8 is the protocol
    every build follows —, §7's flash ritual, §8's assumptions, §9 and §10.
 3. **Design still to build:** §4 and Phases 5–8 of §5, and the Damage halves of Phases 3–4 — the glasses kit (K)
-   builds those and Phase 6 (its motion part under way, APK 0.83 and 0.84), step G Phases 7–8. Phase 3's firmware
-   is C1's, Phase 4's C2's; `FIRMWARE.md` §5–§7 is C1's, C2's and C3's contract.
-4. **History:** Phases 0–2 are done and flashed (Phase 1 2026-09-15; Phase 2 2026-09-16, pin `48172b62…`); build C1
-   (pin `0dab2154…`) flashed 2026-11-18 (`HANDOFF.md` §88), C2 (pin `b3f04453…`) 2026-11-19 (§94). **The installed
-   image is C3, the effects build (pin `58741c4a…`), on both lenses since 2026-11-20 (§99), at ladder stage 5 since
-   2026-11-21 (§101); C2's image is the rollback, kept in `fws/`.** Their sections keep what still binds or is cited.
-   Phase 2's test stop T2 is still open.
-5. **§11 is an index** of the log; the records are `HANDOFF.md` §48 onward.
+   builds those and Phase 6, step G Phases 7–8. Phase 3's firmware is C1's, Phase 4's C2's; `FIRMWARE.md` §5–§7 is
+   C1's, C2's and C3's contract.
+4. **History:** Phases 0–2 are done and flashed (`HANDOFF.md` §55, §65); then builds C1, C2 and the effects build C3
+   (§88, §94, §99). Their sections keep what still binds or is cited. Phase 2's test stop T2 is still open.
+5. **§11 points at the log:** the records are `HANDOFF.md` §48 onward.
 
 **Grading.** Every number is measured, modeled or inferred and says which. Every firmware fact
 cites the decompile corpus (`reference/evenRealities-openCFW/g2/research/corpus/apollo-main/ghidra/decomp/`)
@@ -70,10 +67,10 @@ margin is answered — no limit, with power-saving settings (`REPLAN.md` §14.1 
 
 1. **Small, inert by default, fail-open.** The fork keeps g2flash's shape: one appended code block,
    a short list of redirected call sites, and no NEW site on a path that runs before the first radio
-   message. (Corrected 2026-09-13: the inherited a5d1c31 set already has two such paths — the
-   primary heap arena's size, at boot, and the display task's copy call, which passes straight
-   through for every stock refresh from boot on; `tools/verify.py` lists every site for review, and since C1 its step 6
-   FAILs any site the installed build's patch set does not have, `FIRMWARE.md` §5.10.) Every new behaviour sits behind
+   message. (The inherited a5d1c31 set already has two such paths — the primary heap arena's size, at
+   boot, and the display task's copy call, which passes straight through for every stock refresh from boot
+   on; `tools/verify.py` lists every site for review, and its step 6 FAILs any site the installed build's
+   patch set does not have, `FIRMWARE.md` §5.10.) Every new behaviour sits behind
    a per-feature flag the phone arms per session; flags
    clear when the lease lapses (Phase 7's persisted flag is the designed exception). A phone that is
    gone leaves stock behaviour behind within 90 s.
@@ -187,7 +184,7 @@ says). **Adam's ruling (`HANDOFF.md` §50.9):** the arm
 drops are recorded (§42.2, §49.1, §50.6, §50.8), cause U, and not this plan's work — he never sees one while wearing
 the glasses.
 
-### Phase 1 — The fork pipeline and the first flash — **FLASHED 2026-09-15 04:38 (`HANDOFF.md` §55): both lenses on pin `c5e4f8b7…` (the rollback image then; today's is C2's `b3f04453…`, §99), the self-test green on glass, the panel JBD4010, the transfer 1.2–6.6 ms per present, PROBE + PRESENTED armed**
+### Phase 1 — The fork pipeline and the first flash — **FLASHED 2026-09-15 04:38 (`HANDOFF.md` §55): both lenses on pin `c5e4f8b7…` (the rollback image then), the self-test green on glass, the panel JBD4010, the transfer 1.2–6.6 ms per present, PROBE + PRESENTED armed**
 
 **Built (`HANDOFF.md` §49–§55):** the fork pinned to our clang with `tools/verify.py`; the x86 host harness (`host/`:
 the vectors, the self-test form, `test_damage_ext.py`); `patches/damage_ext.c` = F1.1–F1.5 and the self-test, one new
@@ -236,7 +233,7 @@ are per session or per epoch (§64.2 items 2, 7, 11). (b) The prelude, the capab
 the warmup each re-ask on the pacing tick with one deferred that latches on success (§63.3 item 4, §64.2 items
 4–5). (c) The atlas read-back is keyed on an epoch, not a per-atlas counter that every new atlas restarts at 0
 (§63.1, §64.2 item 2). (d) The save-under slots move under one state word — the cache pointer under none: its
-release is still load / test / store / free (corrected 2026-11-11, `HANDOFF.md` §76.8); every second
+release is still load / test / store / free (`HANDOFF.md` §76.8); every second
 pass re-derives its pointer and records its refusal (§62.2 item 2, §63.2 items 2–3, §64.3 items 1–3). (e) One
 read of the link state per decision — `pump()`, the compositor's `v2`, `CachedText`'s atlas (§62.3 item 9, §63.3
 item 8, §64.2 item 6). (f) Mode 12 with 19, modes 14/15 with 18, the writers with the readers, both lenses of a
@@ -248,7 +245,7 @@ ms/KB, a capture and the battery readout.
 **Exit:** `cacheMiss` reasons `proof` and `planes` at zero; first-flush bytes down on every gesture
 class; the page turn priced.
 
-### Phase 3 — The motion engine, phone-started (size L; 1 flash) — **its firmware is build C1: FLASHED 2026-11-18 (pin `0dab2154…`, `HANDOFF.md` §88); the Damage half is K's, under way**
+### Phase 3 — The motion engine, phone-started (size L; 1 flash) — **its firmware is build C1: FLASHED 2026-11-18 (pin `0dab2154…`, `HANDOFF.md` §88); the Damage half is K's**
 
 **Firmware:** the tick; programs (upload / play / stop / retarget / completion); the verbs from the
 refined list; the start synchronized across lenses via the deferred path; a running-program region
@@ -262,11 +259,10 @@ private SID on Phase 4) — after the glyph-subset packing has been read for a d
 **Damage:** the `Motion` DSL (integer easing tables, tracks, end state); `desktop --motion-check`
 (renders a program tick by tick to a strip for eyeballing before it goes to glass); the scheduler
 (input preempts and retargets; the phone waits for completion before flushing a guarded region); a
-Global `Motion` row (off · subtle · full, and speed) replacing `Slide frames` and `Slide fill`; first
+Global `Motion` row (off · subtle · full, and speed) replacing `Slide frames` and `Slide fill` (as built, the
+`Animations` category with a sub menu per tier, `MOTION.md` §7; `Slide frames` and `Slide fill` remain as rows); first
 programs: list slide with ease-out, bounce at the edges, Main's recede/pan/advance (phone-started for
 now), wheel spin, popover reveal/cover, Hold'em deal slide and flip.
-*2026-11-23: as built (APK 0.83–0.84) the motion settings are the `Animations` category with a sub menu per tier
-(`MOTION.md` §7, `SettingsWindow.kt` 295); `Slide frames` and `Slide fill` remain as rows (`Shell.kt` 7449–7455).*
 *Ruled 2026-11-14 (`HANDOFF.md` §81): the firmware holds no phone write back — the phone CLOSEs an instance, in the
 same batch, before a write that meets its area (waiting for RIGHT's last-step notify stays an option); the firmware
 contract is `FIRMWARE.md` §5.*
@@ -275,7 +271,7 @@ contract is `FIRMWARE.md` §5.*
 match, comfort of the depth pop, speed) · a soak day with the battery readout. **Exit:** no visible
 lens mismatch; motion starts within D7's phone-started target; battery within the margin.
 
-### Phase 4 — Local input (size XL; 2 flashes) — **its firmware is build C2: FLASHED 2026-11-19 (pin `b3f04453…`, `HANDOFF.md` §94), armed at ladder stage 4 (stage 5 since 11-21, on C3, §101); the Damage half is K's**
+### Phase 4 — Local input (size XL; 2 flashes) — **its firmware is build C2: FLASHED 2026-11-19 (pin `b3f04453…`, `HANDOFF.md` §94); the Damage half is K's**
 
 **Firmware:** the binding table; scroll and tap handling at the input path R0.1 found, on both
 lenses through the stock mirror; the applied-state event to the phone; sequence numbers.
@@ -291,7 +287,7 @@ thousands of steps, belief = glass at every settle) · Adam's feel sessions · a
 use · the local-latency metric from telemetry. **Exit:** D7's local target met on Main and lists;
 zero divergence in a week; hold-back never fired.
 
-### Phase 5 — Firmware-owned chrome and the silent clock (size M; 1 flash) — **not started (the chrome is a candidate for the next firmware build, `FIRMWARE.md` §8.1)**
+### Phase 5 — Firmware-owned chrome and the silent clock (size M; 1 flash) — **a candidate for the next firmware build (`FIRMWARE.md` §8.1)**
 
 **Firmware:** the clock/battery/link cells drawn after the frame copy at Global depth from cached
 fonts; RTC and fuel-gauge reads; the silent clock as a firmware minute program (no radio while silent).
@@ -302,7 +298,7 @@ them as outside the shadow; the idle tick and silent-mode traffic shrink to noth
 **Test stop T5:** vectors · self-test · a silent-mode night (a quiet journal) · a soak day. This is
 the last shell-facing flash before the rebuild, so Phase 6 runs on stable firmware.
 
-### Phase 6 — The Damage rebuild: the shell and every window, fully animated (size XL; fix flashes only) — **this is K (`REPLAN.md` §16.1); K1's motion part under way (APK 0.83 and 0.84, `HANDOFF.md` §100, §101), K2–K4 not started**
+### Phase 6 — The Damage rebuild: the shell and every window, fully animated (size XL; fix flashes only) — **this is K (`REPLAN.md` §16.1)**
 
 Built against the refined list from Phase 0, one surface or window at a time, each whole to its best
 state, each with its latency profile and Adam's verdict.
@@ -322,7 +318,7 @@ state, each with its latency profile and Adam's verdict.
 
 Each stop: the full battery ×3 · `--motion-check` · `glassdrive` walks · a soak day · Adam's verdict.
 
-### Phase 7 — The offline home (size L; 2 flashes) — **not started (step G decides it again)**
+### Phase 7 — The offline home (size L; 2 flashes) — **step G decides it again**
 
 **Research first** (R0.5 deepened): display ownership with no EvenHub page, input with no page, screen
 auto-off and wake, the persisted flag in the stock KV store, what to keep on the glasses.
@@ -336,7 +332,7 @@ the both-temple long-press untouched; a stock-dashboard override gesture kept.
 **Test stop T7:** vectors · self-test · phone-off sessions (case at home, phone in a drawer) · the
 stock override · a soak day · a phone-gone workday.
 
-### Phase 8 — Consistency, docs, readiness (size M; 0–1 flash) — **not started (step G)**
+### Phase 8 — Consistency, docs, readiness (size M; 0–1 flash) — **step G**
 
 `CLAIMS.md` regraded; `FIRMWARE.md` final; this file's log closed; the flashing guide; the verify
 script pinned to the final image; memory rewritten; the battery of gates green ×3; one final full
@@ -357,8 +353,8 @@ inside a phase.
 fixups. 3. Thumb-bit audit. 4. Host vectors green. 5. Simulator vectors green. 6. **Adam's
 in-the-moment go.** 7. `probe c1=0` on the phone before any flash (forward, a fix, or back): the stored stage arms at
 the first start after it (build C1-P); then the stages again by hand on his go — all at once since his ruling of
-2026-11-18 ("enable all the stuff, we need to test this new stuff asap", `HANDOFF.md` §91; one stage per soak was
-the plan before it; the transport's hold-back still lowers one stage per reset). The probe changes the STORED stage,
+2026-11-18 ("enable all the stuff, we need to test this new stuff asap", `HANDOFF.md` §91; the transport's
+hold-back still lowers one stage per reset). The probe changes the STORED stage,
 not the session in progress: the flags already armed stay set on the glasses until the next session start or the
 lease's lapse (87.9 s after the phone's last renewal) — so before a lens that already runs a build with local input
 (a rollback, a fix flash) receives a flash, a session has started after the probe or the phone's Bluetooth has been
@@ -408,66 +404,26 @@ controller's firmware; the voice chip; the bootloader (no second image slot); wr
 flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase to 2.2.9.
 - **Temple touch bursts restarting an arm** (`HANDOFF.md` §54.8, 2026-09-15): a dozen taps on either temple in a
   few seconds stops that arm (a beep, the stock launcher, the phone's timeout, a rebuild). Adam's ruling: noted, not
-  the work — the ring never does it; studied at the public-release polish for users without the ring *(2026-11-23: no release is planned — `CLAUDE.md`,
-  "Who it is for"; this stays parked unless he asks)*. Phase 4's
-  design note (local input off the input send's queue) stands.
+  the work — the ring never does it; parked unless he asks (no release is planned: `CLAUDE.md`, "Who it is for").
+  Phase 4's design note (local input off the input send's queue) stands.
 
 ## 10. Repos, files, where things live
 
 | what | where |
 |---|---|
-| the order of work | `damagewm/REPLAN.md` (its §4 as amended by §14) |
-| this plan and its log's index | `damagewm/FORK.md` |
+| the order of work | `damagewm/REPLAN.md` (its §4 as amended by §14 and §17) |
+| this plan | `damagewm/FORK.md` |
 | the firmware contract (v1 facts by pointer, v2 as built and designed) | `damagewm/FIRMWARE.md` |
 | conformance vectors | `damagewm/firmware/vectors/` (data) — inputs written by `damagewm/firmware/make_vectors.py`; expectations by the fork's `host/run_vectors.py --write`; checked by `ConformanceVectorTest` and `host/run_vectors.py` |
 | the motion explosion and its refinery | `damagewm/MOTION.md` (§6 ruled 2026-11-13) |
 | the Phase 0 reads | `damagewm/CLAIMS.md` ("Firmware internals read for the fork") and `damagewm/research/fork-reads-2026-09-13.md`; the tool `damagewm/research/fwread.py` |
 | the fork's checks | `~/damage-cfw/tools/verify.py` (the candidate image), `~/damage-cfw/host/` (the C on the PC: vectors, `test_damage_ext.py`) |
-| the firmware fork | `~/damage-cfw` (GPL-3.0; branch `damage` for Phases 1–2, then one per build: `c1`, `c2`, `c3` — the installed image is `c3`'s; `github` = `https://github.com/expectbugs/damage-cfw`, public; `origin` = upstream g2flash, fetch only; `reference` = the pinned clone) |
+| the firmware fork | `~/damage-cfw` (GPL-3.0; branch `damage` for Phases 1–2, then one per build: `c1`, `c2`, `c3`; `github` = `https://github.com/expectbugs/damage-cfw`, public; `origin` = upstream g2flash, fetch only; `reference` = the pinned clone) |
 | the pinned upstream clone (never moved) | `damagewm/reference/g2flash` at `a5d1c31` (`research/verify_cfw.py` pins it) |
 | the decompile corpus and subsystem docs | `damagewm/reference/evenRealities-openCFW/g2/` |
 | records | `HANDOFF.md` §48 onward (§49 = 2026-09-13); `CLAIMS.md` rows added per phase; memory `damage-cfw-fork.md` |
 
 ## 11. Progress log — an index (the records are `HANDOFF.md`)
 
-- **2026-09-12** — the plan written; D1–D8 proposed; `FIRMWARE.md`'s skeleton; `~/damage-cfw` created from `a5d1c31`
-  on branch `damage` with the flasher fix carried over (first commit `b3bdd5c`; the Damage record `d16e5c1`) — §48.
-- **2026-09-13** — Phase 0 begun: R0.2–R0.4, R0.6 and the sid-0x0F logger read; APK 0.45's probes; `MOTION.md` drafted;
-  the fork pinned to our clang, the host harness and the v1 vectors (the simulator matches the C on all 35 steps);
-  F1.1/F1.2/F1.4 in source; §3.1's boot-path rule corrected — §49.
-- **2026-09-14** — the 13th reviewed (field 4 the status register; the boot count withdrawn); four two-arm captures;
-  M0.4 answered; **Adam's ruling: the drops are not the work** — §50.
-- **2026-09-14, evening and night** — Phase 1's candidate built (§51; Adam chose the bounded atlas skip and left
-  CACHE_KEEP unarmed, §51.8); two reviews (§52, §53), fork pin `c5e4f8b7…`.
-- **2026-09-15** — the bounded atlas skip built; R0.1, R0.5 and M0.3's per-event read; F1.8 dropped — §54.
-  **Phase 1 FLASHED** 04:38 (§55); the soak read (§56: transfer 2.0 ms median / 12.2 max, the tick 1.024 per ms;
-  Adam's rulings: F1.7 into Phase 2, a FLAGS_SET with no lease refused, the soak is ordinary wear during Phase 2's
-  build). Phase 2's design pass (§57, eleven decisions, as recommended); upstream's link edits into Phase 2's candidate
-  (Adam, §58); a live defect fixed for APK 0.50 (§59); Phase 2 built (§60).
-- **2026-09-15 night → 09-16** — four reviews of Phase 2 (§61–§64), the fourth with the differential fuzz and the
-  mutation sweep; fork pin `48172b62…`; what they measured, and §3.8 (§65; Damage `b43a1bf`).
-- **2026-09-16** — **Phase 2 FLASHED** (§65): LEFT 164 s, RIGHT 166 s, zero resends; first light 13:32 green
-  (contract 2, the 160 KiB cache, DRAW2, LE 2M; `hintMaxRows` 240 → 40 on Adam's word, APK 0.56); the on-glass
-  self-test 19 of 20 as its driver judged then — the twentieth's difference was the driver's own expectation (§73).
-  Reader's page staging, the first build under §3.8 (§66, seven decisions as recommended); its first read and fixes
-  (§66.1; Damage `ccf102d` before them); the status-cell ruling (§66.2).
-- **2026-09-19** — upstream's 256 KiB cache and private transport priced (§67, §68); Adam: op 5's cap to 256 KiB, a
-  largest-block figure and a deflated cache write ride the first flash, the private SID parked.
-- **2026-09-20 → 21** — the status cell built (§69); the glasses ran flat in the case, two rulings (§70).
-- **2026-11-04 → 09** — the phone's `/journal` route streams (§71, APK 0.61); the PC's out-of-memory and a shell that
-  holds nothing unbounded while down (§72, APK 0.62; rulings D1–D6).
-- **2026-11-09 → 10** — the atlas packs what a face draws and grows in place, the link estimator, the cache metric
-  (§73, APK 0.63, installed 11-10; `v2-tablepatch` 11 of 11 on glass); upstream and official firmware surveyed,
-  D1 stands (§74).
-- **2026-11-10 → 12** — rulings on §71–§73's calls and the fork's mutation sweep (§75); APK 0.64 (§76) and 0.65 (§77),
-  the vector pass (34 vectors).
-- **2026-11-12 → 13** — the order of work re-planned and ruled (`REPLAN.md`, §78): §5's phase order replaced;
-  `MOTION.md` §6 ruled; `FIRMWARE.md` §5 and §6 in contract form. Nothing flashed since 2026-09-16.
-- **2026-11-14 → 17** — C1's design pass, part 2 (§81); build C1 (§85); its flash-readiness review (§87).
-- **2026-11-18** — **C1 FLASHED** on both lenses (§88; pin `0dab2154…`); the ladder at stage 3 on Adam's word, one
-  stage per soak dropped (§91).
-- **2026-11-18 → 19** — build C2 (§92); **C2 FLASHED** 11-19 and armed at stage 4 (§94; pin `b3f04453…`); the
-  animation plan ruled (§95, `MOTION.md` §7).
-- **2026-11-19 → 20** — the effects build C3 designed (§96), built and reviewed (§97, §98); **C3 FLASHED** 11-20
-  (§99; pin `58741c4a…`, the installed image).
-- **2026-11-21** — ladder stage 5 (the transitions) armed on Adam's word (§101).
+The log is `HANDOFF.md` §48 onward, one dated section per session; its headings are the index (the flashes: Phase 1
+§55, Phase 2 §65, C1 §88, C2 §94, C3 §99).

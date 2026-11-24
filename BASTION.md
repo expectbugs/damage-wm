@@ -6,19 +6,17 @@ network. This file is design work for two user interfaces on hardware he owns: a
 in his kitchen, and a control system for his bus ("Bastion") that reads his own home-automation hub and, through
 confirmed actions, asks it to act. It builds nothing and touches no device. Plain wording throughout (`CLAUDE.md`).
 
-**Status: an EXPLOSION written 2026-11-12/13 for Adam's refinery. Nothing in it is built or in force. The decisions
-put to him are in `REPLAN.md` §15; his rulings are recorded there.** It is the wide list, written to be cut.
-`REPLAN.md` §14 wins wherever this differs. The alert watcher (R6) is the first build and the B rows extend it; one
-amendment comes before it is built: each rule gains `severity` (`normal` | `urgent`), and an urgent alert repeats
-until acknowledged and passes quiet hours (R6 is amended so). What is specific to his bus — the set itself, which
+**An EXPLOSION written 2026-11-12/13 for Adam's refinery.** The decisions put to him are in `REPLAN.md` §15; his
+rulings are recorded there. It is the wide list, written to be cut. `REPLAN.md` §14 wins wherever this differs.
+Built of it: the alert watcher (R6, amended so each rule carries `severity` — `normal` | `urgent` — and an urgent
+alert repeats until acknowledged and passes quiet hours) with its host Settings category, and with it what B-36–B-39
+name: the urgent repeat, quiet hours by severity, acknowledge from the phone's notification and a Settings
+`Acknowledge` row, the `when` guard (`HANDOFF.md` §79, §84; `AlertRule.kt`, `AlertDelivery.kt`, `BastionRows.kt`).
+The other B and T rows, the bus pages and the TV are steps S2 and S3 (`REPLAN.md` §16.1); state today:
+`REMINDER.md`. What is specific to his bus — the set itself, which
 value feeds which tile, the cameras, his thresholds, what is in place today, today's listeners — is in the private
 annex (`private/BASTION-annex.md`, kept out of the repository). **Nothing in this file was measured on his
 hardware**: spec-sheet and bench figures say so where they appear.
-*Status 2026-11-22:* the alert watcher (R6 with that amendment) is built — build W, APK 0.66 (`HANDOFF.md` §79),
-trimmed in L1 (§84) — with its host Settings category (`core/…/bastion/BastionRows.kt`); the B and T rows, the bus
-pages and the TV are S2 and S3, not started (`REPLAN.md` §16.1), but for what W built toward B-36–B-39: the urgent
-repeat, quiet hours by severity, acknowledge from the phone's notification and a Settings `Acknowledge` row, the
-`when` guard (`AlertRule.kt`, `AlertDelivery.kt`, `BastionRows.kt`).
 
 Columns: **size** S/M/L, relative as `FORK.md` uses them · **lean** in / later / out, the lead's first opinion for the
 refinery to override · **conflicts** names a ruling, an exclusion or another row. `DESIGN.md` §0's exclusions bind
@@ -38,15 +36,15 @@ listeners, notices and edits made in several places follow `INTERFACES.md` §4.
 | F6 | A developer-mode app needs a vendor account and internet, lapses after at most 1000 h unless extended, and is removed when it lapses | read | R1:59-61 |
 | F7 | A small computer on HDMI: kiosk Chromium, rotation by its compositor, the TV remote's keys arriving over HDMI-CEC as input events; sets of this maker pass arrows and OK, Back often not | read; reported | R1:69-77 |
 | F8 | The TV's typical draw is on its spec sheet (the figure is in the private annex); a Pi 5-class computer idles at 2.4–3.3 W (bench, reported) | read; reported | R1:49,78 |
-| F9 | Every listener is bound or gated to loopback, the tailnet and the bus network (the PC), and to loopback and the tailnet (the phone); the first build brings today's code to that rule. Today's listeners: the private annex | the rule (`INTERFACES.md` §4.2) | R1:12; R2 §C |
+| F9 | Every listener is bound or gated to loopback, the tailnet and the bus network (the PC), and to loopback and the tailnet (the phone); the code follows it (`core/…/net/ReachGate.kt`, `CONTRACT.md` §10.9). Today's listeners: the private annex | the rule (`INTERFACES.md` §4.2) | R1:12; R2 §C |
 | F10 | A device on the bus LAN cannot be named by the tailnet lookup: it needs a pairing code and a cookie (every device is approved once anyway, `INTERFACES.md` §4.1), and over plain HTTP that cookie is readable on the LAN | read; inferred | R2 §C items 4-5 |
 | F11 | The hub's recorder keeps ten days by default; hourly long-term statistics exist only for values declared as measurements or totals | read | R4:22-27 |
 | F12 | A non-admin hub user can still call services, so "read-only" is enforced in Damage's code (one GET path, a lint rule), not by the hub | doc; read | R6:13-15,72-76 |
-| F13 | The watcher as designed: rule kinds above/below/equals/notEquals/unavailable; states CLEAR→RAISED→ACKED→CLEAR in `alerts.json`; a `bastion` channel; Android notifications reconciled; a Settings category before the window. Amended before it is built: each rule carries `severity` (`normal` \| `urgent`); and, built in W's package E, a `when` guard on any rule and the kind `change` (a baseline at arming), with the built-in value `damage.phone`; and, built in W's package F, the phone's own position as the second signal of `damage.phone` (a learned bus position, the 300 / 500 m band, only the word and the fix's age leave the phone). Built as APK 0.66 (`HANDOFF.md` §79); L1 removed the kind `stale` and `change`'s `withinMin` (his rules used neither; `HANDOFF.md` §84) | read; the amendment (lead); built (W) | R6 §2-3 |
+| F13 | The watcher as designed: rule kinds above/below/equals/notEquals/unavailable; states CLEAR→RAISED→ACKED→CLEAR in `alerts.json`; a `bastion` channel; Android notifications reconciled; a Settings category before the window. Amended: each rule carries `severity` (`normal` \| `urgent`); and, built in W's package E, a `when` guard on any rule and the kind `change` (a baseline at arming), with the built-in value `damage.phone`; and, built in W's package F, the phone's own position as the second signal of `damage.phone` (a learned bus position, the 300 / 500 m band, only the word and the fix's age leave the phone). Built in W (`HANDOFF.md` §79); L1 removed the kind `stale` and `change`'s `withinMin` (his rules used neither; `HANDOFF.md` §84) | read; the amendment (lead); built (W) | R6 §2-3 |
 | F14 | "Home unreachable" is the phone's to raise: the PC cannot report its own silence | read | `REPLAN.md`:316-317; R6 §4 |
 | F15 | Camera pictures can come from the hub's camera proxy (a still per request, bearer token), or a restreamer (WebRTC, MSE, HLS, MJPEG); a recorder can composite every camera into one stream | read | R1:91-98 |
 | F16 | HTTP/1.1 allows six connections per host: four MJPEG tiles nearly fill it; a WebSocket is outside that pool | read; inferred | R1:100 |
-| F17 | No code in `core/` or `desktop/` reads load, temperatures or the GPU today (search for hwmon, sensors, loadavg, nvidia-smi, 2026-11-13); disk fill per location exists in Files | read | `FilesWindow.kt:42` (since S1-2 `LocalFilesProvider.kt:103`) |
+| F17 | No code in `core/` or `desktop/` reads load, temperatures or the GPU today (search for hwmon, sensors, loadavg, nvidia-smi, 2026-11-13); disk fill per location exists in Files | read | `LocalFilesProvider.kt:103` |
 | F18 | The contract hands a window pixels; a summary is a line, a detail, a "more" flag and a progress | read | `WindowContract.kt:193-198`, `REPLAN.md` F1 |
 | F19 | Web Push goes through the browser vendor's server, so phone alerts stay in the APK | read; inferred | R1:116 |
 
@@ -273,7 +271,7 @@ For the TV to draw a window it does not know, a description must express:
 | The PC out of reach from the TV (service stopped, PC off, network down) | last values greyed under a full-width "PC not answering since 14:02"; paced reconnect; state resent from epoch and sequence | — | old values shown as current |
 | The hub out of reach from the PC | every bus value greyed with its age; actions refused "hub not answering 6 min" | the watcher's built-in alert (R6 §2) | an action queued for later |
 | Hub, network and PC all out of reach at once | dark | only the phone's "home unreachable" can say it (F14) | anything claiming the bus is fine |
-| One stale value | that tile greys; the rest stay live | a `stale` rule may raise (the kind was removed in L1, `HANDOFF.md` §84) | a stale value crossing a threshold |
+| One stale value | that tile greys; the rest stay live | — (no `stale` rule kind, `HANDOFF.md` §84) | a stale value crossing a threshold |
 | A refused action (allowlist, hub error, a script's interlock, no script of that name in the hub) | the TV offers none | the confirm shows the reason; logged | a refusal that only reaches a log |
 | An action whose state never changes | "sent · no change 4 min" stays on the tile | past a set wait an "action not confirmed" alert | a silent give-up or an automatic repeat |
 | A device never approved, or revoked | its pairing code and the clock only | the approval request on trusted interfaces | any bus value on an unapproved screen |

@@ -1,13 +1,10 @@
 # Music on glass — design record (2026-09-02)
 
-**Status: BUILT 2026-09-01/02 (M1–M6, a commit per milestone; `HANDOFF.md` §24 is the build
-record); §4 closed; reviewed three ways the same day (§24.2, §24.3) and in the 2026-09-03 review
-(§25).** What remains: the on-phone checks (`DAILY.md` → Music). **§14 (2026-11-22): the motion update — the
-bar and timer, the visualizers and the lyrics as programs the glasses play — planned, not built.** **S1-4's first half (Music on the PC's record: the queue, the output moves, the PC's player)
-is built and reviewed on `wip/s14-k`, not merged (`HANDOFF.md` §97.5); his five answers to its spec are
-`REPLAN.md` §17.3 item 7. Until it merges, this file's as-built sections are what runs.** `EXPLOSION.md` §3 is the idea
-record; `/home/user/G2CC/docs/MUSIC_SPEC.md` the previous player's decisions (facts only — the
-G2CC music *system* is Damage's now; code ported, never pasted). Where §3 (the design) and §7–§9
+Built 2026-09-01/02 (`HANDOFF.md` §24 the build record, §25 its review); the on-phone checks: `DAILY.md` → Music.
+§14 is the motion update (2026-11-22). Music onto the PC's record is step S1-4 (his five answers: `REPLAN.md` §17.3
+item 7); until it merges, this file's as-built sections are what runs — state today: `REMINDER.md`.
+`EXPLOSION.md` §3 is the idea record; `/home/user/G2CC/docs/MUSIC_SPEC.md` the previous player's decisions (facts
+only — the G2CC music *system* is Damage's now; code ported, never pasted). Where §3 (the design) and §7–§9
 (as built) overlap, the as-built section is what runs.
 
 ## 1. Verdicts (Adam, 2026-09-02)
@@ -138,8 +135,7 @@ scheduler runs on the phone from ExoPlayer's real position; a **per-output-devic
 (Bluetooth adds ~100–250 ms), calibrated once on glass by nudging a line with the ring (±50 ms
 notches) and remembered per device; each line flushed **ahead by the known display latency** (the
 phone path's ~70 ms + ~120 ms/KB, `REMINDER.md`). Sources: §9.4 (verdict 24). Plain-text fallback
-pages. Mode-14 glyph strings were the later optimization (shell-wide as `Cached text` since
-2026-09-06, `HANDOFF.md` §40.6, §41.4).
+pages. Mode-14 glyph strings are shell-wide as `Cached text` (`HANDOFF.md` §40.6, §41.4).
 
 ### 3.8 Visualizer
 Data precomputed on the PC (ffmpeg/librosa: a low-rate spectrum envelope, a waveform envelope,
@@ -163,8 +159,7 @@ moment the PC is reachable again. Spotify is driven through its media session
 (notification-listener grant, one-time) and started cold through its media browser service. Main's
 summary names the live backend (`▶ Spotify · phone`).
 
-**The triggers, as built in APK 0.69 (build Q, after the PC's freeze of 2026-11-16, when the PC kept its connections
-open without answering and nothing switched):** an open that is not cached while the channel reads down; a
+**The triggers** (`HANDOFF.md` §86 the why): an open that is not cached while the channel reads down; a
 player-library I/O error on a streamed track; a streamed track that waits 15 s for data while it plays
 (`STREAM_STALL_MS`, at its open or mid-song — the supervision of a network stream, not a timeout on a radio, render
 or input path). Only while a track plays or is asked to: a staged open is said, never switched, and nothing switches
@@ -221,13 +216,13 @@ mode, volume 0–100, boost %, output, pcLink UP | DOWN(sinceMs), sleep, holdVol
 are by `qid`; `setVolume(pct, cause)` names its cause; `backToPc()` is the deliberate switchback;
 `positionMs()` is EXACT, monotonic-extrapolated between ticks (lyrics use it); listeners get
 state, a paced tick(posMs) and events TrackChange · QueueEnd · RouteLost · Error · LimiterUndone ·
-LimiterKeeps · BoostOff · BoostLoud · SleepEnded · BackendChanged · PcUnreachable (as built also QuietStream ·
-OutputGone, `MusicModel.kt`).
+LimiterKeeps · BoostOff · BoostLoud · SleepEnded · BackendChanged · PcUnreachable · QuietStream · OutputGone
+(`MusicModel.kt`).
 **Persistence** (`PlayerCore.persist()`): engine (queue / index / mode / label), the REAL play
 state, `posMs` + `posAt`, backend, spotifyAuto, volume, holdVolume, profile, prefetch,
 spotifyFallback, output → the sub-record `window.music.player`, no stamp of its own (LWW
 value-equality), every 10 s through the tick and on every change (as built; §3.1's note). `restore()` never auto-plays
-and never applies the record's volume — the phone's stream is the truth (review round 1).
+and never applies the record's volume — the phone's stream is the truth.
 
 ### 6.3 Wire
 - **Window channel `music`** (`MusicService` on the content port, the Torrents shape): ops
@@ -379,15 +374,13 @@ library] · [Switch to Spotify] (the last two when applicable). Every row wraps 
   (608×48 below 416, 608×64 at 416/480) · **Queue peek** (next 2 at ≥ 352, **1 at 288**; the band
   is `rows × (ink(body) + 1) + 2`) · **Clock** · **PC link** (`ink(small) + 4` tall). Defaults:
   Card + Lyrics on, Visualizer off, Queue peek off, Clock on, PC link on.
-- 🔴 **Every band is sized from MEASURED ink, and every row placed from it** (review 2026-09-05,
-  `HANDOFF.md` §27.2; the rect-is-a-promise rule in `CLAUDE.md`): `paintExclusive`'s returned rects
+- 🔴 **Every band is sized from MEASURED ink, and every row placed from it** (`HANDOFF.md` §27.2; the
+  rect-is-a-promise rule in `CLAUDE.md`): `paintExclusive`'s returned rects
   are the ONLY damage this window declares, so ink outside them is never sent and the next keyframe
-  produces the difference from nowhere. Found: the card's progress row at `r.bottom - 14` under a
-  20 px ink ran 4 px past the card at 288 and 352; the queue peek stacked two 23 px lines on a
-  20 px pitch in a 44 px band. `--selfcheck` drives the queue forward INSIDE Music Mode so these
+  produces the difference from nowhere. `--selfcheck` drives the queue forward INSIDE Music Mode so these
   surfaces repaint as deltas — the state that exposes it.
 - Repaint policy: the card on track change and every 5 % of progress; lyrics on line change;
-  visualizer at its rate (its frame tick is keyed; while the shell is down only the latest is held — 0.65);
+  visualizer at its rate (its frame tick is keyed; while the shell is down only the latest is held);
   ONE dirty rect per surface (§12).
 
 ### 8.4 Settings → Music (HostSetting rows)
@@ -507,27 +500,21 @@ every boot. With that server retired the refresh is ours — own code from the f
 - **Desktop**: `ScriptedMusic` drives the selfcheck walk (empty queue → Browse → an artist → play →
   card → row menu → Music menu → Ask via the keyboard → Lyrics → Music Mode 480/Bars then
   288/Scope with a notice over it → the off-screen track-change notice); snapshot scenes 30–39.
-  Since 2026-09-05 the walk **advances the queue inside Music Mode** (card, peek and badge repaint
+  The walk **advances the queue inside Music Mode** (card, peek and badge repaint
   as DELTAS — the only state in which ink outside a declared rect shows) and repeats the window
   set at **130 %** and at the tallest face, the per-lens truth oracle on every settle.
 - **`--music-check`**: a pass against the real Postgres/Qdrant/cache, read-only bar the additive
   schema migration (counts, a sample query per lane, the cache-key mapping for 20 random tracks,
   one viz blob); not part of `:core:test`. It builds its catalog through the LIBRARY, not
-  `MusicDb.catalog` — the bare call's default art predicate answers false for every track, so the
-  "with art" count was structurally 0 and art extraction was never asserted (review 2026-09-05).
+  `MusicDb.catalog` — the bare call's default art predicate answers false for every track.
 - **Gates**: `:core:test` · `:desktop:test` · `--selfcheck` · `--snapshot` (look at every scene at
   1×) · `--epub-check` · `--music-check` · `tools/lint.py` · `:phone:assembleDebug` ·
   `:phone:stageApk` · `:desktop:stageJar`.
 
 ## 11. Build order — six milestones, a commit after each
 
-Done 2026-09-01/02 (`HANDOFF.md` §24 names the commits): **M1** host foundation (Config, `MusicDb`,
-`Qdrant`, `MediaCache`/`Transcoder`, `MediaServer`, `LocalMusicLibrary`, `MusicService` + push,
-`RemoteMusicLibrary`, `--music-check`) · **M2** core model + window · **M3** shell
-(`Mode.EXCLUSIVE`, `LyricsSync`, `Viz`, Music Mode, `DESIGN.md` §4.9) · **M4** APK · **M5** host
-features (`Resolver`, playlists, `LyricsFetch`, `YouTube` + `audio/` + `viz.py`, `play_history`,
-radio, pre-transcode) · **M6** docs + staging (APK 19/0.19). The later rounds are `HANDOFF.md`
-§24.2–§24.4 (the NOW PLAYING root), §25 and §30; their traps are in `WINDOWS.md` §5.
+The milestones and their commits: `HANDOFF.md` §24; the later rounds §24.2–§24.4 (the NOW PLAYING root), §25 and
+§30; their traps are in `WINDOWS.md` §5.
 
 ## 12. Traps and rules for the builder
 

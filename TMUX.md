@@ -1,7 +1,7 @@
 # Tmux on glass — design + plan (2026-08-31)
 
-**Status: BUILT 2026-08-31 in one pass; REWORKED THE SAME EVENING — the grid is RETIRED
-(verdict 2 and the fractional-pitch revision below are superseded).** Adam, after testing the
+**The grid is RETIRED (2026-08-31; verdict 2 and the fractional-pitch revision below are
+superseded).** Adam, after testing the
 per-app font settings against the grid: *"With a grid, font changes are subtle, because the
 spacing is kept identical … The whole unpleasant way it looks is entirely because of the grid.
 Lets kill the grid entirely, and embrace our ability to present the terminal better. We don't
@@ -27,13 +27,12 @@ need a terminal to be entirely live, it's just text."* The FLOW view replaced it
   (the resize action remains, for alternate-screen TUIs and attached PC clients).
 - Cost, chosen with eyes open: columns line up only when a line fits unwrapped.
 
-**Status since build S1-3 (APK 0.70, 2026-11-18; `HANDOFF.md` §89 the record; `CONTRACT.md` §3.4 and §12 the
-contract): Tmux is on the PC's record, with a page**, built and gated on the simulator, the PC and in headless
-Firefox; deployed 2026-11-18 (`HANDOFF.md` §91.1), his use not yet reported. What changed against the sections below:
+**Tmux is on the PC's record, with a page** (`HANDOFF.md` §89 the record; `CONTRACT.md` §3.4 and §12 the
+contract). What changed against the sections below:
 - **The record holds only** Alerts, the mutes (`mute.<host>/<name>`), Size and Context rows — one copy with every
   browser; the glasses' Update stays theirs (one capture pace per PC). Sessions, windows, host health and the served
-  keys are the PC's; frames, the stream and history are live, never stored. His 0.69 rows were carried once at the
-  PC's first start (on a copy of his data: 4 rows). `TmuxCore` (the description, Main's card, the alerts),
+  keys are the PC's; frames, the stream and history are live, never stored. The phone's older rows are carried once
+  at the PC's first start (`TmuxMigration`). `TmuxCore` (the description, Main's card, the alerts),
   `TmuxScopes` (session, history, frames, the keys), `TmuxStream` (the desk terminal's control client),
   `TmuxGlasses` (the old `TmuxWindow`, its picture unchanged).
 - **Alerts are raised once, on the PC**, by the status poll that runs with no viewer, so one raised while the phone was
@@ -42,15 +41,15 @@ Firefox; deployed 2026-11-18 (`HANDOFF.md` §91.1), his use not yet reported. Wh
   card show the waiting mark (the lead's call, reversible).
 - **The page, devices at level full only** (a device below full gets nothing of any session; any device at full may
   type — the lead's call, reversible): at a desk a real terminal (`@xterm/xterm` 6.0.0, served by the PC) over a tmux
-  control-mode client attached with `-f ignore-size`, so the browser never resizes his session — this amends §1's "never
-  a `-C` attach, never a terminal emulator" FOR THE WEB only; at a phone's width the flow view in colour (a full-screen
+  control-mode client attached with `-f ignore-size`, so the browser never resizes his session (§1's web amendment);
+  at a phone's width the flow view in colour (a full-screen
   program as a grid) with the quick keys, snippets and Type… behind Run it; history as one page; new, rename, end,
   select window, mute. A view the PC let go is said and asked again; a new or renamed session is judged gone only by a
   list taken a status period after it opened.
-- **What reaches his terminals (the review's class A, each pinned):** every key, snippet, line and terminal byte is a
+- **What reaches his terminals:** every key, snippet, line and terminal byte is a
   never-queued op on ONE thread, so input from every surface reaches tmux in arrival order (the latest real input
   wins; no key carries the prompt it was meant for). Every `send-keys` argument's final `;` is escaped once for tmux
-  (a `;` typed at the end of a line was dropped on every surface before) and key names follow `--`; a test on a
+  and key names follow `--`; a test on a
   throwaway server types every printable ASCII character, the control bytes and 28 sequences and reads the pane back
   byte for byte. The desk terminal never answers a program's terminal queries (tmux does) and sends no focus report;
   with text selected Ctrl+C copies and sends nothing, Ctrl+V pastes through the paste rule (a line break asks). A key
@@ -83,7 +82,7 @@ The refinery verdicts (2026-08-31):
 
 Defaults stated, not asked: typed text is always confirm-to-run (literal + Enter — G2CC's
 2026-06-18 semantics); new sessions auto-name `g2-N`, rename via typed text; snippets default to
-G2CC's slash list; ~~500 ms~~ **1 s** capture pacing; 1000-line history; waiting sessions pinned
+G2CC's slash list; **1 s** capture pacing; 1000-line history; waiting sessions pinned
 atop the list; window NAV is non-invasive (`=session:idx` without `select-window` — selecting is
 an explicit action, same class as the resize).
 
@@ -130,7 +129,7 @@ Everything `terminal.ts` built around stock-firmware text containers is gone: 6-
 layout-frame wall), rule-collapse to 18 cols (the firmware drew `─` at ~21 px) and
 box-drawing width calibration (firmware metrics), the tail-text vs grid-image SPLIT (costs §3.4), CC input-box stripping (optional
 filter in history reading only), and the on-screen tap keyboard — typed text arrives via the
-three replicas (confirm-to-run) and, since 2026-09-01, the ring-driven §4.8 keyboard (Tmux's
+three replicas (confirm-to-run) and the ring-driven §4.8 keyboard (Tmux's
 "Type…" row). Dictation stays out: mic comes "way way later" (Adam, 2026-08-31).
 
 ## 3. The Damage design
@@ -139,17 +138,16 @@ three replicas (confirm-to-run) and, since 2026-09-01, the ring-driven §4.8 key
 
 `TmuxProvider` interface in core; three implementations mirroring Content's (`DESIGN.md`
 §10.1: content = PC): **LocalTmuxProvider** (`ProcessBuilder` exec of `tmux`);
-**HostTmuxServer** (as built `TmuxNet.serve`; the local provider over the EXISTING content port/token — new message types
+**`TmuxNet.serve`** (the host server: the local provider over the EXISTING content port/token — new message types
 on the length-prefixed JSON protocol, `ignoreUnknownKeys` keeps old peers decoding; one
 persistent subscription per driving shell, `capture-pane` polled per subscribed target, **pushed
 only on change**); **RemoteTmuxProvider** (the phone side).
 
 The phone already knows beardos (host/port/token in Prefs). **The window declares `Need.HOST`**
 (§10.5): PC unreachable ⇒ Main marks it unavailable, the window shows the last frame with the
-staleness surface (as built; from S1 the phone keeps the session list and each session's last
-frame on disk and shows them with their age, keys dim — `CONTRACT.md` §2.7, §12; *2026-11-23: as built in S1-3 the
-phone keeps the last list and frame in memory only (the disk copy is S1-5, `CONTRACT.md` §12), under the title's `PC
-unreachable since H:MM` (`TmuxNet.kt` 293); no key dims while away*). **The
+staleness surface (from S1 the phone keeps the session list and each session's last frame on disk and shows
+them with their age, keys dim — `CONTRACT.md` §2.7, §12; as built the list and frame are kept in memory only, under
+the title's `PC unreachable since H:MM`, and no key dims). **The
 staleness surface reaches EVERY level** (`HANDOFF.md` §30): the live pane paints it; the
 sessions list, history, keys and Main's row carry it in the title as `· ! <what is wrong>`.
 
@@ -164,19 +162,17 @@ LIVE GRID (CanvasView)             the pane, true grid, JetBrains Mono, cursor c
    ▼
 HISTORY (DocView, free)            frozen scrollback, WRAPPED at reading size, 5-lines/notch
                                    + accel like Reader; scroll-down past the end → LIVE again
-                                   tap: nothing · double-tap → LIVE (APK 0.69)
+                                   tap: nothing · double-tap → LIVE
 LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 · Esc · Ctrl-C · Up · Down ·
-                     Left · Right · Tab · q · Snippets… · Type… (§4.8 keyboard, 2026-09-01) · New session ·
-                     (per-session rows)
+                     Left · Right · Tab · q · Snippets… · Type… (§4.8 keyboard) · Windows… · Session…
 ```
 
 - **Scroll IS scrollback** — no mode button. History is a frozen snapshot (`-S -1000`) from
   the live edge; new output sets the dirty tick, never yanks the view.
 - **Tap descends** (§4.6): live → keys; a key sends and DROPS BACK TO LIVE. Double-tap backs. In history a tap does
-  nothing (APK 0.69).
-- Quick keys are config-driven (host-side, served with the session list). Session
-  end/rename/detach shipped with the §5 closure. (As built the keys level ends `Snippets… · Type… · Windows… ·
-  Session…` — `TmuxGlasses.keysRows`.)
+  nothing.
+- Quick keys are config-driven (host-side, served with the session list). `+ new session` heads the sessions list;
+  mute, fit, select window, rename and kill are the `Session…` level's rows.
 
 ### 3.3 Rendering *(⚠ superseded for normal panes: the grid below survives ONLY for `#{alternate_on}` TUIs — the SGR mapping paragraph serves flow and grid alike)*
 
@@ -191,8 +187,8 @@ LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 �
   27 % bigger than G2CC's 6 px, with real AA); a 22-row pane at 13 px rows uses 286 px, the spare ~130 px shows ~10 dimmed
   rows of history (`-S -10`), off under `#{alternate_on}`; "Fit pane to glass" =
   `resize-window -x 64`; at 288 the grid is 10 px em. *(Grid-only now.)*
-- **History** was designed as a reading-size DocView; as built it is the flow itself on the
-  WM's endless scroll (mode 9 shift + fill), 5 lines/notch + accel, NO TRUNCATION.
+- **History** is the flow itself on the WM's endless scroll (mode 9 shift + fill), 5 lines/notch +
+  accel, NO TRUNCATION.
 
 ### 3.4 Costs, against the measured curve (⚠ the `ms ≈ 60 + bytes/50` below is PC-direct only — the daily path is the phone's, ~70 ms + ~120 ms/KB, `REMINDER.md`; a history notch measured 352–645 ms on it, `HANDOFF.md` §37)
 
@@ -210,8 +206,8 @@ floor for that step size.
 | history scroll step | 292–486 B (§4.6, measured class) | ~66–70 ms | free |
 
 The compositor's shadow-vs-truth diff ships only changed pixels, so window-side cell diffing is
-a CPU nicety. The texture cache (96-glyph table ≈ ASCII) was not adopted at build time;
-`CLAUDE.md` → "Latency standards" has the current state.
+a CPU nicety. Tmux's text rides the shell-wide texture cache through `styledText(text)`
+(`TmuxGlasses.kt:102`; `HANDOFF.md` §41.4).
 
 ### 3.5 Alerts — the glasses-native feature G2CC never had
 
@@ -222,8 +218,8 @@ an optional last-lines pattern list (config; default tuned to CC's permission pr
 Per-session mute in that session's actions. The workday loop is glance → tap → `y`.
 
 - The notice carries `appId = "tmux"`, `target = session:<host>:<name>`, one thread per
-  session, and `TmuxWindow.open(target)` lands in that session's live view (`HANDOFF.md` §29). Since S1-3 the PC
-  raises it into the notice record (status block at the top); the body there carries no pane line.
+  session, and `TmuxWindow.open(target)` lands in that session's live view (`HANDOFF.md` §29). The PC raises it into
+  the notice record (top matter); the body there carries no pane line.
 - The pattern match runs over the last NON-BLANK lines of `capture-pane -p`
   (`LocalTmuxProvider.STATUS_SCRIPT`; a raw `tail -5` missed every pane that had not filled its
   screen — `HANDOFF.md` §28.2).
@@ -231,9 +227,8 @@ Per-session mute in that session's actions. The workday loop is glance → tap �
 ### 3.6 Contract plumbing (all existing idioms)
 
 - `summary()`: cached from the provider's last push, side-effect-free ("3 sessions · claude2 ⚠").
-- State blob: session, mode, history offset (§9.1/§4.3); the switcher preview draws the last
-  cached frame. (As built since S1-3: the level, the target and the capture pace, no history offset —
-  `TmuxGlasses.saveState`.)
+- State blob: the level, the target and the capture pace (`TmuxGlasses.saveState`; §9.1/§4.3); the switcher
+  preview draws the last cached frame.
 - `appSettings()`: Tmux directory — Update (0.5/1/2/5 s) beside the Font / Font size /
   Font style / Depth rows every app category carries (`HANDOFF.md` §17).
 - Icon: `IconKind.TERMINAL`.
@@ -255,11 +250,8 @@ unit tests use a fake provider).
 
 ## 5. The explosion, the v1 cut and the refinery questions — CLOSED
 
-Closed in one day (2026-08-31): every question answered (verdicts in the top matter), v1 built
-and reworked into the flow view, and the v1.5/v2 rows shipped early — typed text via all three
+Every question answered (verdicts in the top matter); built beside v1: typed text via all three
 replicas (confirm-to-run), multi-host over ssh, window targeting/select-window, session
-end/rename, per-session mute. Still deliberately unbuilt: scrollback SEARCH (typing prerequisite
-met since the §4.8 keyboard, 2026-09-01), history reading filters, session-output→Reader
-hand-off. (The texture-cache path, once on this list, came shell-wide — `HANDOFF.md` §41.4; Tmux's
-text rides it through `styledText(text)`, `TmuxGlasses.kt:102` since S1-3.) ❌ never: blinking cursor (kept
-out again 2026-11-13, `MOTION.md` §6 B5), bell sound (§0).
+end/rename, per-session mute. Still deliberately unbuilt: scrollback SEARCH (its typing prerequisite
+is the §4.8 keyboard), history reading filters, session-output→Reader hand-off. ❌ never: blinking
+cursor (kept out again 2026-11-13, `MOTION.md` §6 B5), bell sound (§0).

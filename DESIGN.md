@@ -30,13 +30,13 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 | ❌ **The piezo buzzer, entirely** | Adam, 2026-08-17: *"no tone/buzzer. i do not want my glasses to emit sound."* Mode 5 is never sent. Out-of-band alerting goes to the phone (§9.3) |
 | ⚠ ~~❌ **Scroll acceleration / velocity**~~ **RE-OPENED 2026-08-30 · ✅ SHIPPED 2026-08-31** | Original reasoning: scroll and tap are hard to distinguish on the ring's small sensor, especially gloved, so every notch was one step. **Adam reversed this after using Reader on glass** — one line per notch in a book is far too little; he asked for acceleration "like firmware scroll" with a lines-per-notch setting as the fallback. Two facts had also changed: ack latency measured ~50 ms rather than 176 ms, and first light showed tap and scroll arriving as distinct event types. **Shipped 2026-08-31: a per-notch step setting (1–8 lines) plus a direction-gated ramp — notches ≤250 ms apart multiply the step up to 6×. Same-day verdict on glass: the ramp is too uneven — "lets just default the scrolling to 5 lines per notch - configurable." DEFAULT = 5 lines/notch, acceleration OFF; both in Settings → Reader. Lists stay one item per notch: acceleration over selections would overshoot them.** |
 | ⚠ ~~❌ **User-settable chrome/app typography**~~ **REVERSED 2026-08-31 · ✅ SHIPPED** | §Type locked "the system face is not negotiable per window" and one fixed chrome face. **Adam reversed it**: Settings → Global sets font/size/style for chrome + Main; every app category sets font/size/style for that app's content, each option previewed in its own face. The §Type MEASUREMENTS still price the choices; only the lock moved from "decided once" to "his to change at runtime". `core/text/Style.kt`; defaults render byte-identically |
-| ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused — **except to rest:** Adam's ruling of 2026-09-21 (§9.3, `HANDOFF.md` §70) rests the shell on the not-worn event; designed (`HANDOFF.md` §75.4); build 1 — the reads and the manual rest — built in APK 0.64 (`HANDOFF.md` §76; installed 11-12, §77.12): nothing rests by itself, and nothing tells worn from not worn but the journal |
+| ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused — **except to rest:** Adam's ruling of 2026-09-21 (§9.3, `HANDOFF.md` §70) rests the shell on the not-worn event (designed `HANDOFF.md` §75.4); built: the reads and the manual rest (`HANDOFF.md` §76) — nothing rests by itself, and nothing tells worn from not worn but the journal |
 | ❌ **Head tracking on by default** | available, **defaults OFF** — his head moves constantly at work (§7.1) |
 | ❌ **Long-press as a live gesture by default** | reversed 2026-08-30: the most common accidental press by far, gloves worst — **defaults OFF (a no-op)**; the §1.3 chord opens the switcher; a Settings row restores the direct open |
 | ❌ **Dithering** | halves compression; the 4-bit downsample looks better without it |
 | ❌ **A quit path** | the WM runs always (§1.6) |
 | ❌ **Split view** | deferred — optional stretch feature, not the first design (on the glasses; up to three windows side by side on the desk are ruled in for the other interfaces, `REPLAN.md` §15 B1) |
-| ❌ **Fades / dissolves / cross-fades** | not expressible as translation + fill ⇒ too expensive (§6.2). Kept as the default 2026-11-13 (`MOTION.md` §6 B1): a fade of cached content is the motion engine's brightness ramp, one use on one surface a later verdict. *2026-11-23: `MOTION.md` §7 (ruled 11-19) makes a fade an effect he can choose; built as the engine's Fade (Lock Screen's default tier effect, `Popup · Fade`; §4.2's `Animations`)* |
+| ❌ **Fades / dissolves / cross-fades** | as repaints: not expressible as translation + fill ⇒ too expensive (§6.2). A fade of cached content is the motion engine's brightness ramp, an effect he chooses (`MOTION.md` §6 B1, §7): the engine's Fade, Lock Screen's default and a Popups style (§4.2's `Animations`) |
 | ❌ **Using the 16 px side gutters for content** | they stay **depth margin**. Adam, 2026-08-17 |
 | ❌ **The ribbon** | retired 2026-08-18 — a third window list competing with Main and the switcher, both of which did it better (§4.1) |
 | ❌ **Segmented battery icons** | measured worse than a plain fill bar at this width, and 20× the run boundaries (§4.1) |
@@ -48,15 +48,13 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 
 ## 1. Input grammar — ring only
 
-**The R1 ring is the only input device.** Temple touchpads are deliberately unused. The CFW no
-longer enforces that for us: the shipped `a5d1c31` forwards events 9/10 from **any** source while
-the framebuffer lease is held (an earlier `g2flash/patches/gesture_fwd.c` gated them on the ring's
-source byte `4`). Ring-only is *our* rule: the attributed gestures (tap / double-tap / scroll) are
+**The R1 ring is the only input device.** Temple touchpads are deliberately unused. The CFW does
+not enforce that: since `a5d1c31` it forwards events 9/10 from **any** source while the framebuffer
+lease is held. Ring-only is *our* rule: the attributed gestures (tap / double-tap / scroll) are
 filtered on `EventSource = 2`, but **events 9/10 are UNATTRIBUTED by firmware design**
-(`EventSource` absent; they decode as source 0) and MUST skip that check — the first implementation
-filtered them out too, which made the switcher unreachable for two days while `LongPressTest`
-passed on a flattering ring source (corrected 2026-08-31, `HANDOFF.md` §12; the suite now supplies
-source 0). What keeps the temple's stray press harmless is §1.2's no-op default, not the filter.
+(`EventSource` absent; they decode as source 0) and MUST skip that check — filtering them made the
+switcher unreachable (`HANDOFF.md` §12; `LongPressTest` supplies source 0). What keeps the temple's
+stray press harmless is §1.2's no-op default, not the filter.
 
 ### 1.1 The five events
 
@@ -285,8 +283,8 @@ Every number in this file is written against a full 640×480. **That is the assu
 
 **So it is a calibration, like disparity (§3.4):** a ramp draws a border and shrinks it until it is
 fully visible, and that safe rect is stored as a setting; `640×480` and Faceclaw's `640×288` become
-two values of one parameter. **State (2026-09-01):** the border ramp has not been run
-(`REMINDER.md` → still unmeasured, #1); wearing it settled the *direction* — Adam's fit always
+two values of one parameter. The border ramp has not been run (`REMINDER.md` → still
+unmeasured, #1); wearing it settled the *direction* — Adam's fit always
 shows the top and loses the bottom (§2.5) — so the working parameter today is the Size setting's
 four TOP-aligned heights (§4.2), global with per-app overrides. *(A vertical-position setting was
 retired 2026-08-31 for the same reason.)*
@@ -376,19 +374,14 @@ Size) and the status bar is the sacrificial edge for him specifically.
 
 ### 3.1 Layer order
 
-> 🔴 **Revised 2026-09-06 (Adam, on glass — `HANDOFF.md` §41.2), superseding the two amendments
-> below where they differ:** the Global `Depth` D moves EVERYTHING — both bars with their
+> 🔴 **Revised 2026-09-06 (Adam, on glass — `HANDOFF.md` §41.2), superseding the 2026-08-31
+> revision below where they differ:** the Global `Depth` D moves EVERYTHING — both bars with their
 > dividers at D, Main at D, every app's content at D unless that app's own `Depth` row says
 > otherwise — and **the selection bar sits one notch (4 px) nearer than the plane it selects on**,
 > never nearer than the screen plane. The per-app row is `global · 0 · 4 · 8 · 12 · 16`, default
 > `global`, and moves only that app's content; the bars never leave the Global row. On glass the
 > old ladder read as "8, 12 and 16 move only the bars; 16 changes nothing" — because the bars rode
 > one step behind content capped at 16 and app content parked at 8 whatever the row said.
->
-> ⚠ **Amended 2026-08-31 (Adam):** the bars and Main keep the GLOBAL depth setting, but the
-> focused APP's content plane uses a per-app depth (Settings → <app> → Depth, default 8 on the
-> 0/4/8/12/16 ladder). The ladder, the horizontal-only rule and the forward-for-focus language
-> below are unchanged.
 
 🔴 **Adam, 2026-08-17, correcting an inference we had recorded as his preference:**
 
@@ -432,8 +425,8 @@ mode 9 stereo:  [9|80][Lsrc][Ldst][Rsrc][Rdst]                    +16 bytes
 
 - **Disparity is quantized to 4 px** — `left` is one byte ×4. Ladder: 0, 4, 8, 12, 16. No fine
   adjustment exists. ✅ *In daily use since 2026-08-31* (then chrome at −2, content at −1, per-app
-  depth); Adam's on-glass verdict: "Depth reads well on glass." The calibration ramp and the
-  stock-FAR interaction stay open (§11 #2; the FAR half closed since, §3.3). Faceclaw contains no stereo code — this project's daily
+  depth); Adam's on-glass verdict: "Depth reads well on glass." The calibration ramp stays open
+  (§11 #2); nothing stacks on stock FAR (§3.3). Faceclaw contains no stereo code — this project's daily
   driver is the exercised implementation.
 - **Cost is negligible.** Depth is the cheapest visual feature on the device.
 - **Scrolling stereo content works** — mode 9 has its own lenses-differ form.
@@ -444,10 +437,8 @@ Content inset 16 px each side gives the full ladder. At maximum disparity the le
 x=0 and the right at x=32 (32 + 608 = 640, exactly in bounds ✅). Reserving all 64 px of headroom
 would buy ±32 px, and **the comfort ceiling binds long before the width ceiling does.**
 
-⚠ **(U)** We do not know what the stock near/mid/far setting does mechanically. If FAR is itself a
-horizontal offset, our disparity stacks on it and could exceed divergence.
-*2026-09-12, recorded 2026-11-23: closed — stock's near/far offsets live in the display copy the CFW replaces, so
-nothing stacks on Damage's depth (V, `HANDOFF.md` §48.1).*
+✅ **(V)** The stock near/mid/far setting does not stack on our disparity: its offsets live in the display copy the
+CFW replaces (`HANDOFF.md` §48.1).
 
 ### 3.4 Architecture
 
@@ -498,8 +489,7 @@ duplicated the list beneath it.
 
 #### Title — window and document, merged
 
-**`▣ WINDOW · document`** — icon, window name at head level, context dimmer. 408 px (296 until the
-2026-09-01 battery-cell trim, below). Overflow takes the `▸` continuation mark, never a marquee
+**`▣ WINDOW · document`** — icon, window name at head level, context dimmer. 408 px. Overflow takes the `▸` continuation mark, never a marquee
 (§2.4 rule 3).
 
 🔴 **The Title contract (Adam, 2026-09-01): the Title is SHORT BY DESIGN — its content must never
@@ -521,8 +511,7 @@ window wanting attention. Zero extra bytes — it is inside a rect that ships an
 `G▓▓▓▓▒  P▓▓▓▒▒` — glasses, phone. *(The **R** ring cell was removed 2026-08-31: ring battery
 has no open-source source — the glasses can't relay it and the ring's own link needs protocol RE,
 `CLAIMS.md`. Faceclaw shows the same two for the same reason.)* **30 px body** plus nub, **58 px
-pitch in a 120 px cell** (`x 424–544` — the cell shrank from 176 when the ring gauge went,
-2026-09-01; the freed space went to the Title, now **408 px**), with the letter **capitalised and
+pitch in a 120 px cell** (`x 424–544`), with the letter **capitalised and
 set larger** (14 px bold) so the device is identified at a glance.
 
 Adam asked for granularity: *"I want to visibly see the difference between 45% and 50%, if
@@ -541,8 +530,8 @@ cheapest option: **one run per row instead of twenty.**
 
 **Brightness still tracks charge** (`level = clamp(2 + 8×pct/100, 2, 10)`), and **≤ 20 % pulses**
 `15 · 8 · 3 · 8 · 15 · 8 · 3` — attention carried by change, not by steady level (settable off /
-on / escalating). *2026-11-23: as built the pulse is not driven — nothing sets `Chrome.Battery.flashPhase`, so a low
-battery shows its steady level, and the `Battery alert` row has no reader (§4.2).*
+on / escalating). Not built: nothing drives the pulse (`Chrome.Battery.flashPhase`), and the `Battery alert` row
+has no reader (§4.2).
 
 ⚠ **Halving the width costs the granularity target — a deliberate trade.** Adam, 2026-08-18:
 *"I'd make the battery icons half that width though, that's a bit much."* At a 30 px body the fill
@@ -651,11 +640,9 @@ exactly), and a window places its second lens line below the first line's measur
 
 **The list pans; the lens does not move.** Scrolling is `mode 8 { mode 9 shift + mode 3 fill of
 the newly exposed row + mode 3 repaint of the lens }` — the shift moves every row on-device for
-zero pixel bytes, and the highlight never has to be erased because it never moves.
-*2026-11-23: on the fork's C2 and later with local input in force (ladder stage 4 and above) Main's rows are staged on
-the glasses and a notch is played there from pan programs — the bound list, with the `Scroll effect` row's motion
-(`core/…/shell/MainStaging.kt`, `MainBinding.kt`; `FIRMWARE.md` §6, `MOTION.md` §7); the shift-and-fill above is the
-path everywhere else.*
+zero pixel bytes, and the highlight never has to be erased because it never moves. With local input in force (the
+fork's ladder stage 4 and above) the glasses play the notch themselves from Main's staged rows — the bound list, with
+the `Scroll effect` row's motion (`core/…/shell/MainStaging.kt`, `MainBinding.kt`; `FIRMWARE.md` §6, `MOTION.md` §7).
 
 **The list wraps**, and **Settings is its last entry** — from the top row, **one scroll up lands on
 Settings**.
@@ -665,7 +652,7 @@ Settings**.
 **Three columns: icon, window name (small caps, dim), live summary (brighter).** Numerics
 right-align into a column. **In the lens, the focused window shows its full summary, wrapped over
 two lines** — 64 px is exactly two 32 px lines; a second line too long for the band is cut 20 px before the
-progress blocks (or the band's edge) and carries the mark there (APK 0.64). Unfocused rows show one line and, when there is
+progress blocks (or the band's edge) and carries the mark there. Unfocused rows show one line and, when there is
 more, the **right-edge continuation mark `▸`** — reachable (focus it and the lens reveals it in
 full) and advertised (§2.4 rule 3). Wrapping every row instead would turn a glanceable dashboard
 into a wall.
@@ -717,25 +704,25 @@ overrides the global for that app only. Reader's Size row is the first instance 
 
 | setting | notes |
 |---|---|
-| **Brightness** | the panel's own, sid 0x09 — distinct from our 16-level content ramp. One ladder with **auto at its foot** (2026-09-04, `HANDOFF.md` §29): a notch up from auto leaves it at the stored level, a notch down from 0 % is auto again, nothing sits below auto — before, a brightness touched once on the glasses stayed manual for good |
+| **Brightness** | the panel's own, sid 0x09 — distinct from our 16-level content ramp. One ladder with **auto at its foot** (2026-09-04, `HANDOFF.md` §29): a notch up from auto leaves it at the stored level, a notch down from 0 % is auto again, nothing sits below auto |
 | **Size** | **four heights — 288 / 352 / 416 / 480 — always TOP-aligned** (revised 2026-08-31, Adam: *"I can always see the top, it's the lower areas that get cut off if I wear the glasses too high"* — so the vertical-position setting was retired). Per-app shadows follow the global/override pattern |
 | **Depth** | the disparity ramp, 0/4/8/12/16 (§3.1 revised 2026-09-06: it moves everything, the selection one notch nearer; each app's own `Depth` row defaults to `global`) |
 | **Presence** | the resting-state ink floor — one knob for "how much is it in my way" |
 | **Font · Font size · Font style** | chrome + Main's face, scale and style, each option previewed in its own face (§Type's defaults, changeable since 2026-08-31); every app category carries the same three rows for its content. 🔴 **Chrome grows only until its bar is full** (2026-09-05): §2.3's bars are a fixed 32 px and 28 px, so the CHROME half of the global scale is capped to the measured ink the shortest bar can hold — Clear Sans reaches 115 %, Alegreya 100 % — while CONTENT keeps the whole ladder. Uncapped, the title inks into the divider at 130 % and the status line's descenders land below the safe rect at a reduced height, both outside the only rect chrome damages (`HANDOFF.md` §27.2). 🔴 **The chrome surfaces' own rhythm is measured too** (2026-09-04, `HANDOFF.md` §28.2): the menu's title band and row pitch, the notification box's source band, body pitch and visible-line count, the wheel's centre band — each with its design number as the FLOOR. 🔴 **And the list rhythm** (2026-09-04, `HANDOFF.md` §29): row pitch, lens band and every window's second lens line are measured from the row face — the design's 32 / 64 are the floors — after the row above the lens lost its descenders at 115 % |
 | **Silent clock** | large (the 144×48 seven-segment box, default) / medium / small — §1.5 |
-| **Head tracking** | default OFF (§7.1). *2026-11-23: a row with no reader — no IMU path is built* |
+| **Head tracking** | default OFF (§7.1); no reader — no IMU path is built |
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
-| **Taps · Local input** | built C2 (`FIRMWARE.md` §6.3, §6.7), shown only on a build that reports local input: `Taps` — phone · report (default) · glasses, what a ring tap on a bound list does on the glasses; `Local input` — its state in words, a tap re-arms it while held back |
-| **Slide frames** | 🆕 **built (2026-09-06, `HANDOFF.md` §40; Adam's ruling of 2026-09-05):** `off · 2 · 4 · auto · 8 · 12` frames per notch for list and document slides — **`auto` (the default) is the ease-out halving rule** (list 3, doc 5); N resamples the ease-out to at most N steps on the 2 px grid; `off` is one copy and one strip. He tests the feel at every value on the phone path himself. The wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3). As built; one Global `Motion` row (off · subtle · full, and a speed) replaces this row and `Slide fill` when the motion engine is adopted (`MOTION.md` §6 C4). *2026-11-23: `MOTION.md` §7 (ruled 11-19) puts the `Animations` category (below) in that row's place; `Slide frames` and `Slide fill` are still Global rows as built* |
-| **Slide fill** | 🆕 **built (2026-09-06, `HANDOFF.md` §41.9; Adam: "Auto"): `auto · split · whole`.** A strip past 12,000 px either goes out BLANK with the translation and is filled next flush (`split` — the glass moves ~70 ms after the notch, a black band shows until the fill lands: ~610 ms measured when the fill is pixels) or lands whole in the same flush (`whole` — no band, the first change waits for the strip's bytes). `auto` splits only while the texture cache is off: with the cache live the strip is ~200 B of draws and the split buys nothing |
-| **Cached text** | 🆕 **built (2026-09-06, §40; every plane and icons since §41): `off · on`, OFF until seen on glass.** On: the session's fonts and icons are rendered by the host, packed into the firmware's 64 KiB texture cache (mode 12, in idle chunks after the keyframe) and every string and icon the proof can reproduce ships as cached draws instead of pixels — on a depth plane behind one per-lens mode-9 copy, since the firmware's draws are flat. Off → on resumes at once. **On the Phase 2 build, as built since APK 0.63 (`HANDOFF.md` §60, §66, §73; ruled 2026-11-10, §75):** the cache is the session's 160 KiB (a 96 KiB atlas and a 64 KiB staging reserve); a string is drawn per lens (mode 18, an icon by mode 17; no copy) and carries its pair kerns as adjust bytes; a face is packed with the characters it has drawn and gains the rest in place, in small writes through the lease; and with the row on, text is laid out by the cache's metric whether or not its face is live, so it wraps a little earlier than with the row off and does not move when a face goes live. The journal's `cached`/`cacheMiss`/`unpacked` is the account. *2026-11-23: on the fork's C1 and later the session's cache is 256 KiB at ladder stage 2 and above (`FIRMWARE.md` §5.9); with BIND in force Main's staged rows take 128 KiB under a 32 KiB stage reserve and the atlas keeps 96 KiB (`core/…/wire/CfwModes.kt`)* |
+| **Taps · Local input** | shown only on a build that reports local input (`FIRMWARE.md` §6.3, §6.7): `Taps` — phone · report (default) · glasses, what a ring tap on a bound list does on the glasses; `Local input` — its state in words, a tap re-arms it while held back |
+| **Slide frames** | **Adam's ruling of 2026-09-05 (`HANDOFF.md` §40):** `off · 2 · 4 · auto · 8 · 12` frames per notch for list and document slides — **`auto` (the default) is the ease-out halving rule** (list 3, doc 5); N resamples the ease-out to at most N steps on the 2 px grid; `off` is one copy and one strip. He tests the feel at every value on the phone path himself. The wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3). `MOTION.md` §7 puts the `Animations` category (below) where §6 C4 had one Global `Motion` row replace this row and `Slide fill`; both stay Global rows |
+| **Slide fill** | **Adam: "Auto" (`HANDOFF.md` §41.9): `auto · split · whole`.** A strip past 12,000 px either goes out BLANK with the translation and is filled next flush (`split` — the glass moves ~70 ms after the notch, a black band shows until the fill lands: ~610 ms measured when the fill is pixels) or lands whole in the same flush (`whole` — no band, the first change waits for the strip's bytes). `auto` splits only while the texture cache is off: with the cache live the strip is ~200 B of draws and the split buys nothing |
+| **Cached text** | **`off · on`, OFF by default (`HANDOFF.md` §40, §41).** On: the session's fonts and icons are rendered by the host, packed into the firmware's 64 KiB texture cache (mode 12, in idle chunks after the keyframe) and every string and icon the proof can reproduce ships as cached draws instead of pixels — on a depth plane behind one per-lens mode-9 copy, since the firmware's draws are flat. Off → on resumes at once. **On the Phase 2 build and later (`HANDOFF.md` §60, §66, §73; ruled 2026-11-10, §75):** the cache is the session's 160 KiB (a 96 KiB atlas and a 64 KiB staging reserve) — 256 KiB at the fork's ladder stage 2 and above (`FIRMWARE.md` §5.9), where with BIND in force Main's staged rows take 128 KiB under a 32 KiB stage reserve and the atlas keeps 96 KiB (`core/…/wire/CfwModes.kt`); a string is drawn per lens (mode 18, an icon by mode 17; no copy) and carries its pair kerns as adjust bytes; a face is packed with the characters it has drawn and gains the rest in place, in small writes through the lease; and with the row on, text is laid out by the cache's metric whether or not its face is live, so it wraps a little earlier than with the row off and does not move when a face goes live. The journal's `cached`/`cacheMiss`/`unpacked` is the account. |
 | **Page staging** | built (2026-09-16, `HANDOFF.md` §66; Adam: on by default): `off · on`. On a contract-2 session with Cached text on, the focused document's next and previous strips are uploaded to the cache's reserve off the gesture path and a notch ships one mode-17 draw instead of its strip; `off` is for the A/B |
-| **Link** | 🆕 **built (2026-09-12, `HANDOFF.md` §47): `high · balanced`, high the default.** The radio's connection priority: the phone asks for it at connect and asks AGAIN, paced (5 s per arm), whenever the glasses move the link to slower parameters — measured 2026-09-12: they moved both arms to 105 ms / latency 4 at 12:00:02 and every flush waited ~470 ms more for three hours. Slow parameters flip the slide regime at once, put `link slow` in the status cell and raise one notice; `balanced` (30–50 ms) is the on-glass experiment for whether the ~50-minute arm rebuilds follow the fast set |
-| **Notification sources** | only `Notify · Damage` and the one shared `Quiet hours` row here — **each app's toggles live in that app's own category** (Adam, 2026-09-01; §4.5). `Quiet hours` is built (APK 0.66, `HANDOFF.md` §79): off · 21–06 · 22–07 · 23–07 · 00–08, default off; in W it holds the bus watcher's notices and "home unreachable" only, every notice from S1-2 (`CONTRACT.md` §6, §7.3, its §14 (b), his to veto). *2026-11-23: as built it also holds the normal-urgency notices the PC's notice record raises (Torrents, Feed and Tmux since S1-2/S1-3, `core/…/app/Notices.kt`); a notice raised on the phone itself does not read it* |
+| **Link** | **`high · balanced`, high the default (`HANDOFF.md` §47).** The radio's connection priority: the phone asks for it at connect and asks AGAIN, paced (5 s per arm), whenever the glasses move the link to slower parameters — measured 2026-09-12: they moved both arms to 105 ms / latency 4 at 12:00:02 and every flush waited ~470 ms more for three hours. Slow parameters flip the slide regime at once, put `link slow` in the status cell and raise one notice; `balanced` (30–50 ms) is the on-glass experiment for whether the ~50-minute arm rebuilds follow the fast set |
+| **Notification sources** | only `Notify · Damage` and the one shared `Quiet hours` row here — **each app's toggles live in that app's own category** (Adam, 2026-09-01; §4.5). `Quiet hours` (`HANDOFF.md` §79): off · 21–06 · 22–07 · 23–07 · 00–08, default off; it holds the bus watcher's notices, "home unreachable" and the normal-urgency notices the PC's notice record raises (`core/…/app/Notices.kt`) — every notice by the contract (`CONTRACT.md` §6, §7.3, its §14 (b), his to veto); a notice raised on the phone itself does not read it |
 | **Phone notifications** | the APK-wide switch (`MUSIC.md` verdict 21): off (default) — errors go to the glasses' notices and the log; the one permanent foreground notification stays |
 | **Keyboard** | qwerty / abc — the §4.8 keyboard's layout |
-| **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1); still a row with no reader — §9.3's low-battery notice does not read it |
-| **Profiler · Diag overlay** | the status-bar profiler (off by default) and the mode-7 diagnostic overlay (on since bring-up; a sticky flag is a hard error either way — §9.2). *2026-11-23: as built neither row has a reader — no profiler is drawn and the flags are handled the same either way* |
+| **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1); no reader — §9.3's low-battery notice does not read it |
+| **Profiler · Diag overlay** | the status-bar profiler (off by default) and the mode-7 diagnostic overlay (on by default; a sticky flag is a hard error either way); neither row has a reader (§9.2) |
 
 🔑 **Every appearance setting previews LIVE as you scroll its value** — brightness, depth, size
 change as you move; you pick a comfortable disparity by looking, not from a number. It reuses the
@@ -745,9 +732,8 @@ live-preview machinery from §4.3.
 the measured CFW curve, §8.4) — the one setting that cannot preview per notch: staged while
 scrolling, applied on tap (the font rows stage the same way — a face change is a relayout too).
 🔴 **A staged row SAYS so.** Its value carries `(tap applies)` and its hint reads *"scroll picks ·
-tap applies · double-tap reverts"*, not the live rows' *"scroll adjusts live · tap keeps"* — the one
-wording was on every row until 2026-09-05 (`HANDOFF.md` §30), so scrolling Size three notches left
-the panel where it was under a line claiming otherwise.
+tap applies · double-tap reverts"*, not the live rows' *"scroll adjusts live · tap keeps"*
+(`HANDOFF.md` §30).
 
 #### Cost
 
@@ -765,12 +751,11 @@ protocol floor, not the bandwidth floor.
 ladder stage 5 Select, Close / Back and Lock Screen, then Popups), each saying what is set inside and opening that
 tier's rows on a tap; inside, a row is drawn without the tier's name, the title reads "animations · <tier>", Back
 returns to the tier's row. It is a list level like a category's; no other category is split (asked of him first).
-*As built (APK 0.84; `core/…/shell/SettingsWindow.kt`, `ShellSettings.kt`): Scroll — Effect (None · Depth · Slide ·
-Flip · Fall · Crush, default Depth), Length (225 · 300 · 450 · 600 · 800 ms, default 300), Frames (auto default);
-Select and Close / Back — Length (450), Frames (10), one on/off row per effect (Depth · Warp · Flip · Fall · Glitch ·
-Encode · Matrix · Explode, Depth on); Lock Screen — the same with Fade · Build · Matrix · Encode · Glitch · Explode,
-Fade on; Popups — Length (300), Frames (auto), Unfurl (on), Fade, Slide (off). The page is shown on a build that
-reports local input, the three transition tiers only at ladder stage 5.*
+The rows (`core/…/shell/SettingsWindow.kt`, `ShellSettings.kt`): Scroll — Effect (None · Depth · Slide · Flip · Fall
+· Crush, default Depth), Length (225 · 300 · 450 · 600 · 800 ms, default 300), Frames (auto default); Select and
+Close / Back — Length (450), Frames (10), one on/off row per effect (Depth · Warp · Flip · Fall · Glitch · Encode ·
+Matrix · Explode, Depth on); Lock Screen — the same with Fade · Build · Matrix · Encode · Glitch · Explode, Fade on;
+Popups — Length (300), Frames (auto), Unfurl (on), Fade, Slide (off).
 
 ### 4.3 Switcher — the wheel
 
@@ -801,7 +786,7 @@ below, foreshortened and fading into the panel edge. Scrolling spins the drum to
 | | value |
 |---|---|
 | panel | `x 200, y 154, w 240, h 176` — centred on x=320 and on the content band's centre y=242 |
-| bands | above 44 · **centre 88** · below 44 — the design's numbers, and the FLOOR; the centre band grows with the name's MEASURED INK (ascent **and** descent, plus two rows) up the font ladder and the neighbours shrink to match, each clamped so its own ink stays off the band rules. 🔴 Sized from the ASCENT (2026-09-04, §28.2) the lower rule was painted through the centre name at 100 % as well as 130 %; corrected 2026-09-05, `HANDOFF.md` §30 |
+| bands | above 44 · **centre 88** · below 44 — the design's numbers, and the FLOOR; the centre band grows with the name's MEASURED INK (ascent **and** descent, plus two rows) up the font ladder and the neighbours shrink to match, each clamped so its own ink stays off the band rules (`HANDOFF.md` §30) |
 | centre item | 64×64 icon + 4 gap + 20 title |
 | grid | x/w ÷4 ✅ · y/h ÷2 ✅ |
 
@@ -938,7 +923,7 @@ returns after. The wheel owns the screen.
 "Errors should come up as a notification, not a truncated status bar line that hides inputs and can't be
 cleared." The cell shows ONE word from a fixed list, **derived** on every chrome sync from conditions that each
 have their own lifecycle, the first that holds: `no link` · `silent` · `rebuild` · `no lease` · `halted` ·
-`fault` · `link slow` · `ok` (a rest, APK 0.64, reads `silent`: composed, never sent while it rests). Nothing sets it and nothing clears it, so one state's exit cannot clear another's
+`fault` · `link slow` · `ok` (a rest reads `silent`: composed, never sent while it rests). Nothing sets it and nothing clears it, so one state's exit cannot clear another's
 word. `fault` means a fault episode is open — it covers the case where the notice itself cannot be shown — and
 clears after a quiet minute. The echo's words are fixed too (`tap · dbl · up · down · hold · rel`, `evNN` for an
 event with no word), so the cell is **measured** for the widest state beside the widest echo in the chrome face
@@ -951,10 +936,9 @@ thread named for its class, with its whole text (§4.5 scrolls it): one notice p
 updating the one box's count at ×2, ×4, ×8 …, the phone hearing an urgent class once (§9.3), a dismissed box
 staying dismissed until the class has been quiet for a minute. Fault notices ignore Global `Notify · Damage`
 (that row gates the WM's own courtesy notices; a notice that names its app is gated by that app's own rows, and an
-answer to Adam's own gesture is not gated — 0.65 P7). Two things never raise a box: a fault of a session that is ending (the word
+answer to Adam's own gesture is not gated, `HANDOFF.md` §77). Two things never raise a box: a fault of a session that is ending (the word
 says `no link` or `rebuild`), and a **refused image** — its box would be more images into a page that refuses
-them (§36); the refusal streak's sleep is said once instead. From APK 0.64 (`HANDOFF.md` §76; installed 11-12,
-§77.12) the cache count raises four classes, source `DAMAGE · cache`: `cache/short`, `cache/lost` (its body ends "for
+them (§36); the refusal streak's sleep is said once instead. The cache count (`HANDOFF.md` §76) raises four classes, source `DAMAGE · cache`: `cache/short`, `cache/lost` (its body ends "for
 the re-sent message(s)"), `cache/staging` (the verdict that turns Page staging off, in place of a third
 `cache/short`) and `cache/off` ("the glasses did not answer the cache count — cache writes go unchecked and Page
 staging is off until the next session", once a session); the last two never ring the phone.
@@ -998,7 +982,7 @@ A box over the content that **takes focus**, sized to its content up to a cap, s
 
 | | value |
 |---|---|
-| max | `x 196, y 190, w 248, h 104` — centred on x=320 and on the content centre y=242. The box is centred on **its own** height, so a one-liner and the two lines a 130 % face leaves room for sit on the same axis as everything else (it hung from this box's top edge until 2026-09-05, `HANDOFF.md` §30) |
+| max | `x 196, y 190, w 248, h 104` — centred on x=320 and on the content centre y=242. The box is centred on **its own** height, so a one-liner and the two lines a 130 % face leaves room for sit on the same axis as everything else (`HANDOFF.md` §30) |
 | min | `w 248, h 56` — source line + one body line (see the layout below) |
 | growth | in whole lines; line height is already ×2 (§2.4 rule 7) so the box quantizes for free |
 | silent mode | `x 220, y 214, w 200, h 56` |
@@ -1039,8 +1023,8 @@ horizontal rules**, the shell's motif already (§4.1, §4.6).
 
 `16 + 2 + 6 + n×24 + 6 + 2` → **56 / 80 / 104** for 1 / 2 / 3 body lines. Every value even ✅.
 (The 16 and the 24 are the FLOORS: both follow the chrome face's measured ink up the ladder, and
-the source line is placed from its measured ascent so the rule below the band clears every cap —
-it struck through the source, the `+N` badge and the timestamp until 2026-09-05, §30.)
+the source line is placed from its measured ascent so the rule below the band clears every cap,
+`HANDOFF.md` §30.)
 ~27 characters per line at 248 px.
 
 | element | level | why |
@@ -1068,11 +1052,10 @@ at its final position**, so damage per frame is only the newly revealed strip:
 | one static paint of the same box | 387–645 B |
 
 ✅ **The arrival animation costs the same as painting it once.** Ease-out over 3–4 frames; furl in
-reverse to dismiss, then restore the content beneath.
-*2026-11-23: since APK 0.83 (`HANDOFF.md` §100; `MOTION.md` §7's Popups tier) the arrival is chosen in Settings →
-Animations → Popups: `Unfurl` (on by default, this section's frames from the phone), `Fade` and `Slide` (off by
-default, drawn by the glasses' engine from the box's own pixels, `core/…/motion/PopupPrograms.kt`), a random pick among
-those on; none on = the box appears at once.*
+reverse to dismiss, then restore the content beneath. The arrival is chosen in Settings → Animations → Popups
+(`MOTION.md` §7; `HANDOFF.md` §100): `Unfurl` (on by default, this section's frames from the phone), `Fade` and
+`Slide` (off by default, drawn by the glasses' engine from the box's own pixels, `core/…/motion/PopupPrograms.kt`),
+a random pick among those on; none on = the box appears at once.
 
 ##### The focus transition is the notification stepping toward you
 
@@ -1134,8 +1117,7 @@ state transition, not a time-bounded execution wrapper (see Silent mode below).
 **Rules:**
 
 1. **The grace restarts on every input.** Focus transfers at the next lull, not on a fixed clock —
-   an interaction in progress is *never* interrupted. **2.0 s** since 2026-11-19 (the timer below;
-   "2–3 s" before it). Same "settle when the input stream goes quiet" signal as live preview (§4.3
+   an interaction in progress is *never* interrupted. **2.0 s** (Adam, 2026-11-19: the timer below). Same "settle when the input stream goes quiet" signal as live preview (§4.3
    rule 2); share the machinery.
 2. 🔴 **The grace does NOT apply to the next item in a queue you are actively clearing.** A fixed
    grace would send your following gestures to the window underneath while you clear the backlog.
@@ -1154,7 +1136,7 @@ is all the way full (let's make that 2s flat), and showing the bar reset on inpu
 that inputs are resetting the timer. The pop-up can also increase in brightness from like 30% to
 90% gradually as the timer goes, creating a bit of a fade-in effect. This should solve it elegantly
 without adding a risk of accidentally dismissing a notification instantly unread as I'm tapping on
-a window when it pops up."* As built (build NT):
+a window when it pops up."* As built (`HANDOFF.md` §95):
 
 - **8 steps of 250 ms**, counted from the end of the unfurl; the eighth makes the bar whole and
   the box takes focus (full ink, the step forward in depth) in the same flush.
@@ -1185,10 +1167,9 @@ a window when it pops up."* As built (build NT):
   silent-mode box has no bar, no fade and its 5 s drop; with the wheel open the timer waits; on
   an unfocused box gestures go to the window under it; no new dismissal. The emergency band runs
   the same timer on its outer top rule (lit 15, the rest 6) without the fade.
-- *2026-11-23: since APK 0.83 (`HANDOFF.md` §100), where the glasses' engine is in force the timer is one program they
-  play (`core/…/motion/PopupPrograms.kt`: 16 steps of 125 ms after the first, 2.0 s; the box's ink eased from level 5
-  to 14, the bar revealed from the left); the phone's steps above are the fallback, and the journal says why
-  (`notice`).*
+- Where the glasses' engine is in force the timer is one program they play (`core/…/motion/PopupPrograms.kt`,
+  `HANDOFF.md` §100: 16 steps of 125 ms after the first, 2.0 s; the box's ink eased from level 5 to 14, the bar
+  revealed from the left); the phone's steps above are the fallback, and the journal says why (`notice`).
 
 ##### The focus indicator is free, and it should be depth
 
@@ -1199,8 +1180,8 @@ depth ladder encodes urgency (§3.1's crossed-disparity slot, deliberately the u
 direction for the one case where discomfort is the point). **+4 bytes** for the stereo box pair.
 
 ⚠ **Depth is the enhancement, not the primary cue** — at `d = 0` it vanishes. **Brightness is the
-primary indicator**: dim on arrival, full on focus, in quantised steps (§8.5) — since 2026-11-19
-rising with the visible timer above, the bar its second cue.
+primary indicator**: dim on arrival, full on focus, in quantised steps (§8.5), rising with the
+visible timer above, the bar its second cue.
 
 #### Silent mode
 
@@ -1244,15 +1225,12 @@ Notify · errors, Music → its six Notify rows, Feed → Notify · Reddit / Sla
 rows, the host's Bastion category → Notify · alerts / cleared — never in Global. Global keeps `Notify · Damage`
 (the WM's own events) and the APK-wide `Phone notifications` switch. The window gates its own
 `notifyInternal` calls on its rows; the shell's `DAMAGE` arm passes any notice that carries an `appId` or `answer`
-(0.65 P7 items 1–2); the shell filter (`noticeAllowed`) keeps the historical
+(`HANDOFF.md` §77); the shell filter (`noticeAllowed`) keeps the historical
 SMS/Mail fields for the apps still to come. It no longer gates `music` (2026-09-02): a Global row
-that has gone must not leave a hidden persisted gate behind. (As built. From step S1 the notice
-policy — gating, coalescing, read state — lives in the PC's one notice record and the shared app
-rows decide whether it is raised; `CONTRACT.md` §6 adds one shared `Quiet hours` row to Global,
-§7.2–§7.3 — built in W, APK 0.66, for the bus watcher's notices only until S1-2.)
-*2026-11-23: the PC's notice record is built (`core/…/app/Notices.kt`, `NoticeCore`): Torrents', Feed's and Tmux's
-notices are raised there since S1-2/S1-3 and held by `Quiet hours` at normal urgency; a notice raised on the phone
-itself still goes through `notifyInternal`.*
+that has gone must not leave a hidden persisted gate behind. That is a notice raised on the phone; the PC's one
+notice record (`core/…/app/Notices.kt`, `NoticeCore`; `CONTRACT.md` §6, §7.2–§7.3) holds the policy — gating,
+coalescing, read state — for the notices raised there, the shared app rows decide
+whether one is raised, and Global `Quiet hours` holds them at normal urgency (§4.2).
 
 #### 🔴 Emergency alerts — the one genuinely unverified piece
 
@@ -1332,9 +1310,7 @@ own without ever replacing a label.
 rendered at 56 px (switcher centre, Main's lens) and 20 px (rows). **Re-scoped the same night by
 the theme-icons ruling (§4.7): the desktop theme supplies icons at render time wherever it can; the
 drawn set is the FALLBACK and the release path** — the quality pass targets the drawn set. The
-band-height lens icon LANDED (56 px, `MainSurface`; §4.2's ink table was regenerated with it —
-Main resting measures 4.8 %, inside the 5 % budget, the gate that caught the row-icons-at-rest
-regression, §9.2b). Each new window's icon is drawn once, at both scales, as it is built
+band-height lens icon is 56 px (`MainSurface`; §4.2's ink table is measured with it). Each new window's icon is drawn once, at both scales, as it is built
 (`REMINDER.md` → the icon-quality pass).
 
 **Drawing rules** (§2.4 rule 9, also the compression rules): thick strokes, closed forms, no
@@ -1348,9 +1324,8 @@ hairlines, few levels, solid fills. Measured cost of icons on all eleven Main ro
   **the thing you are in is named, its neighbours are pictured.**
 - **A compass TAPE** replaces the `NE` label: three sectors with the current one under a fixed
   centre mark. Wide-and-short is the cheap shape (§4.5), and a tape is unambiguous about which way
-  it scrolls. Paid for by rebalancing the status bar to `op 160 · status 132 · thru 128 · tape 100
-  · link 120` — `op 128` since the bars were inset to 608 px (§2.3), and `op 120 · status 140` since the
-  status cell is measured (§4.4, 2026-09-20).
+  it scrolls. Paid for by rebalancing the status bar (§2.3's cells: `op 120 · status 140 · thru 128 · tape
+  100 · link 120`; the status cell is measured, §4.4).
 - **Coarse block progress bars** wherever there is a genuine quantity — build progress in the lens,
   reading position on a row. **Discrete blocks, never a smooth bar**: solid blocks are long RLE
   runs (the switcher's quantised-fade rule).
@@ -1490,8 +1465,7 @@ Three shell surfaces/mechanisms designed during the app-contract session (`HANDO
 - **The floating context menu** (Adam: *"a tap should work like a right-click"*): a 248-wide HOLE
   in the content — not a card — at **plane 0** (248 at 100 %; its title band and the rule under it
   follow the title face's MEASURED ink, and the rule is painted BEFORE the title so a collision
-  cannot hide itself — the rule struck through every menu title until 2026-09-05, §30; since
-  2026-09-04, `HANDOFF.md` §29, the box grows with the chrome face by the ratio its row pitch grew,
+  cannot hide itself, `HANDOFF.md` §30; the box grows with the chrome face by the ratio its row pitch grew (§29),
   so a label keeps the room it was designed with under the 120 % cap, and a detail the tail-keeping
   fit cuts at its head carries the mark on that edge), cursor opening on **the first row that can
   act** (put the primary action, Open, there; irreversible rows never at 0/1 per §1.7 — a menu
@@ -1632,9 +1606,7 @@ it.
 
 🔴 **A returned rect is a PROMISE, and every band is sized by MEASURED ink** (2026-09-05;
 `CLAUDE.md`'s standing rule). `paintExclusive` is the one place a window declares its own damage;
-ink outside those rects is painted into `composed` and never sent. The card's progress row was
-placed at `r.bottom - 14` under a face whose ink is 20 px and ran 4 px past the card at 288 and
-352. Size the band from `ascent + descent`, never from a line height or a constant; `--selfcheck`
+ink outside those rects is painted into `composed` and never sent. Size the band from `ascent + descent`, never from a line height or a constant; `--selfcheck`
 runs the per-lens truth oracle on every settle (`HANDOFF.md` §27.2). Measured on the sim (`--selfcheck`, 2026-09-02): Music Mode at 480 with Bars is under the
 30 % canvas note; the achievable visualizer rate on glass and the Bluetooth lyric offset are
 **measured items**, not modeled here (`MUSIC.md` §12).
@@ -1747,7 +1719,7 @@ All adopted 2026-08-17.
 18. **Texture-cache readiness now.** Content-hash every rect and make the hash the cache key, so
     adopting the firmware cache is a transport swap rather than a rewrite.
 
-**Implementation status (2026-08-24, `core/…/comp/Compositor.kt`, after eight review rounds).**
+**Implementation status (`core/…/comp/Compositor.kt`).**
 Rules 2, 3, 4, 6, 7, 8, 11, 13, 14, 15 and 17 are implemented as written. Rule 1 is a merge toward
 the rect budget followed by a *priced* pass (neighbours merge when the compressed union is cheaper
 than the parts). Rules 9 and 12 were superseded by one mechanism the reviews forced: an expected
@@ -1755,15 +1727,12 @@ shadow **per lens** and the per-lens **truth** of the nominal frame under the pl
 vacate to black — the seam; pieces render at their shift, far to near, nearest wins; the 16 px
 insets are the transparent shift budget of §3.3); the compositor emits whatever makes shadow equal
 truth, and a lost flush marks the per-lens cells it touched **unknown** rather than rolling back to
-a snapshot. Rule 16: a lease loss requests a keyframe; reconnect is the session keeper's
-(2026-08-25 — a link end restarts the session and a keyframe follows). Rules 5 and 10 are **not
-built**; their seams are `Compositor.assembleFlush`'s payload compression (a cache keyed by (rect,
+a snapshot. Rule 16: a lease loss requests a keyframe; reconnect is the session keeper's (a link
+end restarts the session and a keyframe follows). Rules 5 and 10 are **not built**; their seams are `Compositor.assembleFlush`'s payload compression (a cache keyed by (rect,
 content hash)) and `Shell.commitWindow` (compose the target's frame before the switch; the
 per-lens diff already sends only what changed). Rule 18 is built as the texture-cache path
-(2026-09-06, `HANDOFF.md` §40.6): the cache is in CFW `a5d1c31`, `wire/CfwModes.kt` +
-`wire/TextureCache.kt` encode modes 11–14, and behind the Global `Cached text` row plane-0 text
-ships as mode-14 draws under a byte-exact proof — off until seen on glass (`IMPLEMENTATION.md` →
-The texture cache); `Emit.encode` is the single place every payload passes through.
+(`HANDOFF.md` §40.6; `IMPLEMENTATION.md` → The texture cache): behind the Global `Cached text` row text ships as
+cached draws under a byte-exact proof (§4.2's row); `Emit.encode` is the single place every payload passes through.
 `LensOracleTest` pins the per-lens model against the firmware simulator (`IMPLEMENTATION.md` →
 "Review hardening").
 
@@ -1792,9 +1761,9 @@ the end state.
 - **Reveal / cover** — overlays entering from an edge.
 - ❌ **Fade, dissolve, cross-fade** — full-rect repaints every frame. Excluded (§0).
 
-*2026-11-23: on the fork's builds with the motion engine (C1–C3) motion is also played by the glasses from programs
-the phone writes — Main's `Scroll effect`, the notice's timer and arrivals, the full-screen transitions at ladder stage
-5; that motion is ruled by `MOTION.md` §7 (its contract `FIRMWARE.md` §5–§7, its rows §4.2's `Animations`).*
+On the fork's builds the glasses also play motion from programs the phone writes — Main's `Scroll effect`, the
+notice's timer and arrivals, the full-screen transitions at ladder stage 5 — ruled by `MOTION.md` §7 (its contract
+`FIRMWARE.md` §5–§7, its rows §4.2's `Animations`).
 
 ### 6.3 Rules
 
@@ -1806,12 +1775,11 @@ the phone writes — Main's `Scroll effect`, the notice's timer and arrivals, th
   response to new input. 🆕 **Mechanised 2026-09-05 (`HANDOFF.md` §32):** one of the three
   in-flight slots is reserved for the pump that follows a ring event; animation frames, pushes and
   the visualizer run at most two deep.
-- 🆕 **Frames per notch are a Global setting (2026-09-05, §37; Adam — built 2026-09-06, §40.4).**
+- 🆕 **Frames per notch are a Global setting (Adam, 2026-09-05; `HANDOFF.md` §37, §40.4).**
   `Slide frames: off · 2 · 4 · auto · 8 · 12`, `auto` = the halving rule and the DEFAULT. The
   setting resamples the ease-out sequence to at most that many steps (each still a multiple of
-  2 px, the last taking what is left); `off` is one copy and one strip. (As built; one Global
-  `Motion` row replaces it when the motion engine is adopted — `MOTION.md` §6 C4.) *2026-11-23: §7 of
-  `MOTION.md` puts the `Animations` category in that row's place; `Slide frames` is still a Global row (§4.2).*
+  2 px, the last taking what is left); `off` is one copy and one strip. Its row, beside the
+  `Animations` category: §4.2.
 - 🆕 **A live window may keep the link busy while it is the active window (Adam, 2026-09-05).**
   Tmux frames, Music's card and visualizer, Torrents' polls: he is watching them. The rule is about
   cost per update (§8.6), not cadence — and a parked window holds no loop (§4.6).
@@ -1855,7 +1823,7 @@ each boundary so it cannot flicker between N and NE.
 
 ### 7.3 Wear detection — excluded for now
 
-`wearnotify` is in the CFW capability string and stays unused (§0) but for §9.3's rest mode (ruled 2026-09-21; build 1 — the reads and the manual rest — built in APK 0.64, installed 11-12; nothing rests by itself).
+`wearnotify` is in the CFW capability string and stays unused (§0) but for §9.3's rest mode (ruled 2026-09-21; the reads and the manual rest are built, nothing rests by itself).
 
 ---
 
@@ -1904,7 +1872,7 @@ safety net, so "keep enough history in the ring" is the wrong thing to engineer 
    the aged-out-stale-duplicate hazard outright. This is the only duplicate source that scales
    with rect count. The rule holds per boot of the glasses, not per host process: the 16-deep ring
    outlives a host's allocator (a new transport instance starts at fid 1), so every session start
-   clears the ring with mode 7 sub 0 after the warmup's ack (APK 0.65, P5 item 15).
+   clears the ring with mode 7 sub 0 after the warmup's ack (`HANDOFF.md` §77).
 2. **The ring's remaining job is firmware-internal re-processing** (the snapshot FIFO / cross-lens
    completion path — the code's *"re-processed message"* comment). That duplicate arrives within a
    few fids, so 16 covers it at any sane rect count. **The ring therefore stops constraining the
@@ -1942,24 +1910,20 @@ Grade **I** — derived from reading the decoder. Exercised daily since 2026-08-
 
 Default idle tick **5 s**. A live 1 Hz telemetry mode is a debugging tool, not a default.
 
-🔴 **Measured broken on 2026-09-05 (`HANDOFF.md` §37.1):** the status bar's throughput readout
-changes after every ack, and any content-neutral repaint (a poll, a rescan, an invalidate) set the
-chrome dirty and shipped the changed digits as a flush of their own — **149 of a walk's 320 flushes
-were that cell alone**, each a 70 ms floor and a window slot. **Fixed 2026-09-06 (§40.1):** the
-telemetry cells (the readout, the link cell) repaint only on a gesture's own flush, an animation
-frame or the idle tick; on any other sync they keep their last text. `ChromeFlushTest` pins it.
-**Tightened 2026-09-06 (§41.6):** never on a gesture's FIRST flush either — measured 40–230 B of a
-184–470 B first flush — a later frame of the gesture or the idle tick carries it; the input echo
-still rides the first flush.
+🔴 **The telemetry cells** (the throughput readout, which changes after every ack, and the link cell)
+repaint only on a later frame of a gesture, an animation frame or the idle tick — never on a
+content-neutral sync (a poll, a rescan, an invalidate), never on a gesture's FIRST flush; otherwise
+they keep their last text, and the input echo still rides the first flush (`ChromeFlushTest`).
+Measured before the rule (`HANDOFF.md` §37.1, §40.1, §41.6): **149 of a walk's 320 flushes were
+that cell alone**, each a 70 ms floor and a window slot; in a first flush it was 40–230 B of 184–470 B.
 
 ### 8.4 Modeled costs
 
 ⚠ **All modeled**, area-scaled from the 576×288 measurements via `ms ≈ bytes/11000 × 1000 + 176`.
 🆕 **The real CFW path is measured (2026-08-31, `overview.md` §5.2): `ms ≈ 60 + bytes/50`** (⚠
-PC-direct only — the daily path is the phone's, ~70 ms + ~120 ms/KB, `REMINDER.md`; 2026-09-05) —
-every row below is conservative by roughly 3–5× on hardware. Kept as the modeled baseline the
-design was proven against; quote §5.2 for anything current. *2026-11-23: on the Phase 2 build's LE 2M the phone
-path's per-KB term about halved, the floor unchanged (measured, `HANDOFF.md` §65; `REMINDER.md`'s "To price with").*
+PC-direct only — the daily path is the phone's: ~70 ms + ~120 ms/KB on 1M, the per-KB term about halved on the Phase 2
+build's LE 2M, measured, `REMINDER.md`'s "To price with", `HANDOFF.md` §65) — every row below is conservative by
+roughly 3–5× on hardware. Kept as the modeled baseline the design was proven against; quote §5.2 for anything current.
 
 | | bytes | ms |
 |---|---|---|
@@ -2050,15 +2014,15 @@ come back to the live tail and lose my place, i fuckin HATE that."*
   **transmission-loss detector**. ⚠ Whitelist the one expected `f_skip` at each fid wrap (§8.2
   #6). ✅ Wired: `TransportEvent.DiagFlags` → an urgent `diag` fault notice (§4.4), a `panic` journal note
   and a keyframe request. The `Diag overlay` row (`ShellSettings.diagOverlay`, default on) has no reader: the
-  flags are handled the same whatever it says (2026-11-23).
+  flags are handled the same whatever it says.
 - **Status-bar profiler** — flush rate, damage bytes, rect count, fid depth, ack. Off by default (it
-  is itself a flush consumer). Settings → Global → Profiler is the row; the profiler itself is not built — nothing
-  reads the row (2026-11-23; the journal's per-flush split is the account, §9.2b).
+  is itself a flush consumer). Not built: Settings → Global → Profiler is a row with no reader (the journal's
+  per-flush split is the account, §9.2b).
 - **Input echo** — the last gesture actually received, shown in the status cell (§1.7).
 - **The logger service (sid 0x0F)** — `logStr` streamed to host would surface the CFW's own
   `evenhub_ui: decompress failed, mode=%u raw_len=%u`. Our worst failure mode is silent garbage on
-  the lens; this makes it loud. Untested lead (**V** schema, **U** on our firmware) — still
-  unprobed 2026-09-01 (`REMINDER.md` → cheap probes).
+  the lens; this makes it loud. Untested lead (**V** schema, **U** on our firmware) — unprobed
+  (`REMINDER.md` → cheap probes).
 
 ### 9.2b Build-time gates and runtime guards
 
@@ -2069,9 +2033,8 @@ come back to the live tail and lose my place, i fuckin HATE that."*
   keyframe, box out of 640×480 bounds, and a surface over its ink budget. Adam: *"minimizing the
   chances of a bug making it to the glasses as much as possible."*
 
-  ✅ **`tools/lint.py` exists and passes** (2026-08-18; SYM002 since 2026-09-04; 0 findings at HEAD).
-  2026-09-16: its copy of the runtime rules in `tools/geometry.py` was retired — nothing in the repo run
-  called it and it had drifted from the Kotlin (`HANDOFF.md` §65).
+  ✅ **`tools/lint.py` exists and passes**; its copy of the runtime rules in `tools/geometry.py` was
+  retired, having drifted from the Kotlin (`HANDOFF.md` §65).
 
   ⚠ **Most of these are RUNTIME properties** — a rect computed at frame time is invisible to a
   source linter. So the runtime rules (GEO004–006, GEO008, BUD001–004, FID001–004) live in **`core`'s `geom`
@@ -2085,7 +2048,7 @@ come back to the live tail and lose my place, i fuckin HATE that."*
   | **SYM001** | a string reaching a text-drawing call contains a codepoint the target face cannot render |
   | **SYM002** | 🆕 (2026-09-04) the same, over **every Kotlin string literal** — the shell's own drawing code, which is what actually reaches the glass |
   | **SEC001** | a Kotlin string literal inside a `Log.` call that interpolates a name ending in `token` |
-  | **RO001** | the bus watcher's package (`core/…/bastion/`) doing anything but READ the home hub: exactly one `Http.request(` with the literal method "GET", no write-method literal, no other HTTP client (build W) |
+  | **RO001** | the bus watcher's package (`core/…/bastion/`) doing anything but READ the home hub: exactly one `Http.request(` with the literal method "GET", no write-method literal, no other HTTP client |
   | **GEO001** | x/w not a multiple of 4, or y/h not a multiple of 2 |
   | **GEO002** | box outside 640×480 — *rejected in silence, previous frame stays up* |
   | **GEO003** | zero or negative extent |
@@ -2154,14 +2117,14 @@ come back to the live tail and lose my place, i fuckin HATE that."*
 
 With the buzzer excluded, **the phone APK raises a phone notification on serious errors**
 (✅ `ShellService.urgentNotification`, channel "Damage errors") — the only alert path that works
-when the display itself is what is broken. *2026-11-23: since `MUSIC.md` verdict 21 the shell's urgent notices reach
-it only with Global `Phone notifications` on, off by default (`phone/…/ShellService.kt`, `onUrgent`); a target
-that refuses or ends is posted on it directly, and the glasses' low battery has a channel of its own (below).*
+when the display itself is what is broken. The shell's urgent notices reach it only with Global `Phone notifications`
+on, off by default (`MUSIC.md` verdict 21; `phone/…/ShellService.kt`, `onUrgent`); a target that refuses or ends is
+posted on it directly, and the glasses' low battery has a channel of its own (below).
 
 Severity worth escalating to the phone: framebuffer lease lost · decompress failure ·
 `ImgResCmd.ErrorCode` · link down · fid collision detected · sustained ack-timeout streak.
 
-**Low glasses battery (Adam, 2026-09-21 — built in APK 0.64, installed 11-12; `HANDOFF.md` §70, §76, §77.12):** when the
+**Low glasses battery (Adam, 2026-09-21; `HANDOFF.md` §70, §76):** when the
 glasses' battery falls **below 20 %** the phone gets a notification through this same path, and the glasses a notice.
 It is not gated by Global `Notify · Damage` (that row is off on his phone, and the point is to be told). Once per
 discharge: said at the crossing, armed again by a `charging` reading or a reading of 25 % or more — never once per
@@ -2169,12 +2132,12 @@ percent on the way down. The source is the battery reading the shell already jou
 **The design pass (2026-11-10, `HANDOFF.md` §75.4; the lead's calls, for Adam's review):** the phone half is a
 notification on a channel of its own rather than this path's — whose gate is `Phone notifications`, off by default:
 honoured, this ruling could not be met — and is gated by neither that row nor `Battery alert` (§4.1's pulse keeps it); the glasses' half is said only when the shell
-can paint; the once-per-discharge latch lives in memory and does not clear at a session boundary. **As built
-(0.64):** the channel is "Glasses battery" at Android's default importance; the notification is withdrawn when the
+can paint; the once-per-discharge latch lives in memory and does not clear at a session boundary. **As built:**
+the channel is "Glasses battery" at Android's default importance; the notification is withdrawn when the
 latch opens again and the glasses' notice is not; with no phone path and no paint (the PC asleep or with no session)
 nothing is said and the latch stays open; a crossing while asleep or with no session tells the phone only.
 
-**A rest mode in the charging case (Adam, 2026-09-21 — build 1 built in APK 0.64, installed 11-12 (`HANDOFF.md` §70, §76, §77.12): the reads and the manual rest; build 2, resting by itself, not built):** "no
+**A rest mode in the charging case (Adam, 2026-09-21; `HANDOFF.md` §70, §76 — built: the reads and the manual rest; not built: resting by itself):** "no
 reason to drain battery at full throttle while in an enclosed case." Today the shell paints every minute tick to
 the panel whether or not anyone wears the glasses; a powered case turns the panel off (`CLAIMS.md`: copied, counted,
 never transferred) but the link, the lease renewals, the polls and the frames go on, and a case that has run out
@@ -2413,23 +2376,12 @@ Every configuration is a placement of those three:
 seams between roles must be **protocols, not function calls** — neither side knowing whether its
 peer is in-process or across a network. No configuration is a special case.
 
-> 🔴 **Row 1's shell placement is the INTENT, confirmed by Adam 2026-08-31** (`HANDOFF.md` §19):
-> in the default configuration the **phone shell drives** and the PC's job is to *provide data*
-> so every app is fully functional. The finishing build had inverted this (the PC shell claimed
-> the seam and drove whenever reachable) by misreading §8.1's "home PC is always the best case"
-> — that phrase graded the DATA path, not the driver. The PC drives only in the rare
-> APK-unavailable case, over BLE, and hands the radio back when the APK returns. State that can
-> differ between the two syncs automatically, most-recent-wins (§19.2).
->
-> **As built. Ruled 2026-11-12 for the design to come** (`REPLAN.md` §14.1 R3, §14.3 #1, §14.4):
-> the PC owns every window's state and every interface connects to it; the phone keeps a working
-> copy, still draws the glasses and carries on when the PC is out of reach; PC-direct BLE is a
-> manual choice, never automatic. Most-recent-wins sync is replaced at step S1 (`CONTRACT.md` §2,
-> §9.7).
->
-> *2026-11-23: S1-1 to S1-3 are built (APK 0.67–0.70): Reader, Notices, Tmux, Files, Torrents and Feed are on the PC's
-> record (`core/…/app/Windows.kt`'s `ALL`); Music and Games, and `shell.settings`, still sync most-recent-wins until
-> their steps (`REMINDER.md`). PC-direct BLE is manual since APK 0.66 (`HANDOFF.md` §79).*
+> 🔴 **Row 1's placement, as Adam ruled it** (2026-08-31, `HANDOFF.md` §19; 2026-11-12, `REPLAN.md` §14.1 R3,
+> §14.3 #1, §14.4): in the default configuration the **phone shell drives** the glasses and **the PC owns every
+> window's state** — every interface connects to it; the phone keeps a working copy, draws the glasses and carries on
+> when the PC is out of reach. PC-direct BLE is a manual choice, never automatic (`HANDOFF.md` §79). A window on the
+> PC's record (`core/…/app/Windows.kt`'s `ALL`; `CONTRACT.md` §2, §9.7) no longer syncs most-recent-wins (§19.2);
+> the others do until their steps.
 
 ### 10.2 What this forces on the runtime
 
@@ -2515,9 +2467,8 @@ policy but no power budget, and that number decides whether it is wearable or a 
 glasses, a real debugger, no phone and no network to blame. Then split out transport for the
 bridge, then relocate the shell to Android for the phone rows.
 
-✅ Followed as written: desktop first (2026-08-24), PC-direct BLE first light 2026-08-30, the APK
-shell live 2026-08-31 and the primary driver since (`HANDOFF.md` §19). The bridge appliance
-remains unbuilt (§10.6).
+✅ Followed as written (`HANDOFF.md` §19): desktop first, then PC-direct BLE, then the APK shell, the
+primary driver. The bridge appliance remains unbuilt (§10.6).
 
 ---
 
@@ -2526,12 +2477,12 @@ remains unbuilt (§10.6).
 | # | item | grade | resolves |
 |---|---|---|---|
 | 1 | ✅ **Per-notch scroll** — **works, daily use since 2026-08-30** (was C ⚠); only fast-spin coalescing unprobed | **M** | done |
-| 2 | **Comfortable disparity `d`**; whether stock FAR already spends budget *(2026-11-23: the FAR half is closed — nothing stacks, `HANDOFF.md` §48.1, §3.3)* | **U** | calibration ramp |
+| 2 | **Comfortable disparity `d`** (stock FAR spends none of the budget, §3.3) | **U** | calibration ramp |
 | 3 | **Frame-id discipline** (§8.2) — derived from reading the decoder; exercised daily at the 5-rect cap with no divergence, the BOUND itself never probed | **I** | a deliberate probe (`REMINDER.md` → still unmeasured, #4) |
 | 4 | **Link signal** — source, which link, dBm vs % | **U** | the phone reads RSSI on the RIGHT arm every 10 s; BlueZ exposes RSSI only while a device advertises, so the PC-direct cell shows bars without a numeral. Values unmeasured |
 | 5 | **Where system-state detail lives** — orphaned when the info popup was removed | design | app-layer phase |
 | 6 | **Can a normal Android app see WEA/CMAS emergency alerts?** Must be tested before it is promised (§4.5) | **U** | Pixel 10a test |
-| 7 | ✅ **Transport** — resolved 2026-08-25, **corrected 2026-08-31 (`HANDOFF.md` §19)**: the phone shell is the PRIMARY driver whenever the APK is up; the PC provides data (content + sync) and drives PC-direct BLE only when the APK is unavailable, handing the radio back when it returns. As built; ruled 2026-11-12: PC-direct BLE by hand only, the PC owning every window's state (§10.1's note) | decided | §19 build |
+| 7 | ✅ **Transport** — the phone shell is the PRIMARY driver; the PC owns every window's state and drives PC-direct BLE by hand only (Adam, 2026-08-31 and 2026-11-12; §10.1's note, `HANDOFF.md` §19) | decided | §19 build |
 | 8 | **Type legibility ON GLASS** — content faces are answered by daily reading (Reader, Tmux); the open half is CHROME at 32/28 px bar sizes | measured / chrome unproven | eyes on glass |
 | 9 | **The safe area** (§2.2b) — how many rows of the panel are actually visible on Adam's face | **U** — the direction is known (the bottom goes, never the top — §2.5) | the border ramp (`REMINDER.md` → still unmeasured, #1); the layout is written relative to the safe rect so only the value changes; the top-aligned Size heights are the working parameter meanwhile |
 | 10 | **Per-window typefaces for windows not yet designed** — SMS, Notices inherit Clear Sans until their app earns an override (Files and Music shipped on Clear Sans, Torrents on Fira Sans — the list face, Feed on Fira Sans for lists and Alegreya for reading, `FEED.md` §3; Calendar/Timers axed; `EXPLOSION.md` §16.6's recorded per-window defaults refine this per window) | design | app-layer phase |

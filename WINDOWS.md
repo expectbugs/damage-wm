@@ -9,32 +9,29 @@ rules, `DESIGN.md` on shell design, `EXPLOSION.md` §16 on the shared contract �
 original (`/home/user/G2CC/server/src/windows/<app>.ts`) — read-only, interaction facts only, no code taken
 (the clean-room rule) — when one exists (Torrents and Feed had none).
 
-**The seven worked precedents** — read them before writing an eighth: `ReaderWindow` (List → Document →
-Actions, async content, per-item sub-records, images) · `TmuxWindow` (Canvas, a live provider over the content
-port, quick keys, typed text with confirm, alerts) · `FilesWindow` (2026-09-01: the tap-=-context-menu grammar
+**The seven worked precedents** — read them before writing an eighth (the five converted ones are `XGlasses`
+presenters over an `XCore`, `XWindow(…)` each one's compatibility factory in `core/…/windows/*/*Glasses.kt`;
+`MusicWindow` and `GamesWindow` are classes): `ReaderGlasses` (List → Document →
+Actions, async content, per-item sub-records, images) · `TmuxGlasses` (Canvas, a live provider over the content
+port, quick keys, typed text with confirm, alerts) · `FilesGlasses` (the tap-=-context-menu grammar
 via `MenuSurface`, the §16.10 window channel, viewers as DocViews, paced-retry failure discipline,
-`Draw.fit`/`dn()`) · `TorrentsWindow` (`TORRENTS.md`: no original, built whole; the keyboard as a requester,
+`Draw.fit`/`dn()`) · `TorrentsGlasses` (`TORRENTS.md`: no original, built whole; the keyboard as a requester,
 version-cursor snapshots + event replay over the blob lane, a LIVE list whose cursor follows row identity) ·
 `MusicWindow` (`MUSIC.md`: one window against two core contracts, `MusicLibrary` + `MusicPlayer`; the channel's
 PUSH slice, a second endpoint (:7404) for media bytes, per-height layouts and the EXCLUSIVE mode, `DESIGN.md`
 §4.9) · `GamesWindow` (`HOLDEM.md`: no host at all, pure Kotlin; a `CanvasView` table at four heights; its own
 stereo planes via `contentPlanes`; a kit under `windows/games/kit/` that names no card game; the persisted
-record is an ACTION LOG the engine replays) · `FeedWindow` (`FEED.md`: ONE engine class on both hosts, the
-phone's parked and switching back only by hand — as built; the phone's engine retires at step S1, `CONTRACT.md`
-§14 (a) row 1 — retired in S1-3, APK 0.70, `HANDOFF.md` §89.1; the Reader grammar over nine levels; synced reading state with a union rule for read marks; an
-endless archive Document; strips on demand from `view()`).
-*2026-11-23: since S1-1 to S1-3 the five converted precedents are `XGlasses` presenters over an `XCore`
-(`ReaderGlasses`, `TmuxGlasses`, `FilesGlasses`, `TorrentsGlasses`, `FeedGlasses`); `XWindow(…)` stays as each one's
-compatibility factory (`core/…/windows/*/*Glasses.kt`). `MusicWindow` and `GamesWindow` are classes still.*
+record is an ACTION LOG the engine replays) · `FeedGlasses` (`FEED.md`: ONE engine, on the PC — `CONTRACT.md`
+§14 (a) row 1, `HANDOFF.md` §89.1; the Reader grammar over nine levels; synced reading state with a union rule for
+read marks; an endless archive Document; strips on demand from `view()`).
 
-**What changes at step S1** (`REPLAN.md` §14, `CONTRACT.md` §11): everything below describes the contract as built.
-From S1 the PC owns every window's state, each window splits into a core and a glasses presenter, and the sync
-these sections rely on is replaced (`CONTRACT.md` §2, §9.7); `CONTRACT.md` §11.3 maps today's contract row by row.
-A window built after the re-plan's steps is described once for every interface (`CONTRACT.md` §3, §12).
-*Status 2026-11-22:* S1 is under way — Reader (S1-1, §80), Torrents and Files (S1-2, §84), Feed and Tmux (S1-3, §89)
-are converted; Music's first half is on a branch (§97); Games, Main and Settings are S1-5 (`REPLAN.md` §16.1).
+**Step S1** (`REPLAN.md` §14, `CONTRACT.md` §11): the PC owns every window's state, each window splits into a core and
+a glasses presenter, and the sync these sections rely on is replaced (`CONTRACT.md` §2, §9.7); `CONTRACT.md` §11.3
+maps the contract below row by row, and the sections below describe it as built. Which windows are converted:
+`REPLAN.md` §16.1 and `REMINDER.md`. A window built after the re-plan's steps is described once for every interface
+(`CONTRACT.md` §3, §12).
 
-**What converting Reader taught** (S1-1, APK 0.67, `HANDOFF.md` §80; how it runs: `IMPLEMENTATION.md`'s S1-1 section):
+**What converting Reader taught** (`HANDOFF.md` §80; how it runs: `IMPLEMENTATION.md`, "The shared window core"):
 - **A converted window is a core plus a glasses presenter.** `ReaderCore` (a `WindowCore`: describe, level, actions,
   drafts) sits on a `WindowSource` (`LocalWindowSource` over `HostBackend` on the PC, `WorkingCopy` on the phone);
   `ReaderGlasses` keeps today's levels, cursors, paint and layout and writes only at today's save points.
@@ -44,13 +41,9 @@ are converted; Music's first half is on a branch (§97); Games, Main and Setting
   product edit), a base rendered twice from the parent commit with the shelf's listing hash AND its command, then
   `tools/snapdiff.py` in both arrangements (`DIR/phone/` renders the window over a working copy). A clock-relative age
   in a scene is a declared live cell with its own selftest case.
-- **The migration:** once per host, every old record offered as an op expecting `PreConversion(old stamp)`, with a
-  ledger beside the local copy (`window.<id>.conv`) so a downgrade's later writes are offered again;
-  `ReaderMigrationTest`'s two deploy orders and its fourth case (a web write after the PC's conversion) are the proof's
-  shape; the window's keys leave the sync channel (`Persistence.CONVERTED`) with the phone's inbound filter.
-  *2026-11-22: L1 removed Reader's migration whole, its ledger and `ReaderMigrationTest` with it (C5, `76a8e5e2`; out
-  with APK 0.68, `HANDOFF.md` §84.3); S1-2's migrations are one PC-only pass with no ledger (`core/…/app/Migrate.kt`),
-  and the keys leave the channel by the window registry (`Windows.converted`, since S1-2's Q2).*
+- **The migration:** one PC-only pass of the old rows, written where the record holds none, with no ledger and no
+  phone half (`core/…/app/Migrate.kt`; why: `HANDOFF.md` §84.3); the window's keys leave the sync channel by the
+  window registry (`Windows.converted`) with the phone's inbound filter.
 - **The defect classes the reviews found** (§80.6): a write no input made (a relayout, a reload, a page load), a loss
   told to no one, what clears a standing offer (`Go there`), a number used twice in one stream (two tabs). The
   continuity test of §3 step 6 becomes the arrangements test (`ReaderArrangementsTest`).
@@ -84,10 +77,10 @@ are converted; Music's first half is on a branch (§97); Games, Main and Setting
   (`Shell` refuses it and says so); a live row that does nothing is a silent failure.
 - **Notification toggles live in the app's own Settings category** (Adam, 2026-09-01): the window gates its own
   `notifyInternal` calls on its rows (the Tmux `Alerts` shape); Global keeps only `Notify · Damage`, and
-  `Notify · Damage` never gates a notice that names its app (0.65, `HANDOFF.md` §77). A HOST category's notice
-  (`Shell.notifyFromHost`, `Notice.gatedBy`; build W's Bastion) is gated by that category's own rows, never by
-  `Notify · Damage`. `CONTRACT.md` §6 adds one shared `Quiet hours` row to Global, built with the alert watcher (APK
-  0.66, `HANDOFF.md` §79; its §14 (b), his to veto).
+  `Notify · Damage` never gates a notice that names its app (`HANDOFF.md` §77). A HOST category's notice
+  (`Shell.notifyFromHost`, `Notice.gatedBy`; the phone's Bastion) is gated by that category's own rows, never by
+  `Notify · Damage`. Global also holds one shared `Quiet hours` row (`CONTRACT.md` §6, its §14 (b), his to veto;
+  `HANDOFF.md` §79).
 - 🔴 **Every window works well at all four heights — 288 / 352 / 416 / 480 — and its size is adjustable in
   Settings** (Adam, 2026-09-02: *"This is important."*): each level's layout specified per height in the
   window's record, the per-app Size row not optional, snapshot scenes at 288 and 480 at least.
@@ -286,7 +279,7 @@ backlog: the curated font-library expansion (§16.6; B612 never a default).
 ## 6. Latency standards — the bar for every window written after 2026-09-05 (`HANDOFF.md` §37)
 
 The link is the phone's: ~70 ms per flush + ~120 ms per KB on the 1M link, about half that per KB on the
-installed Phase 2 build's LE 2M (`REMINDER.md`, measured; on 1M two packets per served connection event, LEFT
+fork's LE 2M (`REMINDER.md`, measured; on 1M two packets per served connection event, LEFT
 served every 60 ms in the busy sessions — `HANDOFF.md` §54.4). A window is judged on **time to first visible change per gesture**, not on bytes
 per screen.
 
@@ -295,8 +288,8 @@ per screen.
    LATER flush; if a change cannot be translation + strip, say why in the record.
 2. **Text and icons through the texture cache** (`HANDOFF.md` §40.6 → §41.4, behind the Global `Cached text`
    row): draw text through the rasterizer the host handed you (the recorder), icons through `IconPaint`; a
-   string or icon on ANY plane then ships as draws with nothing for the window to do. Since `HANDOFF.md` §73 a character a face has
-   not drawn before goes out as the host's pixels once (the journal's `unpacked`), and the `Cached text` row is
+   string or icon on ANY plane then ships as draws with nothing for the window to do. A character a face has not
+   drawn before goes out as the host's pixels once (the journal's `unpacked`; `HANDOFF.md` §73), and the `Cached text` row is
    also the layout metric: `onFontScaleChanged` arrives when it changes although the scale did not — drop every
    wrap you keep there (the Reader's layout epoch, Music's wrap key). Text on a box does not
    cache — the journal's `cacheMiss` says which. A row painted into a temp of your own is not recorded.
@@ -305,18 +298,16 @@ per screen.
 4. **Live only while active** (Adam's ruling: he is watching); parked windows hold no loop.
 5. **No work on the loop that is not painting** — network, disk, decoding, wrapping go off the loop, applied
    through `runOnShell` with a generation guard.
-6. **No animation of its own.** Frames per notch are the shell's setting (`Slide frames` and `Slide fill` as
-   built; one Global `Motion` row replaces both when the motion engine is adopted — `MOTION.md` §6 C4).
-   *2026-11-23: what was built instead is the `Animations` category, one row per tier (`MOTION.md` §7; shown on a
-   build with local input, the transitions' tiers only at stage 5 — `core/…/shell/SettingsWindow.kt`); `Slide frames` and
-   `Slide fill` remain for the shell's own slides.*
+6. **No animation of its own.** Frames per notch are the shell's settings: the `Animations` category, one row per
+   tier (`MOTION.md` §7; shown on a build with local input, the transitions' tiers only at stage 5 —
+   `core/…/shell/SettingsWindow.kt`), and `Slide frames` / `Slide fill` for the shell's own slides.
 7. **Ship with numbers.** Walk it with `tools/glassdrive.py` (snap before every tap), read `/journal` through
    `tools/journal_report.py` — its **"time to first visible change per gesture"** section is the judgment (§42)
    — and put the rows in the window's record. **The bar, measured on glass on 0.40 (2026-09-07 → 09,
    `HANDOFF.md` §42.0):** a window list notch 540 B / 108 ms median (p90 2.1 KB / 229 ms), a Main notch 716 B /
-   117 ms (p90 247 ms) — first-ACK figures; since §64.4 a window is judged by the report's `first wait ms` column
-   (`REMINDER.md`, Measured on glass), which on the reference journal read 230 ms median / 1,004 p90 against the
-   ack's 75 / 523. From APK 0.66 the report's `input->done ms` beside it adds the wait in the shell behind a full
+   117 ms (p90 247 ms) — first-ACK figures; a window is judged by the report's `first wait ms` column (§64.4;
+   `REMINDER.md`, Measured on glass), which on the reference journal read 230 ms median / 1,004 p90 against the
+   ack's 75 / 523. The report's `input->done ms` beside it adds the wait in the shell behind a full
    window, which `first wait ms` does not hold (`HANDOFF.md` §79). A notch whose first flush is over ~1 KB or whose
    first visible change is over ~250 ms at the median has a defect to find, not a link to blame.
 8. **The shell owes you the rest** — the cache on every plane, the depth ladder, translation detection,
