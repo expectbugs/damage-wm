@@ -5,10 +5,8 @@ firmware he installed with the published patch method; it runs on his own phone,
 his tailnet and the network of the bus he lives in. This file is display and interface design: how each window
 describes what it shows and can do, so that the glasses, a web page, the phone app's own screen, the kitchen TV and the
 desktop each present it, and how every interface connects to the PC that holds the state. Plain wording throughout
-(`CLAUDE.md`). Documents only; what S1-1 built (APK 0.67, `HANDOFF.md` §80) and what S1-2 built, as the cleanup L1
-left both (APK 0.68, `HANDOFF.md` §84), and what S1-3 built (Feed and Tmux, APK 0.70, `HANDOFF.md` §89) is corrected
-below as built. *2026-11-22:* S1-4's first half (Music) is built on a branch and not merged (`HANDOFF.md` §97); its
-rows below still read as designed. S1-5 is not started.
+(`CLAUDE.md`). Documents only; what S1-1, S1-2 (with the cleanup L1) and S1-3 built (`HANDOFF.md` §80, §84, §89) is
+said below as built; the rest reads as designed. State today: `REMINDER.md`.
 
 **Status: IN FORCE for the build plan (2026-11-13; brought to the code after L1, 2026-11-17).** The three rows of §14
 (a) are taken as recommended on Adam's word of that day ("I trust your recommendations for the open stuff") and were
@@ -22,9 +20,8 @@ challenging readers, and stands unless he objects. `REPLAN.md` §14,
 row or answer (§14.1 R3, §14.3 #2, §15 A2); this file's own decisions are cited as §14 (a), (b) or (c). `DESIGN.md` §0
 and each window's recorded verdicts are not re-opened. Grades: **read** (cites `file:line`: `S/` =
 `core/src/main/kotlin/wm/damage/core/shell/`, `C/` = `core/…/core/`, `W/` = `C/windows/`, `D/` = the desktop module's
-sources), **inferred**, **unknown**. Nothing here was measured on his devices.
-*2026-11-23: the `file:line` citations are as of each section's date; file and class names are kept current, line
-numbers are not.*
+sources), **inferred**, **unknown**. Nothing here was measured on his devices. The `file:line` citations are as of
+each section's date; file and class names are kept current, line numbers are not.
 
 ---
 
@@ -252,9 +249,9 @@ one copy (§14.2). The line, fixed here for every window (§12 gives each field)
 | `levels` | kinds `collection` · `document` · `canvas` · `form` · `actions` | instances fetched by address (§5); each names its `rest` row, the harmless cursor rest (`DESIGN.md` §1.7) |
 | `current`, `settings`, `jobs`, `search` | anchor · rows (§6) · Job (§3.2) · index name | `current` is the shared item where one exists (the book read most recently, now playing); `jobs` replaces `setOperation`'s text; `search` serves `INTERFACES.md` W-05 |
 
-*2026-11-23: as built (S1-1 to S1-3) the level field is `min`; `availability` is `live` or `unavailable` (Reader,
-Files; Reader also `loading`) and `live`, `waiting` or `away` (Torrents, Feed, Tmux), with a `reason` when not live; no window
-sends `stale{since}` or `attention` (`C/app/PcScopes.kt`, each `XCore`'s describe).*
+As built (S1-1 to S1-3): the level field is `min`; `availability` is `live` or `unavailable` (Reader, Files; Reader
+also `loading`) and `live`, `waiting` or `away` (Torrents, Feed, Tmux), with a `reason` when not live; no window sends
+`stale{since}` or `attention` (`C/app/PcScopes.kt`, each `XCore`'s describe).
 
 ### 3.2 Content kinds
 
@@ -393,10 +390,9 @@ percent-encoded. Cursors and scroll are stored only as anchors, never as indices
 | any | `notice:<id>` | — |
 
 Identities: Reader's book id hashes the PC path (`C/content/Content.kt:94-97`) and a moved file keeps its records
-through a content-hash alias recorded at rescan (§14 (b)); Files rows are folder + name; Tmux sessions (host, name);
-Torrents the hash; Feed items the 16-hex hash of source + guid (`W/feed/FeedModel.kt:151`); queue entries
-`<stream>.<n>.<k>`. *2026-11-23: the content-hash alias is not built (cut from S1-1, `HANDOFF.md` §80.8, and not in the
-code since): a moved book gets a new id.*
+through a content-hash alias recorded at rescan (§14 (b); not built: a moved book gets a new id, `HANDOFF.md` §80.8);
+Files rows are folder + name; Tmux sessions (host, name); Torrents the hash; Feed items the 16-hex hash of source +
+guid (`W/feed/FeedModel.kt:151`); queue entries `<stream>.<n>.<k>`.
 
 ## 6. Settings
 
@@ -650,8 +646,8 @@ written whole and asynchronously (`S/Persistence.kt:290-315`), 2 s after an inpu
    and the window's status line say "PC and phone on different builds for Reader", and the window waits until both
    match (its subscriptions and ops are refused `contract`; each host runs it from its own copy). Nothing more is built
    for different builds, downgrades or deploy orders: a conversion is deployed as one of his sittings, the PC deploy and
-   the APK install together. Reader's migration ran once on both hosts (S1-1) and is removed (L1). Torrents' and Files'
-   (since S1-3 also Feed's and Tmux's) rows from before their conversion are written once, on the PC, where the record holds none, from the PC store's
+   the APK install together. Torrents', Files', Feed's and Tmux's rows from before their conversion are written once,
+   on the PC, where the record holds none, from the PC store's
    synced `window.<id>` records, as ops of device `migration` stamped with the record's time (L1);
    no ledger, no phone half. Unconverted windows sync as today; nothing new is built into the sync channel.
 3. **The last conversion** removes `SyncNet`, `RemoteSync` and the stamps; `shell.settings` is split by scope (§6) and
@@ -791,10 +787,7 @@ window through `tools/glassdrive.py` when he is there (`REMINDER.md`: every glas
 | the watcher's phone half (`RemoteBastion`, its Android reconcile), built before S1 | the generic mirror and notice delivery | the watcher is built to this contract's rules where they are already fixed: its table, notification tags and `ack{id, episode}` as an action on the alert in §7.1's shape; its epoch kept in the alert store, never the process start (§9.3); the phone's rows (`Phone · alerts`, `Home unreachable`, and from package F `Presence · location`) in the phone's own preferences from the start (§6); the one shared Quiet hours row (§6), built once, in Global beside `Notify · Damage` — so S1 swaps the carrier and keeps the model (built in W, APK 0.66, `HANDOFF.md` §79) |
 | the web client, window by window | S2 lays it out for the TV and the phone screen | one client rendering the vocabulary kind by kind, its data behind the `WindowSource` seam (§9.1); per-window code only for canvases |
 
-*Status 2026-11-22:* K1 is in progress — the motion kit's shell part (Main's scroll effects, the notice on the
-engine, the transitions; APK 0.83, 0.84 staged; `HANDOFF.md` §100, §101) and one list holder for Main's staging and
-binding (`ListBind`, `S/Shell.kt`, merged `f75d5838`). Every converted window still draws through its `XGlasses`
-adapter and menus through `MenuSurface`, so the rows above stand.
+Every converted window draws through its `XGlasses` adapter and menus through `MenuSurface`, so the rows above stand.
 
 ### 11.3 Mapping today's contract to the new one (`S/WindowContract.kt`)
 

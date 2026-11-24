@@ -7,13 +7,12 @@ the web interface (a desk browser and a phone browser; the kitchen TV uses the s
 `BASTION.md`), the phone app's own screen, and the XFCE4 desktop piece. It lists what they could do so he can cut
 the list. Plain wording throughout (`CLAUDE.md`).
 
-**Status: an EXPLOSION written 2026-11-12/13 for Adam's refinery. Nothing in it is built or in force. The decisions
-put to him are in `REPLAN.md` §15; his rulings are recorded there.** `REPLAN.md` §14 wins wherever this differs.
-*Status 2026-11-22:* the web interface is partly built — the listener, §4's device approval and the web rows that
-`REPLAN.md` §16.1 placed in S1-1 to S1-3 (Reader, Torrents, Files, Feed, Tmux; `HANDOFF.md` §80, §84, §89: W-01, -02,
--04, -07, -11, -12, -18, -21, -22, -24, -25, -30; W-20, -34, -35, -37, -38; W-32, -33, -47 — L1 trimmed pieces of
-them, no whole row, §84.3; the "lean" column stays the writer's of 11-13); the
-phone's own screen (P rows) and the XFCE4 piece (X rows) are S2, not started. "Today" in §1 means 2026-11-13.
+**Status: an EXPLOSION written 2026-11-12/13 for Adam's refinery. The decisions put to him are in `REPLAN.md` §15;
+his rulings are recorded there.** `REPLAN.md` §14 wins wherever this differs. Built: the listener, §4's device
+approval and the web rows `REPLAN.md` §16.1 placed in S1-1 to S1-3 (`HANDOFF.md` §80, §84, §89: W-01, -02, -04, -07,
+-11, -12, -18, -21, -22, -24, -25, -30; W-20, -34, -35, -37, -38; W-32, -33, -47; what L1 trimmed of them, §84.3);
+the phone's own screen (P rows) and the XFCE4 piece (X rows) are S2. State today: `REMINDER.md`. "Today" in §1
+means 2026-11-13.
 Grades: **read** (file:line or URL), **reported**, **inferred**, **unknown**. Nothing here was measured on his
 devices. R1–R6 are step A's research reports, kept in the private folder (`private/stepA/`, out of the repository);
 details of his home and of today's listeners are in its annex (`private/BASTION-annex.md`). §4 holds the rules
@@ -27,7 +26,7 @@ every interface shares; `BASTION.md` and `REMINDERS.md` refer to it.
 | Already independent of the glasses: summary, settings rows, menu and keyboard specs, notice, deep links, sync records, the PC's content services, the engines; `POPOVER.md` has a block vocabulary (heading, text, bullets, kv, table, chart, image, rule, page) and row types | read | `REPLAN.md:51-54`; `POPOVER.md:84-85` |
 | Deep-link targets exist per window: `t:<hash>`, `tl:<fid>`, `session:<host>:<name>`, `path:…`, `cat:<Name>` (opaque strings today) | read | `TORRENTS.md:182`; `TMUX.md:186-187`; `WINDOWS.md` §5 ("A row's DETAIL is a promise") |
 | Positions: Reader keeps a character offset; Files, Torrents, Feed, Music and Games keep indices into lines wrapped at the glasses' width | read | `REPLAN.md:45-49` (F3) |
-| Summaries over the window channel are still unbuilt *(2026-11-22: built for the converted windows — `desc/main`, one card each with its summary, S1-1 and S1-2, `core/…/app/PcScopes.kt` 14–29; the rest move at S1-5)* | read | `WINDOWS.md` §4 item 2 |
+| Summaries reach other screens for the converted windows only (`desc/main`, one card each with its summary); the rest move at S1-5 | read | `core/…/app/PcScopes.kt` 14–29; `WINDOWS.md` §4 item 2 |
 | The PC already runs a dependency-free HTTP/1.1 + WebSocket server (the replica), gated today by one shared token that §4.1 replaces; which addresses today's servers answer on, and how they check the token, is in the private annex ("Today's listeners") | read | R1 §0; R2 §C |
 | One of today's servers (the setup page) already gates by network interface: the pattern §4.2's rule reuses per listener | read | R2 §C (`SetupServer.kt:21-33`) |
 | The service (running as `user`) can ask tailscaled who a tailnet peer is (device + user) without being operator; a LAN peer gets 404; `tailscale serve` hides the peer (arrives from 127.0.0.1). The answer names the device, not the page that connects from it (§4.1) | read / inferred | R2 C rows 6-12 |
@@ -44,7 +43,7 @@ every interface shares; `BASTION.md` and `REMINDERS.md` refer to it.
 | The phone app: one activity locked to landscape, one process, a ReplicaServer of its own, no androidx.webkit; a WebView renderer loss ends the app process unless handled, and with it the glasses' session | read / inferred | R2 B rows 1-4, R2:84-85 |
 | The WebView's asset loader serves in-app files on an https origin, with path handlers for assets, resources and internal storage; pages bundled in the APK change only with an APK update and drift from the server's | read | R2:78-79 |
 | A page from the APK's https asset origin that opens `ws://` to the PC is blocked as mixed content | inferred | R2:81 |
-| The phone's notifications today: the permanent one, urgent (behind Global `Phone notifications`), glasses battery, re-grant; none has an action button *(2026-11-23: W, APK 0.66, built the same day, added the bus alerts' channels and their `Acknowledge` button — `ShellService.kt`, `addAction`)* | read | `ShellService.kt:410-425` (as of 11-13); no `addAction` in `phone/` then |
+| The phone's notifications: the permanent one, urgent (behind Global `Phone notifications`), glasses battery, re-grant, and the bus alerts' three channels; the bus alerts' `Acknowledge` is the only action button | read | `ShellService.kt` (`addAction`, the one site) |
 | A media3 `MediaSession` exists for the phone player; whether the lock screen shows its controls today | read; unknown | `phone/…/music/AndroidMusicPlayer.kt:22,39` |
 | The PC already streams transcoded tracks to the phone with Range requests (the media endpoint) | read | R2 C row 1; `MUSIC.md:54-58` |
 
@@ -125,7 +124,7 @@ layout's frame — and its reminders zone is reserved from the start (`REPLAN.md
 | P-05 | The control strip kept native: target, type, release, music access | today's controls one tap away | existing | S | in | — |
 | P-06 | A remote for the glasses' session: tap, double-tap and scroll pads, a type line | drive the glasses with the phone in hand | today's lens-view touch and type dialog | S | in | — |
 | P-07 | Share sheet: a file to Files (a chosen folder), an EPUB to the shelf, a YouTube link to Music's ingest, text to reminders | send things to Damage from any app | ACTION_SEND filters; routes per window | M | in (text after reminders lands) | a magnet or torrent link stays out (verdict 5) |
-| P-08 | Notification buttons: Open on every notice; Pause and Next on music | act from the shade | notification actions (none today; *2026-11-23:* since W, the bus alerts' `Acknowledge`, §1) | S | in | — |
+| P-08 | Notification buttons: Open on every notice; Pause and Next on music | act from the shade | notification actions (only the bus alerts' `Acknowledge` today, §1) | S | in | — |
 | P-09 | A Tmux alert showing the prompt's last line, with `y` and Enter as buttons | answer Claude Code from the shade | send-keys from a notification | S | his call | command execution from the lock screen |
 | P-10 | Lock-screen and shade player for the phone output | standard controls | the media3 session (exists); its notification | S | in | — |
 | P-11 | The same controls for the PC's player (a remote session with volume) | the soundbar from the lock screen | a remote-playback session fed by the PC | M | in | — |
@@ -193,19 +192,17 @@ a fixed set — read, acknowledge alerts, tick reminders, play and pause; no bus
 it is on.
 
 **4.2 Listeners.** Every listener is bound or gated to loopback, the tailnet and the bus network (the PC), and to
-loopback and the tailnet (the phone); the first build brings today's code to that rule (`REPLAN.md` §14.3 answer
-3; what today's code does is in the private annex, "Today's listeners").
+loopback and the tailnet (the phone) (`REPLAN.md` §14.3 answer 3); one gate does it on both hosts
+(`core/…/net/ReachGate.kt`, `CONTRACT.md` §10.9).
 
 **4.3 Notices: one record on the PC.** Every notice (a window's, a bus alert, a due reminder) is one record on the
 PC — id, episode or occurrence, actions, read and acknowledged state — that every interface reflects; dismissed or
 acknowledged once, it is gone everywhere. The phone raises a notice from its own copy only while the PC has not
 confirmed it, and such a notice is marked "may repeat". No rule depends on knowing which interface he is using.
 
-**4.4 Edits from several places: one rule.** Each device numbers its operations, the PC merges them, and a losing
-edit is said on the item. Every window follows this one rule and none settles its own variant; it is settled in
-`CONTRACT.md` §2.4. *2026-11-23: "a losing edit is said on the item" is superseded by Adam's lean correction of
-2026-11-17 (`CLAUDE.md`, "What is worth building": the latest real input wins; nothing is built to detect or report a
-conflict); as built nothing is said on the item.*
+**4.4 Edits from several places: one rule.** Each device numbers its operations, the PC merges them, the latest
+real input wins and nothing is said on the item (`CLAUDE.md`, "What is worth building"). Every window follows this
+one rule and none settles its own variant; it is settled in `CONTRACT.md` §2.4.
 
 ## 5. What this asks of the app contract
 
@@ -217,7 +214,7 @@ conflict); as built nothing is said on the item.*
 | images | the source image by reference, fetched at full resolution and colour | the glasses' 16-grey strips are the glasses' presentation |
 | actions | id, label, enabled or a reason it is dim; kind (reversible, irreversible, outbound, guarded) with the confirm text and a double confirm (a guarded action carries its confirm); parameters (text, choice, number with range, file); one or several targets; the answer; an operation number per device (§4.4) | W-18, W-20, W-25, P-08, X-03 all draw actions without knowing the window |
 | level | per action: view, control or full (§4.1) | W-25 limits a screen by its level |
-| listeners | every listener bound or gated by network: the PC to loopback, the tailnet and the bus network; the phone to loopback and the tailnet (§4.2) | `REPLAN.md` §14.3 answer 3; today's code does not yet follow it *(2026-11-23: it does since W, APK 0.66 — one gate, `core/…/net/ReachGate.kt`; `CONTRACT.md` §10.9)* |
+| listeners | every listener bound or gated by network: the PC to loopback, the tailnet and the bus network; the phone to loopback and the tailnet (§4.2) | `REPLAN.md` §14.3 answer 3; built as one gate (`core/…/net/ReachGate.kt`; `CONTRACT.md` §10.9) |
 | live values | value, unit, as-of time, source, and why it is stale; whether it is live only while viewed | ages shown everywhere; "live only while active" per viewer |
 | anchors | item identity (hash, fid, path, session, guid), document anchor (character offset or block + offset), media time (track id + ms), episode + strip | "continue here", "send to", W-04's addresses, P-02's working copy |
 | addresses | deep-link targets that can be built and read, not only opaque | W-04, P-14, notification taps |
@@ -302,9 +299,6 @@ screens.
   measure it at the phone).
 - Which PipeWire device is "the TV and the soundbar", and whether the PC player follows the default device or a fixed
   one (Adam, at the desk).
-- Whether he keeps a desk terminal attached to the sessions the glasses watch (decides W-32's size policy).
-  *2026-11-23: no longer decides it — S1-3's web terminal attaches with `-f ignore-size` and never sizes a session
-  (`CONTRACT.md` §3.4).*
 - Whether he wants the Damage window on a key.
 - Whether notifyd 0.9.7 matches master on do-not-disturb and critical (read the 0.9.7 tag), and whether xfsettingsd
   hands shortcut commands the session's environment (one test entry).
