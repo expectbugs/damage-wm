@@ -804,6 +804,10 @@ object Snapshot {
             toWindow("settings")
             settingsCategoryScene(shell, sim, out, "Music", "37-music-settings")
             musicSettingsLower(shell, sim, out)
+            // build S1-5 J: Settings' own pages and Settings → Games, then Games' scenes 40 to 52 by the first
+            // arrangement's steps: the two windows S1-5 moves onto the PC's record are judged here
+            settingsOwnScenes(shell, sim, out)
+            gamesScenes(shell, sim, out, gamesWin, toWindow, iconsSettled = { iconsSettled() })
         } finally {
             shell.stop()
             filesWin.detach()
@@ -948,6 +952,28 @@ object Snapshot {
         settle(shell, "feed-settings-lower")
         save(sim, out, "37g-feed-settings-lower")
         settingsCategoryScene(shell, sim, out, "Tmux", "37f-tmux-settings")
+    }
+
+    /**
+     * Build S1-5 J (the phone arrangement): Settings' category list (26, back from a category's rows), Global at every
+     * row's default in three screens (27 its top, 27b eight rows down, 27c sixteen) and Settings → Games (37j its top,
+     * 37k seven rows down, where its Notify and style rows show). From a category's rows; ends in Games' category.
+     */
+    private suspend fun settingsOwnScenes(shell: Shell, sim: GlassFirmwareSim, out: Path) {
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)          // a category's rows → the category list
+        waitFor("settings' category list") { shell.currentWindowId() == "settings" && shell.isQuiescent() }
+        settle(shell, "settings-categories")
+        save(sim, out, "26-settings-categories")
+        settingsCategoryScene(shell, sim, out, "Global", "27-settings-global")
+        for (name in listOf("27b-settings-global-mid", "27c-settings-global-end")) {
+            repeat(8) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+            settle(shell, name)
+            save(sim, out, name)
+        }
+        settingsCategoryScene(shell, sim, out, "Games", "37j-games-settings")
+        repeat(7) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        settle(shell, "games-settings-lower")
+        save(sim, out, "37k-games-settings-lower")
     }
 
     /** A Settings category's scene, by Settings' `cat:` deep link, from wherever the shell is in Settings. */
