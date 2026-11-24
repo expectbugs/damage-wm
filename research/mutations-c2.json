@@ -2052,8 +2052,8 @@
   "file": "shell/MainBinding.kt",
   "edits": [
    [
-    "        if (acked && !burstOpen && (p.restage.toStrip == null || p.setsLanded)) switchAcked(p)",
-    "        if (acked && (p.restage.toStrip == null || p.setsLanded)) switchAcked(p)"
+    "        if (acked && !burstOpen) switchAcked(p)",
+    "        if (acked) switchAcked(p)"
    ]
   ],
   "tests": [
@@ -2062,7 +2062,7 @@
   "expect": [
    "aBandSlotIsReleasedOnlyWithNoBurstOpen_AF4"
   ],
-  "note": "AF.4 (retargeted by the lead after FC: setsLanded)",
+  "note": "AF.4 (retargeted by the lead after FC: setsLanded) [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's]",
   "from": "FB"
  },
  {
@@ -2160,8 +2160,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5, fx = fx)",
-    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5, fx = fx)"
+    "listOf(MainStaging.WHOLE), motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)",
+    "MainStaging.WIDTHS + MainStaging.WHOLE, motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)"
    ]
   ],
   "tests": [
@@ -2170,7 +2170,7 @@
   "expect": [
    "theBoundStagingHoldsOnlyTheWholeListsPans_AF10"
   ],
-  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 FF: the shell passes EFFECTS in force] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
+  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 FF: the shell passes EFFECTS in force] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's]",
   "from": "FB"
  },
  {
@@ -2277,24 +2277,6 @@
    "seededS10_noCommitInABatchThatDrawsOverTheList"
   ],
   "note": "Defect C: the old rule's COMMIT of the newest adopted report whatever the batch draws \u2014 both of this build's guards removed (the meets check, and the list in front at the answer, which alone also catches a cover: S18b pins the meets check alone): (2)",
-  "from": "FB"
- },
- {
-  "id": "AD2-no-switch",
-  "file": "shell/MainStaging.kt",
-  "edits": [
-   [
-    "        if (o != null && writes.isNotEmpty()) {",
-    "        if (o != null && writes.isNotEmpty() && rows < 0) {"
-   ]
-  ],
-  "tests": [
-   "*MainBindTest.theLocalCheck*"
-  ],
-  "expect": [
-   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
-  ],
-  "note": "AD.2: a row-form change at 256 written in place (no second strip)",
   "from": "FB"
  },
  {
@@ -2716,80 +2698,6 @@
   "from": "FD"
  },
  {
-  "id": "FC-AD2-no-switch",
-  "file": "shell/MainStaging.kt",
-  "edits": [
-   [
-    "if (o != null && writes.isNotEmpty()) {",
-    "if (o != null && writes.isNotEmpty() && rows < 0) {"
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2"
-  ],
-  "expect": [
-   "aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2"
-  ],
-  "note": "FC: the strip switch disabled at 256 KiB (the 160 KiB withdrawal instead)",
-  "from": "FC"
- },
- {
-  "id": "FC-release-at-sent",
-  "file": "shell/MainBinding.kt",
-  "edits": [
-   [
-    "(p.restage.toStrip == null || p.setsLanded)",
-    "(p.restage.toStrip == null || p.setsLanded || p.setsFlush != null)"
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2",
-   "*MainBindTest.aStripSwitchIsReleasedWhenItsSetsLand_AD2"
-  ],
-  "expect": [
-   "aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2",
-   "aStripSwitchIsReleasedWhenItsSetsLand_AD2"
-  ],
-  "note": "FC: the strip switch released when its SETs are sent (the defect)",
-  "from": "FC"
- },
- {
-  "id": "FC-failed-flush-lands",
-  "file": "shell/MainBinding.kt",
-  "edits": [
-   [
-    "{ if (ok) p.setsLanded = true; p.setsFlush = null }",
-    "{ p.setsLanded = true; p.setsFlush = null }"
-   ]
-  ],
-  "tests": [
-   "*MainBindTest.aStripSwitchIsReleasedWhenItsSetsLand_AD2"
-  ],
-  "expect": [
-   "aStripSwitchIsReleasedWhenItsSetsLand_AD2"
-  ],
-  "note": "FC: a failed SETs flush counted as landed",
-  "from": "FC"
- },
- {
-  "id": "FC-session-keeps-flush",
-  "file": "shell/MainBinding.kt",
-  "edits": [
-   [
-    "fun tailsForgotten() { for (p in patches) p.setsFlush = null; reprogram?.setsFlush = null }",
-    "fun tailsForgotten() { reprogram?.setsFlush = null }"
-   ]
-  ],
-  "tests": [
-   "*MainBindTest.aStripSwitchIsReleasedWhenItsSetsLand_AD2"
-  ],
-  "expect": [
-   "aStripSwitchIsReleasedWhenItsSetsLand_AD2"
-  ],
-  "note": "FC: a new session keeps the old session's flush in flight [re-targeted at the 0.83 integration: K1-1 added the re-make's flush beside the patches'; the row keeps the patches' (its pin is a strip switch)]",
-  "from": "FC"
- },
- {
   "id": "FC-AF3-no-save",
   "file": "shell/Shell.kt",
   "edits": [
@@ -2877,32 +2785,6 @@
    "aSpanHeldWholeDuringTheDeferralGoesAtTheRelease_AL2"
   ],
   "note": "AL.2: the deferral branch drops what the hold loop grew",
-  "from": "FC"
- },
- {
-  "id": "AL4-strip-in-switch",
-  "file": "shell/MainStaging.kt",
-  "edits": [
-   [
-    "stripEnc.copyOf(), next(stripSlot), stripSlot, segOff.copyOf(), segLen.copyOf())",
-    "ByteArray(0), next(stripSlot), stripSlot, segOff.copyOf(), segLen.copyOf())"
-   ],
-   [
-    "listOfNotNull(Blob(strip.name, strip.off, pad(strip.encoded), strip.raw), stripB?.let { Blob(it.name, it.off, pad(it.encoded), it.raw) }) +",
-    "listOf(Blob(strip.name, strip.off, pad(strip.encoded), strip.raw)) +"
-   ],
-   [
-    "            for (k in nLens.indices) {\n                if (oOff[k] != nOffs[k]",
-    "            if (o.encoded.isEmpty()) ow += Write(o.off, pad(full), \"the whole strip into slot $to\") else for (k in nLens.indices) {\n                if (oOff[k] != nOffs[k]"
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2"
-  ],
-  "expect": [
-   "aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2"
-  ],
-  "note": "AL.4: slot B left for the first switch's flush (the strip whole in it), as before",
   "from": "FC"
  },
  {
@@ -3040,24 +2922,6 @@
   ],
   "note": "AQ.1: the tree before FE (per-lens hold, no backstop): each assemble repeats; the test's thread bound decides",
   "from": "FE"
- },
- {
-  "id": "T1-no-one-strip",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "                if (shared0) throw e\n",
-    "                throw e\n"
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.fullerRowsStageWithOneStripAt256KiB_AU1"
-  ],
-  "expect": [
-   "fullerRowsStageWithOneStripAt256KiB_AU1"
-  ],
-  "note": "AU.1 (b): no one-strip fallback (two strips or not staged)",
-  "from": "T1"
  },
  {
   "id": "T1-region-96",
@@ -3767,7 +3631,7 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false, stage5, fx)",
+    "                room != null && room.any { it > 0 } || bandRoom?.any { it > 0 } == true -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit, false, stage5, fx)",
     ""
    ]
   ],
@@ -3777,7 +3641,7 @@
   "expect": [
    "aRoomTheRegionCannotHoldIsLeftOut_B082"
   ],
-  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument (false on the ladder's later rungs)] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
+  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument (false on the ladder's later rungs)] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's]",
   "from": "B082"
  },
  {
@@ -3785,8 +3649,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5, fx)",
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, WRAP_NONE, false, stage5, fx)"
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx)",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, WRAP_NONE, false, stage5, fx)"
    ]
   ],
   "tests": [
@@ -3795,7 +3659,7 @@
   "expect": [
    "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
   ],
-  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
+  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's]",
   "from": "B082"
  },
  {
@@ -3803,7 +3667,7 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5, fx)",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx)",
     ""
    ]
   ],
@@ -3813,7 +3677,7 @@
   "expect": [
    "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
   ],
-  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font) [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
+  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font) [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's]",
   "from": "B082"
  },
  {
@@ -4536,12 +4400,12 @@
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
   ],
   "expect": [
-   "aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "(declared, no pin since K1-2 stage 1: a piece that misses the wrap's read range is a strip write of a row outside the wrap's record, and those go only with the list withdrawn — no entry live, so no edge report, and the pieces wait for the CLEAR's flush to complete; a band move's pieces lie inside the range (from the wrap's record to its program). Its pin `aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1` went with the case)"
   ],
-  "note": "S1: every wrap during a Main re-stage's pieces goes as today (0.82)",
+  "note": "S1: every wrap during a Main re-stage's pieces goes as today (0.82) [K1-2 stage 1: declared — its case went with AD.2]",
   "from": "B083"
  },
  {
@@ -4554,12 +4418,12 @@
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
   ],
   "expect": [
-   "aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "(declared, no pin since K1-2 stage 1: a piece that misses the wrap's read range is a strip write of a row outside the wrap's record, and those go only with the list withdrawn — no entry live, so no edge report, and the pieces wait for the CLEAR's flush to complete; a band move's pieces lie inside the range (from the wrap's record to its program). Its pin `aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1` went with the case)"
   ],
-  "note": "S1: a piece holding both a part the wraps read and one they do not (0.82: the strip's row and the band form in one message)",
+  "note": "S1: a piece holding both a part the wraps read and one they do not (0.82: the strip's row and the band form in one message) [K1-2 stage 1: declared — its case went with AD.2]",
   "from": "B083"
  },
  {
@@ -4572,7 +4436,7 @@
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
   ],
   "expect": ["(declared, no pin: Main's re-stage lists its strip rows ahead of what the wraps read, so the sort changes nothing it writes today; it keeps that order for a list in any order)"],
   "note": "S1: a re-stage's parts in their own order",
@@ -4593,7 +4457,7 @@
   "expect": [
    "aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
   ],
-  "note": "S1: a wrap plays while a piece meeting its read range is written or on its way",
+  "note": "S1: a wrap plays while a piece meeting its read range is written or on its way [K1-2 stage 1: its pin SPLIT2 now on a band move — a row form withdraws the list at 256 KiB]",
   "from": "B083"
  },
  {
@@ -10161,5 +10025,157 @@
   ],
   "note": "C3 X3 item B: the predicate too eager — a tap opening a tier's sub menu is taken for one that changes no screen",
   "from": "C3-X3"
+ },
+ {
+  "id": "K12S1-O1-no-withdrawal-at-256",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            else if (r.strip.isNotEmpty() && mainBind.withdrawnFor != row) {",
+    "            else if (r.strip.isNotEmpty() && mainBind.withdrawnFor != row && st.cacheSize < CfwModes.CACHE2_MAX_RIDERS) {"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aRowFormChangeAt256KiBWithdraws*"
+  ],
+  "expect": [
+   "aRowFormChangeAt256KiBWithdrawsTheListAndReturnsOnItsRow_O1"
+  ],
+  "note": "K1-2 stage 1 (O1): at 256 KiB a row form's strip segments written with no withdrawal (under a table that names the strip)",
+  "from": "K1-2-S1"
+ },
+ {
+  "id": "K12S1-O12-uniform-slots",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val bands = bandPics.mapIndexed { i, (g, enc) -> val sz = if ((bandRoom?.getOrNull(i) ?: 0) > 0) bigSlot else slack(enc.size)",
+    "            val bands = bandPics.mapIndexed { i, (g, enc) -> val sz = bigSlot"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.bandSlots*"
+  ],
+  "expect": [
+   "bandSlotsAreEachRowsOwnSizeAndTheFreeSpanIsTheRegionLessTheStaging_O12"
+  ],
+  "note": "K1-2 stage 1 (O12): every band slot the largest one again",
+  "from": "K1-2-S1"
+ },
+ {
+  "id": "K12S1-O12-room-ignored",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val bands = bandPics.mapIndexed { i, (g, enc) -> val sz = if ((bandRoom?.getOrNull(i) ?: 0) > 0) bigSlot else slack(enc.size)",
+    "            val bands = bandPics.mapIndexed { i, (g, enc) -> val sz = slack(enc.size)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.bandSlots*",
+   "*ScrollEffectsTest.aBandFormThatOutgrows*"
+  ],
+  "expect": [
+   "bandSlotsAreEachRowsOwnSizeAndTheFreeSpanIsTheRegionLessTheStaging_O12",
+   "aBandFormThatOutgrowsItsSlotIsRePlacedAndEveryEndStaysMainsPaint_O12"
+  ],
+  "note": "K1-2 stage 1 (O12): a row whose band form changed in the last staging gets its own size, not the largest",
+  "from": "K1-2-S1"
+ },
+ {
+  "id": "K12S1-O12-room-not-harvested",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "            if (ms.bandSeen[r] > 0) bandRoomById[id] = ms.bandSeen[r] else bandRoomById.remove(id)",
+    "            bandRoomById.remove(id)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.aBandFormThatOutgrows*"
+  ],
+  "expect": [
+   "aBandFormThatOutgrowsItsSlotIsRePlacedAndEveryEndStaysMainsPaint_O12"
+  ],
+  "note": "K1-2 stage 1 (O12): the band room not carried into the next staging by window",
+  "from": "K1-2-S1"
+ },
+ {
+  "id": "K12S1-O12-room-kept-on-short-region",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "                room != null && room.any { it > 0 } || bandRoom?.any { it > 0 } == true -> assemble(",
+    "                room != null && room.any { it > 0 } -> assemble("
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.bandSlots*"
+  ],
+  "expect": [
+   "bandSlotsAreEachRowsOwnSizeAndTheFreeSpanIsTheRegionLessTheStaging_O12"
+  ],
+  "note": "K1-2 stage 1 (O12): a short region does not give the band room up (the staging refused for its sake)",
+  "from": "K1-2-S1"
+ },
+ {
+  "id": "K12S1-O12-spare-smallest",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val spareSlot = bigSlot\n",
+    "            val spareSlot = bands.minOf { it.slot }\n"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.bandSlots*",
+   "*ScrollEffectsTest.aBandFormThatOutgrows*"
+  ],
+  "expect": [
+   "bandSlotsAreEachRowsOwnSizeAndTheFreeSpanIsTheRegionLessTheStaging_O12",
+   "aBandFormThatOutgrowsItsSlotIsRePlacedAndEveryEndStaysMainsPaint_O12"
+  ],
+  "note": "K1-2 stage 1 (O12): the spare band slot the smallest, not the largest",
+  "from": "K1-2-S1"
+ },
+ {
+  "id": "K12S1-free-span-blobs-only",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "    val freeSpan: Int get() = regionEnd - end\n",
+    "    val freeSpan: Int get() = regionEnd - blobs.last().let { it.off + it.bytes.size }\n"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.bandSlots*",
+   "*MainLocalShellTest.aRowFormChangeAt256KiBWithdraws*"
+  ],
+  "expect": [
+   "bandSlotsAreEachRowsOwnSizeAndTheFreeSpanIsTheRegionLessTheStaging_O12",
+   "aRowFormChangeAt256KiBWithdrawsTheListAndReturnsOnItsRow_O1"
+  ],
+  "note": "K1-2 stage 1: the free span said from the last record, past the spare pan slot",
+  "from": "K1-2-S1"
+ },
+ {
+  "id": "K12S1-O12-one-spare",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val spareOffs = listOf(next(spareSlot), next(spareSlot))\n",
+    "            val spareOffs = listOf(next(spareSlot))\n"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theLocalCheck*",
+   "*ScrollEffectsTest.bandSlots*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2",
+   "bandSlotsAreEachRowsOwnSizeAndTheFreeSpanIsTheRegionLessTheStaging_O12"
+  ],
+  "note": "K1-2 stage 1 (O12): one spare band slot (the draft's rule): a row's second change in one staging past its own slot owes a full staging (the local check's case b)",
+  "from": "K1-2-S1"
  }
 ]

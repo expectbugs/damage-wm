@@ -269,7 +269,7 @@ class StagePiecesTest {
                 val ms = r.shell.mainBinding.staging!!
                 val out = ArrayList<String>()
                 for (arm in Arm.entries) { val cache = (if (arm == Arm.LEFT) r.sim.left else r.sim.right).textureCache ?: continue
-                    for (p in listOfNotNull(ms.strip, ms.stripB, ms.wrap) + ms.bands)
+                    for (p in listOfNotNull(ms.strip, ms.wrap) + ms.bands)
                         if (!java.util.Arrays.equals(cache, p.off, p.off + p.encoded.size, p.encoded, 0, p.encoded.size)) out += "$arm ${p.name}" }
                 out
             }
@@ -304,7 +304,7 @@ class StagePiecesTest {
                 val stale = r.onLoop {
                     val ms = r.shell.mainBinding.staging!!
                     val out = ArrayList<String>()
-                    val pics = listOfNotNull(ms.strip, ms.stripB, ms.wrap) + ms.bands
+                    val pics = listOfNotNull(ms.strip, ms.wrap) + ms.bands
                     for (arm in Arm.entries) { val cache = (if (arm == Arm.LEFT) r.sim.left else r.sim.right).textureCache ?: continue
                         for (p in pics) if (!java.util.Arrays.equals(cache, p.off, p.off + p.encoded.size, p.encoded, 0, p.encoded.size)) out += "$arm ${p.name}" }
                     out

@@ -70,6 +70,10 @@ import wm.damage.core.wire.Pb
  */
 internal object ShipVectors {
     const val PREFIX = "v5-ship-"
+    /** K1-2 stage 1 (`private/build083/K1-2-S1-built.md` §2; decisions BC O1): the shipped acts whose spec went with AD.2's
+     *  strip switch — Main on one strip at 256 KiB, a row form's change withdraws the list — their files kept until the
+     *  vector lane removes them; no spec makes them (the play-back row and the DSL's count name them). */
+    val GONE = setOf("v5-ship-ring-switch-352")
     private const val FEATURES = 0xDFF
     private const val ACT_TICK = 2000L
 
@@ -451,11 +455,9 @@ internal object ShipVectors {
      * answers them, ONE COMMIT, the newest's. BURST_EACH — the same with room on the link, as the shell does on the instant
      * link by itself: each report answered by the flush after it, the first's COMMIT adopting nothing on the lenses (its
      * instance closed by the wrap's fire; the wrap's newer instance left drawing, §6.5) and writing its END under the
-     * drawing pan, then the wrap's COMMIT. SWITCH — at 256 KiB a row's form changes (a window's summary
-     * line): the idle repaint's batch ([its frame, LIST-RING, SETTLE]), the changed row written into the strip slot no
-     * table names (its k + 1 margins of the other end already written with the base records, decisions AL.4) and the SETs
-     * naming that strip's pans; a wrap notch up fired as the first lens is handed the SETs' batch — between the write and
-     * the SETs, the old pan over the new item table (§6.7 P9) — adopted and COMMITted.
+     * drawing pan, then the wrap's COMMIT. (SWITCH — AD.2's strip switch at 256 KiB — went with that switch at K1-2 stage 1,
+     * decisions BC O1: a row form's change withdraws the list at every cache size; its file is named in [GONE] until the
+     * vector lane removes it.)
      *
      * C3 SV2 (DM-1's acts, decisions BN, BP (4), CA (1)): FAST — from row 0 three notches down about 120 ticks apart (each
      * fired when RIGHT's pan has drawn its step [FAST_STEP], so each fire closes the pan before it mid-program, §6.2 step
@@ -466,7 +468,7 @@ internal object ShipVectors {
      * the switch's batch has landed (applied as today, `restaged`: no COMMIT), and after it a notch on the new pans
      * (COMMITted).
      */
-    enum class RingForm { NOTCHES, TAP, UNDER_BACK, TABLE, BURST, BURST_EACH, SWITCH, FAST, PITCH }
+    enum class RingForm { NOTCHES, TAP, UNDER_BACK, TABLE, BURST, BURST_EACH, FAST, PITCH }
 
     /** C3 SV2: the step RIGHT's pan has drawn when FAST's next notch fires — at P 16 step 8 is drawn 112 ticks after its
      *  fire and step 9 falls due at 128, so the notches go about 120 ticks apart (the motion check's fast three, X1DM1). */
@@ -482,8 +484,8 @@ internal object ShipVectors {
      * C3 SVR: at 288 and 352 (the heights where his eight rows wrap, so Main is a ring list), each Scroll effect's NOTCHES
      * act (None, Depth, Slide, Fall: their pans are four different programs at each height — no two give the same bytes);
      * the tap under `report` and under `glasses`, each on row 0 and on the last row, with Depth (the tap's press is one
-     * program whatever the Scroll effect, `MainStaging.Press`); and one each of UNDER_BACK, TABLE, BURST, BURST_EACH and
-     * SWITCH at 352 (his height) with Depth. A LIST-RING whose shift wraps is not here: the shell sends none (every LIST it writes has
+     * program whatever the Scroll effect, `MainStaging.Press`); and one each of UNDER_BACK, TABLE, BURST and BURST_EACH
+     * at 352 (his height) with Depth. A LIST-RING whose shift wraps is not here: the shell sends none (every LIST it writes has
      * shift 0 — `MainSurface.shift` is 0 — so the modular shift is `v5-ring`'s alone, the firmware's own vector).
      */
     fun ringSpecs(): List<RingSpec> {
@@ -499,7 +501,6 @@ internal object ShipVectors {
         out += RingSpec("${PREFIX}ring-table-352", ScrollEffect.DEPTH, 352, RingForm.TABLE)
         out += RingSpec("${PREFIX}ring-burst-352", ScrollEffect.DEPTH, 352, RingForm.BURST)
         out += RingSpec("${PREFIX}ring-burst-each-352", ScrollEffect.DEPTH, 352, RingForm.BURST_EACH)
-        out += RingSpec("${PREFIX}ring-switch-352", ScrollEffect.DEPTH, 352, RingForm.SWITCH)
         return out
     }
 
@@ -942,25 +943,6 @@ internal object ShipVectors {
                     ended(from, count - 1, "a burst across the wrap")
                     r.settle("${spec.name}: after the burst")
                 }
-                RingForm.SWITCH -> {
-                    check(r.onLoop { r.shell.mainBinding.staging?.stripB != null }) { "${spec.name}: Main's own region holds no second strip at 256 KiB" }
-                    val oldProgs = list.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
-                    // the wrap notch as the first lens is handed the batch that SETs the other strip's pans (before it applies it)
-                    val firedAt = java.util.concurrent.atomic.AtomicInteger(-1)
-                    rec.act.set(true)
-                    rec.spy = { _, img -> if (firedAt.get() < 0 && subs(img).any { isSub(it, 27, CfwModes.BIND_SET) && it.size == 23 && u16(it, 9) !in oldProgs && u16(it, 9) != CfwModes.PROG_NONE } &&
-                        firedAt.compareAndSet(-1, rec.events.size)) rec.fire(CfwModes.EV_DOWNROLL) }
-                    r.rows[3].s = r.rows[3].s.copy(line = "summary 33")    // a row's form changes: every row shows its summary line
-                    r.shell.services.requestRender(r.rows[3])
-                    r.until("${spec.name}: a wrap notch fired between the strip's write and the SETs", 20_000) { firedAt.get() >= 0 }
-                    rec.spy = null
-                    ended(firedAt.get(), count - 1, "the wrap notch between the write and the SETs")
-                    r.settle("${spec.name}: after the switch")
-                    check(r.onLoop { r.shell.mainBinding.staging!!.activeStrip } == 1) { "${spec.name}: the strip did not switch" }
-                    val now = r.onLoop { r.shell.mainBoundForTest().first }!!.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
-                    check(now.none { it in oldProgs }) { "${spec.name}: the list does not name the other strip's pans: $now against $oldProgs" }
-                    words += "the old pans $oldProgs, the other strip's ${now}"
-                }
                 RingForm.FAST -> {
                     rec.act.set(true)
                     val from = rec.events.size
@@ -1063,10 +1045,6 @@ internal object ShipVectors {
                 "${spec.name}: no DISCARD naming row ${count - 1} behind a LIST-RING answers the refused fire" }
             if (spec.form == RingForm.UNDER_BACK) act.filter { ss -> ss.any { isSub(it, 26, CfwModes.MOTION_DISCARD) && u16(it, 6) == count - 1 } }.let { b ->
                 check(b.none { ss -> ss.any { isSub(it, 27, CfwModes.BIND_SET) } }) { "${spec.name}: a SET rides the answer to the refused fire: ${b.map { shape(it) }}" } }
-            // SWITCH (item i): an idle batch on Main — its frame, then [LIST-RING, SETTLE]
-            if (spec.form == RingForm.SWITCH) check(act.any { ss -> ss.size >= 3 && (ss[0][0].toInt() and 0x7F) !in setOf(19, 25, 26, 27) &&
-                    isSub(ss[ss.size - 2], 27, CfwModes.BIND_LIST_RING) && isSub(ss.last(), 26, CfwModes.MOTION_SETTLE) }) {
-                "${spec.name}: no idle batch [its frame, LIST-RING, SETTLE] in the act" }
             val st = r.t.state.value
             check(st.flagsInForce == 0x7c) { "${spec.name}: flags in force 0x${st.flagsInForce.toString(16)}, not stage 5's 0x7c" }
             val finalCrc = synchronized(r.sim) { Arm.entries.associateWith { r.sim.shadowCrc32(it) } }
@@ -1084,7 +1062,7 @@ internal object ShipVectors {
                         "${spec.name}: not both halves of the Select whole${if (spec.taps == Taps.GLASSES) " and the press closed at its HOLD (drawn $pressT)" else ""} on RIGHT: ${said(bodies, 0..3)}" }
                     RingForm.UNDER_BACK -> check(halves.size == 2 && pansWhole(1)) { "${spec.name}: not both halves of the Back and the wrap's pan whole on RIGHT: ${said(bodies, 0..3)}" }
                     // the first local instance closed by the wrap's fire with no body (its own slot, §6.2 step 11); the wrap's pan whole
-                    RingForm.TABLE, RingForm.BURST, RingForm.SWITCH -> check(pansWhole(1) && pans.none { it.outcome == DamageMsg.OUTCOME_CLOSED }) {
+                    RingForm.TABLE, RingForm.BURST -> check(pansWhole(1) && pans.none { it.outcome == DamageMsg.OUTCOME_CLOSED }) {
                         "${spec.name}: not one pan whole on RIGHT: ${said(pans, 0..0)}" }
                     // BURST_EACH: the first report's COMMIT adopts nothing (its instance closed by the wrap's fire, the wrap's
                     // newer instance left drawing: §6.5 COMMIT) — its one body outcome 3, drawn 0 — then the wrap's pan whole
@@ -1136,11 +1114,6 @@ internal object ShipVectors {
                     if (applied.map { it.cursor } != listOf(0, count - 1) || applied.map { it.field18 } != listOf(null, 1L)) bad("not a notch to row 0 and then the wrap")
                     val want = if (spec.form == RingForm.BURST) 1 else 2
                     if (commits.size != want) bad("not $want COMMIT(s) for the burst: ${commits.map { hex(it) }}")
-                }
-                RingForm.SWITCH -> {
-                    val a = applied.singleOrNull() ?: bad("not one report")
-                    val old = list.entries.filter { !it.isTap }.map { it.prog4 }
-                    if (a.outcome != DamageMsg.APPLIED_DREW || a.cursor != count - 1 || a.field18 != 1L || a.prog !in old) bad("the wrap between the write and the SETs did not draw the old pan")
                 }
                 RingForm.FAST -> {
                     if (applied.size != 3 || applied.any { it.isTap || it.outcome != DamageMsg.APPLIED_DREW }) bad("not three scroll fires that drew")

@@ -345,7 +345,7 @@ class MainLocalShellTest {
      * row's repaint follows — belief equals both lenses at the end.
      *
      * MR-083 (`burst-gate`): not one piece of the re-stage goes while the burst is open — the first piece included (build
-     * SPLIT: an instance's read ranges cover both strip slots and the spare band slot, §5.6). Between A's motion's end
+     * SPLIT: an instance's read ranges cover the strip and the spare band slots, §5.6). Between A's motion's end
      * and B the motion gate is open and only the burst gate holds the first piece (traced: with it removed the first
      * piece went 12 ms before B, the later pieces and the books still after the SETTLE by their own `mayGo`). The burst
      * closes no earlier than Q after B's report, so every STAGE flush since the change is submitted at tB + Q or later.
@@ -586,9 +586,9 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
-    /** Decisions AU.1 (b): at 256 KiB, rows fuller than two strips' room (eighteen dense rows) stage with ONE strip —
-     *  never "cannot be staged" while one fits — the list bound; a row form's change then withdraws and returns, as at
-     *  160 KiB. (Two strips when they fit: `aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2`.) */
+    /** Decisions AU.1 (b): at 256 KiB, rows fuller than two strips' room (eighteen dense rows) stage — never "cannot be
+     *  staged" while one strip fits (since K1-2 stage 1 one strip at every size, decisions BC O1) — the list bound; a row
+     *  form's change then withdraws and returns, as at 160 KiB. */
     @Test
     fun fullerRowsStageWithOneStripAt256KiB_AU1(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, nRows = 18, kib256 = true)
@@ -596,8 +596,7 @@ class MainLocalShellTest {
             for (w in r.rows) w.s = w.s.copy(line = "W".repeat(80), detail = "W".repeat(80))
             r.up()
             assertTrue(r.notes("mainstage").none { it.startsWith("Main's rows cannot be staged") }, "${r.notes("mainstage")}")
-            assertTrue(r.notes("mainstage").any { it.startsWith("two strips do not fit Main's region") }, "one strip staged: ${r.notes("mainstage")}")
-            assertTrue(r.onLoop { r.shell.mainBinding.staging!!.stripB == null }, "no second strip")
+            assertTrue(r.notes("mainstage").any { it.startsWith("staged") && "Main's own region" in it }, "staged in Main's own region: ${r.notes("mainstage")}")
             r.rows[3].s = r.rows[3].s.copy(line = "short 3")
             r.shell.services.requestRender(r.rows[3])
             r.until("withdrawn for the row form's change", 15_000) { r.notes("mainstage").any { it.startsWith("withdrawn") } }
@@ -1082,72 +1081,65 @@ class MainLocalShellTest {
     }
 
     /**
-     * Decisions AD.2 in the shell (follow-up FC), on a 256 KiB session with BIND in force (the stored record's last size,
-     * AD.1): Main's own region holds a second strip, and a row form's change writes the new strip there and SETs the
-     * entries to the pans that name it — no CLEAR of the entries, no unbound moment. A notch before the switch, one fired
-     * between the write and the SETs (when the first lens is handed the batch that SETs the new pans: both lenses then hold
-     * the new strip and the old entries), and one after: each adopted and COMMITted, belief equal to both lenses after
-     * each, the staging's active strip the other one, RIGHT's entries naming its pans. (The same at 160 KiB withdraws and
-     * returns on the right row: `aRowFormChangeWithdrawsTheListAndANotchInBetweenGoesAsToday_DI`.)
+     * K1-2 stage 1 (decisions BC O1): on a 256 KiB session with BIND in force (the stored record's last size, AD.1) Main is
+     * staged on ONE strip in its own region, and a row form's change withdraws the list as at 160 KiB — the rules' CLEAR
+     * reaches RIGHT before the strip's write, the LIST and the SETs after it, naming the same pans (no strip switch). A
+     * notch fired while the write is on its way matches no entry (no S taken) and goes as today; the return names the
+     * phone's row on RIGHT; once bound again a notch is adopted and committed. Prints the path's flushes and bytes (the
+     * report's count; the rig's link is the start rig's, so the times are the model's).
      */
     @Test
-    fun aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2(): Unit = runBlocking {
+    fun aRowFormChangeAt256KiBWithdrawsTheListAndReturnsOnItsRow_O1(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, kib256 = true)
         try {
             r.up()
             assertEquals(256 * 1024, r.t.state.value.cacheSize, "a 256 KiB session from the stored record")
-            assertTrue(r.onLoop { r.shell.mainBinding.staging?.stripB != null }, "Main's own region holds a second strip")
+            val staged = r.notes("mainstage").first { it.startsWith("staged") }
+            assertTrue("Main's own region" in staged && "second slot" !in staged, "one strip in Main's own region: $staged")
+            // the region's free span as the note says it: the region less what is staged, from Main's end to the region's
+            val span = Regex("""the region's free span (\d+) B at (\d+)\.\.(\d+)""").find(staged)?.groupValues?.drop(1)?.map { it.toInt() }
+            val (end, regionEnd, start) = r.onLoop { r.shell.mainBinding.staging!!.let { Triple(it.end, it.regionEnd, it.start) } }
+            assertEquals(listOf(regionEnd - end, end, regionEnd), span, "the free span said: $staged")
+            assertEquals(CfwModes.mainRegion(256 * 1024, true).let { it.last + 1 - it.first } - (end - start), span!![0], "the region less the staging")
+            assertEquals(0, r.row())
             val list0 = r.list()
-            val oldProgs = list0.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
-            notch(r, CfwModes.EV_UPROLL, "the notch before the switch")
-            delay(r.q() + 200); r.settle("the burst closed")
+            val progs0 = list0.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
             val at = r.right.size
-            var between: Int? = null
-            r.onAnyImage = { _, img ->
-                if (between == null && r.subs(img).any { r.isSub(it, 27, 0) && r.u16(it, 9) !in oldProgs && r.u16(it, 9) != 0xFFFF })
-                    between = r.fire(CfwModes.EV_UPROLL)
+            val t0 = System.currentTimeMillis()
+            var between: Pair<Int, Int>? = null                 // RIGHT's S before and after the notch in between
+            r.onImage = { img ->
+                if (between == null && r.cacheWrite(img) && r.sim.bindForTest(Arm.RIGHT).field39() == 0) {
+                    val s0 = r.sim.bindForTest(Arm.RIGHT).seq
+                    between = s0 to r.fire(CfwModes.EV_UPROLL)
+                }
             }
             r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
             r.shell.services.requestRender(r.rows[3])
-            r.until("a notch fired between the strip's write and the SETs", 15_000) { between != null }
-            r.onAnyImage = null
-            val sB = between!!
-            delay(((list0.entries.first { it.eventId == CfwModes.EV_UPROLL }.let { (it.program!!.T + 1) * it.period }) * 1000L) / 1024 + r.q() + 200)
-            r.settle("after the notch between")
-            assertEquals(2, r.row(), "the notch between was adopted")
-            assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, sB) } }, "the notch between was COMMITted (S $sB): " +
-                "applied ${r.notes("applied").takeLast(2)}; snapback ${r.notes("snapback").takeLast(2)}; mainstage ${r.notes("mainstage").takeLast(3)}; " +
-                "answers ${r.right.drop(at).flatMap { img -> r.subs(img).filter { it[0].toInt() == 26 || it[0].toInt() == 27 }.map { x -> x.joinToString("") { "%02x".format(it) } } }.take(12)}")
-            r.assertOracle("after the notch between the write and the SETs")
-            notch(r, CfwModes.EV_UPROLL, "the notch after the switch")
+            r.until("withdrawn", 15_000) { r.notes("mainstage").any { it.startsWith("withdrawn — row 3") } }
+            r.until("re-staged", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
+            r.bound("offered again")
+            r.onImage = null
+            val b = assertNotNull(between, "a notch was fired while the strip's write was on its way, with no entry on RIGHT")
+            assertEquals(b.first, b.second, "the notch in between matched no entry (no S taken)")
+            assertEquals(1, r.row(), "the notch in between moved the row as today")
+            // decisions AF.2: the return named the phone's current row — RIGHT's list cursor is where the frame is
+            assertEquals(r.row(), r.sim.bindForTest(Arm.RIGHT).lists[0].cursor, "the return named the current row on RIGHT")
+            // the path on RIGHT: the CLEAR of Main's entries first, then the strip's write, then the SETs (the same pans)
+            val imgs = r.right.drop(at)
+            val clearAt = imgs.indexOfFirst { img -> r.subs(img).any { r.isSub(it, 27, CfwModes.BIND_CLEAR) } }
+            val writeAt = imgs.indexOfFirst { r.cacheWrite(it) }
+            val setAt = imgs.indices.firstOrNull { it > writeAt && r.subs(imgs[it]).any { s -> r.isSub(s, 27, CfwModes.BIND_SET) } } ?: -1
+            assertTrue(clearAt in 0 until writeAt && setAt > writeAt, "CLEAR at $clearAt, the write at $writeAt, the SETs at $setAt of RIGHT's images")
             val list1 = r.list()
-            val newDown = list1.entries.first { it.eventId == CfwModes.EV_UPROLL }.prog4
-            assertTrue(newDown !in oldProgs, "the offered list names the other strip's pans")
-            assertEquals(1, r.onLoop { r.shell.mainBinding.staging!!.activeStrip }, "the strip switched")
-            assertEquals(newDown, r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.prog, "RIGHT's entry names the new pan")
-            assertTrue(r.notes("applied").last().contains("prog $newDown"), "the last notch drew the new strip's pan: ${r.notes("applied").last()}")
-            assertTrue(r.right.drop(at).none { img -> r.subs(img).any { r.isSub(it, 27, 1) } }, "no CLEAR of the entries: no unbound moment")
-            assertTrue(r.notes("mainstage").none { it.startsWith("withdrawn") }, "no withdrawal: ${r.notes("mainstage").filter { it.startsWith("withdrawn") }}")
-            assertTrue(r.notes("snapback").isEmpty() && r.notes("repair").isEmpty(), "no snap-back and no table repair: " +
-                "${r.notes("snapback")} ${r.notes("repair")}")
-            // AL.4: the second strip slot went with the base records, so the switch's flush carries only the changed row
-            val staged = r.notes("mainstage").first { it.startsWith("staged") }
+            assertEquals(progs0, list1.entries.filter { !it.isTap }.map { it.prog4 }.toSet(), "the same pans: no strip switch")
+            assertEquals(list0.mark, list1.mark, "the mark kept (P9: a row re-staged keeps it)")
             val restaged = r.notes("mainstage").first { it.startsWith("row 3 re-staged") }
-            val stripB = Regex("""its second slot (\d+) B""").find(staged)?.groupValues?.get(1)?.toInt()
-            val switchB = Regex("""re-staged — (\d+) B""").find(restaged)!!.groupValues[1].toInt()
-            assertTrue(stripB != null && switchB < stripB / 2, "the second slot staged with the base records ($staged); the switch's flush small ($restaged)")
-            // build SPLIT: the re-stage is booked (the list that names the other strip) only after every piece before its
-            // naming piece was acknowledged — each of those pieces' `done` line comes before the `re-staged` note
-            val ls = Files.readAllLines(r.journal)
-            val bookedAt = ls.indexOfFirst { "\"kind\":\"mainstage\"" in it && "\"detail\":\"row 3 re-staged" in it }
-            val pieceIds = ls.filter { "\"kind\":\"stage\"" in it && "re-stage" in it && "as flush " in it }
-                .map { it.substringAfter("as flush ").takeWhile { c -> c.isDigit() }.toLong() }
-            val n = Regex("""in (\d+) piece""").find(restaged)!!.groupValues[1].toInt()
-            val naming = if ("item table switched" in restaged) 1 else 0
-            assertEquals(n, pieceIds.size, "the re-stage's pieces: $pieceIds")
-            for (id in pieceIds.take(n - naming)) assertTrue(ls.indexOfFirst { "\"ev\":\"done\"" in it && "\"id\":$id," in it } in 0 until bookedAt,
-                "piece flush $id acknowledged before the booking (line $bookedAt)")
-            if (naming == 1) assertTrue(ls.any { "re-stage: piece $n of $n (4 B, naming the rest)" in it }, "the item word alone, last: ${ls.filter { "re-stage" in it && "\"kind\":\"stage\"" in it }}")
+            val bytes = Regex("""re-staged — (\d+) B in (\d+) piece""").find(restaged)!!.groupValues
+            println("O1 FACT: a row form's change at 256 KiB: RIGHT's images from the CLEAR to the SETs ${setAt - clearAt + 1} " +
+                "(the CLEAR's ${clearAt - 0}, the write's ${writeAt}, the SETs' ${setAt} after the change), the re-stage ${bytes[1]} B in ${bytes[2]} piece(s), " +
+                "${System.currentTimeMillis() - t0} ms on the rig to the re-offer; the notch in between drawn by the phone; $restaged")
+            r.assertOracle("bound again")
+            notch(r, CfwModes.EV_UPROLL, "a notch after the re-bind")
         } finally { r.close() }
     }
 
@@ -1785,7 +1777,9 @@ class MainLocalShellTest {
     /** G4 item 2 (his glasses, 18:53:34, five keyframes in ten minutes): a re-stage's write closes a notch's local
      *  instance on the lens (§5.6: a cache write meeting its read range) before the notch's COMMIT lands, and RIGHT's
      *  "closed while drawing" body — END CRC 0, no END written (§6.4) — reaches the phone after the COMMIT went. That is
-     *  no divergence: no keyframe; the closed instance's areas are repainted; belief equals both lenses after. */
+     *  no divergence: no keyframe; the closed instance's areas are repainted; belief equals both lenses after. K1-2 stage 1:
+     *  the re-stage is a band form's move (a row form's change withdraws the list at 256 KiB too, so no notch is local
+     *  while its write goes); a spare band slot lies inside the pan's read range. */
     @Test
     fun aLocalClosedBeforeItsCommitLandsIsNoDivergence_G4(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, kib256 = true)
@@ -1809,7 +1803,7 @@ class MainLocalShellTest {
                 if (a == Arm.RIGHT && s != null && held.isNotEmpty() && r.subs(img).any { r.isCommit(it, s!!) })
                     r.scope.launch { delay(20); for (p in held) rig.deliver(Arm.RIGHT, p); held.clear() }
             }
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.rows[3].s = r.rows[3].s.copy(detail = "the detail of 3, longer now")
             r.shell.services.requestRender(r.rows[3])
             r.until("a notch fired as the re-stage's write went out", 15_000) { s != null }
             r.until("the closed body delivered after the COMMIT", 15_000) { r.notes("motion").any { "tag 0x%04x".format(s) in it && "closed while drawing" in it } }
@@ -1875,10 +1869,11 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
-    /** Build SPLIT: a notch fired as a re-stage's first piece reaches the lens (Main bound at 256 KiB, a row form
-     *  changed) opens a burst; the re-stage's later pieces wait for its lone SETTLE — an instance's read ranges cover
-     *  both strip slots and the spare band slot (§5.6) — so the notch is adopted, COMMITted and drawn whole, with no
-     *  snap-back, and the oracle holds. */
+    /** Build SPLIT: a notch fired as a re-stage's first piece reaches the lens (Main bound at 256 KiB, a band form
+     *  changed — K1-2 stage 1: a row form's change withdraws the list there too, so no notch is local while its pieces
+     *  go) opens a burst; the re-stage's later pieces wait for its lone SETTLE — an instance's read ranges cover the
+     *  strip and the spare band slots (§5.6) — so the notch is adopted, COMMITted and drawn whole, with no snap-back,
+     *  and the oracle holds. */
     @Test
     fun aNotchBetweenARestagesPiecesHoldsTheRestUntilItsBurstEnds_SPLIT(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, kib256 = true)
@@ -1895,7 +1890,7 @@ class MainLocalShellTest {
                 else -> -1
             }
             r.onAnyImage = { a, img -> if (a == Arm.RIGHT && fired == null && r.cacheWrite(img) && firstOff(img) >= regionStart) fired = r.fire(CfwModes.EV_UPROLL) }
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.rows[3].s = r.rows[3].s.copy(detail = "the detail of 3, longer now")
             r.shell.services.requestRender(r.rows[3])
             r.until("a notch fired as the re-stage's first piece went out", 15_000) { fired != null }
             r.onAnyImage = null
@@ -1933,10 +1928,11 @@ class MainLocalShellTest {
     }
 
     /** Build SPLIT on 0.81, B082 (the wrap's own record): a wrap whose edge report comes as a 256 KiB re-stage's piece that
-     *  meets the wrap's read range goes out — the re-stage writes the changed row into the wrap's record too — sends no
-     *  PLAY (that record may be part-written): the edge goes as today, the row moves to the first, the re-stage's later
-     *  pieces wait for the burst and it is booked after. At rest belief equals both lenses. (B083, S1: the trigger is the
-     *  first piece that meets the range — before it the wrap plays, `aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1`.) */
+     *  meets the wrap's read range goes out sends no PLAY (what it reads may be part-written): the edge goes as today, the
+     *  row moves to the first, the re-stage's later pieces wait for the burst and it is booked after. At rest belief
+     *  equals both lenses. K1-2 stage 1: the re-stage is a band form's move (a row form's change withdraws the list at
+     *  256 KiB too, so no wrap fires while its pieces go); its pieces — a spare band slot and the item word — lie inside
+     *  the wrap's read range (from the wrap's record to its program), as every band move's do. */
     @Test
     fun aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, kib256 = true)
@@ -1949,7 +1945,7 @@ class MainLocalShellTest {
             var fired = false
             r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && writeRanges(r, img).let { w -> w.isNotEmpty() && w.first().first >= regionStart &&
                 w.any { it.first <= range.last && range.first <= it.last } }) { fired = true; r.fire(CfwModes.EV_UPROLL) } }
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.rows[3].s = r.rows[3].s.copy(detail = "the detail of 3, longer now")
             r.shell.services.requestRender(r.rows[3])
             r.until("the wrap fired as a re-stage piece meeting its range went out", 15_000) { fired }
             r.onAnyImage = null
@@ -1957,39 +1953,6 @@ class MainLocalShellTest {
             assertTrue(wrapBatch(r, at) == null, "no wrap PLAY while the re-stage was in pieces")
             assertTrue(r.notes("snapback").last().let { "cause=edge" in it && "wrap=play" !in it }, r.notes("snapback").last())
             delay(r.q() + 200); r.settle("after")
-            assertEquals(0, r.row(), "the wrap landed on the first row")
-            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
-            r.assertOracle("after the wrap and the re-stage")
-        } finally { r.close() }
-    }
-    /** B083 (the focused read of 0.82, S1): a wrap whose edge comes as a 256 KiB re-stage's first piece goes out, that
-     *  piece missing the wrap's read range (a row in the middle of 12: not in the wrap's record), plays from the records
-     *  as they stand — its END is the phone's copy, which takes the re-stage only at the booking — and the re-stage's later
-     *  pieces wait for its motion. At rest: the row on the first, the re-stage booked, no divergence, belief equal to both
-     *  lenses. Before S1 every wrap during a Main re-stage's pieces went as today (the row jumped). */
-    @Test
-    fun aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1(): Unit = runBlocking {
-        val r = Rig(Taps.REPORT, nRows = 12, kib256 = true)
-        try {
-            r.up()
-            walkTo(r, r.list().count - 1)
-            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
-            val range = wrapRange(r)
-            val at = r.right.size
-            var fired = false
-            var first: List<IntRange>? = null
-            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && writeRanges(r, img).let { w -> w.isNotEmpty() && w.first().first >= regionStart }) {
-                fired = true; first = writeRanges(r, img); r.fire(CfwModes.EV_UPROLL) } }
-            r.rows[6].s = r.rows[6].s.copy(line = "summary 66")
-            r.shell.services.requestRender(r.rows[6])
-            r.until("the wrap fired as the re-stage's first piece went out", 15_000) { fired }
-            r.onAnyImage = null
-            val f = first!!
-            println("S1: the wrap's read range $range; the first piece writes $f")
-            assertTrue(f.none { it.first <= range.last && range.first <= it.last }, "the case: the first piece misses the wrap's range $range: $f")
-            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 6 re-staged") } }
-            assertTrue(wrapBatch(r, at) != null, "the wrap PLAYed while the re-stage was in pieces: snapbacks ${r.notes("snapback").takeLast(2)}")
-            delay(r.motionMs() + r.q() + 300); r.settle("after")
             assertEquals(0, r.row(), "the wrap landed on the first row")
             assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
             r.assertOracle("after the wrap and the re-stage")

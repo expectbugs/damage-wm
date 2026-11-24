@@ -11,6 +11,7 @@ import wm.damage.core.motion.BoxFace
 import wm.damage.core.motion.Motion
 import wm.damage.core.motion.ScrollEffect
 import wm.damage.core.motion.ScrollEffects
+import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.MainLocalCheck
 import wm.damage.core.shell.MainStaging
 import wm.damage.core.shell.ShellSettings
@@ -31,16 +32,18 @@ class ScrollEffectsTest {
         rig.staging(cache, CfwModes.mainRegion(cache, true), MainStaging.ScrollMotion.DEFAULT.copy(effect = e))
 
     /** Today's Depth programs (APK 0.82, `main` at 39afb77), read on the unchanged tree with this rig: per height and cache,
-     *  the pans in order (strip slot : step) and the SHA-256 of their records back to back. */
+     *  the pans in order (strip slot : step) and the SHA-256 of their records back to back. K1-2 stage 1 (O1): at 256 KiB
+     *  the second strip's pans (1:±1) are gone and the rest are 160 KiB's byte for byte (Main's region starts at 96 KiB on
+     *  both; `private/build083/K1-2-S1-built.md` §4 has the diff read); 160 KiB's are unchanged. */
     private val todays = mapOf(
         (288 to 160) to ("0:1,0:-1,2:1,2:-1" to "656b94c4c9f5587d92edf7872931a77a7c373c9f2b119e636c6bec45dee0900f"),
-        (288 to 256) to ("0:1,0:-1,1:1,1:-1,2:1,2:-1" to "f4fbe1e079b9771593a041514422479ee1bb85659eae97f3cbb783258a3e296f"),
+        (288 to 256) to ("0:1,0:-1,2:1,2:-1" to "656b94c4c9f5587d92edf7872931a77a7c373c9f2b119e636c6bec45dee0900f"),
         (352 to 160) to ("0:1,0:-1,2:1,2:-1" to "08934284c6cbbc8718b90f49fab2b3d0e6343e47a42d1574dad39f38cee8c2cb"),
-        (352 to 256) to ("0:1,0:-1,1:1,1:-1,2:1,2:-1" to "84e763fa97f88ab8e3475275ca2bd11c7987f63f7703c92052bce088db351cef"),
+        (352 to 256) to ("0:1,0:-1,2:1,2:-1" to "08934284c6cbbc8718b90f49fab2b3d0e6343e47a42d1574dad39f38cee8c2cb"),
         (416 to 160) to ("0:1,0:-1" to "1a0f359f7329ac99bd9781eec93c2f0f1fe0aa5460ed903c2ee0925ddf23131e"),
-        (416 to 256) to ("0:1,0:-1,1:1,1:-1" to "1bda524be8c864794503b49d0d7fcf3703280f9aea35bbbe6a54ee9582ce6448"),
+        (416 to 256) to ("0:1,0:-1" to "1a0f359f7329ac99bd9781eec93c2f0f1fe0aa5460ed903c2ee0925ddf23131e"),
         (480 to 160) to ("0:1,0:-1" to "99a6314e4dbbc6742b27dbc304cc827bcb203e9662689579f7bd256324e5a499"),
-        (480 to 256) to ("0:1,0:-1,1:1,1:-1" to "6bdc98fc486021a080db4a9808c92c2a7361c07fb6766b0154660bb2744a8f25"),
+        (480 to 256) to ("0:1,0:-1" to "99a6314e4dbbc6742b27dbc304cc827bcb203e9662689579f7bd256324e5a499"),
     )
 
     private fun digest(pans: List<MainStaging.Pan>): String {
@@ -154,8 +157,7 @@ class ScrollEffectsTest {
                 for (pan in s5.pans) for (cPrime in -1..s5.rows) {
                     val c = cPrime - pan.step
                     if (c !in 0 until s5.rows) continue                 // no notch lands there from a row
-                    // what the glasses compute for this pan's step from row c — at v = c' unwrapped across the wrap (the
-                    // two strips' pans share their rules; only their programs differ)
+                    // what the glasses compute for this pan's step from row c — at v = c' unwrapped across the wrap
                     val le = list.entries.first { !it.isTap && it.step == pan.step }
                     val p = (list.predict(c, le) as? wm.damage.core.local.BoundList.Fire.Drew)?.p ?: continue
                     val to = cPrime.mod(s5.rows)
@@ -321,9 +323,9 @@ class ScrollEffectsTest {
         val region = CfwModes.mainRegion(cache, true)
         val full = rig.staging(cache, region)
         val short = MainStaging.build(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, cache, region.first, full.end - 4,
-            widths = listOf(MainStaging.WHOLE), twoStrips = true, motion = MainStaging.ScrollMotion.DEFAULT)
+            widths = listOf(MainStaging.WHOLE), motion = MainStaging.ScrollMotion.DEFAULT)
         assertNull(short.progSlots, "the spare slot given up")
-        assertTrue(short.wrap != null && short.stripB != null, "the wrap and the second strip kept")
+        assertTrue(short.wrap != null, "the wrap kept")
         assertEquals(digest(full.pans), digest(short.pans), "the same pans")
         assertTrue(short.remake(MainStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.SLIDE)) is MainStaging.Remake.NoRoom)
     }
@@ -361,7 +363,7 @@ class ScrollEffectsTest {
         val list = ms.boundList(1)
         val out = ArrayList<Notch>()
         for (pan in ms.pans) {
-            if (activeOnly && pan.strip != ms.activeStrip) continue
+            if (activeOnly && pan.strip != 0) continue                 // the strip's pans (not the wrap record's)
             val le = list.entries.first { !it.isTap && it.step == pan.step }
             for (c in 0 until ms.rows) {
                 val f = list.predict(c, le) as? wm.damage.core.local.BoundList.Fire.Drew ?: continue
@@ -780,6 +782,174 @@ class ScrollEffectsTest {
         assertTrue(out.plays.why!!.contains("source window"), "the reason said: ${out.plays.why}")
         val flip = lay(ScrollEffect.FLIP, huge, margin)
         assertTrue(flip.plays.effect == ScrollEffect.FLIP && !flip.plays.v2 && flip.pans.all { it.program.version == 1 }, "Flip refused: its height turn")
+    }
+
+    // ------------------------------------------------------------- K1-2 stage 1 (O12): Main's band slots sized per row
+
+    /**
+     * K1-2 stage 1 (decisions BQ (5), BC O12): at the four heights on both caches, stage 4 and 5, each row's band form lies
+     * in a slot of its own size with a quarter's slack ([MainStaging.slack], the wheel's cells' pattern), the spare in the
+     * largest; a row whose band form changed in the last staging (`bandRoom`) gets the largest; the records lie back to
+     * back inside `[start, end)` with none over another, and the region's free span is the region less that extent; a
+     * short region gives the band room up with the strip's (never a refusal for its sake).
+     */
+    @Test
+    fun bandSlotsAreEachRowsOwnSizeAndTheFreeSpanIsTheRegionLessTheStaging_O12() {
+        for (h in heights) for (cache in caches) for (s5 in listOf(false, true)) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            val region = CfwModes.mainRegion(cache, true)
+            val what = "$h ${cache / 1024} KiB stage ${if (s5) 5 else 4}"
+            val ms = rig.staging(cache, region, stage5 = s5)
+            val big = MainStaging.slack(ms.bands.maxOf { it.encoded.size })
+            for ((i, b) in ms.bands.withIndex()) assertEquals(MainStaging.slack(b.encoded.size), b.slot, "$what: row $i's band slot is its own size")
+            assertEquals(listOf(big, big), ms.free.values.toList(), "$what: two spares, the largest")
+            assertTrue(ms.bands.any { it.slot < big }, "$what: the shape guard — some row's slot is smaller than the largest")
+            val spans = (ms.blobs.map { it.off until it.off + it.bytes.size } + ms.bands.map { it.off until it.off + it.slot } +
+                ms.free.map { (o, n) -> o until o + n } + listOfNotNull(ms.wrap?.let { it.off until it.off + it.slot }, ms.strip.let { it.off until it.off + it.slot }) +
+                (ms.progSlots?.map { it until it + ms.progSlot } ?: emptyList())).filter { !it.isEmpty() }
+            for (r in spans) assertTrue(r.first >= ms.start && r.last < ms.end, "$what: ${r.first}..${r.last} inside the staging ${ms.start}..${ms.end}")
+            assertEquals(ms.end, spans.maxOf { it.last + 1 }, "$what: the staging ends at its last slot")
+            assertEquals(region.last + 1 - ms.end, ms.freeSpan, "$what: the free span is the region less the staging")
+            assertEquals(region.first, ms.start, "$what: from the region's first byte")
+            // a row whose band form changed in the last staging: the largest slot (its own last largest counted in it)
+            val paint = MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
+            val room = IntArray(ms.rows).also { it[3] = big + 400 }
+            val roomy = MainStaging.assemble(paint, rig.listD, rig.bandD, cache, region.first, region.last + 1, listOf(MainStaging.WHOLE),
+                MainStaging.ScrollMotion.DEFAULT, stage5 = s5, fx = if (s5) MainLocalCheck.effectsAt(true) else null, bandRoom = room)
+            val big2 = MainStaging.slack(maxOf(ms.bands.maxOf { it.encoded.size }, big + 400))
+            assertEquals(big2, roomy.bands[3].slot, "$what: the changing row's slot is the largest, its own last one counted")
+            assertEquals(listOf(big2, big2), roomy.free.values.toList(), "$what: the spares as large")
+            for (i in roomy.bands.indices) if (i != 3) assertEquals(MainStaging.slack(roomy.bands[i].encoded.size), roomy.bands[i].slot, "$what: row $i its own size")
+        }
+        // a region that holds the staging only without the band room: the room given up, never a refusal
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows())
+        val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
+        val paint = MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
+        val plain = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(MainStaging.WHOLE), MainStaging.ScrollMotion.DEFAULT)
+        val short = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, plain.end, listOf(MainStaging.WHOLE), MainStaging.ScrollMotion.DEFAULT,
+            bandRoom = IntArray(plain.rows) { 6_000 })
+        assertEquals(plain.bands.map { it.slot }, short.bands.map { it.slot }, "the band room given up where the region cannot hold it")
+        // and it goes with the strip's room, before the wrap's record (B082's order): the wrap kept as it was
+        assertEquals(plain.wrap?.slot, short.wrap?.slot, "the band room goes first: the wrap's record kept as it was")
+    }
+
+    /**
+     * K1-2 stage 1 (O12) on the rig, his height 352 in Main's own region at both stages. (1) A row's title that grows by
+     * one glyph, by a word, and a row that gains a badge (▸ and the progress bar) — each changed twice: each change moves
+     * the band form into the smallest free slot that holds it (two are free between moves: the spares, or one and the
+     * slot the move before freed) — the first into a spare, the second into the row's own old slot where it fits, else
+     * the other spare. (2) Two rows whose band forms grow past their own slots, in turn, then the first again: the only
+     * free slots are then the two rows' own old ones, so it is `Outgrown` (a full staging, a new mark), and in the next
+     * staging — by the room carried by window ([wm.damage.core.shell.MainBinding.bandRoomFor]) — both rows have the
+     * largest slot and move as before. After every move: every write inside `[start, end)` (the free span untouched),
+     * the staging's extent kept, and the END of every pan at every cursor both ways on the model — drawn from the cache
+     * as written — Main's own paint at the new cursor, and belief's.
+     */
+    @Test
+    fun aBandFormThatOutgrowsItsSlotIsRePlacedAndEveryEndStaysMainsPaint_O12() {
+        val cache = CfwModes.CACHE2_MAX_RIDERS
+        val region = CfwModes.mainRegion(cache, true)
+        class Run(val s5: Boolean, prep: (List<MainLocalCheck.SampleRow>) -> Unit = {}) {
+            val rows = MainLocalCheck.sampleRows().also(prep)
+            val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
+            val b = wm.damage.core.shell.MainBinding()
+            val ids = rows.map { it.id }
+            lateinit var ms: MainStaging
+            lateinit var img: ByteArray
+            fun stage() {
+                val paint = MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
+                ms = MainStaging.assemble(paint, rig.listD, rig.bandD, cache, region.first, region.last + 1, listOf(MainStaging.WHOLE),
+                    MainStaging.ScrollMotion.DEFAULT, room = b.roomFor(ids), stage5 = s5, fx = if (s5) MainLocalCheck.effectsAt(true) else null,
+                    bandRoom = b.bandRoomFor(ids))
+                b.begin(ms, emptyList(), List(ms.rows) { rig.surface.rowKey(it) }, 0L, ids)
+                img = cacheOf(ms)
+            }
+            init { stage() }
+            fun endsHold(what: String) {
+                for (nt in notches(ms, activeOnly = true)) {
+                    Motion.play(nt.pan.program, MainStaging.SLOT, ms.period, 1, 0, nt.p)
+                    for (left in listOf(true, false)) {
+                        val pb = panel(rig.truth(nt.c, left))
+                        val end = Motion.endOnModel(nt.pan.program, nt.p, img, pb, pb, left)
+                        assertEquals(0, differModel(end, rig.truth(nt.to, left), nt.pan.areas(left)), "$what step ${nt.pan.step} ${nt.c}→${nt.to} left=$left: px where the model's END is not Main's paint")
+                        val belief = rig.truth(nt.c, left).copy().also { ms.paintEnd(nt.pan, nt.p, left, it) }
+                        assertEquals(0, differModel(end, belief, nt.pan.areas(left)), "$what step ${nt.pan.step} ${nt.c}→${nt.to} left=$left: px where belief's END is not the model's")
+                    }
+                }
+            }
+            /** Row [id]'s summary set to [s], painted again and re-staged: a move applied (its writes into the cache image)
+             *  and its old slot released, as the shell does at the switch's acknowledgement, then every END checked; or
+             *  `Outgrown`. The outcome in words. */
+            fun change(id: String, s: DamageWindow.Summary, what: String): String {
+                val row = rows.indexOfFirst { it.id == id }
+                rows[row].s = s
+                rig.repainted()
+                val freeBefore = ms.free.toMap()
+                val end0 = ms.end
+                return when (val r = ms.restage(row, rig.view, rig.kit, { _, f -> f() })) {
+                    is MainStaging.Restage.Changed -> {
+                        val mv = assertNotNull(r.band, "$what: the band form changed")
+                        assertEquals(freeBefore.filter { it.value >= mv.encoded.size }.minByOrNull { it.value }!!.value, mv.slot, "$what: the smallest free slot that holds it")
+                        for (w in r.writes) { assertTrue(w.off >= ms.start && w.off + w.bytes.size <= ms.end, "$what: ${w.what} at ${w.off} inside the staging"); w.bytes.copyInto(img, w.off) }
+                        ms.apply(r); ms.release(mv.oldOff4)
+                        assertEquals(end0, ms.end, "$what: the staging's extent kept")
+                        val out = "moved ${mv.encoded.size} B into a ${mv.slot} B slot"
+                        endsHold("$what ($out)")
+                        out
+                    }
+                    is MainStaging.Restage.Outgrown -> "outgrown (${r.why})"
+                    else -> throw AssertionError("$what: $r")
+                }
+            }
+            fun slotOf(id: String) = ms.bands[rows.indexOfFirst { it.id == id }].slot
+            fun summaryOf(id: String) = rows.first { it.id == id }.s
+        }
+        val outcomes = ArrayList<String>()
+        for (s5 in listOf(false, true)) {
+            val st = "stage ${if (s5) 5 else 4}"
+            // (1) one row's growth, twice
+            data class Grow(val name: String, val id: String, val step: (DamageWindow.Summary, Int) -> DamageWindow.Summary)
+            for (g in listOf(
+                Grow("a title one glyph longer", "games") { s, k -> s.copy(line = s.line + "!".repeat(k)) },
+                Grow("a title one word longer", "games") { s, k -> s.copy(line = s.line + " tonight".repeat(k)) },
+                Grow("a row that gains a badge", "settings") { s, k -> s.copy(progress = 0.3 * k, more = true) })) {
+                val r = Run(s5)
+                val base = r.summaryOf(g.id)
+                val own = r.slotOf(g.id); val big = r.ms.free.values.max()
+                assertTrue(own < big, "$st ${g.name}: the row's own slot $own B under the largest $big B")
+                val c1 = r.change(g.id, g.step(base, 1), "$st ${g.name}, change 1")
+                assertTrue(c1.startsWith("moved") && r.slotOf(g.id) == big, "$st ${g.name}: the first change into a spare: $c1")
+                val c2 = r.change(g.id, g.step(base, 2), "$st ${g.name}, change 2")
+                assertTrue(c2.startsWith("moved"), "$st ${g.name}: the second change moves (a spare is still free): $c2")
+                outcomes += "$st ${g.name} (${g.id}): own slot $own B, the largest $big B; $c1; then $c2"
+            }
+            // (2) two rows past their own slots in turn, then the first again: outgrown; the next staging carries their room.
+            // Files and Feed staged with no summary (a band form of their name and icon alone, the smallest slots), then
+            // given the fixture's summaries — forms no larger than the largest slot, far past their own
+            val full = MainLocalCheck.sampleRows().associate { it.id to it.s }
+            val r = Run(s5) { rows -> for (w in rows) if (w.id == "files" || w.id == "feed") w.s = DamageWindow.Summary("") }
+            val long = { id: String, k: Int -> full.getValue(id).copy(detail = full.getValue(id).detail + " ·".repeat(k)) }
+            val f0 = r.slotOf("files"); val d0 = r.slotOf("feed"); val big = r.ms.free.values.max()
+            val a1 = r.change("files", long("files", 0), "$st two rows: Files 1")
+            val b1 = r.change("feed", long("feed", 0), "$st two rows: Feed 1")
+            val a2 = r.change("files", long("files", 1), "$st two rows: Files 2")
+            assertTrue(a1.startsWith("moved") && b1.startsWith("moved") && a2.startsWith("outgrown"),
+                "$st two rows: Files into a spare, Feed into the other, Files again finds only the two own slots ($f0, $d0 B): $a1; $b1; $a2")
+            val fi = r.rows.indexOfFirst { it.id == "files" }
+            assertTrue(r.ms.bandSeen[fi] > f0, "$st: Files' largest band form kept for the next staging: ${r.ms.bandSeen[fi]}")
+            r.b.drop()
+            r.stage()
+            val big2 = r.ms.free.values.max()
+            assertEquals(big2, r.slotOf("files"), "$st: after the full staging Files has the largest slot")
+            assertEquals(big2, r.slotOf("feed"), "$st: and Feed")
+            r.endsHold("$st after the full staging")
+            val a3 = r.change("files", long("files", 0), "$st two rows: Files 3")
+            val b2 = r.change("feed", long("feed", 1), "$st two rows: Feed 2")
+            val a4 = r.change("files", long("files", 1), "$st two rows: Files 4")
+            assertTrue(listOf(a3, b2, a4).all { it.startsWith("moved") }, "$st: after the full staging both rows move as before: $a3; $b2; $a4")
+            outcomes += "$st two rows (Files own $f0 B, Feed own $d0 B, the largest $big B): $a1; $b1; Files again $a2; the full staging gives both $big2 B; then $a3; $b2; $a4"
+        }
+        println("O12 FACT (the rig, BoxFace): " + outcomes.joinToString(" | "))
     }
 
     private fun differ(a: Gray8, b: Gray8, areas: List<Rect>): Int {

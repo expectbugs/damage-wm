@@ -3390,7 +3390,7 @@ class Shell(
             comp.requestKeyframe("a local-input flush failed")
             post(Msg.Pump)
         }
-        mainList.mainBind.tailDone(ev.id, ev.ok)                // AD.2: a strip switch's SETs landed on both lenses (or go again)
+        mainList.mainBind.tailDone(ev.id, ev.ok)                // K1-1: a programs switch's SETs landed on both lenses (or go again)
         // a refused flush that carried the rules' messages: the whole table again (`LocalRules.tableAgain`, marked)
         if (localTailFlushes.remove(ev.id) && !ev.ok && ev.error?.contains("ImgResCmd") == true && !glassesSilent) {
             local.tableAgain("a flush carrying local-input messages was refused (${ev.error})")
@@ -6454,8 +6454,6 @@ class Shell(
             }
             // decisions AF.4: a band form's old slot is released only when no report can still name it — the switch
             // acknowledged AND no burst open (a report adopted before the ack may still be COMMITted from that slot)
-            // a strip switch (AD.2) is the SETs' too: released once the flush carrying the SETs that name the new strip
-            // completed (a fire before a lens applied them draws the old pan; its report precedes that ack)
             b.releaseIfDue(p, r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN, local.burstOpen)
             if (r.state == StagedRecord.State.PROVEN && p.released) {
                 b.patchCounted(p)
@@ -6473,8 +6471,8 @@ class Shell(
         }
     }
 
-    /** The rules hold the scroll entries of the list Main offers now (their SETs were sent): a strip switch's old pans can
-     *  no longer be named by a fire after them in stream order (AD.2). */
+    /** The rules hold the scroll entries of the list Main offers now (their SETs were sent): a programs switch's old pans
+     *  can no longer be named by a fire after them in stream order (K1-1). */
     private fun ListBind.mainBindEntriesSent(): Boolean = surface.offered?.let { l ->
         l.entries.filter { !it.isTap }.all { e -> local.heldFor(l.list, e.eventId)?.prog4 == e.prog4 } } == true
 
@@ -6586,19 +6584,14 @@ class Shell(
             post(Msg.Pump)
             return true
         }
-        val shared0 = region.last + 1 == st.cacheSize
-        // B082: rows whose window changed in an earlier staging start with segment room
+        // B082: rows whose window changed in an earlier staging start with segment room; K1-2 stage 1 (O12): and those whose
+        // band form changed there with the largest band slot (every other row's its own size)
         val room = mainBind.roomFor(List(pt.n) { rowIdentity(it) })
+        val bandRoom = mainBind.bandRoomFor(List(pt.n) { rowIdentity(it) })
         val ms = try {
-            // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
-            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5, fx = fx) }
-            catch (e: wm.damage.core.geom.LintError) {
-                if (shared0) throw e
-                // decisions AU.1 (b): two strips do not fit Main's region — ONE strip is staged, and a row form's change
-                // withdraws the list as at 160 KiB; never "not staged" while one strip fits
-                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce(), room = room, stage5 = stage5, fx = fx)
-                    .also { journal.note("mainstage", "two strips do not fit Main's region (${e.message}) — one strip staged; a row form's change withdraws the list, as at 160 KiB") }
-            }
+            // the bound list's pans only (AF.10); one strip at every cache size (K1-2 stage 1, decisions BC O1: a row form's
+            // change withdraws the list, at 256 KiB as at 160)
+            MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)
         } catch (e: wm.damage.core.geom.LintError) {
             mainBindRefused(what, "Main's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes, rows or their content change, or the next session")
             return false
@@ -6628,9 +6621,11 @@ class Shell(
         mainBindRefusalSaid = null
         stageRecount()
         journal.note("mainstage", "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
-            "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B" +
-            (if (ms.stripB != null) " and its second slot ${ms.blobs[1].bytes.size} B" else "") + ", ${ms.rows} band forms " +
-            "${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B, the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
+            "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B, ${ms.rows} band forms " +
+            "${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots each its own size " +
+            "(two spares of ${ms.free.values.max()} B, the largest; ${ms.bands.count { it.slot == ms.free.values.max() }} row(s) at that size), " +
+            "the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
+            "the region's free span ${ms.freeSpan} B at ${ms.end}..${ms.regionEnd}; " +
             "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process; " +
             "${motionWords(ms)}${if (ms.stage5) " (the fast DRAW path's fit: EFFECTS in force)" else ""}" +
             (if (ms.ring) "; the stage-5 form: a ring list (LIST-RING), the strip's margins ${ms.margin} rows of the other end, no wrap record " +
@@ -6753,9 +6748,8 @@ class Shell(
             MainStaging.Restage.Same -> { mainBind.sameWhileWithdrawn(row); post(Msg.Pump) }
             is MainStaging.Restage.Outgrown -> mainBindDrop("a full staging is owed (a new mark): ${r.why}")
             is MainStaging.Restage.Changed -> if (!write) { mainBind.changed(row); post(Msg.Pump) }
-            // at 160 KiB a strip write needs the list withdrawn; at 256 it goes to the other strip slot and the entries are
-            // SET to the pans that name it (AD.2: no unbound moment)
-            else if (r.strip.isNotEmpty() && r.toStrip == null && mainBind.withdrawnFor != row) {
+            // a strip write needs the list withdrawn (decisions Z; at every cache size since K1-2 stage 1, BC O1)
+            else if (r.strip.isNotEmpty() && mainBind.withdrawnFor != row) {
                 // the strip is named only inside the pan programs: its segments are written with no entry live (X.2)
                 mainBind.withdraw(row, mainBindPumps)
                 surface.offered = null
@@ -6766,8 +6760,8 @@ class Shell(
                 val bytes = ByteArray(r.bytes).also { out -> var o = 0; for (w in r.writes) { w.bytes.copyInto(out, o); o += w.bytes.size } }
                 val rec = StagedRecord(key, Gray8(1, 1), bytes).also { it.off = r.writes.first().off }
                 stage.records[key] = rec
-                // build SPLIT: the writes go in pieces (no piece while a burst is open: an instance's read ranges cover both
-                // strip slots and the spare band slot, §5.6); the books take the re-stage — the staging's pictures, the
+                // build SPLIT: the writes go in pieces (no piece while a burst is open: an instance's read ranges cover the
+                // strip and the spare band slot, §5.6); the books take the re-stage — the staging's pictures, the
                 // list that names it, the patch — only when nothing unwritten remains: at the item word's submission (it
                 // goes alone, after every other piece was acknowledged), else at the last piece's ack
                 var pieces = 0

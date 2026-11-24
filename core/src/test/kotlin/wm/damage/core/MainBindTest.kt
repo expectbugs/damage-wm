@@ -91,33 +91,32 @@ class MainBindTest {
         assertNull(second.previous, "released once no burst is open")
     }
 
-    /** AD.2 (follow-up FC): a strip switch is released only once the flush that carried the SETs naming the new strip has
-     *  completed, not when the rules built them (a fire before a lens applied them draws the old pan, and its report comes
-     *  before that flush's ack); a flush that failed leaves it for the next one; a new session forgets the flush in flight. */
+    /** K1-2 stage 1 (decisions BC O1): at 256 KiB, in Main's own region, ONE strip at every height and stage — a row form's
+     *  change is written into that strip's own segments (the list withdrawn by the shell, as at 160 KiB), the list made
+     *  after it names the same pans, and no record of the staging is a second strip. */
     @Test
-    fun aStripSwitchIsReleasedWhenItsSetsLand_AD2() {
-        val rows = MainLocalCheck.sampleRows()
-        val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
-        val ms = rig.staging(256 * 1024, CfwModes.mainRegion(256 * 1024, true))
-        val b = wm.damage.core.shell.MainBinding()
-        val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
-        b.begin(ms, emptyList(), keys(), 0L)
-        val mus = rows.indexOfFirst { it.id == "music" }
-        rows[mus].s = rows[mus].s.copy(line = "Night Drive - Low Tides")
-        rig.repainted()
-        b.keysChanged(keys())
-        val r = ms.restage(mus, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
-        assertEquals(1, r.toStrip, "a row form change at 256 KiB goes to the other strip: stripB ${ms.stripB != null} strip ${r.strip.map { it.what }} band ${r.band != null}")
-        b.changed(mus); b.submitted(r, StagedRecord(MainStageKey(ms, 1000 + mus, "re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
-        val p = b.patches.single(); val list = b.list!!
-        fun kept(what: String) { b.releaseIfDue(p, acked = true, burstOpen = false); assertTrue(list.previous != null && !p.released, what) }
-        b.tailSent(5L, entriesHeld = false); kept("a flush before the rules hold the new pans is not the SETs'")
-        b.tailSent(6L, entriesHeld = true); b.tailDone(5L, ok = true); kept("sent is not landed: the SETs' flush in flight")
-        b.tailDone(6L, ok = false); kept("that flush failed: the next one carries them")
-        b.tailSent(7L, entriesHeld = true); b.tailsForgotten(); b.tailDone(7L, ok = true); kept("a new session forgets the flush in flight")
-        b.tailSent(8L, entriesHeld = true); b.tailDone(8L, ok = true)
-        b.releaseIfDue(p, acked = true, burstOpen = false)
-        assertNull(list.previous, "released once the SETs landed")
+    fun oneStripAt256KiBAtEveryHeightAndAChangedRowIsWrittenInPlace_O1() {
+        val cache = 256 * 1024
+        for (h in ShellSettings.HEIGHTS) for (stage5 in listOf(false, true)) {
+            val rows = MainLocalCheck.sampleRows()
+            val rig = MainLocalCheck.MainRig(BoxFace, h, rows)
+            val ms = rig.staging(cache, CfwModes.mainRegion(cache, true), stage5 = stage5)
+            val what = "h$h stage ${if (stage5) 5 else 4}"
+            assertEquals(1, ms.blobs.count { it.name.startsWith("strip") }, "$what: one strip record: ${ms.blobs.map { it.name }}")
+            assertTrue(ms.pans.none { it.strip == 1 }, "$what: no pan draws a second strip")
+            val b = wm.damage.core.shell.MainBinding()
+            val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
+            b.begin(ms, emptyList(), keys(), 0L)
+            val progs0 = b.list!!.entries.map { it.prog4 }
+            val mus = rows.indexOfFirst { it.id == "music" }
+            rows[mus].s = rows[mus].s.copy(line = "Night Drive - Low Tides")
+            rig.repainted()
+            val r = ms.restage(mus, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
+            assertTrue(r.strip.isNotEmpty() && r.strip.all { it.off >= ms.strip.off && it.off + it.bytes.size <= ms.strip.off + ms.strip.slot },
+                "$what: the row form's writes inside the one strip's slot ${ms.strip.off}..${ms.strip.off + ms.strip.slot}: ${r.strip.map { "${it.what} @${it.off} ${it.bytes.size} B" }}")
+            b.changed(mus); b.submitted(r, StagedRecord(MainStageKey(ms, 1000 + mus, "re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
+            assertEquals(progs0, b.list!!.entries.map { it.prog4 }, "$what: the list after the write names the same pans")
+        }
     }
 
     /** Decisions AF.8: ONE re-stage per pace in all — the row owed longest first, the next one a whole pace later. */
@@ -404,8 +403,8 @@ class MainBindTest {
     fun theAtlasLaysOutUnderMainsRegionOnlyAt256KiBWithBind_DM2() {
         fun st(kib: Int, bind: Boolean) = LinkState(damageContract = 2, damageFeatures = 0x5ff, cacheSize = kib * 1024,
             flagsInForce = DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ENGINE or (if (bind) DamageMsg.FLAG_BIND else 0))
-        // AD.2, AU.1: Main's own region is 128 KiB at 256 (a second strip), the stage reserve 32 KiB above it, the atlas
-        // keeps the 96 KiB it has at 160
+        // AU.1: Main's own region is 128 KiB at 256 (one strip since K1-2 stage 1; the rest the window lists' and the
+        // wheel's), the stage reserve 32 KiB above it, the atlas keeps the 96 KiB it has at 160
         assertEquals(96 * 1024, st(256, true).atlasCapacity)
         assertEquals(192 * 1024, st(256, false).atlasCapacity)
         assertEquals(96 * 1024, st(160, true).atlasCapacity)
@@ -461,10 +460,10 @@ class MainBindTest {
         val second = b.list!!
         assertTrue(second !== first && second.mark == first.mark && second.previous === first, "a new list, the same mark, the old one as previous")
         assertEquals(mv.off / 4, second.items!![tor]); assertEquals(mv.oldOff4, first.items!![tor])
-        assertTrue(ms.free.isEmpty() && mv.oldOff4 in ms.retired, "the spare taken, the old slot retired")
+        assertTrue(ms.free.size == 1 && mv.off !in ms.free && mv.oldOff4 in ms.retired, "a spare taken (K1-2 stage 1: two), the old slot retired")
         b.switchAcked(b.patches.single())
         assertNull(second.previous, "previous forgotten once acknowledged")
-        assertEquals(setOf(mv.oldOff4 * 4), ms.free.keys, "the old slot is the spare now")
+        assertTrue(ms.free.size == 2 && mv.oldOff4 * 4 in ms.free, "the old slot is free again beside the other spare: ${ms.free}")
         // a row-form change: withdrawn until its write is submitted
         rows[tor].s = rows[tor].s.copy(line = "3 active, 14.0 MB/s")
         val r2 = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed

@@ -61,10 +61,6 @@ internal class MainBinding(
     class Patch(val row: Int, val record: StagedRecord, val restage: MainStaging.Restage.Changed) {
         /** Its band switch has been acknowledged and the old slot released. */
         var released = false
-        /** A strip switch (AD.2): the flush that carried the rules' SETs naming the new strip, while it is in flight. */
-        var setsFlush: Long? = null
-        /** ... and that flush completed: both lenses hold the new pans, so no later fire draws the old strip. */
-        var setsLanded = false
     }
     val patches = ArrayList<Patch>()
 
@@ -77,7 +73,7 @@ internal class MainBinding(
      * written into the free pan slot (nothing names it there); the entries are SET only once it is counted (field 17) —
      * a write that fails or is called short leaves the registry and the re-make is owed again from the start. (c) Keyed
      * on the staging and the slot. (d) The shell's loop only. (e) One read of the record's state per poll. (f) Its
-     * sibling is the strip switch (AD.2: [Patch.setsLanded]): the old pans stay a staging a report may name ([BoundList.
+     * sibling was AD.2's strip switch (removed, K1-2 stage 1): the old pans stay a staging a report may name ([BoundList.
      * previous], [MainStaging.programAt]) until the SETs naming the new ones landed with no burst open; their slot is
      * then the next re-make's (P9).
      */
@@ -147,20 +143,29 @@ internal class MainBinding(
      *  of 0.82, S3): from that staging alone, so it comes down — a row that keeps changing keeps room for what it drew
      *  lately, one that stopped changing (a long title gone back) loses it, and every step walks less. */
     val roomById = HashMap<String, Int>()
+    /** K1-2 stage 1 (O12): the band form a row's window drew when its band form last changed — the largest in that
+     *  staging ([MainStaging.bandSeen]) — carried into the next staging by window, where that row's band slot is the
+     *  largest one; from that staging alone, as [roomById] (a row whose band form stopped changing gets its own size). */
+    val bandRoomById = HashMap<String, Int>()
     private var ids: List<String?> = emptyList()
 
-    /** The current staging's rows into [roomById] (at a drop and before the next staging): a changed row's room from the
-     *  largest picture it drew in this staging, an unchanged row's taken away. Idempotent for one staging. */
+    /** The current staging's rows into [roomById] and [bandRoomById] (at a drop and before the next staging): a changed
+     *  row's room from the largest picture it drew in this staging, an unchanged row's taken away. Idempotent for one
+     *  staging. */
     private fun harvestRoom() {
         val ms = staging ?: return
         for (r in 0 until minOf(ms.rows, ids.size)) {
             val id = ids[r] ?: continue
             if (r < ms.changed.size && ms.changed[r]) roomById[id] = MainStaging.roomFor(ms.seenMax[r]) else roomById.remove(id)
+            if (ms.bandSeen[r] > 0) bandRoomById[id] = ms.bandSeen[r] else bandRoomById.remove(id)
         }
     }
 
     /** B082: the room each row of a staging about to be made gets, by the windows its rows show. */
     fun roomFor(idsNow: List<String?>): IntArray { harvestRoom(); return IntArray(idsNow.size) { idsNow[it]?.let { id -> roomById[id] } ?: 0 } }
+
+    /** K1-2 stage 1 (O12): the band room each row of a staging about to be made gets (0: a slot of its own size). */
+    fun bandRoomFor(idsNow: List<String?>): IntArray { harvestRoom(); return IntArray(idsNow.size) { idsNow[it]?.let { id -> bandRoomById[id] } ?: 0 } }
 
     /** A new staging and its base records (placed, WANTED): the list made now carries a fresh mark. */
     fun begin(ms: MainStaging, recs: List<StagedRecord>, keysNow: List<Any?>, nowMs: Long, idsNow: List<String?> = emptyList()) {
@@ -255,7 +260,7 @@ internal class MainBinding(
     fun submitted(r: MainStaging.Restage.Changed, rec: StagedRecord, nowMs: Long) {
         val ms = staging!!
         ms.apply(r)
-        if (r.band != null || r.toStrip != null) list = ms.boundList(mark, previous = list, list = listNo, entryIds = entryIds)
+        if (r.band != null) list = ms.boundList(mark, previous = list, list = listNo, entryIds = entryIds)
         if (withdrawnFor == r.row) withdrawnFor = null
         patches += Patch(r.row, rec, r)
         owed[r.row] = false; dirty[r.row] = false
@@ -264,31 +269,27 @@ internal class MainBinding(
         restageCount++
     }
 
-    /** Decisions AF.4 and AD.2: a switch's old version (the retired band slot, the other strip's pans) is released only
-     *  when no report can still name it — its write [acked], no burst open (a report adopted before the ack may still be
-     *  COMMITted from it), and for a strip switch the flush carrying the SETs that name the new strip completed
-     *  ([Patch.setsLanded]): a fire before a lens applies them draws the old pan, and its report comes before that ack. */
+    /** Decisions AF.4: a band switch's old version (the retired slot) is released only when no report can still name it —
+     *  its write [acked] and no burst open (a report adopted before the ack may still be COMMITted from it). */
     fun releaseIfDue(p: Patch, acked: Boolean, burstOpen: Boolean) {
-        if (acked && !burstOpen && (p.restage.toStrip == null || p.setsLanded)) switchAcked(p)
+        if (acked && !burstOpen) switchAcked(p)
     }
 
     /** A flush [id] carrying the rules' messages was submitted; [entriesHeld]: the rules now hold the offered list's scroll
-     *  entries (their SETs were in it, or before it). A strip switch waiting for its SETs takes this flush as theirs. */
+     *  entries (their SETs were in it, or before it). A programs switch waiting for its SETs takes this flush as theirs. */
     fun tailSent(id: Long, entriesHeld: Boolean) {
-        if (entriesHeld) for (p in patches) if (p.restage.toStrip != null && !p.setsLanded && p.setsFlush == null) p.setsFlush = id
-        // K1-1: a programs switch's SETs likewise
+        // K1-1: a programs switch's SETs
         reprogram?.let { r -> if (entriesHeld && r.switched && !r.setsLanded && r.setsFlush == null) r.setsFlush = id }
     }
 
-    /** The flush [id] completed: its strip switches' SETs landed ([ok]), or not — a later flush carries them again (the
+    /** The flush [id] completed: a programs switch's SETs landed ([ok]), or not — a later flush carries them again (the
      *  table sent again after a refusal, a new session's start). */
     fun tailDone(id: Long, ok: Boolean) {
-        for (p in patches) if (p.setsFlush == id) { if (ok) p.setsLanded = true; p.setsFlush = null }
         reprogram?.let { r -> if (r.setsFlush == id) { if (ok) r.setsLanded = true; r.setsFlush = null } }
     }
 
     /** A new session: the flushes in flight are not this session's; the start's own batch SETs the entries again. */
-    fun tailsForgotten() { for (p in patches) p.setsFlush = null; reprogram?.setsFlush = null }
+    fun tailsForgotten() { reprogram?.setsFlush = null }
 
     /** A re-stage's flush was acknowledged: its band switch (if any) is released — the old slot is free again and the
      *  list forgets its [BoundList.previous]. */
@@ -296,7 +297,7 @@ internal class MainBinding(
         if (p.released) return
         p.released = true
         p.restage.band?.let { m -> staging?.release(m.oldOff4) }
-        if (p.restage.band != null || p.restage.toStrip != null) list?.previous = null
+        if (p.restage.band != null) list?.previous = null
     }
 
     /** A re-stage's record was counted: it leaves the books (its bytes are the staging's now). */

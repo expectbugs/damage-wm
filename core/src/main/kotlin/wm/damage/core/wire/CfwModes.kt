@@ -329,8 +329,8 @@ object CfwModes {
      *  renders' model, and 32 KiB held one. */
     const val STAGE_RESERVE = 64 * 1024
     /** Build C2 (`C2-decisions.md` B.4; AD.2; AU.1): on a 256 KiB session with BIND in force, Main's staged rows have a
-     *  region of their own, the 128 KiB below a 32 KiB stage reserve — room for a second strip, so a row-form change is
-     *  switched with no withdrawal (and for one strip when two do not fit) — and the atlas lays out over the 96 KiB under
+     *  region of their own, the 128 KiB below a 32 KiB stage reserve (AD.2's second strip there is gone since K1-2 stage 1,
+     *  decisions BC O1: one strip, and what it frees is the window lists' and the wheel's, BQ) — and the atlas lays out over the 96 KiB under
      *  it, what it has at 160 KiB (its largest use seen in his journal: 78,136 B). 96 KiB held his rows at the first
      *  trial's start (55,488 B) and not after his app visits (103,088 B, 11-19 12:25). Everywhere else (160 KiB, or no
      *  BIND: ladder stages 0–3 keep today's layout byte for byte) Main stages into the shared reserve when it comes to the
