@@ -245,7 +245,7 @@ ms/KB, a capture and the battery readout.
 **Exit:** `cacheMiss` reasons `proof` and `planes` at zero; first-flush bytes down on every gesture
 class; the page turn priced.
 
-### Phase 3 — The motion engine, phone-started (size L; 1 flash) — **its firmware is build C1: FLASHED 2026-11-18 (pin `0dab2154…`, `HANDOFF.md` §88); the Damage half is K's, under way**
+### Phase 3 — The motion engine, phone-started (size L; 1 flash) — **its firmware is build C1: FLASHED 2026-11-18 (pin `0dab2154…`, `HANDOFF.md` §88); the Damage half is K's**
 
 **Firmware:** the tick; programs (upload / play / stop / retarget / completion); the verbs from the
 refined list; the start synchronized across lenses via the deferred path; a running-program region
@@ -271,7 +271,7 @@ contract is `FIRMWARE.md` §5.*
 match, comfort of the depth pop, speed) · a soak day with the battery readout. **Exit:** no visible
 lens mismatch; motion starts within D7's phone-started target; battery within the margin.
 
-### Phase 4 — Local input (size XL; 2 flashes) — **its firmware is build C2: FLASHED 2026-11-19 (pin `b3f04453…`, `HANDOFF.md` §94), armed at ladder stage 4 (stage 5 since 11-21, on C3, §101); the Damage half is K's**
+### Phase 4 — Local input (size XL; 2 flashes) — **its firmware is build C2: FLASHED 2026-11-19 (pin `b3f04453…`, `HANDOFF.md` §94); the Damage half is K's**
 
 **Firmware:** the binding table; scroll and tap handling at the input path R0.1 found, on both
 lenses through the stock mirror; the applied-state event to the phone; sequence numbers.
@@ -287,7 +287,7 @@ thousands of steps, belief = glass at every settle) · Adam's feel sessions · a
 use · the local-latency metric from telemetry. **Exit:** D7's local target met on Main and lists;
 zero divergence in a week; hold-back never fired.
 
-### Phase 5 — Firmware-owned chrome and the silent clock (size M; 1 flash) — **not started (the chrome is a candidate for the next firmware build, `FIRMWARE.md` §8.1)**
+### Phase 5 — Firmware-owned chrome and the silent clock (size M; 1 flash) — **a candidate for the next firmware build (`FIRMWARE.md` §8.1)**
 
 **Firmware:** the clock/battery/link cells drawn after the frame copy at Global depth from cached
 fonts; RTC and fuel-gauge reads; the silent clock as a firmware minute program (no radio while silent).
@@ -298,7 +298,7 @@ them as outside the shadow; the idle tick and silent-mode traffic shrink to noth
 **Test stop T5:** vectors · self-test · a silent-mode night (a quiet journal) · a soak day. This is
 the last shell-facing flash before the rebuild, so Phase 6 runs on stable firmware.
 
-### Phase 6 — The Damage rebuild: the shell and every window, fully animated (size XL; fix flashes only) — **this is K (`REPLAN.md` §16.1); K1's motion part under way (APK 0.83 and 0.84, `HANDOFF.md` §100, §101), K2–K4 not started**
+### Phase 6 — The Damage rebuild: the shell and every window, fully animated (size XL; fix flashes only) — **this is K (`REPLAN.md` §16.1)**
 
 Built against the refined list from Phase 0, one surface or window at a time, each whole to its best
 state, each with its latency profile and Adam's verdict.
@@ -318,7 +318,7 @@ state, each with its latency profile and Adam's verdict.
 
 Each stop: the full battery ×3 · `--motion-check` · `glassdrive` walks · a soak day · Adam's verdict.
 
-### Phase 7 — The offline home (size L; 2 flashes) — **not started (step G decides it again)**
+### Phase 7 — The offline home (size L; 2 flashes) — **step G decides it again**
 
 **Research first** (R0.5 deepened): display ownership with no EvenHub page, input with no page, screen
 auto-off and wake, the persisted flag in the stock KV store, what to keep on the glasses.
@@ -332,7 +332,7 @@ the both-temple long-press untouched; a stock-dashboard override gesture kept.
 **Test stop T7:** vectors · self-test · phone-off sessions (case at home, phone in a drawer) · the
 stock override · a soak day · a phone-gone workday.
 
-### Phase 8 — Consistency, docs, readiness (size M; 0–1 flash) — **not started (step G)**
+### Phase 8 — Consistency, docs, readiness (size M; 0–1 flash) — **step G**
 
 `CLAIMS.md` regraded; `FIRMWARE.md` final; this file's log closed; the flashing guide; the verify
 script pinned to the final image; memory rewritten; the battery of gates green ×3; one final full

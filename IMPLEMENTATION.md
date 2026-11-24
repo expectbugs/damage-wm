@@ -980,7 +980,7 @@ fork's C (`~/damage-cfw`).
   and C3, the C1–C3 comparisons, the ship vectors), `DevProbeTest` (4). The fork's side: `host/test_damage_ext.py`,
   `host/run_self_test.py`.
 
-## The phone's halves of C1–C3 (APK 0.84; `HANDOFF.md` §85, §90–§92, §98–§101; written 2026-11-23 from the code)
+## The phone's halves of C1–C3 (`HANDOFF.md` §85, §90–§92, §98–§101)
 
 The contract is `FIRMWARE.md` §5 (C1, the engine), §6 (C2, local input) and §7 (C3, effects); the plan is `MOTION.md`
 §7; operating the ladder is `DAILY.md`. Nothing here is sent unless its ladder stage is armed on a build that reports
