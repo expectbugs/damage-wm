@@ -856,14 +856,14 @@ class MainLocalShellTest {
             assertTrue(ms.plays.effect == wm.damage.core.motion.ScrollEffect.CRUSH && ms.plays.v2 && ms.pitch == rowH && pan.program.tracks.size == 5,
                 "Crush plays (version 2, pitch +rowH, five tracks): ${ms.plays.effect} v2=${ms.plays.v2} pitch ${ms.pitch} ${pan.program.tracks.size} tracks")
             fun isList(sub: ByteArray) = r.isSub(sub, 27, CfwModes.BIND_LIST_RING) || r.isSub(sub, 27, 2)
-            val sets = r.right.drop(at).map { r.subs(it) }.filter { ss -> ss.any { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL } }
+            val sets = r.right.drop(at).map { r.subs(it) }.filter { ss -> ss.any { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL && it[5].toInt() == 0 } }
             assertEquals(1, sets.size, "ONE flush since the first step carries scroll SETs (the return's), not ${sets.size}: " +
-                "${sets.map { ss -> ss.filter { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL }.map { r.u16(it, 9) } }}")
+                "${sets.map { ss -> ss.filter { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL && it[5].toInt() == 0 }.map { r.u16(it, 9) } }}")
             val ss = sets.single()
             val li = ss.indexOfFirst { isList(it) }
             assertTrue(li >= 0 && r.isSub(ss[li], 27, CfwModes.BIND_LIST_RING) && r.u16(ss[li], 9).toShort().toInt() == rowH,
                 "the return carries the list's LIST-RING at Crush's pitch +$rowH: ${if (li >= 0) r.u16(ss[li], 9).toShort().toInt() else "none"}")
-            val up = ss.withIndex().first { (_, x) -> r.isSub(x, 27, 0) && x[4].toInt() == CfwModes.EV_UPROLL }
+            val up = ss.withIndex().first { (_, x) -> r.isSub(x, 27, 0) && x[4].toInt() == CfwModes.EV_UPROLL && x[5].toInt() == 0 }
             assertTrue(up.index > li && r.u16(up.value, 9) == pan.prog4, "the return's SET names Crush's pan ${pan.prog4} after the LIST-RING: ${r.u16(up.value, 9)}")
             for (a in Arm.entries) {
                 assertEquals(pan.prog4, r.sim.bindForTest(a).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.prog, "$a holds the SET naming Crush's pan")
@@ -941,8 +941,8 @@ class MainLocalShellTest {
             val (ms, pan) = r.onLoop { r.shell.mainBinding.staging!!.let { it to it.pan(MainStaging.WHOLE, 1) } }
             assertTrue(ms.motion?.effect == wm.damage.core.motion.ScrollEffect.CRUSH && ms.plays.effect == wm.damage.core.motion.ScrollEffect.CRUSH,
                 "the pans in force are Crush's at the return: asked ${ms.motion?.effect}, plays ${ms.plays.effect}")
-            val sets = r.right.drop(at.get()).map { r.subs(it) }.filter { ss -> ss.any { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL } }
-                .map { ss -> ss.filter { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL }.map { r.u16(it, 9) } }
+            val sets = r.right.drop(at.get()).map { r.subs(it) }.filter { ss -> ss.any { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL && it[5].toInt() == 0 } }
+                .map { ss -> ss.filter { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL && it[5].toInt() == 0 }.map { r.u16(it, 9) } }
             println("CM1 the flushes carrying scroll SETs since the switch: $sets (Crush's pan ${pan.prog4}); mainstage " +
                 r.notes("mainstage").filter { it.startsWith("pans") || it.startsWith("re-made") }.map { it.take(60) })
             assertEquals(listOf(listOf(pan.prog4)), sets, "ONE flush since the switch carries scroll SETs — the return's — naming Crush's pan ${pan.prog4}")

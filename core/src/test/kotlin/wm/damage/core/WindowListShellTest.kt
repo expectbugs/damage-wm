@@ -285,6 +285,7 @@ class WindowListShellTest {
             r.windowBound("Settings")
             val ms1 = r.onLoop { r.shell.windowListBinding.staging }
             val mark = r.list().mark
+            val wireMark = synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).lists[1].mark }
             val staged = r.notes("liststage").count { it.startsWith("staged") }
             notch(r, CfwModes.EV_UPROLL, "a notch on Settings")
             val at = r.right.size
@@ -304,7 +305,10 @@ class WindowListShellTest {
             val lo = ms1!!.start; val hi = ms1.end
             val back = r.since(at2).firstOrNull { ss -> ss.any { r.isSetOf(it, 1) } }
             assertNotNull(back, "list 1's SETs on the return")
-            assertTrue(back.none { r.isListOf(it, 1) }, "no LIST: the glasses hold the staging")
+            // the riding LIST (decisions U.1: every answer naming a list rides behind its LIST, shift 0, the mark it holds)
+            assertTrue(back.filter { r.isListOf(it, 1) }.all { r.u16(it, 7) == 0 && (it[11].toInt() and 0xFF) == wireMark },
+                "no new LIST: the glasses hold the staging (only the riding one, shift 0, mark $wireMark): " +
+                "${back.filter { r.isListOf(it, 1) }.map { "shift ${r.u16(it, 7)} mark ${it[11].toInt() and 0xFF}" }}")
             assertTrue(back.any { r.isDiscard0(it) && it[5].toInt() == 1 }, "the return's DISCARD names list 1's row")
             println("K12S3a kept across Main: list 1 at $lo..$hi")
             notch(r, CfwModes.EV_UPROLL, "the first notch back on Settings")
@@ -323,11 +327,29 @@ class WindowListShellTest {
             r.windowBound("started on Settings")
             val ms1 = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
             assertEquals(null, r.onLoop { r.shell.mainBinding.staging }, "no staging of Main's at a start on Settings")
-            for (w in r.rows) w.heavy = true
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
-            r.until("Main staged") { r.onLoop { r.shell.currentWindowId() == null && r.shell.mainBinding.staging != null } }
+            r.until("Main staged") { r.onLoop { r.shell.currentWindowId() == null && r.shell.mainBinding.staging != null && r.shell.mainBinding.counted } }
             r.done("Main")
-            val main = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+            // Main grows by its rows' content, one ink-heavy row at a time, each followed by a `Depth` change that stages it
+            // whole again (as `WheelResidentTest`'s Main-wins pin), until its staging reaches the list's records
+            var depth = 8
+            var k = 0
+            while (r.onLoop { r.shell.mainBinding.staging?.end ?: 0 } <= ms1.start && k < r.rows.size) {
+                r.rows[k++].heavy = true
+                val n0 = r.notes("mainstage").count { it.startsWith("staged") || "cannot be staged" in it }
+                depth = if (depth == 8) 4 else 8
+                r.shell.updateSettings { it.copy(depth = depth) }
+                r.until("Main staged whole again at Depth $depth") { r.notes("mainstage").count { it.startsWith("staged") || "cannot be staged" in it } > n0 &&
+                    r.onLoop { r.shell.mainBinding.staging == null || r.shell.mainBinding.counted } }
+                r.done("Main at Depth $depth")
+                if (r.onLoop { r.shell.mainBinding.staging } == null) {
+                    r.rows[--k].heavy = false                            // past what Main's region holds: one row lighter
+                    r.until("Main staged again one row lighter") { r.onLoop { r.shell.mainBinding.staging != null && r.shell.mainBinding.counted } }
+                    r.done("Main one row lighter")
+                    break
+                }
+            }
+            val main = assertNotNull(r.onLoop { r.shell.mainBinding.staging }, "Main staged: ${r.notes("mainstage").takeLast(3)}")
             println("K12S3a Main wins: Main ${main.start}..${main.end}, the list was ${ms1.start}..${ms1.end}; liststage ${r.notes("liststage").takeLast(3)}")
             assertTrue(main.end > ms1.start, "the fixture: Main's heavy staging (to ${main.end}) reaches the list's records (from ${ms1.start})")
             assertTrue(r.notes("liststage").any { it.startsWith("dropped — Main's staging at") && "(Main wins)" in it }, "the list dropped: ${r.notes("liststage")}")
@@ -346,7 +368,8 @@ class WindowListShellTest {
                 for (w in r.rows) w.heavy = false
                 r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
                 r.until("Main again") { r.onLoop { r.shell.currentWindowId() } == null }
-                r.shell.updateSettings { it.copy(depth = 4) }          // Main staged whole again, smaller
+                depth = if (depth == 8) 4 else 8
+                r.shell.updateSettings { it.copy(depth = depth) }      // Main staged whole again, smaller
                 r.until("Main smaller") { r.onLoop { r.shell.mainBinding.staging?.let { it.end < main.end && r.shell.mainBinding.counted } == true } }
                 r.done("Main smaller")
                 r.open("settings")
@@ -395,7 +418,10 @@ class WindowListShellTest {
             r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
             val runTo = r.right.size
             assertTrue((3..5).all { e -> r.since(at).take(runTo - at).any { ss -> ss.any { r.isClearOf(it, e) } } }, "the CLEARs of 3–5 by the run's end")
-            assertTrue(r.right.subList(runFrom, runTo).none { img -> r.subs(img).any { r.isSetOf(it, 1) } }, "no SET of list 1 in the run")
+            fun words(ss: List<ByteArray>) = ss.filter { (it[0].toInt() and 0x7F) in setOf(26, 27) }.joinToString(" ") { "${it[0].toInt() and 0x7F}/${it[1]}:" + it.drop(2).take(6).joinToString(",") { b -> "${b.toInt() and 0xFF}" } }
+            assertTrue(r.right.subList(runFrom, runTo).none { img -> r.subs(img).any { r.isSetOf(it, 1) } }, "no SET of list 1 in the run: " +
+                r.since(at).withIndex().joinToString(" | ") { (i, ss) -> "${if (i + at in runFrom until runTo) "RUN " else ""}${words(ss)}" } +
+                " — local ${r.notes("local").takeLast(6)}; liststage ${r.notes("liststage").takeLast(4)}")
             r.done("Global"); r.windowBound("Global, after the run")
             assertTrue(r.notes("liststage").count { it.startsWith("staged") } > staged, "the new level staged")
             notch(r, CfwModes.EV_UPROLL, "a notch on Global")

@@ -6117,9 +6117,12 @@ class Shell(
     private val lists: List<ListBind> = listOf(mainList, windowList)
 
     /** K1-2 stage 3: the window list's lane in idle, after the wheel's and before Page staging (decisions CK A3) — only at
-     *  stage 5 on a 256 KiB session with a region of Main's own (decisions BC O2, O4): below that nothing of it is sent. */
+     *  stage 5 on a 256 KiB session with a region of Main's own (decisions BC O2, O4): below that nothing of it is sent.
+     *  Nothing while a transition is in hand (the K1-2 spec §5.3: a new staging's writes wait for the run's end, and its
+     *  paint under the run is stage 4's), so the level a Select brings is staged after the run (pin 11). */
     private suspend fun pumpWindowList(st: LinkState): Boolean =
-        st.effects && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS && mainList.mainBindRegion(st).last + 1 < st.cacheSize && windowList.pumpMainBind(st)
+        st.effects && transition == null && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS && mainList.mainBindRegion(st).last + 1 < st.cacheSize &&
+            windowList.pumpMainBind(st)
 
     /** Test introspection, LOOP-ONLY (read inside [sampleIdle]): Main's staging and its counts; what Main offers and its row. */
     internal val mainBinding: MainBinding get() = mainList.mainBind

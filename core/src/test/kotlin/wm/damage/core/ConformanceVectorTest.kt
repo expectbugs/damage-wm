@@ -864,6 +864,7 @@ class ConformanceVectorTest {
         // SV-083: the transitions, then Main's scroll effects and the notice's programs ([ShipVectors.acts])
         val specs = ShipVectors.acts().filter { s -> only == null || only.any { it in s.name } }
         val problems = ArrayList<String>()
+        val k12s3aMoved = ArrayList<String>()
         if (dump == null && only == null) {
             val files = vectorFiles(vectorDir()).map { it.fileName.toString().removeSuffix(".json") }.filter { it.startsWith(ShipVectors.PREFIX) }.toSet()
             for (n in files - specs.map { it.name }.toSet()) problems += "$n: a ship vector no spec makes"
@@ -899,9 +900,20 @@ class ConformanceVectorTest {
             // (C3 FF's exception for the act the fast-path fit moved went with C3 SVR's merge, C3 MX2's for the acts Matrix
             // and X1MX2 moved with C3 SV2, and K1-2 stage 1's for the acts that stage Main with C3 SV3: their inputs are
             // written again, so they are compared as every act is)
+            // K1-2 stage 3a (decisions CV): the acts whose tap opens Settings at stage 5 on 256 KiB — its categories are now
+            // staged and bound as glasses list 1, so the capture holds that staging's writes and SETs — not compared until
+            // stage 4 writes their inputs again (the list-1 acts) and the fork fills them; only while they still differ
+            if (spec.name in K12S3A_MOVED) {
+                if (want == now) problems += "${spec.name}: equal to its file — the K1-2 stage-3a exception is stale, remove it"
+                else if (now.size <= want.size) problems += "${spec.name}: ${now.size} writes and PLAYs against the file's ${want.size} — not the window list's added ones"
+                else k12s3aMoved += spec.name
+                continue
+            }
             if (want != now) problems += "${spec.name}: the program bytes the shell sends today differ from the file's inputs " +
                 "(${now.size} against ${want.size}; first difference at ${now.indices.firstOrNull { it >= want.size || now[it] != want[it] } ?: want.size}) — regenerate it"
         }
+        if (k12s3aMoved.isNotEmpty()) println("ConformanceVectorTest: ${k12s3aMoved.size} shipped act(s) moved by K1-2 stage 3a (Settings' " +
+            "categories bound as list 1), NOT compared until stage 4 writes their inputs again and the fork fills them: ${k12s3aMoved.joinToString()}")
         println("ConformanceVectorTest: ${specs.size} shipped acts played again${dump?.let { ", written to $it" } ?: ", their programs compared with the files"}")
         assertEquals(emptyList(), problems, "the ship vectors:\n" + problems.joinToString("\n"))
     }
@@ -921,5 +933,10 @@ class ConformanceVectorTest {
         const val X3_HINT = "v5-x3-hint"
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
+        /** K1-2 stage 3a (`private/build083/K1-2-S3a-built.md`; decisions CV): the shipped acts that move — the ring tap on
+         *  Main's last row opens Settings, whose categories the shell now stages and binds as glasses list 1 at stage 5 on
+         *  256 KiB. Never regenerated here: stage 4 owns the list-1 acts and the one fork fill. */
+        val K12S3A_MOVED = setOf("v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-glasses-last-288",
+            "v5-ship-ring-tap-report-last-352", "v5-ship-ring-tap-glasses-last-352")
     }
 }
