@@ -6471,10 +6471,13 @@ class Shell(
         }
     }
 
-    /** The rules hold the scroll entries of the list Main offers now (their SETs were sent): a programs switch's old pans
-     *  can no longer be named by a fire after them in stream order (K1-1). */
+    /** The rules hold the scroll entries of the list Main offers now (their SETs were sent) — or, K1-2 stage 2 (decisions
+     *  CM (1), `C3-FR-DM1.md` item 1), none of its scroll entries at all (a cover's CLEAR): either way a programs switch's
+     *  old pans can no longer be named by a fire after them in stream order (K1-1). Without the second, a switch made in a
+     *  pump with no room, a cover arriving before the next pump, never released its old pans, and a change made under the
+     *  cover played only after the return. */
     private fun ListBind.mainBindEntriesSent(): Boolean = surface.offered?.let { l ->
-        l.entries.filter { !it.isTap }.all { e -> local.heldFor(l.list, e.eventId)?.prog4 == e.prog4 } } == true
+        l.entries.filter { !it.isTap }.map { e -> e to local.heldFor(l.list, e.eventId) }.let { es -> es.all { (e, h) -> h?.prog4 == e.prog4 } || es.all { it.second == null } } } == true
 
     /** The staging goes: its records leave the registry and the list is withdrawn. */
     private fun ListBind.mainBindDrop(why: String) {
@@ -8124,7 +8127,7 @@ class Shell(
         // short. An instant transport never sees the difference — nothing
         // stays in flight — and a window of 1 keeps its one slot.
         val cap = if (pumpPriority || yieldReserve) st.window else maxOf(1, st.window - 1)
-        val room = st.inFlight < cap
+        val room = st.inFlight < cap && noRoomAfterPollForTest?.invoke() != true
         if (!room) {              // FlushDone re-pumps; §5.13 coalescing happens here
             if (pumpPriority) {
                 inputAwaitsSlot = true      // §73: the flush that follows is still this gesture's
@@ -8513,6 +8516,9 @@ class Shell(
     /** Tests only: every pump returns at once, as one does when the window has no room (§32) — an act's transition stays
      *  owed while input arrives behind it. */
     @Volatile internal var pumpHeldForTest = false
+    /** Tests only (K1-2 stage 2, item 3a's pin): asked in each pump after the poll — true: this pump goes as one with no
+     *  room on the link (`pumpHeldForTest` returns before the poll, so it cannot make a switch fall in such a pump). */
+    @Volatile internal var noRoomAfterPollForTest: (() -> Boolean)? = null
     internal fun transitionPhaseForTest(): String? = transition?.phase?.name
     /** Transitions that ran whole (RIGHT's in-half body, outcome 0) this process. */
     private var transitionsWhole = 0

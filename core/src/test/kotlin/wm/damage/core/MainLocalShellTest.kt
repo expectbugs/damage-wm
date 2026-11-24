@@ -893,6 +893,60 @@ class MainLocalShellTest {
     @Test fun stepsUnderACoverAtOnceSwitchOnceToTheLastOnTheReturn_X3(): Unit = runBlocking { stepsUnderACover(listOf("slide", "crush", "flip", "crush"), 0) }
     @Test fun oneStepUnderACoverStillSwitchesOnTheReturn_X3(): Unit = runBlocking { stepsUnderACover(listOf("crush"), 300) }
 
+    /**
+     * K1-2 stage 2, item 3a (decisions CM (1); `C3-FR-DM1.md` item 1, the narrow path of the covered switch): a programs
+     * switch made with the list uncovered (Depth → Slide from another surface) falls in a pump with no room on the link, and
+     * a cover (Settings) arrives before the next pump — so the switch's SETs never go; the cover's CLEAR goes instead. Then
+     * `Scroll effect` → Crush under the cover, and back on Main a notch. With the cure the CLEAR's flush counts for the tail
+     * books (the rules hold no scroll entry of the list after it), the old pans are released once it lands, Crush is re-made
+     * and counted under the cover and switched by the return's poll: the return SETs Crush's pans and the first notch back
+     * plays Crush on both lenses. Without it the slot stayed held, the return SET Slide's pans, and the first notch played
+     * Slide (the record's symptom).
+     */
+    @Test
+    fun aSwitchWhoseSetsACoverOvertookLetsTheNextChangePlayOnTheReturn_CM1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            val hit = java.util.concurrent.atomic.AtomicBoolean(false)
+            r.shell.noRoomAfterPollForTest = {
+                // the pump whose poll switched: no room (no SETs), and the cover handled before a pump with room
+                when {
+                    !hit.get() && r.shell.mainBinding.reprogram?.switched == true -> {
+                        hit.set(true)
+                        r.shell.services.runOnShell { r.shell.services.openWindow("settings", null) }
+                        true
+                    }
+                    hit.get() -> r.shell.currentWindowId() != "settings"
+                    else -> false
+                }
+            }
+            r.shell.updateSettings { it.copy(scrollEffect = "slide") }
+            r.until("the switch fell in a pump with no room, the cover behind it") { hit.get() }
+            r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.until("Settings' transition landed") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.settle("in Settings")
+            r.shell.noRoomAfterPollForTest = null
+            r.shell.updateSettings { it.copy(scrollEffect = "crush") }
+            delay(2_000)                                                   // a while in Settings
+            r.settle("after the change under the cover")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back on Main and its list bound on RIGHT") { r.onLoop { r.shell.currentWindowId() } == null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
+            r.until("the return's transition landed") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.settle("back on Main")
+            val (ms, pan) = r.onLoop { r.shell.mainBinding.staging!!.let { it to it.pan(MainStaging.WHOLE, 1) } }
+            assertTrue(ms.motion?.effect == wm.damage.core.motion.ScrollEffect.CRUSH && ms.plays.effect == wm.damage.core.motion.ScrollEffect.CRUSH,
+                "the pans in force are Crush's at the return: asked ${ms.motion?.effect}, plays ${ms.plays.effect}")
+            for (a in Arm.entries) assertEquals(pan.prog4, r.sim.bindForTest(a).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.prog,
+                "$a holds the SET naming Crush's pan")
+            r.fire(CfwModes.EV_UPROLL)
+            for (a in Arm.entries) r.until("$a plays the first notch back") { synchronized(r.sim) { r.sim.motionForTest(a).slots[MainStaging.SLOT]?.prog4 } != null }
+            for (a in Arm.entries) assertEquals(pan.prog4, synchronized(r.sim) { r.sim.motionForTest(a).slots[MainStaging.SLOT]!!.prog4 }, "$a: the first notch back plays Crush's pan")
+            delay(r.motionMs() + r.q() + 300); r.settle("after the notch")
+            r.assertOracle("after the notch")
+        } finally { r.shell.noRoomAfterPollForTest = null; r.close() }
+    }
+
     /** K1-1 item 4: under Auto the steps follow the period in force — steps measured at 48 ms raise it 46 → 55 (decisions
      *  BF), and the pans are then re-made alone with T 5 (300 ms at 55 ticks), in idle; the staging's own period stays the
      *  floor, and five seconds with no input at fast steps bring both back (46, T 6). */
