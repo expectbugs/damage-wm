@@ -16,6 +16,7 @@ import wm.damage.core.motion.TransitionRehearsal
 import wm.damage.core.motion.WheelCheck
 import wm.damage.core.motion.Transitions
 import wm.damage.core.shell.MainLocalCheck
+import wm.damage.core.shell.WindowListCheck
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.sim.MotionSim
 import wm.damage.core.transport.Arm
@@ -48,6 +49,9 @@ import wm.damage.core.wire.Pb
  * `-fast45` for Depth and Crush (three notches down 120 or 45 ticks apart: his 100–150 ms gaps and his commonest under
  * 224 ms): one strip row a notch, every step, each with its `.txt` (where each notch was cut and the rows' travel left
  * there); their checks count as the strips' do.
+ * K1-2 stage 2: and a window's list in the window form ([WindowListCheck.strips]: Settings' Global, a ring list at every
+ * height, stage 5, 256 KiB) — `DIR/scroll-list-<none|depth|slide|fall>-h<height>-<down|up>` (the notch from its middle row,
+ * every step) beside `DIR/scroll-list-staging.txt`; their checks count as the strips' do.
  *
  * The bounds A.15 sets: `main` hands this the directory before the config is read, so nothing under `~/.damage` is
  * read; no stack, transport, shell or scope is made, so no port is bound and no window opens (the JVM is set headless
@@ -98,6 +102,7 @@ object MotionCheck {
         if (scroll) failures += scrollEffects(outDir, out)
         if (scroll) failures += wheel(outDir, out)
         if (scroll) failures += scrollBursts(outDir, out)
+        if (scroll) failures += windowLists(outDir, out)
         out.println("motion-check: ${TestPrograms.NAMES.size} program(s), 3 notice programs and ${PLAYS.size} transition(s)${if (scroll) ", Main's scroll effects and the switcher's wheel" else ""} into $outDir")
         if (failures.isEmpty()) { out.println("motion-check: ALL HOLD"); return 0 }
         out.println("motion-check: ${failures.size} FAILURE(S):")
@@ -110,6 +115,13 @@ object MotionCheck {
         // C3 DM-1: each strip written as its case is made (six effects' frames held at once passed the test's heap)
         val r = try { MainLocalCheck.effectStrips(AwtText()) { c -> LocalCheck.writeCase(outDir, c, out) } } catch (e: Exception) { return listOf("scroll effects: ${e.javaClass.simpleName}: ${e.message}") }
         Files.writeString(outDir.resolve("scroll-staging.txt"), r.table.joinToString("\n", postfix = "\n"))
+        return r.failures
+    }
+
+    /** K1-2 stage 2: a window's list in the window form as strips (see the class's text); the failures. */
+    private fun windowLists(outDir: Path, out: java.io.PrintStream): List<String> {
+        val r = try { WindowListCheck.strips(AwtText()) { c -> LocalCheck.writeCase(outDir, c, out) } } catch (e: Exception) { return listOf("window lists: ${e.javaClass.simpleName}: ${e.message}") }
+        Files.writeString(outDir.resolve("scroll-list-staging.txt"), r.table.joinToString("\n", postfix = "\n"))
         return r.failures
     }
 

@@ -358,7 +358,7 @@ abstract class CfwTransportBase(
                     Log.w(this.name, "probe motion=$value: expected ${wm.damage.core.motion.TestPrograms.NAMES.joinToString(" | ")}"); return
                 }
                 // decisions AW.5: refused while BIND is in force — the test programs lie in the top 64 KiB, which at 256 KiB
-                // overlaps Main's own region (as the `mainseq` probe and `hold` are refused at stage 4)
+                // overlaps Main's own region (as `hold` is refused at stage 4)
                 if (_state.value.flagsInForce and DamageMsg.FLAG_BIND != 0) {
                     emitNote("motion", "test program $value not sent — BIND is in force (stage 4): the test programs' layout overlaps Main's region"); return
                 }
@@ -4662,8 +4662,7 @@ abstract class CfwTransportBase(
          *  be seeded from it — the acquire's delivery to the lens on a busy link, with room: 2 s (2,048 OS ticks). */
         const val SEED_SPARE_TICKS = 2_048L
 
-        /** The rects each op of a batch writes, per lens (left, right) — [withMotionCloses]' bound; build C2's `mainseq`
-         *  probe asks the same of its follow-up flush, so the shell and the transport decide "meets" alike. */
+        /** The rects each op of a batch writes, per lens (left, right) — [withMotionCloses]' bound. */
         fun motionWriteRects(ops: List<DisplayOp>): List<Pair<wm.damage.core.geom.Rect, wm.damage.core.geom.Rect>> {
             fun toEdge(x: Int, y: Int) = wm.damage.core.geom.Rect(maxOf(0, x), maxOf(0, y), maxOf(1, Geometry.PANEL_W - maxOf(0, x)), maxOf(1, Geometry.PANEL_H - maxOf(0, y)))
             return ops.mapNotNull { op ->

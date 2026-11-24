@@ -63,6 +63,22 @@ class MainBindTest {
         assertEquals(16, r.cases.count { it.name.endsWith("-reprogram") && it.lines.isNotEmpty() && it.lines.none { l -> l.startsWith("no spare") } }, "the re-make ran at every height and cache, at both stages")
     }
 
+    /** K1-2 stage 2 (the K1-2 spec §7's stage-2 row): a window's list in the window form through the hook — Settings'
+     *  categories, Global and a three-row category at the four heights, every effect of the form at every cursor both
+     *  ways, and the report-only tap — all hold; ring exactly where the list's paint wraps (the categories' ten rows at 288,
+     *  352 and 416, Global everywhere), plain elsewhere; the space between Main's end and the wheel's block holds each. */
+    @Test
+    fun theWindowListFormHoldsThroughTheHookAtEveryHeight_K12S2() {
+        val r = wm.damage.core.shell.WindowListCheck.run(BoxFace, frames = false)
+        for (line in r.table) println("K12S2-staging $line")
+        assertTrue(r.failures.isEmpty(), "failures:\n" + r.failures.take(40).joinToString("\n"))
+        assertEquals(4 * 3 * (4 * 2 + 1), r.cases.size, "four heights × three lists × (four effects both ways + the tap): ${r.cases.map { it.name }}")
+        assertTrue(r.cases.filter { !it.name.endsWith("-tap") && !it.name.contains("-app3-") }.all { it.lines.isNotEmpty() }, "every ring and long list drew notches")
+        assertEquals(listOf(true, true, true, false), listOf(288, 352, 416, 480).map { h -> r.table.first { it.startsWith("h$h categories") }.contains("ring") },
+            "the categories ring at 288, 352 and 416, not at 480")
+        assertTrue(r.table.filter { " global " in it }.all { "ring" in it } && r.table.filter { " app3 " in it }.all { "plain" in it }, "Global rings, the three-row category does not")
+    }
+
     /** Decisions AF.4 (review V1Db §4, its probe turned into the pin): a report adopted before a band switch's
      *  acknowledgement names the retired slot; while a burst is open the slot is NOT released by the ack, so the COMMIT
      *  planned after it still paints END from it; with no burst open it is released. */
@@ -161,7 +177,7 @@ class MainBindTest {
         }
     }
 
-    /** The fixed rule (decisions V, AU.3; the `mainseq` probe keeps it, AW.4): the fit 15.66 + 0.156 ms per 1,000 px, P0
+    /** The fixed rule (decisions V, AU.3, AW.4; a staging with no motion): the fit 15.66 + 0.156 ms per 1,000 px, P0
      *  the smallest period that holds it, T nearest 200 ms at P0, the period P0 with 10 % on it — P 46 (44.9 ms) T 5 at
      *  352, above the first trial's slowest step (41.4 ms). */
     @Test

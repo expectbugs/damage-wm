@@ -76,8 +76,8 @@ class ContentKit(private val comp: Compositor) {
     internal fun paintLensBand(g: Gray8, l: Layout, v: WindowView.ListView, c: Int) {
         g.fillRect(l.lens, Level.BG)
         // bracketing rules — the shell's motif (§4.2)
-        g.fillRect(l.lens.x, l.lens.y, l.lens.w - Layout.RAIL_W, 2, Level.DIM)
-        g.fillRect(l.lens.x, l.lens.bottom - 2, l.lens.w - Layout.RAIL_W, 2, Level.DIM)
+        g.fillRect(l.lens.x, l.lens.y, l.lens.w - Layout.RAIL_W, LENS_RULE, Level.DIM)
+        g.fillRect(l.lens.x, l.lens.bottom - LENS_RULE, l.lens.w - Layout.RAIL_W, LENS_RULE, Level.DIM)
         v.paintLens(g, Rect(l.lens.x, l.lens.y, l.lens.w - Layout.RAIL_W, l.lens.h), c)
     }
 
@@ -133,4 +133,10 @@ class ContentKit(private val comp: Compositor) {
         l.content.x, l.content.y + Layout.CONTENT_PAD + slot * v.lineHeight,
         l.content.w - Layout.RAIL_W, v.lineHeight,
     )
+
+    companion object {
+        /** The lens band's two bracketing rules' height (§4.2, [paintLensBand]). K1-2 stage 2: a window list's band track
+         *  leaves them out of its area, so they never flicker under a notch (decisions BC O7). */
+        const val LENS_RULE = 2
+    }
 }

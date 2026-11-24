@@ -386,8 +386,8 @@ phone's working copy and queue — pull the phone's journal before, `python3 too
   (EFFECTS: the transitions, the ring list, the fast DRAW path) is stage 4's bytes plus one flag; 4 is the way back.
 - **Other probes** (same door): `local=state` (what is armed and why not), `local=rearm` (the Settings row `Local
   input`'s re-arm: lifts a hold-back, keeps the stored stage), `taps=phone|report|glasses` (also the
-  Settings row, shown on a C2 build), `hold=on|off`, `mainseq=1|2|3|all` and `motion=NAME` (test pictures; all three
-  refused while BIND is in force, stages 4 and 5),
+  Settings row, shown on a C2 build), `hold=on|off` and `motion=NAME` (test pictures; both refused while BIND is in
+  force, stages 4 and 5),
   `flags=0xNNNN` (refuses a bit `FIRMWARE.md` does not define, and any ladder bit beyond the stage), `rest=on|off`.
 - **After stage 4 is armed, read in the phone's journal:** `local` (reports, answers, what was not sent and why),
   `mainstage` (what was staged, its bytes, "not staged — why"), `snapback` (with its cause), `tapdrop`, `repair`,

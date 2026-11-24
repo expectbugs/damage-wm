@@ -1015,9 +1015,8 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   the bound list, 1 the wrap's PLAY, 2 a transition's out half or the notice, 3 the in half); the period and steps are
   the fit below. C1's test programs (`motion/TestPrograms.kt`: list, popover, recede, flip; Main's pans from
   `MainPan.kt`) play only by hand (`probe motion=NAME`, `Transport.sendMotion`, ENGINE in force; their cache write is
-  another writer's, so the shell drops its atlas for that session); `mainseq` is his scroll test on Main's staged rows.
-  `TestProgramsTest`, `MainSeqTest`, `MotionCheckTest`.
-- **Main's list staged** (C2; `shell/MainStaging.kt`, `MainBinding.kt`, `Shell.pumpMainStage`): the records from Main's
+  another writer's, so the shell drops its atlas for that session). `TestProgramsTest`, `MotionCheckTest`.
+- **Main's list staged** (C2; `shell/MainStaging.kt`, `MainBinding.kt`, `Shell.pumpMainBind`): the records from Main's
   own painters — the strip (every row's row form, margin rows past each end), each row's band form, the item table,
   the programs — in Main's own 128 KiB region on a 256 KiB session with BIND, else the shared stage reserve
   (`CfwModes.mainRegion`); written as pieces of one mode-19 message (`STAGE_CHUNK`, 0.82), proven by the cache count,

@@ -31,7 +31,7 @@ import wm.damage.core.wire.CfwModes
 /**
  * Build C2, stage DM2: the shell's half of Main's bound list — staged when Main is in front at stage 4, offered only
  * once the count (field 17) has proven every record, a row whose picture changes re-staged in place with its mark kept
- * and its bytes journaled, the `mainseq` probe refused while the list is bound. Context for the reader: Adam's own
+ * and its bytes journaled. Context for the reader: Adam's own
  * glasses on his own firmware fork; nothing here contacts a device — the glasses are the firmware model behind
  * [SimTransport] on a bit-10 build (DamageCaps 0x5ff) at the ladder's stage 4.
  *
@@ -202,21 +202,6 @@ class MainBindShellTest {
             r.settle("back on Main")
             r.until("offered again") { r.offered()?.first != null }
             assertEquals(staged, r.notes("mainstage").count { it.startsWith("staged") }, "nothing staged again: ${r.notes("mainstage")}")
-        } finally { r.close() }
-    }
-
-    /** While BIND is in force the scroll test is refused (P9: no PLAY into a bound slot) and says why; Main's records
-     *  stay the binding's. */
-    @Test
-    fun theScrollTestIsRefusedWhileMainsListIsBound_DM2(): Unit = runBlocking {
-        val r = Rig()
-        try {
-            r.up()
-            r.until("offered") { r.offered()?.first != null }
-            r.shell.devProbe("mainseq", "2")
-            r.until("refused") { r.notes("mainseq").any { it.startsWith("mainseq=2 not taken — BIND is in force") } }
-            r.settle("after")
-            assertNotNull(r.offered()?.first, "still offered")
         } finally { r.close() }
     }
 

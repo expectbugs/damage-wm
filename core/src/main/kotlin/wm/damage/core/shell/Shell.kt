@@ -1216,11 +1216,6 @@ class Shell(
         silentGen++
         sessionSerial++
         testHold = false                  // the `hold=on` dev probe never crosses a session
-        mainSeq?.let { r ->               // nor does a `mainseq` scroll test: its PLAYs and records were the last session's
-            mainSeq = null
-            main.model.cursor = r.saved.coerceIn(0, maxOf(0, mainRows().size - 1))
-            journal.note("mainseq", "ended with the session — Main's cursor back at row ${main.model.cursor}")
-        }
         starting = false                  // P5 item 4: the start has its session — a ring event from here on is this session's
         restWakeWanted = false
         restAskNotTakenSaid = false
@@ -1475,7 +1470,7 @@ class Shell(
                         chromeIdleFlush = true      // §8.3: chrome-only changes flush HERE
                         reserveCheck()              // P5 item 5: the input reserve's way out
                     }
-                    is Msg.RestTick -> if (m.gen == restGen && mode == Mode.MAIN && !main.resting && mainSeq == null) {
+                    is Msg.RestTick -> if (m.gen == restGen && mode == Mode.MAIN && !main.resting) {
                         main.resting = true
                         composeContent()
                     }
@@ -1640,7 +1635,6 @@ class Shell(
 
     private fun handleInput(type: Int, source: Int) {
         if (testHold) releaseHold("an input event")     // the `hold=on` dev probe never outlives a gesture
-        mainSeq?.let { mainSeqEnd(it, "an input event") }  // nor does the `mainseq` probe's scroll test
         // a ring event while the glasses are silent: the person is there —
         // check now rather than at the next pacing tick (§36, §37.0); the
         // input itself is handled normally, the surface stays current.
@@ -1785,7 +1779,6 @@ class Shell(
      *  or a tap ends the long-press chord. */
     private fun gestureBookkeeping(type: Int) {
         if (testHold) releaseHold("an input event")     // the `hold=on` dev probe never outlives a gesture
-        mainSeq?.let { mainSeqEnd(it, "an input event") }  // nor does the `mainseq` probe's scroll test
         if (type == EvenHubMsg.EV_SCROLL_TOP || type == EvenHubMsg.EV_SCROLL_BOTTOM || type == EvenHubMsg.EV_CLICK) chordArmedAtMs = 0L
         val newEcho = when (type) {
             // a FIXED vocabulary (`InputEcho`): the status cell is measured for it
@@ -2902,7 +2895,7 @@ class Shell(
 
     /** RIGHT's motion notify ([detail], the transport's note): a refusal of the box's PLAY ends the engine's timer for it. */
     private fun noticeNotify(detail: String) {
-        val n = MainSeqPlan.parseNotify(detail) ?: return
+        val n = MotionNotify.parse(detail) ?: return
         if (n.tag != noticeTag) return                      // an older PLAY's (a restart's own PLAY closed it)
         if (n.outcome.startsWith("refused")) { noticeFallback("RIGHT refused its PLAY (${n.outcome.removePrefix("refused: ")})"); return }
         // fix B1: a phone write into the box closed the live timer on the glasses (a scroll's slide frames, a badge, a
@@ -3365,8 +3358,6 @@ class Shell(
                 // — END goes into belief as the glasses wrote it into their shadow, so when the instance ends the
                 // agreement check finds END on both sides (no divergence, no keyframe)
                 if (ev.kind == "motion") wm.damage.core.motion.TestPrograms.playedName(ev.detail)?.let { testProgramEndIntoBelief(it) }
-                // build C2, stage DMS: RIGHT's notify-114 for a `mainseq` PLAY (its drawn / folded / µs for the run's note)
-                if (ev.kind == "motion") mainSeqNotify(ev.detail)
                 if (ev.kind == "motion") noticeNotify(ev.detail)          // build K1-4a: a refused notice PLAY
             }
             is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses; §4: its path
@@ -4436,7 +4427,7 @@ class Shell(
      * idle pump's own gates and [mayGo], each read afresh on every pump; (c) keyed on the record object itself (the
      * registry's identity check); (d) the loop only; the image lane's writes stay in stream order, LEFT cannot report; (e)
      * one read of the link state per pump; (f) every record [stageSubmit] sends — Page staging's strips, Main's base
-     * records and re-stages, the `mainseq` probe's — and the ledger's two verdicts that drop records.
+     * records, re-stages and re-made pans — and the ledger's two verdicts that drop records.
      */
     private class StageCursor(val rec: StagedRecord, val pieces: List<StagePiece>, val mayGo: () -> Boolean, val onBooked: (() -> Unit)?) {
         /** The next piece to send. */
@@ -4556,8 +4547,7 @@ class Shell(
         stage.ring = null                  // sized from the session's cache at the first strip
     }
 
-    /** Decisions AU.2: Page staging's records go (and the `mainseq` probe's are not touched either way: it is refused at
-     *  stage 4), Main's own staging stays — for a reason that concerns Page staging only. */
+    /** Decisions AU.2: Page staging's records go, Main's own staging stays — for a reason that concerns Page staging only. */
     private fun stagePagesClear(why: String) {
         val gone = stage.records.values.filter { it.key !is MainStageKey }
         for (r in gone) stage.remove(r)
@@ -4712,21 +4702,16 @@ class Shell(
      *  owner's gate, read afresh on every pump). [onBooked]: what makes the record nameable — run when the naming piece
      *  is submitted, else at the last piece's ack. The first piece goes now. */
     private suspend fun stageSubmit(rec: StagedRecord, st: LinkState, parts: List<Pair<Int, ByteArray>> = listOf(rec.off to rec.encoded),
-                                    namesLast: Boolean = false, mayGo: () -> Boolean = { true }, apartFrom: IntRange? = null,
+                                    namesLast: Boolean = false, mayGo: () -> Boolean = { true },
                                     onBooked: (() -> Unit)? = null) {
-        stageCursor = StageCursor(rec, stagePieces(parts, namesLast, st.cacheSize, apartFrom), mayGo, onBooked)
+        stageCursor = StageCursor(rec, stagePieces(parts, namesLast, st.cacheSize), mayGo, onBooked)
         stageSendPiece(st)
     }
 
     /** [parts] as pieces of one mode-19 message each: consecutive data parts packed at their own offsets, split so a
      *  message carries at most [STAGE_CHUNK] bytes of data (its entries' 4-byte headers beside them; parts are 4-byte
-     *  aligned, so a split keeps every offset aligned); with [namesLast] the last part alone, last. B083 (S1): with
-     *  [apartFrom] (the wraps' read ranges), the parts that miss it go first and no piece holds both kinds — a wrap may
-     *  play from the records as they stand until the first piece that meets it is written. */
-    private fun stagePieces(parts0: List<Pair<Int, ByteArray>>, namesLast: Boolean, cacheSize: Int, apartFrom: IntRange? = null): List<StagePiece> {
-        fun meets(p: Pair<Int, ByteArray>) = apartFrom != null && p.first <= apartFrom.last && apartFrom.first < p.first + p.second.size
-        val body = if (namesLast) parts0.dropLast(1) else parts0
-        val parts = if (apartFrom == null) parts0 else body.filter { !meets(it) } + body.filter { meets(it) } + (if (namesLast) parts0.takeLast(1) else emptyList())
+     *  aligned, so a split keeps every offset aligned); with [namesLast] the last part alone, last. */
+    private fun stagePieces(parts: List<Pair<Int, ByteArray>>, namesLast: Boolean, cacheSize: Int): List<StagePiece> {
         val out = ArrayList<StagePiece>()
         var entries = ArrayList<CfwModes.CacheWrite2>()
         var room = STAGE_CHUNK + 4                                  // header + data of the message's entries
@@ -4739,7 +4724,7 @@ class Shell(
         for ((i, part) in parts.withIndex()) {
             val (off, bytes) = part
             val naming = namesLast && i == parts.size - 1
-            if (naming || (i > 0 && meets(part) && !meets(parts[i - 1]))) close(false)
+            if (naming) close(false)
             var pos = 0
             while (pos < bytes.size) {
                 if (room < 4 + 4) close(false)
@@ -5442,7 +5427,6 @@ class Shell(
             return
         }
         sleep = reason
-        mainSeq?.let { mainSeqEnd(it, "the shell went to sleep ($why)") }
         transitionEnd("the shell went to sleep ($why)")             // build C3 (DP2): the session's end or the wake re-grounds
         if (was == SleepReason.REST) {
             restWakeWanted = false
@@ -5601,29 +5585,12 @@ class Shell(
      *                      Mode wake does. Every other case is a `rest` note saying why nothing was done.
      *                      Sent to glass only on Adam's word.
      *   hold = on | off    the feel session (2026-11-18): no frame is submitted until hold=off or an input event.
-     *   mainseq = 1|2|3|all  build C2, stage DMS: Adam's scroll test on Main's staged rows — six notches up fast, a
-     *                      pause, six down one at a time, at width k (or each k with a pause between) — with ENGINE in
-     *                      force; any input event ends it. Every case it cannot take is a `mainseq` note.
      *
      * True when the name is the shell's: the host then does not hand it to the transport. Any thread.
      * The probe is run ON the loop, and only in the session it was taken in ([sessionSerial]): one taken
      * while a start was still on its way, or queued behind a stop, says so in a note and does nothing.
      */
     fun devProbe(name: String, value: String): Boolean {
-        if (name == "mainseq") {
-            Log.i("shell", "probe: $name=$value")
-            journal.note("probe", "$name=$value")
-            if (!running) {
-                journal.note("mainseq", "mainseq=$value not taken — no session")
-                return true
-            }
-            val serial = sessionSerial                          // captured once, on the caller's thread
-            post(Msg.Run(dropped = { journal.note("mainseq", "mainseq=$value not taken — the session ended") }) {
-                if (serial != sessionSerial) journal.note("mainseq", "mainseq=$value not taken — the session changed")
-                else mainSeqStart(value)
-            })
-            return true
-        }
         if (name == "taps") {
             // build C2 (decisions N.1): `Taps` is a Settings row; the probe goes through the setting's own door
             Log.i("shell", "probe: $name=$value")
@@ -5689,62 +5656,6 @@ class Shell(
         pumpAfter(0)
     }
 
-    // ------------------------------------------------------ the `mainseq` probe (build C2, stage DMS)
-    /**
-     * Adam's scroll test (2026-11-18, the brief `C2-DMS-brief.md`): Main's rows staged from Main's own painters
-     * ([MainStaging]) through the shell's own stage writes, counted, then — the shell's frames held — six notches up a
-     * constant apart, a pause, six down one at a time, per width k (`mainseq=1|2|3|all`; `all` with a pause between).
-     * Each notch is one PLAY of the staged pan with that cursor's parameters and its own tag; at its acknowledgment END
-     * goes into belief and Main's cursor moves (truth), so the two agree at every step, and one follow-up flush a
-     * constant after the PLAY draws what lies outside the pan's areas (the rows past k, the rail) — never while an
-     * instance it would meet may still be drawing (it waits for that instance's end). Any input event ends it at once
-     * (the input is then handled as usual); so do the session's end, a sleep, and every step that cannot be taken, each
-     * with a note. At the end Main's cursor is back where it was and the shell repaints. Loop-confined.
-     *
-     * The envelope (`FORK.md` §3.8). (a) The run ends at a session start (said there), a sleep, an input event; Main's
-     * records go with every [stageClear] (a lapse, a reset, a sleep, the live font set changing, another writer), and a
-     * run checks them before each PLAY. (b) A record whose write fails or is not counted leaves the registry: while
-     * staging, the run paints and stages Main again ([MAINSEQ_RESTAGES] times, then it ends, said); the stage lane's own
-     * bounds ([STAGE_FAILURES_MAX], the count going off) end it too. A PLAY's wait is its deferred: the ack, a failed
-     * write or the session's end — never a clock. (c) Keyed on the run object and the session ([sessionSerial]); every
-     * PLAY has its own tag ([MAINSEQ_TAG]..+0xFFF); the staging on its layout, planes and row count, checked before each
-     * PLAY. (d) The deferred completes on the transport's coroutine and is posted to the loop; the atlas and Page
-     * staging write the cache too, the first below the reserve, the second never while Main is in front. (e) One read
-     * of the link state per decision. (f) Its siblings: the `hold` probe's gate and input end, the test programs' END
-     * into belief, the rest tick, the sleep.
-     */
-    private class MainSeqRun(val ks: List<Int>, val saved: Int, val serial: Int,
-        val plan: List<MainSeqPlan.Notch>, val pace: MainSeqPlan.Pace) {
-        var staging: MainStaging? = null
-        /** Main's records in the stage registry (the registry's own objects), in [MainStaging.blobs]' order. */
-        var records: List<StagedRecord> = emptyList()
-        /** The plays have begun: the shell's frames wait, but for one follow-up pump per notch. */
-        var playing = false
-        var followUpOpen = false
-        var followUpFor: MainSeqPlayed? = null
-        var next = 0
-        var lastSentMs = 0L
-        /** When the latest acknowledged instance has surely drawn its last step (its ack + T periods). */
-        var instanceEndsMs = 0L
-        var lastPan: MainStaging.Pan? = null
-        var restages = 0
-        /** Why it ends, once it does; it stays (holding) until every PLAY sent is acknowledged or failed. */
-        var ending: String? = null
-        val unacked = ArrayDeque<MainSeqPlayed>()
-        val played = ArrayList<MainSeqPlayed>()
-        val noted = HashSet<Int>()
-    }
-
-    private class MainSeqPlayed(val index: Int, val notch: MainSeqPlan.Notch, val pan: MainStaging.Pan, val params: IntArray,
-        val tag: Int, val sentMs: Long, val gapMs: Long) {
-        var ackMs = -1L
-        var notify: MainSeqPlan.Notify? = null
-        var followUp = "none"
-        var deferred = 0
-    }
-
-    private var mainSeq: MainSeqRun? = null
-    private var mainSeqTags = 0
     /** Decisions AZ.4: the wrap's PLAY tags (one per PLAY, cycling through 0x1000). */
     private var wrapTags = 0
 
@@ -5903,10 +5814,11 @@ class Shell(
         if (w.list.list != MainStaging.LIST || mainList.mainBind.list?.mark != w.list.mark) return null
         val pan = ms.wrapPan(w.step) ?: return null
         val p = ms.wrapParams(pan, w.cPrime) ?: return null
-        // B082: the wrap draws its own record, which a re-stage in pieces may be writing. B083 (the focused read of 0.82,
-        // S1): it plays from the records as they stand while no piece written or on its way meets its read range (§5.6)
-        // — its END is the phone's copy, which takes the re-stage only at its booking, and the pieces still to come wait
-        // for the motion's end (`mayGo`); else no PLAY until it is booked (the edge goes as today)
+        // B082: the wrap draws its own record, which a re-stage in pieces may be writing: no PLAY while a piece written or
+        // on its way meets its read range (§5.6) — until the re-stage is booked the edge goes as today (SPLIT2). K1-2 stage 2
+        // (decisions CP): a re-stage while the list is in front writes only inside that range (a band form's move: the
+        // spare slots and the item table lie between the wrap's record and its program), and one that writes the strip goes
+        // only withdrawn, when the rules hold no list in front and plan no wrap — so no wrap plays during any re-stage
         val c = stageCursor
         if (c != null && c.rec.key is MainStageKey) {
             val range = pan.program.firstRange(p)
@@ -5920,288 +5832,6 @@ class Shell(
         return MainWrap(play, Compositor.EndPlan(MainStaging.WRAP_SLOT, pan.program.tracks.map { it.areaL to it.areaR },
             { left, g -> if (!left && wrapPaintFailsForTest) throw wm.damage.core.geom.LintError("a test: the wrap's END paint fails"); ms.paintEnd(pan, p, left, g) }, until), tag)
     }
-    /** The `mainseq` probe's pacing (a test shortens it). */
-    @Volatile internal var mainSeqPace = MainSeqPlan.Pace()
-
-    /** The planes Main is drawn on now: its list's disparity and its band's (`updatePlanes`). */
-    private fun mainSeqPlanes(): Pair<Int, Int> {
-        val listD = comp.planes.lastOrNull { it.rect == layout.content }?.disparity ?: 0
-        return listD to (comp.planes.lastOrNull { it.rect == layout.lens }?.disparity ?: listD)
-    }
-
-    /** Why the run cannot go on (or start) now; null when it can. */
-    private fun mainSeqBlocked(st: LinkState, run: MainSeqRun?): String? = when {
-        !linkUpAndSteady(st) -> "the link is down or the session is rebuilding"
-        st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE == 0 ->
-            "ENGINE is not in force (flags 0x${st.flagsInForce.toString(16)}): the ladder's stage 3 on an engine build"
-        // build C2, stage DM2: at stage 4 Main's list is bound in this slot (P9: no PLAY into a bound slot), and its
-        // records are the binding's — the scroll test is stage 3's
-        st.bind -> "BIND is in force (stage 4): Main's list is bound on the glasses, and the scroll test plays at stage 3"
-        sleep != null -> "the glasses are asleep"
-        mode != Mode.MAIN -> "Main is not in front"
-        switcher.open -> "the switcher is open"
-        menu.open -> "a menu is open"
-        keyboard.open -> "the keyboard is open"
-        notifications.active -> "a notification is up"
-        testHold -> "hold=on is in force (hold=off first)"
-        stageFailed -> "staging is off for this session (the stage notes say why)"
-        !ledgerReadable(st) -> "the cache count cannot be read here (cached text off or not up, or no count on this build): nothing is played before it is counted"
-        run?.staging?.let { s -> s.layout != layout || (s.listD to s.bandD) != mainSeqPlanes() || s.rows != mainRows().size } == true ->
-            "Main's layout, planes or rows changed since its rows were staged"
-        else -> null
-    }
-
-    private fun mainSeqStart(value: String) {
-        val ks = when (value) { "1", "2", "3" -> listOf(value.toInt()); "all" -> MainStaging.WIDTHS; else -> null }
-        if (ks == null) { journal.note("mainseq", "mainseq=$value not taken — 1 | 2 | 3 | all"); return }
-        if (mainSeq != null) { journal.note("mainseq", "mainseq=$value not taken — a scroll test is running (an input event ends it)"); return }
-        val st = transport.state.value
-        mainSeqBlocked(st, null)?.let { journal.note("mainseq", "mainseq=$value not taken — $it"); return }
-        val n = mainRows().size
-        if (n < 2) { journal.note("mainseq", "mainseq=$value not taken — Main has $n row(s): no notch to play"); return }
-        val pace = mainSeqPace
-        val run = MainSeqRun(ks, main.model.cursor, sessionSerial, MainSeqPlan.plan(ks, n, pace), pace)
-        mainSeq = run
-        // Main as it is drawn at the last row, awake (no rest while the test runs: the RestTick waits for no run)
-        restGen++
-        main.resting = false
-        main.model.cursor = n - 1
-        composeContent()
-        journal.note("mainseq", "mainseq=$value — Main at its last row of $n (from row ${run.saved}); its rows are staged, and the frames are held " +
-            "once they are counted and nothing is in flight")
-        if (!mainSeqStage(run, st)) return
-        post(Msg.Pump)
-        mainSeqAfter(run, 0) { mainSeqPoll(run) }
-    }
-
-    /** Paints Main's staging and puts its records in the stage registry at their offsets (a staging already there with
-     *  the same bytes at the same offsets, counted, is taken as it is). False when the run ended instead. */
-    private fun mainSeqStage(run: MainSeqRun, st: LinkState): Boolean {
-        val (listD, bandD) = mainSeqPlanes()
-        val ct = cachedText
-        val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
-        val ms = try {
-            MainStaging.build(layout, main.view(), kit, listD, bandD, st.cacheSize, relay = { g, paint -> if (ct != null) ct.via(g, 0, 0, NO_RECORDS) { paint() } else paint() })
-        } catch (e: wm.damage.core.geom.LintError) { mainSeqEnd(run, "Main's rows cannot be staged: ${e.message}"); return false }
-        run.staging = ms
-        if (ct != null && (ct.wantVersion != want0 || ct.seenVersion != seen0)) {
-            // §73, Page staging's rule: the paint showed a face characters (or an icon) the atlas does not hold yet — the
-            // atlas goes first, and Main is painted again once it is done (written now, the records would stop matching
-            // Main the moment those glyphs went live; a character the atlas cannot give is not new the second time)
-            run.records = emptyList()
-            journal.note("mainseq", "Main's rows drew characters the atlas does not hold yet — the atlas goes first, then they are painted again")
-            return true
-        }
-        val old = stage.records.values.filter { it.key is MainStageKey }
-        // taken only while the shell was the cache's last writer (a hand-played test program writes the same reserve)
-        if (st.cacheWriter == atlasTag && old.size == ms.blobs.size && ms.blobs.withIndex().all { (i, b) -> old.any { r -> r.key.firstLine == i && r.off == b.off &&
-                r.state == StagedRecord.State.PROVEN && r.encoded.contentEquals(b.bytes) } }) {
-            run.records = ms.blobs.indices.map { i -> old.first { it.key.firstLine == i } }
-            journal.note("mainseq", "Main's ${ms.blobs.size} records are on the glasses already, counted — nothing to write")
-            return true
-        }
-        val start = st.cacheSize - CfwModes.STAGE_RESERVE
-        if (stage.records.isNotEmpty()) stageClear("Main's rows take the reserve for the scroll test")
-        val ring = stage.ring?.takeIf { it.start == start && it.end == st.cacheSize } ?: StageRing(start, st.cacheSize).also { stage.ring = it }
-        run.records = ms.blobs.mapIndexed { i, b -> StagedRecord(MainStageKey(ms, i, b.name), b.raw ?: Gray8(1, 1), b.bytes) }
-        for ((i, r) in run.records.withIndex()) {
-            if (ring.placeAt(r, ms.blobs[i].off) == null) { mainSeqEnd(run, "Main's ${ms.blobs[i].name} does not fit the reserve at ${ms.blobs[i].off}"); return false }
-            stage.records[r.key] = r
-        }
-        stageRecount()
-        journal.note("mainseq", "Main's rows staged: ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB " +
-            "cache (the strip ${ms.blobs.first().bytes.size} B, ${ms.rows} band forms ${ms.blobs.drop(1).dropLast(1).sumOf { it.bytes.size }} B, " +
-            "${ms.pans.size} programs ${ms.blobs.last().bytes.size} B), planes ${ms.listD}/${ms.bandD}")
-        return true
-    }
-
-    /** The idle pump's step for the run's records: the next one not yet written goes out through the shell's own stage
-     *  write (its writer tag the atlas's, so the shell keeps its atlas), back to back — one reading counts them all. */
-    private suspend fun pumpMainStage(st: LinkState): Boolean {
-        val run = mainSeq ?: return false
-        if (run.playing || run.ending != null) return false
-        if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
-        if (cacheWritesHeld()) return false               // C3 DM-T (D6)
-        if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
-        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
-        if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
-        if (ledgerBaseOwed(st)) return tryLedgerRead(st)
-        if (atlasResendMissing > 0L) return false
-        val rec = run.records.firstOrNull { it.state == StagedRecord.State.WANTED && stage.records[it.key] === it } ?: return false
-        stageSubmit(rec, st)
-        stageRecount()
-        return true
-    }
-
-    /** While staging (a pace on the loop): Main staged again when a record left the registry; the plays begin once every
-     *  record is counted and nothing is pending or in flight. */
-    private fun mainSeqPoll(run: MainSeqRun) {
-        if (run.playing) return
-        val st = transport.state.value
-        mainSeqBlocked(st, run)?.let { mainSeqEnd(run, it); return }
-        if (run.records.isEmpty()) {
-            // the atlas first ([mainSeqStage]): Main is painted again once nothing of the atlas is queued or on its way
-            if (atlasQueue.isEmpty() && atlasInFlight == null && !cacheWorkInFlight && !atlasLapsedOwed) {
-                if (++run.restages > MAINSEQ_RESTAGES) { mainSeqEnd(run, "Main's rows kept drawing characters the atlas did not hold (${run.restages - 1} paints)"); return }
-                if (!mainSeqStage(run, st)) return
-                post(Msg.Pump)
-            }
-        } else if (run.records.any { stage.records[it.key] !== it }) {
-            if (++run.restages > MAINSEQ_RESTAGES) { mainSeqEnd(run, "Main's records left the reserve ${run.restages - 1} times while staging (the stage notes say why)"); return }
-            journal.note("mainseq", "a record of Main's left the reserve while staging (the stage notes say why) — Main is painted and staged again (${run.restages} of $MAINSEQ_RESTAGES)")
-            if (!mainSeqStage(run, st)) return
-            post(Msg.Pump)
-        } else if (run.records.all { it.state == StagedRecord.State.PROVEN } && !comp.hasPending && !comp.needsKeyframe &&
-            st.inFlight == 0 && !cacheWorkInFlight) {
-            run.playing = true
-            val n = run.staging!!.rows
-            journal.note("mainseq", "counted — holding the shell's frames; ${run.plan.size} notch(es) for k ${run.ks.joinToString()}" +
-                (if (n < 7) " (Main has $n rows: ${n - 1} notch(es) each way)" else ""))
-            mainSeqAfter(run, run.plan.first().afterMs) { mainSeqNotch(run) }
-            return
-        }
-        mainSeqAfter(run, MAINSEQ_POLL_MS) { mainSeqPoll(run) }
-    }
-
-    private fun mainSeqNotch(run: MainSeqRun) {
-        val st = transport.state.value
-        mainSeqBlocked(st, run)?.let { mainSeqEnd(run, it); return }
-        if (run.records.any { stage.records[it.key] !== it || it.state != StagedRecord.State.PROVEN }) {
-            mainSeqEnd(run, "Main's staged records left the reserve (the stage notes say why)"); return
-        }
-        if (st.cacheWriter != atlasTag) { mainSeqEnd(run, "another writer ('${st.cacheWriter}') wrote the cache since Main's rows were staged"); return }
-        val ms = run.staging!!
-        val notch = run.plan[run.next]
-        run.played.lastOrNull()?.let { if (it.notch.k != notch.k) mainSeqNoteK(run, run.ks.indexOf(it.notch.k)) }
-        val pan = ms.pan(notch.k, notch.to - notch.from)
-        val p = ms.params(pan, notch.to) ?: return mainSeqEnd(run, "notch ${run.next + 1} (${notch.from}→${notch.to}) is an edge")
-        val tag = MAINSEQ_TAG + (mainSeqTags++ and 0xFFF)
-        val play = try { wm.damage.core.motion.Motion.play(pan.program, 0, ms.period, tag, 0, p) }
-            catch (e: wm.damage.core.geom.LintError) { mainSeqEnd(run, "notch ${run.next + 1}'s PLAY is refused offline: ${e.message}"); return }
-        val done = CompletableDeferred<Unit>()
-        val now = System.currentTimeMillis()
-        if (!transport.sendMotion(listOf(play), done)) { mainSeqEnd(run, "notch ${run.next + 1}'s PLAY was not sent (the motion note says why)"); return }
-        val played = MainSeqPlayed(run.next, notch, pan, p, tag, now, if (run.lastSentMs == 0L) 0L else now - run.lastSentMs)
-        run.lastSentMs = now
-        run.lastPan = pan
-        run.unacked.addLast(played)
-        run.played += played
-        run.next++
-        scope.launch {
-            val error = try { done.await(); null } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { e.message ?: e.toString() }
-            if (running) post(Msg.Run { mainSeqAcked(run, played, error) })
-        }
-        if (run.next < run.plan.size) mainSeqAfter(run, run.plan[run.next].afterMs) { mainSeqNotch(run) }
-        else mainSeqAfter(run, run.pace.slowMs) { mainSeqEnd(run, "the test is done") }
-    }
-
-    /** A PLAY of the run acknowledged ([error] null) or not. END goes into belief whatever the run's state — the lens wrote
-     *  it into its shadow — and, while the run goes on, Main's cursor moves and the follow-up is due. */
-    private fun mainSeqAcked(run: MainSeqRun, p: MainSeqPlayed, error: String?) {
-        run.unacked.remove(p)
-        if (run.serial != sessionSerial) return              // another session: its start re-grounds belief
-        val now = System.currentTimeMillis()
-        if (error == null) {
-            val ms = run.staging!!
-            comp.paintBelief { left, belief -> ms.paintEnd(p.pan, p.params, left, belief) }
-            p.ackMs = now - p.sentMs
-            run.instanceEndsMs = now + ms.t * ms.period * 1000L / 1024     // decisions V: the staging's own T and period
-            if (mainSeq === run && run.ending == null) {
-                main.model.cursor = p.notch.to
-                composeContent()
-                mainSeqAfter(run, p.sentMs + run.pace.followUpMs - now) { mainSeqFollowUp(run, p) }
-            }
-        } else {
-            journal.note("mainseq", "notch ${p.index + 1}'s PLAY (tag 0x%04x) was not acknowledged ($error) — END is not put into belief; keyframing".format(p.tag))
-            comp.requestKeyframe("a scripted notch PLAY was not acknowledged")
-            mainSeqEnd(run, "notch ${p.index + 1}'s PLAY was not acknowledged")
-        }
-        if (run.ending != null && run.unacked.isEmpty() && mainSeq === run) mainSeqRelease(run)
-    }
-
-    /** [step] on the loop [ms] from now, while [run] is the run and has not ended — a pace, never a bound on a send. */
-    private fun mainSeqAfter(run: MainSeqRun, ms: Long, step: () -> Unit) {
-        scope.launch {
-            delay(maxOf(0L, ms))
-            if (running) post(Msg.Run { if (mainSeq === run && run.ending == null) step() })
-        }
-    }
-
-    private fun mainSeqFollowUp(run: MainSeqRun, p: MainSeqPlayed) {
-        run.followUpOpen = true
-        run.followUpFor = p
-        post(Msg.Pump)
-    }
-
-    /** The follow-up's flush [a] would write into the pan's areas while an instance there may still be drawing (a PLAY
-     *  unacknowledged, or the latest one before its last step) — the transport would CLOSE it first and cut the motion.
-     *  "Writes" is the transport's own bound ([wm.damage.core.transport.CfwTransportBase.motionWriteRects]): a cached
-     *  glyph run counts to the panel's right and bottom edges, so a follow-up that draws cached text waits too. */
-    private fun mainSeqFollowUpMeets(run: MainSeqRun, a: Compositor.Assembled): Boolean {
-        if (run.unacked.isEmpty() && System.currentTimeMillis() >= run.instanceEndsMs) return false
-        if (a.keyframe || a.ops.any { it is DisplayOp.Keyframe }) return true    // a live mode 6 closes every instance
-        val pan = run.lastPan ?: return false
-        return wm.damage.core.transport.CfwTransportBase.motionWriteRects(a.ops).any { (l, r) ->
-            pan.areasL.any { it.overlaps(l) } || pan.areasR.any { it.overlaps(r) } }
-    }
-
-    /** The follow-up met a drawing instance: rolled back (its cells go again from the truth) and tried again at that
-     *  instance's end. */
-    private fun mainSeqDefer(run: MainSeqRun) {
-        val p = run.followUpFor ?: return
-        p.deferred++
-        p.followUp = "deferred"
-        val wait = if (run.unacked.isNotEmpty()) run.pace.followUpMs else run.instanceEndsMs - System.currentTimeMillis() + 1
-        mainSeqAfter(run, wait) { mainSeqFollowUp(run, p) }
-    }
-
-    /** RIGHT's notify-114 for one of the run's PLAYs (the transport's `motion` note). A refusal ends the run. */
-    private fun mainSeqNotify(detail: String) {
-        val run = mainSeq ?: return
-        val n = MainSeqPlan.parseNotify(detail) ?: return
-        val p = run.played.lastOrNull { it.tag == n.tag } ?: return
-        p.notify = n
-        if (n.outcome.startsWith("refused")) mainSeqEnd(run, "RIGHT refused notch ${p.index + 1}'s PLAY (${n.outcome.removePrefix("refused: ")})")
-    }
-
-    /** The run ends: what it played is journaled, Main's cursor goes back, and once no PLAY is unacknowledged the frames go. */
-    private fun mainSeqEnd(run: MainSeqRun, why: String) {
-        if (mainSeq !== run || run.ending != null) return
-        run.ending = why
-        for (i in run.ks.indices) if (run.played.any { it.notch.k == run.ks[i] }) mainSeqNoteK(run, i)
-        main.model.cursor = run.saved.coerceIn(0, maxOf(0, mainRows().size - 1))
-        composeContent()
-        scheduleRest()
-        if (run.unacked.isEmpty()) mainSeqRelease(run)
-        else journal.note("mainseq", "ending — $why; ${run.unacked.size} PLAY(s) not yet acknowledged: the frames wait for END in belief")
-    }
-
-    private fun mainSeqRelease(run: MainSeqRun) {
-        mainSeq = null
-        journal.note("mainseq", "released — ${run.ending}; Main's cursor back at row ${main.model.cursor}; the shell repaints its own picture")
-        post(Msg.Pump)
-    }
-
-    /** One `mainseq` note per width: per notch the cursor's move, the tag, the interval since the PLAY before it as sent,
-     *  the ack, RIGHT's notify-114 (drawn / folded / the largest step's µs) and the follow-up. */
-    private fun mainSeqNoteK(run: MainSeqRun, ki: Int) {
-        if (ki < 0 || !run.noted.add(ki)) return
-        val k = run.ks[ki]
-        val ps = run.played.filter { it.notch.k == k }
-        if (ps.isEmpty()) return
-        val pan = ps.first().pan
-        val ms = run.staging!!
-        val notches = ps.joinToString("; ") { p ->
-            val nf = p.notify
-            "${p.index + 1} ${p.notch.from}→${p.notch.to} tag 0x%04x +${p.gapMs} ms ack ${if (p.ackMs >= 0) "${p.ackMs} ms" else "-"} ".format(p.tag) +
-                (if (nf == null) "114 not received" else "114 ${nf.outcome} drawn ${nf.drawn ?: "-"} folded ${nf.folded ?: "-"} stepUs ${nf.stepUs ?: "-"}") +
-                " follow-up ${p.followUp}" + (if (p.deferred > 0) " (deferred ${p.deferred}×)" else "")
-        }
-        journal.note("mainseq", "k=$k" + (if (pan.kA != k) " (capped at ${pan.kA} rows at this height)" else "") +
-            ": ${pan.kA} above, ${pan.kB} below, ${pan.areaPx} px a step per lens, Main ${layout.safe.h} high with ${ms.rows} rows, planes ${ms.listD}/${ms.bandD}; " +
-            "${ps.size} notch(es): $notches")
-    }
-
     // ------------------------------------------------------ Main's bound list (build C2, stage DM2)
     /**
      * Main's list staged on the glasses for local input (`C2-spec.md` §6.4; decisions B.4; `FIRMWARE.md` §6.7 P9). While
@@ -6471,10 +6101,13 @@ class Shell(
         }
     }
 
-    /** The rules hold the scroll entries of the list Main offers now (their SETs were sent): a programs switch's old pans
-     *  can no longer be named by a fire after them in stream order (K1-1). */
+    /** The rules hold the scroll entries of the list Main offers now (their SETs were sent) — or, K1-2 stage 2 (decisions
+     *  CM (1), `C3-FR-DM1.md` item 1), none of its scroll entries at all (a cover's CLEAR): either way a programs switch's
+     *  old pans can no longer be named by a fire after them in stream order (K1-1). Without the second, a switch made in a
+     *  pump with no room, a cover arriving before the next pump, never released its old pans, and a change made under the
+     *  cover played only after the return. */
     private fun ListBind.mainBindEntriesSent(): Boolean = surface.offered?.let { l ->
-        l.entries.filter { !it.isTap }.all { e -> local.heldFor(l.list, e.eventId)?.prog4 == e.prog4 } } == true
+        l.entries.filter { !it.isTap }.map { e -> e to local.heldFor(l.list, e.eventId) }.let { es -> es.all { (e, h) -> h?.prog4 == e.prog4 } || es.all { it.second == null } } } == true
 
     /** The staging goes: its records leave the registry and the list is withdrawn. */
     private fun ListBind.mainBindDrop(why: String) {
@@ -6765,11 +6398,7 @@ class Shell(
                 // list that names it, the patch — only when nothing unwritten remains: at the item word's submission (it
                 // goes alone, after every other piece was acknowledged), else at the last piece's ack
                 var pieces = 0
-                // B083 (S1): what the wraps read goes last, so a wrap during the pieces plays from the records as they stand
-                val wrapReads = listOf(-1, 1).mapNotNull { d -> ms.wrapPan(d)?.let { pan -> ms.wrapParams(pan, if (d > 0) ms.rows else -1)?.let { pan.program.firstRange(it) } } }
-                    .reduceOrNull { a, b -> minOf(a.first, b.first)..maxOf(a.last, b.last) }
-                stageSubmit(rec, st, r.writes.map { it.off to it.bytes }, namesLast = r.band != null, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() },
-                    apartFrom = wrapReads) {
+                stageSubmit(rec, st, r.writes.map { it.off to it.bytes }, namesLast = r.band != null, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() }) {
                     if (mainBind.staging !== ms) return@stageSubmit       // the staging went meanwhile (its drop said so)
                     mainBind.submitted(r, rec, System.currentTimeMillis())
                     stageRecount()
@@ -8096,9 +7725,6 @@ class Shell(
         // the `hold=on` dev probe: a hand-played test program's picture stays on the lenses until the hold ends
         if (testHold) return
         if (pumpHeldForTest) return             // tests only: a link with no room at all (a transition stays owed)
-        // the `mainseq` probe's plays: the frames wait, but for the one follow-up pump each notch opens
-        val seq = mainSeq?.takeIf { it.playing }
-        if (seq != null && !seq.followUpOpen) return
         // a cache write that was not this shell's landed in the live cache mid-session (the self-test's
         // `live:` writes, 2026-09-15 review): the atlas's bytes on the glasses are no longer what it
         // packed, so nothing draws from them — pixels until the next session or a Cached text toggle
@@ -8124,7 +7750,7 @@ class Shell(
         // short. An instant transport never sees the difference — nothing
         // stays in flight — and a window of 1 keeps its one slot.
         val cap = if (pumpPriority || yieldReserve) st.window else maxOf(1, st.window - 1)
-        val room = st.inFlight < cap
+        val room = st.inFlight < cap && noRoomAfterPollForTest?.invoke() != true
         if (!room) {              // FlushDone re-pumps; §5.13 coalescing happens here
             if (pumpPriority) {
                 inputAwaitsSlot = true      // §73: the flush that follows is still this gesture's
@@ -8318,15 +7944,6 @@ class Shell(
                 comp.requestKeyframe("a flush could not be assembled")
                 null
             }
-            if (seq != null) {
-                seq.followUpOpen = false
-                if (assembled == null) seq.followUpFor?.let { if (it.followUp == "none" || it.followUp == "deferred") it.followUp = "nothing to send" }
-                else if (mainSeqFollowUpMeets(seq, assembled)) {
-                    comp.rollback(assembled)          // not sent: its cells go again from the truth, at the instance's end
-                    mainSeqDefer(seq)
-                    return
-                }
-            }
             // the wrap's PLAY goes ahead of the rules' answers (the DISCARD naming the wrapped row); a keyframe's batch
             // denies it (it closes every instance) and the row is drawn as today
             val wrapPlay = wrap?.takeIf { it.end.slot !in denied }?.also { wrapSent(it) }?.play
@@ -8365,7 +7982,6 @@ class Shell(
                     if (localTail.isNotEmpty()) { localTailFlushes += id; mainList.mainBind.tailSent(id, mainList.mainBindEntriesSent()) }
                     inflightFlushes[id] = assembled
                     flushesSubmitted++
-                    seq?.followUpFor?.let { it.followUp = "flush $id (${assembled.ops.size} op(s))" }
                     cachedRectsShipped += comp.cachedRectsThisAssemble
                     stagedRectsShipped += comp.stagedRectsThisAssemble
                     if (pumpPriority) inputFlushPending = false
@@ -8411,15 +8027,9 @@ class Shell(
             // 6. nothing pending: the lowest-priority work — the cache count's reading
             //    (0.64), the atlas's next chunk (§40), then a staged strip (§66), then
             //    the preview settle
-            if (seq != null) {
-                // a follow-up with nothing to draw; the cache's work waits for the run's end
-                seq.followUpOpen = false
-                seq.followUpFor?.let { if (it.followUp == "none" || it.followUp == "deferred") it.followUp = "nothing to send" }
-                return
-            }
             // the wheel's preview over Main before Main's staging step (decisions AL.1): a staging's paint turns are not
             // what the preview waits for
-            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !mainList.pumpMainBind(st) &&
+            if (!animated && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !mainList.pumpMainBind(st) &&
                 !pumpNoticeStage(st)) pumpStage(st)
         }
 
@@ -8513,6 +8123,9 @@ class Shell(
     /** Tests only: every pump returns at once, as one does when the window has no room (§32) — an act's transition stays
      *  owed while input arrives behind it. */
     @Volatile internal var pumpHeldForTest = false
+    /** Tests only (K1-2 stage 2, item 3a's pin): asked in each pump after the poll — true: this pump goes as one with no
+     *  room on the link (`pumpHeldForTest` returns before the poll, so it cannot make a switch fall in such a pump). */
+    @Volatile internal var noRoomAfterPollForTest: (() -> Boolean)? = null
     internal fun transitionPhaseForTest(): String? = transition?.phase?.name
     /** Transitions that ran whole (RIGHT's in-half body, outcome 0) this process. */
     private var transitionsWhole = 0
@@ -8674,7 +8287,7 @@ class Shell(
 
     /** C3 DM-T, the DM spec's D6: no other cache write while an Encode or Matrix run is in hand — their read range runs from
      *  the atlas's fonts to their records (Encode's to its lists in the stage reserve, above Main's region), and a write
-     *  that meets it closes the half on the glasses. The six writers read it ([pumpAtlas], [pumpMainStage], [pumpMainBind],
+     *  that meets it closes the half on the glasses. The five writers read it ([pumpAtlas], [pumpMainBind],
      *  [pumpStagePiece], [pumpStage], and K1-4a's [pumpNoticeStage] since the 0.83 integration); every end of a run goes through [transitionEnd] or a new act, each posting a pump.
      *  C3 X2T item 1 (the review's 1, decisions AQ (1)): and for one in-half period past RIGHT's in-half body of such a run
      *  ([glyphHoldUntilMs]) — LEFT reports nothing, and a write released in the pump that sends the CLOSE could reach LEFT
@@ -9396,11 +9009,7 @@ class Shell(
          *  in, while the chrome's are drawn every frame and never qualify. */
         /** §54: undelivered atlas chunks in a row before cached text is switched off. */
         const val ATLAS_UNDELIVERED_LIMIT = 3
-        /** Build C2, stage DMS: the `mainseq` probe's PLAY tags (one per PLAY, cycling through 0x1000), apart from the
-         *  `motion` probe's (1, 2, 3, …); how often a run paints and stages Main again before it gives up; its pace
-         *  while staging. */
-        const val MAINSEQ_TAG = 0xD000
-        /** Decisions AZ.4: the wrap's PLAY tags, apart from the probes'; and the allowance for its start after the flush
+        /** Decisions AZ.4: the wrap's PLAY tags, apart from the `motion` probe's (1, 2, 3, …); and the allowance for its start after the flush
          *  that carries it (the answer flushes' acks on his glasses, 2026-11-19: 50–400 ms), added to its steps for how long
          *  the cells inside its areas wait. */
         const val WRAP_TAG = 0xB000
@@ -9417,8 +9026,6 @@ class Shell(
         const val PERIOD_QUIET_MS = 5_000L
         const val PERIOD_LOWER_MIN = 4
         const val WRAP_START_MS = 400L
-        const val MAINSEQ_RESTAGES = 3
-        const val MAINSEQ_POLL_MS = 50L
         /** §66: a staged record's write goes out in messages of this many bytes (a multiple of 4,
          *  under the atlas's 3,072 B messages). */
         const val STAGE_CHUNK = 3064

@@ -42,12 +42,18 @@ class MotionCheckTest {
             // at 45 ticks)
             val bursts = listOf("none", "depth", "slide", "fall", "crush", "flip").map { "scroll-$it-h352-s5-burst" } +
                 listOf("depth", "crush").flatMap { listOf("scroll-$it-h352-s5-fast", "scroll-$it-h352-s5-fast45") }
-            assertEquals(2 * 4 * (6 * 2 + 3 * 2) + bursts.size, files(dir).count { it.startsWith("scroll-") && it.endsWith(".png") }, "the scroll strips: ${files(dir).filter { it.startsWith("scroll-") }}")
+            assertEquals(2 * 4 * (6 * 2 + 3 * 2) + bursts.size, files(dir).count { it.startsWith("scroll-") && !it.startsWith("scroll-list-") && it.endsWith(".png") }, "the scroll strips: ${files(dir).filter { it.startsWith("scroll-") }}")
+            // K1-2 stage 2: a window's list in the window form — None, Depth, Slide and Fall at the four heights, the notch from
+            // the middle row down and up — beside its staging table
+            val lists = listOf("none", "depth", "slide", "fall").flatMap { e -> listOf(288, 352, 416, 480).flatMap { h -> listOf("down", "up").map { "scroll-list-$e-h$h-$it" } } }
+            assertEquals(lists.sorted(), files(dir).filter { it.startsWith("scroll-list-") && it.endsWith(".png") }.map { it.removeSuffix(".png") }, "the window list's strips")
+            for (n in lists) assertTrue("checks: all hold" in Files.readString(dir.resolve("$n.txt")), "$n:\n${Files.readString(dir.resolve("$n.txt"))}")
+            assertTrue(Files.exists(dir.resolve("scroll-list-staging.txt")), "scroll-list-staging.txt")
             assertEquals(4 * (6 * 2 + 3 * 2) + bursts.size, files(dir).count { Regex("""scroll-\w+-h\d+-s5-.*\.png""").matches(it) }, "the stage-5 scroll strips: ${files(dir).filter { "-s5-" in it }}")
             for (e in listOf("crush", "flip")) for (h in listOf(288, 352, 416, 480)) for (n in listOf("down", "up"))
                 assertTrue(Files.exists(dir.resolve("scroll-$e-h$h-s5-$n.png")), "scroll-$e-h$h-s5-$n.png")
             for (b in bursts) assertTrue(Files.exists(dir.resolve("$b.png")) && Files.exists(dir.resolve("$b.txt")), "$b.png and $b.txt")
-            for (f in files(dir).filter { it.startsWith("scroll-") && it.endsWith(".txt") && it != "scroll-staging.txt" })
+            for (f in files(dir).filter { it.startsWith("scroll-") && it.endsWith(".txt") && !it.endsWith("staging.txt") })
                 assertTrue("checks: all hold" in Files.readString(dir.resolve(f)), "$f:\n${Files.readString(dir.resolve(f))}")
             for (name in MotionCheck.TRANSITION_NAMES) {
                 val txt = Files.readString(dir.resolve("$name.txt"))

@@ -2,7 +2,8 @@ package wm.damage.core.transport
 
 /**
  * Build C2 (`FIRMWARE.md` §6.8, spec DP1 / P12): what the phone keeps on its own storage for the arming ladder and local
- * input, so that a restart of its process (every APK install) loses none of it — the ladder's stage (0..4), the time of
+ * input, so that a restart of its process (every APK install) loses none of it — the ladder's stage (0..5: 5 is C3's EFFECTS,
+ * §7.9; `CfwTransportBase.LADDER_TOP_STAGE`), the time of
  * the last session in which stage 4 was armed, the case-in that matters, the stage-4 hold-back, and (build C2-FA) the last
  * session's cache size. `Taps` is a Settings
  * row (`ShellSettings.taps`, on the PC record with the phone's working copy — stage DP2, decisions N.1), not the
