@@ -279,27 +279,42 @@ class TransitionsTest {
     /**
      * C3 X1MX2 item 3 (decisions BV): Warp's and Flip's step fit follows the glass. At 352 — where his session measured
      * them (Warp's out half 58.8 ms a step, Flip's 60.3 ms) — every tier length and frame setting gives a period of at
-     * least the measured step plus 10 %, and the length holds while the frames give (2·T·P within the length, unless one
-     * step a half already passes it) — only to a longer period: where the fit is not above the setting's period the
-     * setting's timing plays; never more steps than the setting's. Every other path effect keeps [Transitions.timing].
-     * Printed for the report: every length and frame setting at the four heights, before → after (the heights other than
-     * 352 modeled from the fit's form).
+     * least the measured step plus 10 %; the frames give only to a longer period: where the fit is not above the setting's
+     * period the setting's timing plays; never more steps than the setting's. C3 X2MX2 item 1 (decisions CJ (2)): the
+     * length holds — where the frames gave, the period is at least the fit and fills the half to within one tick a step
+     * (T·P ≤ length·1.024 / 2 < T·(P + 1)), at every height, but at the period's limit, 128 ticks, where the half plays
+     * T × 128, short of its length (at 300 ms at 416 and 480: 1 × 128, 250 ms of 300). Every other path effect keeps
+     * [Transitions.timing]. Printed for the
+     * report: every length and frame setting at the four heights, the setting's timing → the effect's, and what both
+     * halves play in ms (the heights other than 352 modeled from the fit's form).
      */
     @Test
     fun warpAndFlipFitTheirMeasuredStep_X1MX2() {
         val heights = listOf(288, 352, 416, 480)
         val table = StringBuilder()
         for ((e, ms) in listOf(Transitions.Effect.WARP to Transitions.WARP_STEP_MS_352, Transitions.Effect.FLIP to Transitions.FLIP_STEP_MS_352)) {
-            table.append("${e.label} (measured ${ms} ms a step at 352): length / frames | ${heights.joinToString(" | ")}   (T steps a half × P ticks, before → after)\n")
+            table.append("${e.label} (measured ${ms} ms a step at 352): length / frames | ${heights.joinToString(" | ")}   (T steps a half × P ticks: the setting's → the effect's = both halves in ms)\n")
             for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) {
                 val base = Transitions.timing(len, f)
                 val cells = heights.map { h ->
                     val t = Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h))
+                    val at = "${e.label} at $h, $len ms / $f: ${t.steps} × ${t.period} against the setting's ${base.steps} × ${base.period}"
                     if (h == 352) assertTrue(t.period * 1000.0 / 1024 >= ms * 1.10, "${e.label} at $len ms / $f: P ${t.period} under ${ms} ms + 10 %")
-                    assertTrue(t.steps <= base.steps, "${e.label} at $h, $len ms / $f: ${t.steps} steps, more than the setting's ${base.steps}")
-                    assertTrue(t == base || (t.period > base.period && (2L * t.steps * t.period <= Math.ceil(len * 1.024).toLong() || t.steps == 1)),
-                        "${e.label} at $h, $len ms / $f: ${t.steps} × ${t.period} against the setting's ${base.steps} × ${base.period} — frames give only to a longer period, inside the length")
-                    if (t == base) "${t.steps}×${t.period}" else "${base.steps}×${base.period} → ${t.steps}×${t.period}"
+                    assertTrue(t.steps <= base.steps, "$at — more steps than the setting's")
+                    assertTrue(t.period in wm.damage.core.wire.CfwModes.MOTION_PERIODS, "$at — a period the PLAY refuses")
+                    // the step fit's own period at this height (the fit's form: 0.5 ms + the measured rate per pixel)
+                    val fit = Math.ceil(Math.ceil((0.5 + (ms - 0.5) * (Geometry.PANEL_W.toDouble() * h) / (640.0 * 352)) * 1.024) * 1.10).toInt()
+                    if (fit <= base.period) assertEquals(base, t, "$at — the fit $fit is not above the setting's period: the setting's frames play")
+                    else {
+                        val half = len * 1.024 / 2
+                        assertTrue(t.period >= fit, "$at — the period under the fit $fit")
+                        // the period's limit: one step a half at 300 ms and 416 or 480 would take 153 ticks; it plays 128
+                        if (t.period == wm.damage.core.wire.CfwModes.MOTION_PERIODS.last) assertTrue(t.steps * t.period <= half && ((t.steps + 1) * fit > half || t.steps == base.steps),
+                            "$at — at the limit, the most steps of at least the fit inside the length (${"%.1f".format(half)} ticks)")
+                        else assertTrue(t.steps * t.period <= half && half < t.steps * (t.period + 1.0),
+                            "$at — the frames gave, so the half fills its length to within one tick a step (${"%.1f".format(half)} ticks)")
+                    }
+                    "${if (t == base) "" else "${base.steps}×${base.period} → "}${t.steps}×${t.period} = ${2 * t.halfMs} ms"
                 }
                 table.append("$len / ${if (f == 0) "Auto" else "$f"} | ${cells.joinToString(" | ")}\n")
             }
@@ -307,7 +322,7 @@ class TransitionsTest {
         for ((_, e, _) in pathPlays.filter { it.second != Transitions.Effect.WARP && it.second != Transitions.Effect.FLIP }.distinctBy { it.second })
             for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) for (h in heights)
                 assertEquals(Transitions.timing(len, f), Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h)), "${e.label} keeps its timing")
-        println("X1MX2 item 3, Warp's and Flip's timings (352 measured, the other heights modeled):\n$table")
+        println("X1MX2 item 3 and X2MX2 item 1, Warp's and Flip's timings (352 measured, the other heights modeled):\n$table")
     }
 
     /** DP2 item 3: the tier rows follow the scroll rows in `Animations` only where stage 5 is in force; Select 450 ms / 10
@@ -722,6 +737,28 @@ class TransitionsTest {
                 assertEquals(0, (-d - seg.xL) % seg.rain!!.cw, "depth $d, the $half half: moved by whole columns")
             }
         }
+    }
+
+    /**
+     * C3 X2MX2 item 3 (decisions CJ (4)): where none of the [RAIN_SEED_TRIES][Transitions] seeds gives each drawn out step a
+     * picture of its own, Matrix is refused with its reason (a [wm.damage.core.geom.LintError], which takes it out of the
+     * act's pick as its other refusals do — `TransitionShellTest`'s "Matrix (a half costs …)") — never a table whose drawn
+     * steps share a picture. Forced: an area narrower than one rain column of a 12 × 20 face (18 px), so no column lies
+     * whole on either lens; and a grid of two rows a column under eight steps a half.
+     */
+    @Test
+    fun matrixIsRefusedWhereNoSeedGivesEachStepItsOwnPicture_X2MX2() {
+        val face = testFace(12, 20)
+        val narrow = Rect(0, 0, 12, 160)
+        val x = kotlin.test.assertFailsWith<wm.damage.core.geom.LintError>("an area narrower than a column: refused") {
+            Transitions.build(fx, Transitions.Effect.MATRIX, false, narrow, Transitions.Timing(8, 51), 4096,
+                wm.damage.core.wire.CfwModes.TRANSITION_SLOT, 0, glyphs = Transitions.Glyphs(rain = face))
+        }
+        assertTrue(x.message!!.startsWith("Matrix: none of 16 rain seeds from ") && "7 drawn steps a picture of its own" in x.message!!, "the reason said: ${x.message}")
+        val short = Transitions.RainGrid(cw = 18, ch = 20, rows = 2, trail = 4, spread = 2, cols = 4, xL = 0, xR = 0, areaW = 72)
+        val y = kotlin.test.assertFailsWith<wm.damage.core.geom.LintError>("two rows a column under eight steps: refused") { Transitions.rainTravel(short, 8, 0x5EED) }
+        assertTrue("(4 columns of 18 px over 2 rows of 20 px)" in y.message!!, "the reason names the grid: ${y.message}")
+        assertTrue(Transitions.rainTravel(short, 2, 0x5EED) != null, "the same grid at two steps a half (one drawn step) is taken")
     }
 
     /**
