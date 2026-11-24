@@ -28,11 +28,14 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   phone-drawn.
 - **On `main` since 0.84 was staged, not on his devices** (the next build carries them): the 34 ship vectors; the
   fix for a scroll effect changed in several steps under a cover, and Encode's costs computed once an act; six tests
-  whose rigs decided too early (none a product defect). **In work, on branches:** `wip/084-k12s1` (Main on one
-  strip, per-row band slots); Matrix's fix stage `wip/084-x2mx2` (Warp and Flip fill the tier's length, the rain's
-  plane against Global `Depth`, ten ship acts for one more fork fill) — Matrix's second and last general pass found
-  nothing that stops it. **Specified and ruled, not started:** the wheel's shell stages DW-1a and DW-1b; S1-5 (his
-  five answers: `REPLAN.md` §17.3 item 10).
+  whose rigs decided too early (none a product defect); **Main on one strip with band slots sized per row** (K1-2
+  stage 1: Main's region about 100 → 65 KB on the test rows, measured; about 49 KB left for a window's list after
+  the wheel's block on his rows, estimated — a row TITLE's change now withdraws Main's list for under a second).
+  **In work, on branches:** Matrix's fix stage, built (every transition fills its tier's length; the rain's plane
+  against Global `Depth`), being merged in `wip/084-int-next` with ONE re-capture of the ship acts both stages
+  moved, then one fork fill and comparison; the rest of the racing tests' class (`wip/084-ah2`). **Specified and
+  ruled, not started:** the wheel's shell stages DW-1a and DW-1b; K1-2's stage 2; S1-5 (his five answers:
+  `REPLAN.md` §17.3 item 10).
 - **Owed before more is built on them:** Matrix's focused read, after its fix stage (Crush's and Flip's is done:
   no code defect; one narrow path goes into K1-2's stage 2); the rest of the racing tests' class — 18 rigs that
   read the real clock, and those of 42 test files that read their notes too early; the APK's `release` variant
@@ -60,7 +63,8 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   while rows travel 32; Warp, Flip and Explode centred on the larger height; a notice arriving within about 2 s
   after a fast burst can still double-move Main.
 - **No browser of his is approved yet;** he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
-- **The counts** (simulator): on `main` `621a4914` (2026-11-24) the whole core suite 2,094 / 0 and the conformance vectors 246
+- **The counts** (simulator): on `main` `0dccc6ca` (2026-11-24) the whole core suite 2,095 / 0 (66 ship acts that stage Main are named as moved
+  and wait for the re-capture; the figures after it replace these) and the conformance vectors 246
   files, 15,230 lens-steps, 0 disagreements. The last full battery, on 0.83's tree (`f81afd38`, §100.7): core 243
   classes / 2,032 tests, desktop 14 / 53; `--selfcheck` twice (486 checks at 0.82); `--motion-check` 8 + 3 + 28;
   `--local-check` 128 cases; the snapshot 94 + 66 scenes, 0 px outside the mask; node 200; lint 0; the mutation

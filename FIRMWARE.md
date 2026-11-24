@@ -1420,14 +1420,10 @@ is stated there.
   SET, LIST or entry — and no row is re-staged there; the wake's first flush binds it by the return rule, so the
   first notch after the wake is local once that flush has landed (APK 0.83; his first notches after a session start
   were phone-drawn for 12 s on 0.82, `HANDOFF.md` §99.3); its bytes are journaled (`mainstage` notes). **A change of a row's form in the strip** (its text or icon as
-  every row shows it): on a 160 KiB session there is no room for a second strip, so the list is withdrawn (CLEAR), the
-  strip written and the list bound again (about two flushes unbound; the return names the row, above); **on a 256 KiB
-  session the phone's own region holds a second strip slot** (the atlas keeps 96 KiB, less the 4 KiB transition
-  region with EFFECTS in force; the bound list's region is 128 KiB, the stage reserve 32; decisions AU.1): the new strip is written into the slot no table names, with the band's move and its
-  item word, and the entries are SET to the programs that name it — no withdrawal; a fire between the write and the
-  SETs draws the old pan with the new item table and is judged against both stagings (P3); the old strip's programs
-  are released only when no burst is open and the SETs have landed on both lenses (ruled 2026-11-19, decisions AD.2,
-  AL.3). A staging that did not fit is tried again at each session start and when the rows' drawn content changes
+  every row shows it): at every cache size the list is withdrawn (CLEAR), the row written and the list bound again
+  (about two flushes unbound; the return names the row, above) — one strip (decisions BC O1). On a 256 KiB session
+  the atlas keeps 96 KiB, less the 4 KiB transition region with EFFECTS in force; the bound lists' region is 128 KiB,
+  the stage reserve 32 (decisions AU.1); Main's band slots are sized per row, with two spare slots of the largest size. A staging that did not fit is tried again at each session start and when the rows' drawn content changes
   (decisions AF.6, AL.1: the key is what the rows draw, never a value that moves without the picture). COMMIT, DISCARD and SETTLE only while the lease is held and BIND is in force — never in Silent Mode, never
   into a released lease. Each of them that names a list rides behind that list's LIST with shift 0 (12 B, idempotent),
   so a lens that missed a LIST — lost, or refused there — holds the current count and mark whenever an answer is checked
@@ -3117,3 +3113,5 @@ phone's keeper applies the hold-back rule before re-arming.
 - 2026-11-22 — §8.1: two candidates for the same build from Music's motion update (`MUSIC.md` §14.2 E), not designed.
 - 2026-11-23 — the documents' audit and trim (no rule's text changed): the phone's figures follow the code's later
   rulings (§6.7 P9, §6.8, §6.9, §7.11, §7.12); which build is flashed and the vector set's count are `REMINDER.md`'s.
+- 2026-11-24 — §6.7 P9: one strip at every cache size (a row-form change withdraws the list); Main's band slots per
+  row with two spares (K1-2 stage 1; decisions BC O1, O12).

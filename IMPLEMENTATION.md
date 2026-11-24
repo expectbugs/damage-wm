@@ -1345,9 +1345,9 @@ the sections cited):
   lands in the shell's assemble-error path (the one loop on the shell's thread whose end rests on an argument).
   **Main as the bound list**
   (`shell/MainStaging.kt`, `MainBinding.kt`): the strip covers every row; the row key is what the row DRAWS (never a
-  value that moves without the picture — the Music row's progress as its lit blocks); at 256 KiB a second strip slot,
-  written with the base records, takes a row-form change with no withdrawal, released only when no burst is open and
-  the SETs' flush has completed. The instruments: `LocalSequenceFuzzTest` (eight invariants), `desktop --local-check`,
+  value that moves without the picture — the Music row's progress as its lit blocks); one strip at every cache size — a
+  row-form change withdraws the list, writes the row and binds it again; the band slots are sized per row, with two
+  spares. The instruments: `LocalSequenceFuzzTest` (eight invariants), `desktop --local-check`,
   `research/mutations-c2.json`.
 
 ## Verification
