@@ -405,12 +405,8 @@ class GlyphSubsetShellTest {
             throw AssertionError("$what: did not settle — ${shell.quiescenceReport()}")
         }
 
-        /** C3 AH1F: [block] evaluated once, on the shell's loop. */
-        fun <T> onLoop(block: () -> T): T {
-            val out = java.util.concurrent.CompletableFuture<T>()
-            shell.services.runOnShell { out.complete(block()) }
-            return out.get(10, java.util.concurrent.TimeUnit.SECONDS)
-        }
+        /** C3 AH1F: [block] evaluated once, on the shell's loop (C3 AH3: the shared door, `OnLoop.kt`). */
+        fun <T> onLoop(block: () -> T): T = shell.onLoop(block)
 
         /** Decided on the answer that ended the wait ([waitUntil]; 0.64 R1, review 1a RD-7). */
         suspend fun until(what: String, cond: () -> Boolean) = until({ what }, cond)
@@ -432,7 +428,7 @@ class GlyphSubsetShellTest {
          *  J5 `re-send counted`, J6 `re-send landed late`, J7 `count re-based`. */
         fun count(head: String): List<String> = notes("atlas").filter { "\"detail\":\"$head" in it }
         fun cacheNotices(): List<wm.damage.core.shell.Notifications.Notice> =
-            (listOfNotNull(shell.notifications.current) + shell.notifications.queued()).filter { it.source == "DAMAGE · cache" }
+            shell.noticesNow().filter { it.source == "DAMAGE · cache" }     // C3 AH3: on the loop (`OnLoop.kt`)
         /**
          * Both lenses as the shell believes them and as the model's panels hold them — copies, taken
          * in ONE turn of the loop with nothing queued behind it (0.64 R1; review 1a, RD-5).
@@ -2472,7 +2468,7 @@ class GlyphSubsetShellTest {
                 barrier(r); delay(300); barrier(r)
                 if (!held) assertEquals(asked, r.spy.checksAsked.get(), "$variant: no read-back is asked of a sleeping pair — ${r.notes("atlas").takeLast(3)}")
                 assertTrue(r.notes("atlas").none { "cached text off — the glasses" in it }, "$variant: nothing is judged against the freed cache: ${r.notes("atlas").takeLast(4)}")
-                val boxes = listOfNotNull(r.shell.notifications.current) + r.shell.notifications.queued()
+                val boxes = r.shell.noticesNow()
                 assertTrue(boxes.none { it.thread == "atlas" }, "$variant: and no notice waits for the wake: $boxes")
                 // the wake: a new session, the atlas up again, cached text as it was asked for
                 val attempts = r.keeper.attempts
@@ -2523,7 +2519,7 @@ class GlyphSubsetShellTest {
             barrier(r); barrier(r)
             assertEquals(1, r.keeper.attempts, "the same session: nothing but the epoch stands between this answer and the atlas")
             assertTrue(r.notes("atlas").none { "cached text off" in it }, "the stale answer is not applied: ${r.notes("atlas").takeLast(4)}")
-            val boxes = listOfNotNull(r.shell.notifications.current) + r.shell.notifications.queued()
+            val boxes = r.shell.noticesNow()
             assertTrue(boxes.none { it.thread == "atlas" }, "and raises no notice: $boxes")
         } finally { r.close() }
     }

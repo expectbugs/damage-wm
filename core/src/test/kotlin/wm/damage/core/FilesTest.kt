@@ -332,7 +332,7 @@ class FilesTest {
             awaitTrue("the EMERGENCY shows first, not the parked ordinary box") {
                 r.shell.notifications.current?.emergency == true
             }
-            assertTrue(r.shell.notifications.queued().any { it.source.startsWith("SMS") },
+            assertTrue(r.shell.queuedNow().any { it.source.startsWith("SMS") },
                 "the parked ordinary box waits BEHIND the emergency")
             r.stop()
         } finally {

@@ -168,7 +168,7 @@ class NoticeEngineTest {
             r.shell.services.runOnShell { r.shell.services.openWindow("doc", null) }
             r.settle("the doc")
             repeat(2) { r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); r.settle("a notch") }
-            r.until("$strips strip(s) staged") { r.strips().count { it.third == "PROVEN" } >= strips }
+            r.until("$strips strip(s) staged") { r.shell.onLoop { r.strips() }.count { it.third == "PROVEN" } >= strips }
             r.calmCache("staged")
             // the strips, and the clears so far, read in one evaluation on the loop: from here on nothing drops them
             val (proven, clears) = r.sample("staged") { r.strips().filter { it.third == "PROVEN" } to r.shell.stageClears }
@@ -518,8 +518,8 @@ class NoticeEngineTest {
             shell.start(); settle("start")
             waitUntil(20_000, 5, { "the atlas never came up" }) { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
             settle("atlas")
-            if (programs) waitUntil(30_000, 10, { "the notice's programs were never counted: ${shell.noticeProgramsForTest()}" }) {
-                shell.noticeProgramsForTest().let { p -> p.isNotEmpty() && p.all { it.endsWith("PROVEN") } }
+            if (programs) waitUntil(30_000, 10, { "the notice's programs were never counted: ${shell.onLoop { shell.noticeProgramsForTest() }}" }) {
+                shell.onLoop { shell.noticeProgramsForTest() }.let { p -> p.isNotEmpty() && p.all { it.endsWith("PROVEN") } }
             }
             settle("programs")
         }

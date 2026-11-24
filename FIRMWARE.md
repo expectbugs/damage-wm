@@ -1423,7 +1423,12 @@ is stated there.
   every row shows it): at every cache size the list is withdrawn (CLEAR), the row written and the list bound again
   (about two flushes unbound; the return names the row, above) — one strip (decisions BC O1). On a 256 KiB session
   the atlas keeps 96 KiB, less the 4 KiB transition region with EFFECTS in force; the bound lists' region is 128 KiB,
-  the stage reserve 32 (decisions AU.1); Main's band slots are sized per row, with two spare slots of the largest size. A staging that did not fit is tried again at each session start and when the rows' drawn content changes
+  the stage reserve 32 (decisions AU.1); Main's band slots are sized per row, with two spare slots of the largest size. At stage 5 the
+  switcher's wheel keeps its pictures and programs resident as the region's first tenant from its end (at most 20 KiB,
+  a cell per registered window): staged in idle after Main's staging and before Page staging, rewritten in place record
+  by record while the wheel is closed, not placed past 20 KiB, and dropped when Main's staging is laid out over it
+  (`wheel` notes; nothing binds it yet). Records that only an unbound list names (the switcher's wheel while it is not
+  bound) may be rewritten in place; the list is offered again only once field 17 counts every such write. A staging that did not fit is tried again at each session start and when the rows' drawn content changes
   (decisions AF.6, AL.1: the key is what the rows draw, never a value that moves without the picture). COMMIT, DISCARD and SETTLE only while the lease is held and BIND is in force — never in Silent Mode, never
   into a released lease. Each of them that names a list rides behind that list's LIST with shift 0 (12 B, idempotent),
   so a lens that missed a LIST — lost, or refused there — holds the current count and mark whenever an answer is checked
@@ -3131,3 +3136,5 @@ phone's keeper applies the hold-back rule before re-arming.
   row with two spares (K1-2 stage 1; decisions BC O1, O12).
 - 2026-11-24 — §7.11: Matrix's plane includes Global `Depth`, and its last fallback is a refusal; §7.12: the fit
   of a transition's step, with the period stretched to the tier's length for the four effects on the fit (X2MX2).
+- 2026-11-24 — §6.7 P9: the switcher wheel's block as a resident tenant of the region, and in-place writes to
+  records only an unbound list names (DW-1a).

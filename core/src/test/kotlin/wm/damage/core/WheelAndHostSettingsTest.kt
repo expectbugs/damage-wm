@@ -52,7 +52,7 @@ class WheelAndHostSettingsTest {
             r.shell.postNotice(notice("t1"))
             settle(r.shell)
             assertFalse(r.shell.notifications.active, "the box waits while the wheel is open")
-            assertEquals(1, r.shell.notifications.queued().size)
+            assertEquals(1, r.shell.queuedNow().size)
 
             r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)     // cancel closes the wheel
             settle(r.shell)
@@ -79,8 +79,8 @@ class WheelAndHostSettingsTest {
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             settle(r.shell)
             assertFalse(r.shell.notifications.active, "the box left the screen for the wheel")
-            assertEquals(listOf("t2"), r.shell.notifications.queued().map { it.thread })
-            assertFalse(r.shell.notifications.queued().single().read, "it stays unread")
+            assertEquals(listOf("t2"), r.shell.queuedNow().map { it.thread })
+            assertFalse(r.shell.queuedNow().single().read, "it stays unread")
 
             r.shell.postGesture(EvenHubMsg.EV_CLICK)               // commit closes the wheel
             settle(r.shell)
@@ -109,12 +109,12 @@ class WheelAndHostSettingsTest {
             settle(r.shell)
             r.shell.postNotice(Notifications.Notice("DAMAGE · settings", "t3", "a notice about settings", "12:00", appId = "settings"))
             settle(r.shell)
-            assertEquals(1, r.shell.notifications.queued().size, "queued behind the wheel")
+            assertEquals(1, r.shell.queuedNow().size, "queued behind the wheel")
             r.shell.postGesture(EvenHubMsg.EV_CLICK)               // commit to Settings: its notices are read
             settle(r.shell)
             assertEquals("settings", r.shell.currentWindowId())
             assertFalse(r.shell.notifications.active, "a notice for the app just entered is not shown as new (§4.5, round 1 f6)")
-            assertTrue(r.shell.notifications.queued().isEmpty(), "and it does not linger in the queue")
+            assertTrue(r.shell.queuedNow().isEmpty(), "and it does not linger in the queue")
             r.shell.stop()
         } finally {
             scope.cancel(); tmp.toFile().deleteRecursively()

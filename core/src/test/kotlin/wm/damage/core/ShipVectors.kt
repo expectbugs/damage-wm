@@ -618,7 +618,8 @@ internal object ShipVectors {
     /** Main's entries live on RIGHT (ids 4 and 5), the notice's lane done and no cache work on its way, settled. */
     private suspend fun ready(r: TransitionShellTest.Rig, name: String) {
         r.until("$name: Main's entries live on RIGHT") { r.sim.bindForTest(Arm.RIGHT).field39() and 0x30 == 0x30 }
-        r.until("$name: the notice's lane done, no cache work") { r.onLoop { r.shell.noticeLaneDoneForTest() && !r.shell.cacheWorkInFlight } }
+        // C3 DW-1a: and the wheel's block placed and counted at stage 5 (its write is the session's, never the act's)
+        r.until("$name: the notice's lane done, no cache work") { r.onLoop { r.shell.noticeLaneDoneForTest() && r.shell.wheelLaneDoneForTest() && !r.shell.cacheWorkInFlight } }
         r.settle("$name: ready")
     }
 

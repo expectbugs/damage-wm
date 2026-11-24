@@ -146,7 +146,8 @@ class MainLocalShellTest {
             // build K1-4a: the notice's programs are written and counted at a stage-4 start too; a test begins after
             // them (else a program's write lands in a test's window, or a count reading writes the counters' note
             // after its first notch) — one evaluation on the loop deciding
-            until("the notice's programs counted") { onLoop { shell.noticeLaneDoneForTest() && !shell.cacheWorkInFlight } }
+            // C3 DW-1a: and the wheel's block placed and counted at stage 5 on 256 KiB
+            until("the notice's programs counted") { onLoop { shell.noticeLaneDoneForTest() && shell.wheelLaneDoneForTest() && !shell.cacheWorkInFlight } }
         }
 
         /** B083-ms (decisions BP): a first session started where the stored state leaves the shell — [mode] (`SILENT`: the

@@ -101,8 +101,8 @@ class LongPressTest {
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)    // the chord: wheel over the box
             settle(r.shell)
             assertFalse(r.shell.notifications.active, "the box stepped aside for the wheel")
-            assertEquals(listOf("t2"), r.shell.notifications.queued().map { it.thread })
-            assertFalse(r.shell.notifications.queued().single().read, "parked UNREAD (§4.5, 2026-08-30)")
+            assertEquals(listOf("t2"), r.shell.queuedNow().map { it.thread })
+            assertFalse(r.shell.queuedNow().single().read, "parked UNREAD (§4.5, 2026-08-30)")
 
             r.shell.postGesture(EvenHubMsg.EV_CLICK)           // commit: the wheel's cursor is on Settings
             settle(r.shell)

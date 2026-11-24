@@ -4530,10 +4530,11 @@ class Shell(
         private set
 
     private fun stageRecount() {
-        // Main's staged records (build C2, stage DMS) are never drawn by the compositor: not counted as drawable
-        stagedProvenCount = stage.records.values.count { it.state == StagedRecord.State.PROVEN && it.key !is MainStageKey }
+        // Main's staged records (build C2, stage DMS) and the wheel's block (C3 DW-1a) are never drawn by the compositor:
+        // not counted as drawable
+        stagedProvenCount = stage.records.values.count { it.state == StagedRecord.State.PROVEN && it.key !is RegionStageKey }
         stagedResidentCount = stage.records.size
-        stagedProvenLines = stage.records.values.filter { it.state == StagedRecord.State.PROVEN && it.key !is MainStageKey }
+        stagedProvenLines = stage.records.values.filter { it.state == StagedRecord.State.PROVEN && it.key !is RegionStageKey }
             .map { it.firstLine until it.firstLine + it.lines }
     }
 
@@ -4547,9 +4548,10 @@ class Shell(
         stage.ring = null                  // sized from the session's cache at the first strip
     }
 
-    /** Decisions AU.2: Page staging's records go, Main's own staging stays — for a reason that concerns Page staging only. */
+    /** Decisions AU.2: Page staging's records go, Main's own staging stays — for a reason that concerns Page staging only.
+     *  C3 DW-1a: the wheel's block, the region's other tenant, stays too. */
     private fun stagePagesClear(why: String) {
-        val gone = stage.records.values.filter { it.key !is MainStageKey }
+        val gone = stage.records.values.filter { it.key !is RegionStageKey }
         for (r in gone) stage.remove(r)
         // a write of one in flight completes as any other: its ack is counted, its record is no longer in the registry
         stageClears++                                  // harnesses count a boundary by it
@@ -6001,7 +6003,7 @@ class Shell(
     }
     /** Build K1-4a, tests: Page staging's records in the ring (offset, bytes, state) — the strips a notice must leave alone. */
     internal fun pageStripsForTest(): List<Triple<Int, ByteArray, String>> =
-        stage.ring?.resident.orEmpty().filter { it.key !is MainStageKey }.map { Triple(it.off, it.encoded, it.state.name) }
+        stage.ring?.resident.orEmpty().filter { it.key !is RegionStageKey }.map { Triple(it.off, it.encoded, it.state.name) }
 
     /** Why Main's list is not staged now; null when it is wanted. [front] false: every reason but Main being covered
      *  (K1-1's fix stage: the pans' re-make runs then too). */
@@ -6412,6 +6414,230 @@ class Shell(
             }
         }
         return true
+    }
+
+    // ------------------------------------------------------ C3 DW-1a: the wheel's block resident in Main's region
+    /**
+     * The switcher's wheel's pictures and programs resident in Main's region at ladder stage 5 (`C3-DW1-amendment.md`
+     * §3.2–§3.4; decisions BD's O5, CK): its first tenant from the region's end, laid out by `Wheel.block` with a cell per
+     * registered window and the item table in the switcher's order (CK A1), staged ahead in idle in the lanes' order (CK A3:
+     * Main's, the notice's, then this, then Page staging) and kept current in place while the wheel is closed (§3.4; CK A2:
+     * the programs re-made in place at another height). Main wins an overlap. NOTHING is bound (DW-1b): what the switcher
+     * sends is today's, and nothing of the block goes while the wheel is open. The books and the envelope:
+     * [WheelResident].
+     */
+    private val wheel = WheelResident()
+
+    /** THE BLOCK'S BASE (decisions CK A10: K1-2 stage 3's window list is laid out from here down): the lowest byte of Main's
+     *  region the wheel's block holds this session, else — no block placed — the region's end. */
+    private fun wheelBase(st: LinkState): Int = wheel.block?.base ?: (mainList.mainBindRegion(st).last + 1)
+
+    /** The disparity the wheel would open with now — [switcherMargin]'s; behind the shell's clock Main's, which its wake
+     *  brings. */
+    private fun wheelOpenD(st: LinkState): Int = if (!st.effects || mode == Mode.EXCLUSIVE) 0 else if (settings.depth != 0) settings.depth else contentDepth()
+
+    /** What one cell would be painted for now (no paint). */
+    private fun wheelCellKey(w: DamageWindow?): WheelResident.CellKey {
+        val e = switcher.entryFor(w)
+        val names = wm.damage.core.gfx.IconNames.forKind(e.icon)
+        return WheelResident.CellKey(w, e.name, e.icon, e.dirty, wm.damage.core.gfx.IconPaint.answer(iconSource, names, 56),
+            wm.damage.core.gfx.IconPaint.answer(iconSource, names, 20))
+    }
+
+    /** What the block is for now (the amendment's §3.4 keys, read without a paint): the registered windows (Main first), the
+     *  layout and geometry the wheel would open at, the cells' keys, the item table's order, the motion, the region's end;
+     *  [key] all of them. */
+    private class WheelWant(val regs: List<DamageWindow?>, val lay: Layout, val g: wm.damage.core.motion.Wheel.Geo, val keys: List<WheelResident.CellKey>,
+                            val order: IntArray, val motion: MainStaging.ScrollMotion, val regionEnd: Int) {
+        val face: String get() = "${g.w} x ${g.hC} + ${g.hN}"
+        val key: List<Any> get() = listOf(keys, order.toList(), g.toString(), motion, regionEnd)
+    }
+
+    private fun wheelWant(st: LinkState): WheelWant {
+        val regs = listOf<DamageWindow?>(null) + windows
+        val lay = if (mode == Mode.SILENT) effectiveLayout() else layout
+        // `openSwitcher`'s order: Main, the current window in a window, the rest by recency
+        val order = switcher.order(if (mode == Mode.WINDOW) current else null, recency).map { w -> regs.indexOfFirst { it === w } }.toIntArray()
+        return WheelWant(regs, lay, wm.damage.core.motion.Wheel.geo(switcher, lay, wheelOpenD(st)), regs.map { wheelCellKey(it) }, order,
+            MainStaging.ScrollMotion(settings.scrollLength, settings.frames), mainList.mainBindRegion(st).last + 1)
+    }
+
+    /** Each pump, after Main's poll: the block's records against the registry, the count, and Main's staging against the
+     *  block's bytes (Main wins, decisions BD). */
+    private fun wheelPoll() {
+        val rec = wheel.record ?: return
+        val b = wheel.block ?: return
+        if (stage.records[rec.key] !== rec) { wheelDrop("its write left the stage registry (the stage notes say why)", keepCells = false); return }
+        for (p in wheel.patches.toList()) {
+            val r = p.second
+            if (stage.records[r.key] !== r) {
+                // what that record's bytes on the glasses hold is not known: it is written again in place
+                wheel.patches.remove(p); wheel.sent.remove(p.first)
+                journal.note("wheel", "the ${p.first}'s write in place left the stage registry before it was counted (the stage notes say why) — written again")
+            } else if (r.state == StagedRecord.State.PROVEN) { wheel.patches.remove(p); stage.remove(r); stageRecount() }
+        }
+        if (rec.state == StagedRecord.State.PROVEN && !wheel.countedSaid) {
+            wheel.countedSaid = true
+            journal.note("wheel", "counted — the block's ${rec.encoded.size} B at ${b.base}..${b.end} proven on the glasses (field 17)")
+        }
+        val ms = mainList.mainBind.staging
+        if (ms != null && ms.regionEnd == wheel.regionEnd && ms.end > b.base)
+            wheelDrop("Main's staging ends at ${ms.end}, past the block's base ${b.base} (Main wins)", keepCells = true)
+    }
+
+    /** The block leaves the registry and the books ([WheelResident.drop]); a piece of its write still to go is abandoned by
+     *  the stage lane (its record is no longer owned). */
+    private fun wheelDrop(why: String, keepCells: Boolean) {
+        for (r in wheel.drop(keepCells)) if (stage.records[r.key] === r) stage.remove(r)
+        stageRecount()
+        journal.note("wheel", "dropped — $why; placed again in idle")
+        post(Msg.Pump)
+    }
+
+    /** Not placed for [why] (said once per change of it); [refusedFor]: the want's key it is not tried again for. */
+    private fun wheelNotPlaced(why: String, refusedFor: Any?) {
+        wheel.refusedFor = refusedFor
+        val note = "not placed — $why; the switcher's wheel stays as today"
+        if (note != wheel.notPlacedSaid) { wheel.notPlacedSaid = note; journal.note("wheel", note) }
+    }
+
+    /** The idle chain's step for the wheel's block (after Main's lane and the notice's, before Page staging — CK A3): one
+     *  cell painted, the block placed with its write begun, or one record rewritten in place. True when it did something. */
+    private suspend fun pumpWheel(st: LinkState): Boolean {
+        // DW-1a binds nothing, so nothing of the block goes while the wheel is open (DW-1b writes there what its offer needs,
+        // CK A5); below stage 5 no version-2 record is written, and a block already counted stays (§5)
+        if (!st.effects || switcher.open || transition != null) return false
+        if (mainList.mainBindBlocked(st, front = false) != null) return false
+        if (mainList.mainBindRegion(st).last + 1 >= st.cacheSize) return false     // no region of Main's own (160 KiB; an atlas over it)
+        if (cacheWritesHeld()) return false
+        if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
+        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
+        if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
+        if (ledgerBaseOwed(st)) return tryLedgerRead(st)
+        if (atlasResendMissing > 0L) return false
+        // CK A3, Main's staging first where Main stages: the chain's order — Main's lane runs before this one, shares every
+        // gate above, and does something in every pump while it owes a write (a row painted, the staging laid out, a base
+        // record written), so this lane goes only once Main's records are all on their way (then their count, the block's
+        // write ahead of it, as the amendment's §3.3 orders them)
+        val w = wheelWant(st)
+        if (w.face != wheel.face || w.regs != wheel.regs) {
+            if (wheel.block != null) { wheelDrop(if (w.face != wheel.face) "the cells' face changed (${wheel.face} → ${w.face})" else "the registered windows changed", keepCells = false); return true }
+            wheel.painted.clear(); wheel.paintedAgain = null; wheel.face = w.face; wheel.regs = w.regs
+        }
+        if (wheel.refusedFor == w.key) return false
+        // one cell painted a pump (AF.8's pace), through the shell's cached-text relay, the atlas first when it drew
+        // characters the atlas does not hold (§73's rule, as Main's staging)
+        w.keys.indices.firstOrNull { wheel.painted[it]?.first != w.keys[it] }?.let { i -> return wheelPaint(i, w) }
+        val cells = w.keys.indices.map { wheel.painted.getValue(it).second }
+        val fx = effectsToken(st) ?: return false
+        val b = wheel.block ?: return wheelPlace(st, w, cells, fx)
+        // current: nothing changed since the last pump that found every record as sent (a lost write takes its record out
+        // of [WheelResident.sent], so the comparison runs again)
+        if (wheel.wantFor == w.key && b === wheel.want && wheel.sent.size == b.cells.size + 3) return false
+        // kept current in place (§3.4): the block for the keys now on the placed block's offsets, record by record
+        val want = if (wheel.wantFor == w.key) wheel.want else try { b.rebuilt(w.g, cells, w.order, fx, w.motion) }
+            catch (e: wm.damage.core.geom.LintError) { wheelDrop("it cannot be kept current: ${e.message}", keepCells = true); return true }
+        wheel.wantFor = w.key; wheel.want = want
+        if (want == null) {
+            val why = cells.indices.firstOrNull { (cells[it].encoded.size + 3) / 4 * 4 > b.cellSlots[it] }
+                ?.let { "the cell of '${w.keys[it].name}' (${cells[it].encoded.size} B) passes its slot of ${b.cellSlots[it]} B" }
+                ?: "the programs at ${w.g.panel} d ${w.g.d} pass their slot of ${b.progSlot} B"
+            wheelDrop("re-placed: $why", keepCells = true)
+            return true
+        }
+        val part = want.parts().firstOrNull { !it.same(wheel.sent[it.name]) } ?: run { wheel.block = want; return false }
+        val rec = StagedRecord(WheelStageKey(wheel, wheel.serial++, part.name), Gray8(1, 1), concat(part.writes)).also { it.off = part.writes.first().first }
+        stage.records[rec.key] = rec
+        wheel.patches += part.name to rec
+        wheel.sent[part.name] = part
+        wheel.kept++; wheel.keptBytes += part.bytes
+        stageSubmit(rec, st, part.writes)
+        stageRecount()
+        val what = when {
+            part.name == wm.damage.core.motion.Wheel.Block.ITEMS -> "the item table (${want.n} of ${cells.size} entries: ${w.order.joinToString(" ") { w.keys[it].name }})"
+            part.name == wm.damage.core.motion.Wheel.Block.PROGRAMS -> "the programs (P ${want.period} T ${want.t} at ${w.g.panel} d ${w.g.d})"
+            part.name.startsWith("cell ") -> "the ${part.name} (${w.keys[part.name.removePrefix("cell ").toInt()]})"
+            else -> "the ${part.name}"
+        }
+        journal.note("wheel", "kept — $what rewritten in place: ${part.bytes} B at ${part.writes.first().first}; ${wheel.kept} in-place write(s), ${wheel.keptBytes} B this process")
+        return true
+    }
+
+    /** Cell [i] painted for [w]'s key (the switcher's own painters at the rest band, `Wheel.cell`). */
+    private fun wheelPaint(i: Int, w: WheelWant): Boolean {
+        val ct = cachedText
+        val v0 = ct?.wantVersion to ct?.seenVersion
+        val cell = try { wm.damage.core.motion.Wheel.cell(switcher, w.lay, w.g, switcher.entryFor(w.regs[i]), mainBindRelay()) }
+            catch (e: wm.damage.core.geom.LintError) { wheelNotPlaced("the cell of '${w.keys[i].name}' cannot be painted: ${e.message}", w.key); return false }
+        if (ct != null && (ct.wantVersion to ct.seenVersion) != v0 && wheel.paintedAgain != w.keys[i]) {
+            wheel.paintedAgain = w.keys[i]          // the atlas goes first (its lane on the next pump), then this cell once more
+            post(Msg.Pump)
+            return true
+        }
+        wheel.painted[i] = w.keys[i] to cell
+        post(Msg.Pump)
+        return true
+    }
+
+    /** The block laid out as the first tenant from the region's end and its write begun — unless past the cap or met by
+     *  Main's staging (said, and tried again when the want or Main's staging changes). */
+    private suspend fun wheelPlace(st: LinkState, w: WheelWant, cells: List<wm.damage.core.motion.Wheel.Cell>, fx: wm.damage.core.motion.Motion.Effects): Boolean {
+        val size = wheel.sized?.takeIf { it.first == w.key }?.second ?: try {
+            wm.damage.core.motion.Wheel.block(0, w.g, cells, fx, w.motion, order = w.order).size.also { wheel.sized = w.key to it }
+        } catch (e: wm.damage.core.geom.LintError) { wheelNotPlaced("${e.message}", w.key); return false }
+        val ms = mainList.mainBind.staging?.takeIf { it.regionEnd == w.regionEnd }
+        WheelResident.refusal(w.regionEnd, size, ms?.end)?.let { why ->
+            // past the cap: not tried again until the want changes; met by Main: tried again as Main's staging changes
+            wheelNotPlaced(why, if (size > WheelResident.CAP) w.key else null)
+            return false
+        }
+        val base = WheelResident.baseFor(w.regionEnd, size)
+        val b = wm.damage.core.motion.Wheel.block(base, w.g, cells, fx, w.motion, order = w.order)
+        val parts = b.parts()
+        val writes = parts.flatMap { it.writes }
+        val rec = StagedRecord(WheelStageKey(wheel, wheel.serial++, "block"), Gray8(1, 1), concat(writes)).also { it.off = base }
+        wheel.block = b; wheel.regionEnd = w.regionEnd; wheel.record = rec; wheel.wantFor = w.key; wheel.want = b
+        for (p in parts) wheel.sent[p.name] = p
+        wheel.notPlacedSaid = null; wheel.refusedFor = null
+        wheel.placements++; wheel.placedBytes += rec.encoded.size
+        stage.records[rec.key] = rec
+        stageSubmit(rec, st, writes)
+        stageRecount()
+        val from = ms?.end ?: (mainList.mainBindRegion(st).first)
+        journal.note("wheel", "placed — ${b.describe()}; at $base..${b.end} of Main's region (its end ${w.regionEnd}): a cell per registered window, " +
+            "the item table ${w.order.joinToString(" ") { w.keys[it].name }}; ${if (ms != null) "Main's staging ends at ${ms.end}" else "no staging of Main's"}, " +
+            "${base - from} B free below the block; ${rec.encoded.size} B written in ${stageCursor?.takeIf { it.rec === rec }?.pieces?.size ?: 1} piece(s); " +
+            "${wheel.placements} placement(s), ${wheel.placedBytes} B this process")
+        return true
+    }
+
+    private fun concat(writes: List<Pair<Int, ByteArray>>): ByteArray {
+        val out = ByteArray(writes.sumOf { it.second.size })
+        var o = 0
+        for ((_, b) in writes) { b.copyInto(out, o); o += b.size }
+        return out
+    }
+
+    /** C3 DW-1a, tests (on the loop): the block placed (null: none), its records in the registry, and whether its lane has
+     *  nothing left to write — no block wanted here (below stage 5, no region of Main's own), or the block placed for the
+     *  keys as they are, counted, with no write in place on its way and none owed. */
+    internal fun wheelBlockForTest(): wm.damage.core.motion.Wheel.Block? = wheel.block
+    internal fun wheelRecordsForTest(): List<StagedRecord> = stage.records.values.filter { it.key is WheelStageKey }
+    internal fun wheelBaseForTest(): Int = wheelBase(transport.state.value)
+    /** C3 DW-1a, tests (on the loop): Page staging's three drops as a book change (`Staging.retain` for another layout),
+     *  an Encode act's lists over the whole cache ([stagePagesDropUnder]) and its own clear ([stagePagesClear]) make them. */
+    internal fun pageStagingDropsForTest() {
+        if (stage.retain(Any(), 0, 0).isNotEmpty()) stageRecount()
+        stagePagesDropUnder(0 until transport.state.value.cacheSize)
+        stagePagesClear("a test")
+    }
+    internal fun wheelLaneDoneForTest(): Boolean {
+        val st = transport.state.value
+        if (!st.effects || !st.bind || mainList.mainBindRegion(st).last + 1 >= st.cacheSize) return true
+        val b = wheel.block ?: return wheel.notPlacedSaid != null
+        val want = wheel.want ?: return false
+        return wheel.record?.state == StagedRecord.State.PROVEN && wheel.patches.isEmpty() && wheel.wantFor == wheelWant(st).key &&
+            want.parts().all { it.same(wheel.sent[it.name]) } && b === want
     }
 
     private fun restProbe(value: String) {
@@ -7738,6 +7964,7 @@ class Shell(
         mainList.mainPeriodApply()
         // build C2, stage DM2: what Main offers the rules is decided before anything below asks for it
         mainList.mainBindPoll(st)
+        wheelPoll()                                   // C3 DW-1a: the wheel's block against the registry and Main's staging
         // G4 item 1: the wrap's PLAY goes now, alone and small, ahead of this pump's frame (whose assemble behind the held
         // cells took 100–170 ms on his phone) and whatever the window holds — the transport queues it in stream order
         mainWrapFirst(st, System.currentTimeMillis())
@@ -8030,7 +8257,7 @@ class Shell(
             // the wheel's preview over Main before Main's staging step (decisions AL.1): a staging's paint turns are not
             // what the preview waits for
             if (!animated && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !mainList.pumpMainBind(st) &&
-                !pumpNoticeStage(st)) pumpStage(st)
+                !pumpNoticeStage(st) && !pumpWheel(st)) pumpStage(st)
         }
 
         // animations continue on the next completion or message; make sure one
@@ -8311,7 +8538,7 @@ class Shell(
      *  whole: it is written again whole), the lowest on a tie; the candidates are the reserve's start and the end of each
      *  strip. */
     private fun encodeListsAt(res: IntRange, need: Int): Int {
-        val strips = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off in res }
+        val strips = stage.records.values.filter { it.key !is RegionStageKey && it.off >= 0 && it.off in res }
         fun met(at: Int) = strips.filter { it.off < at + need && at < it.off + it.size4 }.sumOf { it.size4 }
         return (listOf(res.first) + strips.map { it.off + it.size4 }).filter { it % 4 == 0 && it + need <= res.last + 1 }
             .distinct().sorted().minByOrNull { met(it) } ?: res.first
@@ -8321,7 +8548,7 @@ class Shell(
      *  staged again when their document is in front and idle; every other strip stays proven and drawable (nothing
      *  writes the reserve while the run holds, [cacheWritesHeld]). */
     private fun stagePagesDropUnder(lists: IntRange) {
-        val met = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }
+        val met = stage.records.values.filter { it.key !is RegionStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }
         if (met.isEmpty()) return
         val from = met.minOf { it.off }
         for (r in met) stage.remove(r)
@@ -8570,6 +8797,16 @@ class Shell(
     internal fun atlasEntryForTest(spec: FontSpec): GlyphAtlas.Entry? = atlas?.takeIf { it.isAcked(spec) && spec in cachedFontsLive }?.entry(spec)
     /** Tests only (C3 AH1F): the atlas lane has nothing queued and nothing in flight (on the loop). */
     internal fun atlasLaneIdleForTest(): Boolean = atlasInFlight == null && atlasQueue.isEmpty()
+    /** Tests only (C3 AH3): [block] evaluated once ON the loop, answered either way — by the loop's turn, or where a
+     *  stopping loop drops it (nothing changes the shell's state there any more); at once with no loop alive, or when
+     *  asked from the loop itself. The one door for a test to read what the loop changes in place (`OnLoop.kt`). */
+    internal fun <T> readOnLoopForTest(block: () -> T): java.util.concurrent.CompletableFuture<T> {
+        val out = java.util.concurrent.CompletableFuture<T>()
+        val read: () -> Unit = { try { out.complete(block()) } catch (e: Throwable) { out.completeExceptionally(e) } }
+        if (!loopAlive || turns.open()?.thread === Thread.currentThread()) read()
+        else post(Msg.Run(dropped = read, tag = "test read", action = read))
+        return out
+    }
 
     // ------------------------------------------------------------------ chrome
     private fun chromeState(): Chrome.State {
