@@ -6018,7 +6018,10 @@ class Shell(
      *  the staging — and less what the poll compares on the staging itself: its rows, layout, planes and space): the
      *  window, its list level (Settings' `listLevel`: the adjust level is a cover, not a level), its title and its
      *  `ListModel` by identity (Settings' categories and a category's rows share one). */
-    private data class WindowListView(val window: String, val level: Int, val title: String, val model: ListModel)
+    private data class WindowListView(val window: String, val level: Int, val title: String, val model: ListModel) {
+        /** For the notes: "settings level 2 'global'". */
+        fun words(): String = "$window level $level${if (title.isNotEmpty()) " '$title'" else ""}"
+    }
 
     /** A window's list in front: [w]'s `ListView` [v] (one per call) of two rows or more — a list of one row is not bound,
      *  its notch does nothing (the spec §1) — and what it is ([id]). */
@@ -6058,7 +6061,7 @@ class Shell(
      * window form, decisions CV); an effect change re-makes its pans alone, as Main's. Its rows' keys are null (the compose
      * compare is stage 3b's): a changed row is found by the round-robin. Notes under `liststage`.
      */
-    private inner class WindowListBind : ListBind(WindowListSurface({ windowFront()?.v }, { windowListMatches() }), WindowListCheck.LIST, WindowListCheck.ENTRIES) {
+    private inner class WindowListBind : ListBind(WindowListSurface({ windowList.viewNow()?.v }, { windowListMatches() }), WindowListCheck.LIST, WindowListCheck.ENTRIES) {
         override val stageTag = "liststage"
         override val who = "the window list"
         override val listName = "the window list"
@@ -6077,8 +6080,9 @@ class Shell(
         }
 
         /** The view in front for a staging to be made, or the staged view in front — null while the staging stands for
-         *  another screen (kept: its own rows, layout and planes are then what it was made for). */
-        private fun viewNow(): WindowFront? = if (mainBind.staging == null) windowFront() else stagedFront()
+         *  another screen (kept: its own rows, layout and planes are then what it was made for). The surface's view: a
+         *  staging is never painted again from a view it is not of. */
+        fun viewNow(): WindowFront? = if (mainBind.staging == null) windowFront() else stagedFront()
 
         override fun rows(): Int = viewNow()?.v?.rowCount() ?: mainBind.staging?.rows ?: 0
         override fun rowKey(index: Int): Any? = null
@@ -6107,7 +6111,7 @@ class Shell(
                 return "Main's staging at ${m.start}..${m.end} meets it at ${ms.start}..${ms.end} (Main wins)"
             }
             wheelBase(st).takeIf { it < ms.end }?.let { b -> return "the wheel's block at $b meets it at ${ms.start}..${ms.end}: the list yields, and is staged again below the block" }
-            windowFront()?.let { f -> if (stagedFor?.second != f.id) return "another list is in front (${f.id.window}, level ${f.id.level}): its staging replaces this one" }
+            windowFront()?.let { f -> if (stagedFor?.second != f.id) return "another list is in front (${f.id.words()}): its staging replaces this one" }
             return null
         }
     }
@@ -6132,6 +6136,8 @@ class Shell(
     internal val windowListBinding: MainBinding get() = windowList.mainBind
     internal fun windowBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = windowList.surface.bound() to windowList.surface.row()
     internal fun slot0ForTest(): String? = when (slot0()) { mainList -> "main"; windowList -> "window"; else -> null }
+    /** Tests (on the loop): the cursor of the list view in front (−1: none). */
+    internal fun focusedRowForTest(): Int = (focusedView() as? WindowView.ListView)?.model?.cursor ?: -1
     internal fun stepWindowsForTest(): Pair<List<Long>, List<Long>> = mainList.stepWindow.toList() to windowList.stepWindow.toList()
     /** Tests (on the loop): the window list's lane has nothing left to write — no window list wanted here (below stage 5,
      *  160 KiB, no list in front), or a staging for the view in front counted, offered or refused for its key. */
@@ -6470,7 +6476,7 @@ class Shell(
         val m = mainList.mainBind.staging
         val top = region.last + 1
         return "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache: " +
-            "${stagingOf()} — ${ms.rows} rows in the window form, the strip ${ms.blobs[0].bytes.size} B in its slot of ${ms.strip.slot} B, " +
+            "${windowFront()?.id?.words()} — ${ms.rows} rows in the window form, the strip ${ms.blobs[0].bytes.size} B in its slot of ${ms.strip.slot} B, " +
             "${ms.progSlots?.size ?: 1} pan slot(s) of ${ms.progSlot} B${if (ms.progSlots == null) " (no spare: an effect change is a full staging)" else ""}; " +
             "its space ${region.first}..$top (${top - region.first} B, from ${if (m != null && m.end == region.first) "Main's staging's end" else "the region's start"} " +
             "to ${if (wheel.block?.base == top) "the wheel's block's base" else "the region's end"}), ${ms.start - region.first} B of it left below the list; " +

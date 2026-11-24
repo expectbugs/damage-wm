@@ -20,7 +20,8 @@ interface ListSurface : BoundSurface {
  * K1-2 stage 3 (the K1-2 spec §5.1, §6's `WindowListSurface` row; decisions BD: glasses list 1, entries 3–5, slot 0): the
  * surface a window's list is bound through. [bound] is the list the holder offers ([offered]) while its staging's key
  * matches the view in front ([matches]: the window, its list level, its title, its `ListModel`, its row count, the layout
- * and the planes — `Shell.windowListMatches`); [row] and [setRow] are the cursor of the view in front ([front]); [shift]
+ * and the planes — `Shell.windowListMatches`); [view], [row] and [setRow] are those of [front] — the view in front while
+ * nothing is staged, else the staged view while it is in front, else none (a staging is never painted from another); [shift]
  * is 0 — the phone's cursor is an index, as Main's ([MainSurface.shift]). Cleared at a session start, the staging's drop
  * and a key mismatch by what it reads: [offered] is the holder's, the key the shell's. Loop-confined.
  */

@@ -41,9 +41,21 @@ import wm.damage.core.wire.EvenHubMsg
  * transport after the 115 (§6.1, P2), as `MainLocalShellTest` does for Main.
  */
 class WindowListShellTest {
+    private companion object {
+        val ROW_NAMES = listOf("Font", "Depth", "Notify", "Height", "Sort", "Refresh", "Preview", "Quiet", "Wrap", "Autoplay", "Shuffle", "Repeat")
+        /** His app categories and their rows in all (`K1-2-spec.md` §3, counted on his phone): style rows plus the app's own. */
+        val HIS_APPS = listOf("Reader" to 9, "Tmux" to 9, "Files" to 6, "Torrents" to 9, "Music" to 35, "Games" to 13, "Feed" to 16, "Bastion" to 3)
+    }
+
     /** A window in Main's list (its own view a list of [n] rows, each row drawn as marks of its own, when [list]). */
     private class Win(id: String, name: String, @Volatile var n: Int = 0, val list: Boolean = false) : DamageWindow(id, name, IconKind.FILES) {
         @Volatile var heavy = false
+        /** Its own rows in its Settings category (beside the shell's style rows), each an On/Off row of a real-looking name. */
+        @Volatile var appRows = 0
+        override fun appSettings(): List<wm.damage.core.shell.HostSetting> = List(appRows) { i ->
+            wm.damage.core.shell.HostSetting(ROW_NAMES[i % ROW_NAMES.size] + (if (i >= ROW_NAMES.size) " ${i / ROW_NAMES.size + 1}" else ""),
+                listOf("On", "Off"), { if (i % 2 == 0) "On" else "Off" }, {})
+        }
         val model = ListModel()
         override fun view(): WindowView = WindowView.ListView(model, { n },
             { g, i, r, _ -> for (k in 0..(i % 5)) g.fillRect(r.x + 12 + k * 22 + (i * 7) % 40, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
@@ -54,7 +66,7 @@ class WindowListShellTest {
     }
 
     private class Rig(val stage: Int = 5, features: Int = 0xdff, nRows: Int = 4, text: wm.damage.core.text.TextRasterizer = FakeText(),
-                      startOn: String? = null, val extra: List<Win> = emptyList()) {
+                      startOn: String? = null, val extra: List<Win> = emptyList(), names: List<String>? = null) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-windowlist")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
@@ -67,7 +79,7 @@ class WindowListShellTest {
                 "current" to kotlinx.serialization.json.JsonPrimitive(startOn))))
         }
         val shell = Shell(CachedText(text), t, persistence, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
-        val rows = (0 until nRows).map { Win("w$it", "W$it") }
+        val rows = names?.mapIndexed { i, n -> Win("w$i", n) } ?: (0 until nRows).map { Win("w$it", "W$it") }
         val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
 
         init {
@@ -541,6 +553,61 @@ class WindowListShellTest {
             assertEquals(null, r.onLoop { r.shell.windowListBinding.staging })
             assertTrue(r.since(at).none { ss -> ss.any { r.isSetOf(it, 1) || r.isListOf(it, 1) } }, "nothing names list 1")
             assertEquals(emptyList(), r.notes("liststage"))
+        } finally { r.close() }
+    }
+
+    /**
+     * Decisions CT, CV (a reading, not a pin): each Settings list at stage 5 on 256 KiB against the room list 1 has — Global's
+     * rows, Animations as it is now (five rows) and each of its tier sub menus, and his eight app categories with as many
+     * rows as his have (test rows: On/Off rows of real-looking names beside the shell's style rows; FakeText faces) — at the
+     * four heights, with Main's eight rows staged. Each list either staged and bound, or refused with one note; the table
+     * is printed (`K12S3a room`).
+     */
+    @Test
+    fun eachSettingsListAgainstTheRoomForList1_K12S3a(): Unit = runBlocking {
+        val r = Rig(names = HIS_APPS.map { it.first })
+        try {
+            r.up()
+            val style = r.onLoop { r.shell.settingsApps().first { it.first == "Reader" }.second.size }
+            for ((w, app) in r.rows.zip(HIS_APPS)) w.appRows = maxOf(0, app.second - style)
+            val table = ArrayList<String>()
+            suspend fun read(h: Int, what: String) {
+                r.done("$h $what")
+                val line = r.onLoop {
+                    r.shell.windowListBinding.staging?.let { ms -> "${ms.rows} rows: ${ms.end - ms.start} B at ${ms.start}..${ms.end} in ${ms.regionEnd - ms.regionStart} B " +
+                        "(${ms.regionStart}..${ms.regionEnd}), ${ms.start - ms.regionStart} B to spare${if (ms.ring) ", ring" else ""}${if (ms.progSlots == null) ", ONE pan slot" else ""}" }
+                } ?: "NOT STAGED: ${r.notes("liststage").lastOrNull { "cannot be staged" in it }}"
+                table += "h$h $what: $line"
+            }
+            suspend fun to(row: Int) {
+                while (true) {
+                    val at = r.onLoop { r.shell.focusedRowForTest() }
+                    if (at == row) break
+                    val step = if (at < row) 1 else -1
+                    r.fire(if (step > 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
+                    r.until("row ${at + step}") { r.onLoop { r.shell.focusedRowForTest() } == at + step }
+                    delay(r.motionMs() + r.q() + 200); r.settle("at row ${at + step}")
+                }
+            }
+            suspend fun into(what: String) { r.fire(CfwModes.EV_TAP); r.until("into $what") { r.onLoop { r.shell.transitionPhaseForTest() } == null && r.shell.isQuiescent() } }
+            suspend fun back() { r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK); delay(200); r.until("back") { r.onLoop { r.shell.transitionPhaseForTest() } == null && r.shell.isQuiescent() } }
+            r.open("settings")
+            for (h in listOf(288, 352, 416, 480)) {
+                r.shell.updateSettings { it.copy(heightMode = h) }
+                read(h, "categories")
+                for (c in 0 until 2 + HIS_APPS.size) {
+                    to(c); into("category $c")
+                    val name = if (c == 0) "Global" else if (c == 1) "Animations" else HIS_APPS[c - 2].first
+                    read(h, name)
+                    if (c == 1) {
+                        val tiers = r.onLoop { r.shell.windowListBinding.staging?.rows } ?: 5
+                        for (t in 0 until tiers) { to(t); into("tier $t"); read(h, "Animations tier $t"); back() }
+                    }
+                    back()
+                }
+            }
+            println("K12S3a room (test rows, FakeText, Main's eight rows staged; measured on the model):\n" + table.joinToString("\n"))
+            assertTrue(table.size >= 4 * 11, "every list read: ${table.size}")
         } finally { r.close() }
     }
 }
