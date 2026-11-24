@@ -20,8 +20,8 @@ import wm.damage.core.local.BoundList
  *   does a re-stage's, booked or not (the focused read of B082, F1: an unbooked one may have left bytes the copy lacks). (c) Keyed on the staging object (`MainStageKey`) and the offsets it laid out;
  *   the list's [BoundList.mark] is the staging's identity. (d) The shell's loop only. (e) One read of the link state per
  *   pump. (f) Its siblings: Page staging (the same registry and lane).
- * - A row's stale mark ([stale]: [dirty], [owed]). Set by a key change at a compose ([keysChanged]), the
- *   round-robin repaint ([verifyDue]) and a re-stage write that failed; cleared when its re-stage is submitted or a
+ * - A row's stale mark ([stale]: [dirty], [owed]). Set by a key change at a compose ([keysChanged]; a window's list: its
+ *   compose compare, [differs]), the round-robin repaint ([verifyDue]) and a re-stage write that failed; cleared when its re-stage is submitted or a
  *   repaint shows nothing changed. It decides only what is re-staged: a row older than Main's truth is NOT a reason to
  *   discard (decisions X.1 — the phone's END is taken from its own copy of the staged records, so belief equals what
  *   the lens drew; the ordinary repaint brings the changed cell). Never persisted: a staging is a session's.
@@ -224,6 +224,14 @@ internal class MainBinding(
         verifyAtMs = nowMs + VERIFY_PACE_MS
         return true
     }
+
+    /** K1-2 stage 3b (the K1-2 spec's O5): a compose found row [row] drawing otherwise than its staged copy — painted again
+     *  in idle and compared there, as a key change marks it; a row whose re-stage is owed already is not (its write paints
+     *  it as it is then). */
+    fun differs(row: Int) { if (row in dirty.indices && !owed[row] && !dirty[row]) { dirty[row] = true; composeMarks++ } }
+    /** Rows [differs] marked this process (tests read it: a compose of rows unchanged marks none — a row's paint in idle
+     *  costs the phone's CPU). */
+    var composeMarks = 0; private set
 
     fun nextDirty(): Int? = dirty.indices.firstOrNull { dirty[it] }
 

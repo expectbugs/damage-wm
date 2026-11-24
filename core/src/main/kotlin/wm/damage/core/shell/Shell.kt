@@ -5919,10 +5919,14 @@ class Shell(
          *  nothing of Main is staged there. */
         override fun mainBehindClock(): Boolean = mode == Mode.SILENT
 
-        /** The layout Main's staging is painted and kept for: the shell's own while Main is in front; behind the clock the one
-         *  its wake brings (`exitSilent`'s `syncLayout`: a height set while the clock shows is applied only there), so the
-         *  staging is not dropped at the wake. */
-        override fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout
+        /** The layout Main's staging is painted and kept for: the shell's own while Main is in front; elsewhere Main's OWN —
+         *  [layoutFor] the settings, the one Main has when it is next in front (behind the clock the one its wake brings,
+         *  `exitSilent`'s `syncLayout`: a height set while the clock shows is applied only there, so the staging is not
+         *  dropped at the wake). K1-2 stage 3b (decisions CX): the shell's `layout` follows the window in front, and nothing
+         *  of Main's staging needs it while Main is not — its region is the cache's, its pictures are its own records and
+         *  the atlas's changes clear the registry by themselves — so a window of another height or face in front keeps
+         *  Main's staging, and a Global height or face change (Main's own layout) still drops it. */
+        override fun mainBindLayout(): Layout = if (mode == Mode.MAIN) layout else layoutFor(settings)
 
         /** Build ANIM (AV, AW.1): the motion the `Animations` rows ask for. */
         override fun motionInForce() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames,
@@ -5963,6 +5967,8 @@ class Shell(
         open fun stagingOf(): Any? = null
         /** A staging [ms] was laid out and begun. */
         open fun began(ms: MainStaging) {}
+        /** A staging was refused ([mainBindRefused]); [pt] its paint where every row was painted, else null. */
+        open fun refused(pt: MainStaging.Paint?) {}
         /** The rows it lists now. */
         abstract fun rows(): Int
         /** A row's key ([MainSurface.rowKey]: what a compose compares) and identity ([MainSurface.rowIdentity]: what carries
@@ -5984,6 +5990,9 @@ class Shell(
 
         /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
         var mainBindRefusedFor: String? = null
+        /** Stagings refused this process (tests read it: a refused list is not painted again until what it was refused for
+         *  changes). */
+        var mainBindRefusals = 0
         /** The staging being painted a row per loop turn (AF.8), the key it is painted for, and the atlas's versions at its
          *  start (a change means the paint met characters the atlas did not hold: painted again once it does). */
         var mainBindPaint: MainStaging.Paint? = null
@@ -6058,8 +6067,8 @@ class Shell(
      * yields ([notKept], `wheelPlace`). Kept while Main, the clock or a screen that is not a list is in front (Settings →
      * Main → Settings writes nothing); another list in front replaces it; a row count, layout or planes change of its own
      * view makes a new staging (a new mark). Its effect is Global `Animations`' (Crush and Flip play their fallback on the
-     * window form, decisions CV); an effect change re-makes its pans alone, as Main's. Its rows' keys are null (the compose
-     * compare is stage 3b's): a changed row is found by the round-robin. Notes under `liststage`.
+     * window form, decisions CV); an effect change re-makes its pans alone, as Main's. Its rows' keys are null: a changed row
+     * is found by the compose compare ([composeCompare], stage 3b) and the round-robin. Notes under `liststage`.
      */
     private inner class WindowListBind : ListBind(WindowListSurface({ windowList.viewNow()?.v }, { windowListMatches() }), WindowListCheck.LIST, WindowListCheck.ENTRIES) {
         override val stageTag = "liststage"
@@ -6070,7 +6079,52 @@ class Shell(
         var stagedFor: Pair<MainStaging, WindowListView>? = null
 
         override fun stagingOf(): Any? = windowFront()?.id
-        override fun began(ms: MainStaging) { stagedFor = windowFront()?.let { ms to it.id } }
+        override fun began(ms: MainStaging) { stagedFor = windowFront()?.let { ms to it.id }; refusedRows = null }
+
+        /** K1-2 stage 3b (pin 6's content half; decisions AF.6): a staging refused with every row painted — each row form's
+         *  hash ([rectHash]), the view and the layout it was painted for. A compose of that view that shows one of those rows
+         *  drawing otherwise tries the staging again ([composeCompare]); nothing else does but what its key holds (the
+         *  layout, planes, rows, space, motion). Cleared when a staging is begun; replaced at the next refusal. */
+        private var refusedRows: Triple<IntArray, WindowListView, Layout>? = null
+        override fun refused(pt: MainStaging.Paint?) {
+            refusedRows = pt?.let { p -> windowFront()?.id?.let { id -> Triple(IntArray(p.n) { i -> p.rowForms[i]!!.let { g -> rectHash(g, 0, 0, g.w, g.h) } }, id, p.layout) } }
+        }
+
+        /** K1-2 stage 3b: the band's picture at the last compose compared — what it was compared for (the staging, or the
+         *  refused rows), the row under the band and the band's hash. */
+        private var bandSeen: Triple<Any, Int, Int>? = null
+
+        /**
+         * K1-2 stage 3b (the K1-2 spec's O5 and §6's row "the compose compare and the round-robin"; decisions BC O5): at a
+         * compose of the window whose list this holds, the rows its paint just made beside the band are compared with the
+         * staged copy ([MainStaging.stagedRowIs]) — a row drawing otherwise is painted again in idle and re-staged by
+         * withdrawal ([MainBinding.differs]; the round-robin finds the rows off screen) — and the band's picture with the
+         * last compose's for the same row under it: the band paints the lens form, not the row form the strip holds, so a
+         * change there with the row unmoved is that row's own (an adjusted value) and marks it the same way. A reorder is
+         * found as row changes (the spec §1: no identity is known). For a staging the space refused, a row drawing otherwise
+         * than its refused paint tries the staging again (AF.6: the key is what the rows draw). Bytes the paint already
+         * made, loop-only; the only state is [bandSeen].
+         */
+        fun composeCompare() {
+            val ms = mainBind.staging
+            val f = (if (ms != null) stagedFront() else windowFront()) ?: return
+            if (contentWindow() !== f.w) return
+            val l = layout
+            val rr = refusedRows?.takeIf { ms == null && it.second == f.id && it.third == l && it.first.size == f.v.rowCount() }
+            val ref: Any = (if (ms != null && ms.layout == l) ms else rr?.first) ?: run { bandSeen = null; return }
+            val g = comp.composed
+            val c = f.v.model.cursor
+            var retry = false
+            kit.visibleRows(l, f.v.rowCount(), c) { row, r ->
+                if (ms != null) { if (ms.stagedRowIs(row, g, r.x, r.y) == false) mainBind.differs(row) }
+                else if (rr!!.first[row] != rectHash(g, r.x, r.y, r.w, r.h)) retry = true
+            }
+            val band = rectHash(g, l.lens.x, l.lens.y, l.lens.w - Layout.RAIL_W, l.lens.h)
+            val b = bandSeen
+            if (b != null && b.first === ref && b.second == c && b.third != band) { if (ms != null) mainBind.differs(c) else retry = true }
+            bandSeen = Triple(ref, c, band)
+            if (retry) { mainBindRefusedFor = null; refusedRows = null; bandSeen = null; post(Msg.Pump) }
+        }
 
         /** The view its staging is of, when that view is in front; null otherwise (another view, none, no staging). */
         fun stagedFront(): WindowFront? {
@@ -6116,6 +6170,15 @@ class Shell(
         }
     }
 
+    /** K1-2 stage 3b: [g]'s rect ([x], [y], [w], [h]) hashed line by line as `Arrays.hashCode` hashes the same pixels cut
+     *  out — a row form painted alone and the same row in a composed frame hash alike. */
+    private fun rectHash(g: Gray8, x: Int, y: Int, w: Int, h: Int): Int {
+        if (x < 0 || y < 0 || x + w > g.w || y + h > g.h) return 0
+        var out = 1
+        for (k in 0 until h) { val at = (y + k) * g.w + x; for (i in at until at + w) out = 31 * out + g.pix[i] }
+        return out
+    }
+
     private val windowList = WindowListBind()
     /** Both holders, Main's first. */
     private val lists: List<ListBind> = listOf(mainList, windowList)
@@ -6136,6 +6199,8 @@ class Shell(
     internal val windowListBinding: MainBinding get() = windowList.mainBind
     internal fun windowBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = windowList.surface.bound() to windowList.surface.row()
     internal fun slot0ForTest(): String? = when (slot0()) { mainList -> "main"; windowList -> "window"; else -> null }
+    /** K1-2 stage 3b, tests (on the loop): the window list's refused stagings this process. */
+    internal fun windowListRefusalsForTest(): Int = windowList.mainBindRefusals
     /** Tests (on the loop): the cursor of the list view in front (−1: none). */
     internal fun focusedRowForTest(): Int = (focusedView() as? WindowView.ListView)?.model?.cursor ?: -1
     internal fun stepWindowsForTest(): Pair<List<Long>, List<Long>> = mainList.stepWindow.toList() to windowList.stepWindow.toList()
@@ -6367,8 +6432,10 @@ class Shell(
 
     /** A staging refused for [what] (AF.6: tried again when it changes); its [note] said once per change of the reason —
      *  the note without its numbers (the sizes move with the rows' content, the reason does not: decisions AL.1). */
-    private fun ListBind.mainBindRefused(what: String, note: String) {
+    private fun ListBind.mainBindRefused(what: String, note: String, pt: MainStaging.Paint? = null) {
         mainBindRefusedFor = what
+        mainBindRefusals++
+        refused(pt?.takeIf { it.done })
         val reason = note.replace(Regex("\\d+"), "#")
         if (reason != mainBindRefusalSaid) { mainBindRefusalSaid = reason; this.note(note) }
     }
@@ -6425,7 +6492,7 @@ class Shell(
             // change withdraws the list, at 256 KiB as at 160)
             MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)
         } catch (e: wm.damage.core.geom.LintError) {
-            mainBindRefused(what, "$who's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until $who's layout, planes, rows or their content change, or the next session")
+            mainBindRefused(what, "$who's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until $who's layout, planes, rows or their content change, or the next session", pt)
             return false
         }
         val recs = ms.blobs.mapIndexed { i, blob -> StagedRecord(MainStageKey(ms, i, blob.name, "$who's"), blob.raw ?: Gray8(1, 1), blob.bytes) }
@@ -7705,6 +7772,7 @@ class Shell(
         // (review 2026-09-01 F7). Render-only, never an activation.
         paintContentOf(contentWindow())
         if (mode == Mode.MAIN) mainList.mainBindKeys()             // build C2, stage DM2: a row whose key changed is re-staged
+        else if (mode == Mode.WINDOW) windowList.composeCompare()  // K1-2 stage 3b: a window list's row drawing otherwise, likewise
         if (switcher.open) paintSwitcherFrame()
         if (menu.open) {
             menu.invalidateUnder()        // recapture over the fresh content

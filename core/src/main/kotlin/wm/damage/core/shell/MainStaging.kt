@@ -430,6 +430,24 @@ class MainStaging private constructor(
         class Outgrown(val why: String) : Restage() { override fun toString() = "Outgrown($why)" }
     }
 
+    /** K1-2 stage 3b (the K1-2 spec's O5): whether the row-form rect of [g] at ([x], [y]) — a row a compose just painted
+     *  beside the band, at this staging's layout — holds row [row]'s picture as the glasses were last sent it (the strip's
+     *  copy, the first strip row that shows it). Bytes the paint already made, compared line by line; null where no strip row
+     *  shows [row] or the rect leaves [g]. */
+    fun stagedRowIs(row: Int, g: Gray8, x: Int, y: Int): Boolean? {
+        val s = stripRow.indexOf(row).takeIf { row >= 0 && it >= 0 } ?: return null
+        val raw = strip.raw
+        val w = raw.w
+        val h = layout.rowH
+        if (x < 0 || y < 0 || x + w > g.w || y + h > g.h) return null
+        for (k in 0 until h) {
+            val at = (y + k) * g.w + x
+            val st = (s * h + k) * w
+            if (!java.util.Arrays.equals(g.pix, at, at + w, raw.pix, st, st + w)) return false
+        }
+        return true
+    }
+
     /** Re-paints row [row] (its row form at every strip row that shows it, its band form) and compares the raw pixels
      *  with what the glasses were last sent. [force]: the writes even when nothing changed (a write that failed). */
     fun restage(row: Int, view: WindowView.ListView, kit: ContentKit, relay: (Gray8, () -> Unit) -> Unit, force: Boolean = false): Restage {

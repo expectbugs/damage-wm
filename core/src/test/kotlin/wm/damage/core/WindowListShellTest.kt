@@ -22,6 +22,7 @@ import wm.damage.core.local.BoundList
 import wm.damage.core.local.Taps
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
+import wm.damage.core.shell.MainBinding
 import wm.damage.core.shell.MainStaging
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
@@ -57,8 +58,18 @@ class WindowListShellTest {
                 listOf("On", "Off"), { if (i % 2 == 0) "On" else "Off" }, {})
         }
         val model = ListModel()
+        /** K1-2 stage 3b: its own height (null: Global's); what row i draws — row [order]`[i]`'s marks (a reorder); and
+         *  [noisy]: every row a field of noise at all 16 levels, so its strip is far larger than the space (each pixel
+         *  from the row and its place in the row alone, so a row paints alike wherever it is put). */
+        @Volatile var height: Int? = null
+        override val preferredHeight: Int? get() = height
+        @Volatile var order: IntArray? = null
+        @Volatile var noisy = false
         override fun view(): WindowView = WindowView.ListView(model, { n },
-            { g, i, r, _ -> for (k in 0..(i % 5)) g.fillRect(r.x + 12 + k * 22 + (i * 7) % 40, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
+            { g, i, r, _ ->
+                val k0 = order?.getOrNull(i) ?: i
+                if (noisy) for (y in 0 until r.h) for (x in 0 until r.w) g[r.x + x, r.y + y] = ((((x * 7919 + y * 104_729 + k0 * 31) * 0x9E3779B1.toInt()) ushr 13) and 0xF) * 17
+                for (k in 0..(k0 % 5)) g.fillRect(r.x + 12 + k * 22 + (k0 * 7) % 40, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
             { g, r, i -> g.fillRect(r.x + 4, r.y + 4, 8 + (i * 13) % 200, r.h - 8, 255) }, {})
         override fun summary() = if (heavy) Summary("M@W#".repeat(24), detail = "detail of $name", more = true) else Summary("summary of $name", detail = "detail")
         override fun saveState(): JsonObject = JsonObject(emptyMap())
@@ -81,10 +92,12 @@ class WindowListShellTest {
         val shell = Shell(CachedText(text), t, persistence, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val rows = names?.mapIndexed { i, n -> Win("w$i", n) } ?: (0 until nRows).map { Win("w$it", "W$it") }
         val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        /** K1-2 stage 3b: called with each image RIGHT takes, before the model applies it (the sim's own thread). */
+        @Volatile var onImage: ((ByteArray) -> Unit)? = null
 
         init {
             for (r in rows + extra) shell.register(r)
-            sim.imageObserver = { a, img -> if (a == Arm.RIGHT) right += img }
+            sim.imageObserver = { a, img -> if (a == Arm.RIGHT) { onImage?.invoke(img); right += img } }
             scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
         }
 
@@ -608,6 +621,253 @@ class WindowListShellTest {
             }
             println("K12S3a room (test rows, FakeText, Main's eight rows staged; measured on the model):\n" + table.joinToString("\n"))
             assertTrue(table.size >= 4 * 11, "every list read: ${table.size}")
+        } finally { r.close() }
+    }
+
+    // ------------------------------------------------------------------ K1-2 stage 3b
+
+    /** Main staged, counted and bound on RIGHT, with nothing else in hand. */
+    private suspend fun mainBound(r: Rig, what: String) {
+        r.until("$what: Main bound on RIGHT") { r.onLoop { r.shell.currentWindowId() == null && r.shell.slot0ForTest() == "main" &&
+            r.shell.mainBinding.counted } && r.entriesOn(Arm.RIGHT, 0).size >= 2 }
+        r.done(what)
+    }
+
+    /** The reorder case (the K1-2 spec §1 and §6, "Order: row re-stages"; decisions BC O5): two rows on screen trade places in
+     *  a bound window list of the same count — row 1 below the band and row 11, shown above it by the wrap. The compose
+     *  compare finds both; each is re-staged by withdrawal (its entries CLEARed, its strip segments written, the SETs again),
+     *  one per 5 s, with no new staging and the mark kept, and a notch after is local with belief equal to both lenses.
+     *  Without the compare only the round-robin finds them: row 11 a minute after the staging. */
+    @Test
+    fun aReorderOnScreenIsReStagedRowByRowWithTheMarkKept_K12S3b(): Unit = runBlocking {
+        val win = Win("lw", "Listy", n = 12, list = true)
+        val r = Rig(extra = listOf(win))
+        try {
+            r.up()
+            r.open("lw")
+            r.windowBound("Listy")
+            val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            val mark = r.list().mark
+            val staged = r.notes("liststage").count { it.startsWith("staged") }
+            assertEquals(0, r.row())
+            val shown = r.onLoop { r.shell.layout }.let { l -> (1..l.rowsBelow).toList() + (1..l.rowsAbove).map { 12 - it } }
+            assertTrue(1 in shown && 11 in shown, "rows 1 and 11 both on screen at row 0: $shown")
+            val (bytes0, marks0) = r.onLoop { r.shell.windowListBinding.restagedBytes to r.shell.windowListBinding.composeMarks }
+            val at = r.right.size
+            val t0 = System.currentTimeMillis()
+            win.order = IntArray(12) { it }.also { it[1] = 11; it[11] = 1 }
+            r.onLoop { r.shell.services.requestRender(win) }
+            r.until("rows 1 and 11 re-staged", 12_000) { r.notes("liststage").count { it.startsWith("row 1 re-staged") || it.startsWith("row 11 re-staged") } == 2 }
+            val took = System.currentTimeMillis() - t0
+            r.windowBound("offered again")
+            val (bytes1, marks1) = r.onLoop { r.shell.windowListBinding.restagedBytes to r.shell.windowListBinding.composeMarks }
+            println("K12S3b reorder: rows 1 and 11 re-staged ${bytes1 - bytes0} B in ${took} ms on the rig (one per 5 s); compose marks ${marks1 - marks0}; " +
+                "${r.notes("liststage").filter { it.startsWith("withdrawn") || "re-staged" in it }.takeLast(4)}")
+            assertTrue(marks1 - marks0 >= 2, "the compose compare marked the two rows")
+            assertTrue(r.notes("liststage").count { it.startsWith("withdrawn — row 1'") || it.startsWith("withdrawn — row 11'") } == 2, "each withdrawn for its strip write")
+            assertTrue(r.onLoop { r.shell.windowListBinding.staging } === ms && r.list().mark == mark, "the same staging and mark")
+            assertEquals(staged, r.notes("liststage").count { it.startsWith("staged") }, "no new staging")
+            assertTrue(r.notes("liststage").none { it.startsWith("dropped") }, "${r.notes("liststage")}")
+            // the path on RIGHT: the CLEARs of 3–5, the strip's write, then the SETs again
+            val imgs = r.right.drop(at)
+            val clearAt = imgs.indexOfFirst { img -> r.subs(img).any { r.isClearOf(it, 3) } }
+            val writeAt = imgs.indexOfFirst { r.cacheWrite(it) }
+            val setAt = imgs.indices.firstOrNull { it > writeAt && r.subs(imgs[it]).any { s -> r.isSetOf(s, 1) } } ?: -1
+            assertTrue(clearAt in 0 until writeAt && setAt > writeAt, "CLEAR at $clearAt, the write at $writeAt, the SETs at $setAt of RIGHT's images")
+            r.onLoop { r.shell.services.requestRender(win) }
+            r.done("composed again")
+            assertEquals(marks1, r.onLoop { r.shell.windowListBinding.composeMarks }, "once re-staged, a compose marks nothing")
+            r.assertOracle("re-staged")
+            notch(r, CfwModes.EV_UPROLL, "a notch after the re-stages")
+            notch(r, CfwModes.EV_DOWNROLL, "and back")
+        } finally { r.close() }
+    }
+
+    /** Pin 8 (the K1-2 spec §8): an adjusted value is re-staged within 5 s and the next notch's END shows it. Global's
+     *  `Presence` (row 3) adjusted from `dim at rest` to `away at rest` under the band: leaving the adjust level, the row is
+     *  re-staged (the band's picture changed with the row unmoved — the compose compare's band half), and a notch down then
+     *  ends with RIGHT's panel, read before the first image after the motion's end, showing row 3 above the band as the
+     *  window paints it. Without: the old value at that notch's END and every one after, until the round-robin reaches row 3. */
+    @Test
+    fun anAdjustedValueIsReStagedWithin5sAndTheNextNotchsEndShowsIt_K12S3b(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up()
+            r.open("settings")
+            r.windowBound("Settings")
+            r.fire(CfwModes.EV_TAP)                                        // Global
+            r.until("Global's rows open") { r.onLoop { r.shell.slot0ForTest() == "window" && r.shell.windowBoundForTest().first?.count?.let { it > 10 } == true } }
+            r.done("Global"); r.windowBound("Global")
+            for (k in 1..3) notch(r, CfwModes.EV_UPROLL, "to row $k")
+            assertEquals(3, r.row(), "at Presence")
+            r.done("at Presence")
+            val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            val restaged0 = r.notes("liststage").count { it.startsWith("row 3 re-staged") }
+            assertEquals(1, r.onLoop { r.shell.settings.presence }, "the fixture: dim at rest")
+            r.fire(CfwModes.EV_TAP)                                        // the adjust level
+            r.until("adjusting") { r.onLoop { r.shell.slot0ForTest() } == null }
+            r.settle("adjusting")
+            r.fire(CfwModes.EV_DOWNROLL)                                   // dim at rest → away at rest
+            r.until("Presence changed") { r.onLoop { r.shell.settings.presence } == 0 }
+            r.settle("the value moved")
+            r.fire(CfwModes.EV_TAP)                                        // kept: the adjust level left
+            val t0 = System.currentTimeMillis()
+            r.until("row 3 re-staged", 8_000) { r.notes("liststage").count { it.startsWith("row 3 re-staged") } > restaged0 }
+            val took = System.currentTimeMillis() - t0
+            r.windowBound("offered again")
+            println("K12S3b adjusted value: row 3 re-staged $took ms after the adjust level was left (on the rig); " +
+                "${r.notes("liststage").lastOrNull { it.startsWith("row 3 re-staged") }}")
+            assertTrue(took < MainBinding.RESTAGE_PACE_MS, "within 5 s: $took ms")
+            assertTrue(r.onLoop { r.shell.windowListBinding.staging } === ms, "the same staging (a row re-staged keeps it)")
+            // the next notch: RIGHT's panel at its END — read before the first image RIGHT takes after the motion's end
+            val l = r.onLoop { r.shell.layout }
+            val go = java.util.concurrent.atomic.AtomicBoolean(false)
+            val end = java.util.concurrent.atomic.AtomicReference<Gray8?>(null)
+            r.onImage = { _ ->
+                if (go.get() && end.get() == null && synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.SLOT]?.drawing != true })
+                    end.set(r.panel(false))
+            }
+            r.settle("before the notch")
+            val e = assertNotNull(r.list().entryFor(CfwModes.EV_UPROLL))
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("RIGHT plays the notch") { synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.SLOT]?.drawing == true } }
+            go.set(true)
+            delay(((e.program!!.T + 1) * e.period * 1000L) / 1024 + r.q() + 300)
+            r.settle("after the notch")
+            r.onImage = null
+            assertEquals(4, r.row(), "the notch moved the row")
+            r.assertOracle("after the notch")
+            val endPanel = assertNotNull(end.get(), "an image after the motion's end (the held band)")
+            val fin = r.panel(false)
+            val y0 = l.lens.y - l.rowH
+            val x0 = l.content.x + 24
+            val x1 = l.content.x + l.content.w - wm.damage.core.geom.Layout.RAIL_W - 24
+            var diff = 0
+            for (y in y0 + 1 until l.lens.y - 1) for (x in x0 until x1) if (endPanel[x, y] != fin[x, y]) diff++
+            assertEquals(0, diff, "the notch's END shows row 3 (above the band) as the window paints it — $diff px differ")
+        } finally { r.close() }
+    }
+
+    /** Pin 6's content half (the K1-2 spec §6; decisions AF.6, AL.1): a window list whose strip the space cannot hold (eight
+     *  rows of noise) stays unbound with one note through composes and a phone-drawn notch that change nothing it draws, and
+     *  is tried again when a row on screen draws otherwise — here it then fits, and is staged and bound. Without: never
+     *  tried again until its rows, layout, planes or space change. */
+    @Test
+    fun aListThatDoesNotFitIsTriedAgainOnAContentChange_K12S3b(): Unit = runBlocking {
+        val win = Win("nw", "Noisy", n = 8, list = true).also { it.noisy = true }
+        val r = Rig(extra = listOf(win))
+        try {
+            r.up()
+            r.open("nw")
+            r.until("refused") { r.onLoop { r.shell.windowListRefusalsForTest() } >= 1 }
+            r.done("refused")
+            val refusal = r.notes("liststage").filter { "cannot be staged" in it }
+            println("K12S3b does not fit: $refusal")
+            assertEquals(1, refusal.size, "one note: ${r.notes("liststage")}")
+            for (k in 1..3) { r.onLoop { r.shell.services.requestRender(win) }; delay(200); r.done("compose $k") }
+            r.fire(CfwModes.EV_UPROLL)                                     // unbound: the phone draws it, as today
+            r.until("the row moved") { r.onLoop { r.shell.focusedRowForTest() } == 1 }
+            delay(300); r.done("a notch drawn by the phone")
+            assertEquals(1, r.onLoop { r.shell.windowListRefusalsForTest() }, "not tried again while nothing it draws changed")
+            assertEquals(null, r.onLoop { r.shell.slot0ForTest() }, "unbound")
+            win.noisy = false
+            r.onLoop { r.shell.services.requestRender(win) }
+            r.windowBound("tried again on the content change: it fits")
+            assertEquals(1, r.notes("liststage").count { "cannot be staged" in it }, "still one note")
+            notch(r, CfwModes.EV_UPROLL, "a notch on the list staged")
+        } finally { r.close() }
+    }
+
+    /** The compose compare against rows that did not change (its cost is the phone's CPU: a mark is a row painted again in
+     *  idle): Settings' categories and Global's rows at the four heights, FakeText and NoisyText faces — after each staging,
+     *  notches and their composes mark no row. */
+    @Test
+    fun aComposeOfRowsUnchangedMarksNone_K12S3b(): Unit = runBlocking {
+        for ((name, text) in listOf<Pair<String, wm.damage.core.text.TextRasterizer>>("FakeText" to FakeText(), "NoisyText" to NoisyText())) {
+            val r = Rig(text = text)
+            try {
+                r.up()
+                r.open("settings")
+                suspend fun read(what: String, down: Int) {
+                    for (h in listOf(288, 352, 416, 480)) {
+                        r.shell.updateSettings { it.copy(heightMode = h) }
+                        r.done("$name $h $what"); r.windowBound("$name $h $what")
+                        val m0 = r.onLoop { r.shell.windowListBinding.composeMarks }
+                        notch(r, CfwModes.EV_UPROLL, "$name $h $what: a notch down")
+                        notch(r, if (down > 1) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL, "$name $h $what: another")
+                        assertEquals(m0, r.onLoop { r.shell.windowListBinding.composeMarks }, "$name $h $what: the composes marked no row")
+                    }
+                }
+                read("the categories", 1)
+                r.fire(CfwModes.EV_TAP)
+                r.until("$name: Global's rows") { r.onLoop { r.shell.slot0ForTest() == "window" && r.shell.windowBoundForTest().first?.count?.let { it > 10 } == true } }
+                r.done("$name Global")
+                read("Global", 2)
+            } finally { r.close() }
+        }
+    }
+
+    /** Main's staging kept across a window of another height (decisions CX): Main → a window at 480 (Global's height is 352)
+     *  → Main writes no staging of Main's and binds the same staging and mark again (the riding LIST, shift 0). Without:
+     *  Main's staging dropped while the window is in front ("Main's layout changed") and staged whole on the way back. */
+    @Test
+    fun mainsStagingIsKeptAcrossAWindowOfAnotherHeight_K12S3b(): Unit = runBlocking {
+        val tall = Win("tw", "Tall").also { it.height = 480 }
+        val r = Rig(extra = listOf(tall))
+        try {
+            r.up()
+            mainBound(r, "the start")
+            val ms = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+            val mark = assertNotNull(r.onLoop { r.shell.mainBoundForTest().first }).mark
+            val wireMark = synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).lists[0].mark }
+            val (bytes0, n0) = r.onLoop { r.shell.mainBinding.stagedBytes to r.shell.mainBinding.stagings }
+            val mainLayout = r.onLoop { r.shell.layout }
+            r.open("tw")
+            assertTrue(r.onLoop { r.shell.layout } != mainLayout, "the tall window has a layout of its own")
+            delay(1_000); r.done("the tall window in front")
+            val kept = r.onLoop { r.shell.mainBinding.staging } === ms
+            val at = r.right.size
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            mainBound(r, "back on Main")
+            val (bytes1, n1) = r.onLoop { r.shell.mainBinding.stagedBytes to r.shell.mainBinding.stagings }
+            val writes = r.right.drop(at).filter { r.cacheWrite(it) }
+            println("K12S3b return to Main from a window of another height: Main staged ${n1 - n0} time(s), ${bytes1 - bytes0} B; " +
+                "RIGHT's cache writes after the return ${writes.size} message(s), ${writes.sumOf { it.size }} B (measured on the model)")
+            assertTrue(kept, "Main's staging kept while the tall window is in front: ${r.notes("mainstage").takeLast(3)}")
+            assertEquals(n0, n1, "no staging of Main's on the way back")
+            assertEquals(bytes0, bytes1)
+            assertTrue(r.onLoop { r.shell.mainBinding.staging } === ms && r.onLoop { r.shell.mainBoundForTest().first }?.mark == mark, "the same staging and mark")
+            assertTrue(r.notes("mainstage").none { it.startsWith("dropped") }, "${r.notes("mainstage")}")
+            val back = r.since(at).firstOrNull { ss -> ss.any { r.isSetOf(it, 0) } }
+            assertNotNull(back, "Main's SETs on the return")
+            assertTrue(back.filter { r.isListOf(it, 0) }.all { r.u16(it, 7) == 0 && (it[11].toInt() and 0xFF) == wireMark },
+                "no new LIST: the glasses hold the staging (only the riding one, shift 0, mark $wireMark)")
+        } finally { r.close() }
+    }
+
+    /** The other side (decisions CX): a Global height change while a window of its own height is in front changes Main's
+     *  own layout and not the shell's — Main's staging is dropped then, and staged again for the new height on the way
+     *  back. */
+    @Test
+    fun aGlobalHeightChangeUnderAWindowStillReStagesMain_K12S3b(): Unit = runBlocking {
+        val tall = Win("tw", "Tall").also { it.height = 480 }
+        val r = Rig(extra = listOf(tall))
+        try {
+            r.up()
+            mainBound(r, "the start")
+            val ms = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+            val n0 = r.onLoop { r.shell.mainBinding.stagings }
+            r.open("tw")
+            val winLayout = r.onLoop { r.shell.layout }
+            r.shell.updateSettings { it.copy(heightMode = 416) }
+            r.until("Main's staging dropped") { r.notes("mainstage").any { it.startsWith("dropped — Main's layout changed") } }
+            r.done("416 under the tall window")
+            assertEquals(winLayout, r.onLoop { r.shell.layout }, "the shell's layout is the window's own still")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            mainBound(r, "back on Main at 416")
+            val ms2 = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+            assertTrue(ms2 !== ms && ms2.layout == r.onLoop { r.shell.layout }, "a new staging for Main's new layout")
+            assertEquals(n0 + 1, r.onLoop { r.shell.mainBinding.stagings }, "one staging on the way back")
         } finally { r.close() }
     }
 }
