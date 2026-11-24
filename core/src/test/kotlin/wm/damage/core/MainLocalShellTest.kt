@@ -899,9 +899,10 @@ class MainLocalShellTest {
      * a cover (Settings) arrives before the next pump — so the switch's SETs never go; the cover's CLEAR goes instead. Then
      * `Scroll effect` → Crush under the cover, and back on Main a notch. With the cure the CLEAR's flush counts for the tail
      * books (the rules hold no scroll entry of the list after it), the old pans are released once it lands, Crush is re-made
-     * and counted under the cover and switched by the return's poll: the return SETs Crush's pans and the first notch back
-     * plays Crush on both lenses. Without it the slot stayed held, the return SET Slide's pans, and the first notch played
-     * Slide (the record's symptom).
+     * and counted under the cover and switched by the return's poll: ONE flush since the switch carries scroll SETs — the
+     * return's — and it names Crush's pan; the first notch back plays Crush on both lenses. Without it the slot stayed held,
+     * the return SET Slide's pans (the record's symptom: the first notches back play the previous effect) and Crush was
+     * re-made and SET only after them — the same end state a little later, which only the return's own batch shows.
      */
     @Test
     fun aSwitchWhoseSetsACoverOvertookLetsTheNextChangePlayOnTheReturn_CM1(): Unit = runBlocking {
@@ -909,11 +910,13 @@ class MainLocalShellTest {
         try {
             r.up()
             val hit = java.util.concurrent.atomic.AtomicBoolean(false)
+            val at = java.util.concurrent.atomic.AtomicInteger(-1)
             r.shell.noRoomAfterPollForTest = {
                 // the pump whose poll switched: no room (no SETs), and the cover handled before a pump with room
                 when {
                     !hit.get() && r.shell.mainBinding.reprogram?.switched == true -> {
                         hit.set(true)
+                        at.set(r.right.size)
                         r.shell.services.runOnShell { r.shell.services.openWindow("settings", null) }
                         true
                     }
@@ -937,6 +940,11 @@ class MainLocalShellTest {
             val (ms, pan) = r.onLoop { r.shell.mainBinding.staging!!.let { it to it.pan(MainStaging.WHOLE, 1) } }
             assertTrue(ms.motion?.effect == wm.damage.core.motion.ScrollEffect.CRUSH && ms.plays.effect == wm.damage.core.motion.ScrollEffect.CRUSH,
                 "the pans in force are Crush's at the return: asked ${ms.motion?.effect}, plays ${ms.plays.effect}")
+            val sets = r.right.drop(at.get()).map { r.subs(it) }.filter { ss -> ss.any { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL } }
+                .map { ss -> ss.filter { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL }.map { r.u16(it, 9) } }
+            println("CM1 the flushes carrying scroll SETs since the switch: $sets (Crush's pan ${pan.prog4}); mainstage " +
+                r.notes("mainstage").filter { it.startsWith("pans") || it.startsWith("re-made") }.map { it.take(60) })
+            assertEquals(listOf(listOf(pan.prog4)), sets, "ONE flush since the switch carries scroll SETs — the return's — naming Crush's pan ${pan.prog4}")
             for (a in Arm.entries) assertEquals(pan.prog4, r.sim.bindForTest(a).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.prog,
                 "$a holds the SET naming Crush's pan")
             r.fire(CfwModes.EV_UPROLL)
