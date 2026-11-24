@@ -1,0 +1,18 @@
+# open (the chord): end L c161fa52 R 775a9729
+# a notch down: end L 96a7cf12 R d28ac838
+# a notch up: end L c161fa52 R 775a9729
+# up 1: end L fca03099 R bc515cde
+# up 2: end L 97c2398c R 5228900a
+# up 3, the wrap: end L 9aa066be R 66916c88
+# commit: end L 99357c80 R 99357c80
+# open again: end L 12eedcd2 R 7a4a8f2a
+# cancel: end L 99357c80 R 99357c80
+# open (the chord): kinds []
+# a notch down: kinds []
+# a notch up: kinds []
+# up 1: kinds []
+# up 2: kinds []
+# up 3, the wrap: kinds []
+# commit: kinds []
+# open again: kinds []
+# cancel: kinds []
