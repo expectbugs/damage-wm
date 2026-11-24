@@ -9747,15 +9747,15 @@
   "expect": [
    "matrixsFirstStepAnswersTheTapOnEverySeed_X1MX2"
   ],
-  "note": "C3 X1MX2 item 1: the act's own seed only — on 1 seed in 65,536 at 288 with 18-px columns two drawn out steps are one picture (the earliest column at an edge)",
-  "from": "C3-X1MX2"
+  "note": "C3 X1MX2 item 1 (its reason moved by C3 X2MX2 item 3: no fallback): the act's own seed only — on 1 seed in 65,536 at 288 with 18-px columns its drawn out steps cannot each have a picture of their own, and Matrix is refused on that seed",
+  "from": "C3-X1MX2, re-pointed C3-X2MX2"
  },
  {
   "id": "X1MX2-plane-global",
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "val plane = minOf(before.plane, after.plane)",
+    "val plane = minOf(before.plane, after.plane, settings.depth)",
     "val plane = settings.depth"
    ]
   ],
@@ -9765,16 +9765,16 @@
   "expect": [
    "matrixsTwoHalvesShareOneGridAtTheNearerScreensPlane_X1MX2"
   ],
-  "note": "C3 X1MX2 item 2 (decisions CB (2)): the rain at Global Depth as before (behind the silent clock; off the content under an app's own Depth row)",
-  "from": "C3-X1MX2"
+  "note": "C3 X1MX2 item 2 (decisions CB (2); its anchor moved by C3 X2MX2 item 2): the rain at Global Depth as before (behind the silent clock; off the content under an app's own Depth row nearer than Global)",
+  "from": "C3-X1MX2, re-pointed C3-X2MX2"
  },
  {
   "id": "X1MX2-plane-leaving",
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "val plane = minOf(before.plane, after.plane)",
-    "val plane = before.plane"
+    "val plane = minOf(before.plane, after.plane, settings.depth)",
+    "val plane = minOf(before.plane, settings.depth)"
    ]
   ],
   "tests": [
@@ -9783,8 +9783,8 @@
   "expect": [
    "matrixsTwoHalvesShareOneGridAtTheNearerScreensPlane_X1MX2"
   ],
-  "note": "C3 X1MX2 item 2: the leaving screen's plane alone (entering the clock the rain sits at Main's plane, behind the clock)",
-  "from": "C3-X1MX2"
+  "note": "C3 X1MX2 item 2 (its anchor moved by C3 X2MX2 item 2): the leaving screen's plane alone (entering the clock the rain sits at Main's plane, behind the clock)",
+  "from": "C3-X1MX2, re-pointed C3-X2MX2"
  },
  {
   "id": "X1MX2-depth-effect-reads-plane",
@@ -9867,6 +9867,10 @@
    [
     "        if (fit <= base.period) return base\n",
     ""
+   ],
+   [
+    "val fit = Math.ceil(Math.ceil(ms * 1.024) * 1.10).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)",
+    "val fit = Math.ceil(Math.ceil(ms * 1.024) * 1.10).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last).let { maxOf(it, base.period) }"
    ]
   ],
   "tests": [
@@ -9875,8 +9879,8 @@
   "expect": [
    "warpAndFlipFitTheirMeasuredStep_X1MX2"
   ],
-  "note": "C3 X1MX2 item 3's class: the frames give at the setting's own period (a step lost to whole-tick rounding, e.g. Warp at 300 ms / 4 frames plays one step a half)",
-  "from": "C3-X1MX2"
+  "note": "C3 X1MX2 item 3's class (re-pointed by C3 X2MX2 item 4, decisions CJ (5): the form the fix replaced, the period the larger of the setting's and the fit and the frames from it): the frames give at the setting's own period — whole-tick rounding (2 × 58 = 116 ticks against 115.2) drops a step (Warp at 288, 225 ms / 4 frames plays one step a half)",
+  "from": "C3-X1MX2, re-pointed C3-X2MX2"
  },
  {
   "id": "X3-stale-switched",
@@ -10177,5 +10181,113 @@
   ],
   "note": "K1-2 stage 1 (O12): one spare band slot (the draft's rule): a row's second change in one staging past its own slot owes a full staging (the local check's case b)",
   "from": "K1-2-S1"
+ },
+ {
+  "id": "X2MX2-period-unstretched",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "return Timing(f / 2, maxOf(fit, Math.floor(lengthMs * 1.024 / f).toInt()).coerceAtMost(CfwModes.MOTION_PERIODS.last))",
+    "return Timing(f / 2, fit)"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.warpAndFlipFit*"
+  ],
+  "expect": [
+   "warpAndFlipFitTheirMeasuredStep_X1MX2"
+  ],
+  "note": "C3 X2MX2 item 1 (decisions CJ (2)): where the fit gave the frames the period stays the fit — the halves play short of the tier's length (Warp and Flip 398 and 404 ms of his 450 at 352; a dense Encode page at 480 386 ms)",
+  "from": "C3-X2MX2"
+ },
+ {
+  "id": "X2MX2-stretch-warp-flip-only",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "maxOf(fit, Math.floor(lengthMs * 1.024 / f).toInt()).coerceAtMost(CfwModes.MOTION_PERIODS.last))",
+    "(if (effect == Effect.WARP || effect == Effect.FLIP) maxOf(fit, Math.floor(lengthMs * 1.024 / f).toInt()).coerceAtMost(CfwModes.MOTION_PERIODS.last) else fit))"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.warpAndFlipFit*"
+  ],
+  "expect": [
+   "warpAndFlipFitTheirMeasuredStep_X1MX2"
+  ],
+  "note": "C3 X2MX2 item 1 as first built, before the lead's ruling extended it: the stretch for Warp and Flip only — Encode and Matrix play short where their fit gave the frames (a dense Encode page at his Select at 480: 3 × 66, 386 ms of 450)",
+  "from": "C3-X2MX2"
+ },
+ {
+  "id": "X2MX2-period-under-fit",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "maxOf(fit, Math.floor(lengthMs * 1.024 / f).toInt()).coerceAtMost(CfwModes.MOTION_PERIODS.last))",
+    "Math.floor(lengthMs * 1.024 / f).toInt().coerceAtMost(CfwModes.MOTION_PERIODS.last))"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.warpAndFlipFit*"
+  ],
+  "expect": [
+   "warpAndFlipFitTheirMeasuredStep_X1MX2"
+  ],
+  "note": "C3 X2MX2 item 1: the stretched period may fall under the fit where one step a half already passes the length (an Encode page of 1,600 cells at 480, 225 ms: 1 × 115 under its fit of 118)",
+  "from": "C3-X2MX2"
+ },
+ {
+  "id": "X2MX2-period-past-limit",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "maxOf(fit, Math.floor(lengthMs * 1.024 / f).toInt()).coerceAtMost(CfwModes.MOTION_PERIODS.last))",
+    "maxOf(fit, Math.floor(lengthMs * 1.024 / f).toInt()))"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.warpAndFlipFit*"
+  ],
+  "expect": [
+   "warpAndFlipFitTheirMeasuredStep_X1MX2"
+  ],
+  "note": "C3 X2MX2 item 1: the stretch passes the period's limit of 128 ticks (Warp and Flip at 300 ms at 416 and 480: one step a half of 153 ticks, which the PLAY refuses)",
+  "from": "C3-X2MX2"
+ },
+ {
+  "id": "X2MX2-plane-behind-global",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "val plane = minOf(before.plane, after.plane, settings.depth)",
+    "val plane = minOf(before.plane, after.plane)"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.matrixsTwoHalvesShareOneGrid*"
+  ],
+  "expect": [
+   "matrixsTwoHalvesShareOneGridAtTheNearerScreensPlane_X1MX2"
+  ],
+  "note": "C3 X2MX2 item 2 (decisions CJ (3)): Global Depth out of the act's plane — inside an app whose own Depth row is further back than Global the rain sits behind the two bars",
+  "from": "C3-X2MX2"
+ },
+ {
+  "id": "X2MX2-shared-picture-fallback",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "                ?: throw LintError(\"Matrix: none of $RAIN_SEED_TRIES rain seeds from $s gives each of the out half's ${n - 1} drawn steps a picture of its own \" +\n                    \"(${grid.cols} columns of ${grid.cw} px over ${grid.rows} rows of ${grid.ch} px)\")",
+    "                ?: IntArray(n) { j -> if (j == n - 1) 4096 else 0 }"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixIsRefused*"
+  ],
+  "expect": [
+   "matrixIsRefusedWhereNoSeedGivesEachStepItsOwnPicture_X2MX2"
+  ],
+  "note": "C3 X2MX2 item 3 (decisions CJ (4)): where no seed gives each drawn out step a picture of its own Matrix plays a table whose steps share one, in place of leaving the act's pick with its reason",
+  "from": "C3-X2MX2"
  }
 ]
