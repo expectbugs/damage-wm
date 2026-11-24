@@ -114,7 +114,7 @@ class AtlasCarryTest {
         val transport = ClockedTransport(sim, scope) { clock }
         val text = CachedText(FakeText())
         val journalPath = tmp.resolve("journal.jsonl")
-        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), journalPath, scope)
+        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), journalPath, scope, HELD_CLOCK)
         val keeper = ShellKeeper(shell, transport, scope, retryPauseMs = 100)
 
         init { shell.register(Rows(text)) }

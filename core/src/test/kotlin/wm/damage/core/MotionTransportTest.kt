@@ -821,7 +821,7 @@ class MotionTransportTest {
                         if ((img[i + 2].toInt() and 0x7F) == 26) bad += "mode 26 in a batch"; i += 2 + n } }
                 }
                 val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
-                val shell = Shell(wm.damage.core.comp.CachedText(GlyphyText()), t, Persistence(tmp.resolve("s.json")), null, scope)
+                val shell = Shell(wm.damage.core.comp.CachedText(GlyphyText()), t, Persistence(tmp.resolve("s.json")), null, scope, HELD_CLOCK)
                 shell.start()
                 waitUntil(10_000, 10, { "start" }) { shell.isQuiescent() }
                 shell.updateSettings { it.copy(cachedText = "on") }
@@ -1286,7 +1286,7 @@ class MotionTransportTest {
                 val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = features }
                 val t = CountedRig(glass, scope)
                 if (stage != 0) t.devProbe("c1", "$stage")
-                val shell = Shell(FakeText(), t, Persistence(tmp.resolve("s.json")), null, scope)
+                val shell = Shell(FakeText(), t, Persistence(tmp.resolve("s.json")), null, scope, HELD_CLOCK)
                 shell.start()
                 waitUntil(10_000, 10, { "shell did not settle" }) { shell.isQuiescent() }
                 val images = java.util.concurrent.atomic.AtomicInteger()

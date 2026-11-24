@@ -81,7 +81,7 @@ class SilentStartTest {
         val store = Persistence(tmp.resolve("state-$id.json")).apply {
             if (cached) put("shell.settings", ShellSettings().copy(cachedText = "on").toJson())
         }
-        val shell = Shell(text, transport, store, journal, scope)
+        val shell = Shell(text, transport, store, journal, scope, HELD_CLOCK)
             .apply { silentPacingMs = 60_000 }
         /** What the host's urgent hook was handed (the phone's high-importance notification). */
         val urgent = java.util.concurrent.CopyOnWriteArrayList<String>()

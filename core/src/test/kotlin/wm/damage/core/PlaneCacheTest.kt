@@ -55,7 +55,7 @@ class PlaneCacheTest {
         val tmp = Files.createTempDirectory("damage-planecache")
         val sim = GlassFirmwareSim()
         val spy = SpyTransport(SimTransport(sim, scope, SimTransport.Timing(instant = true)))
-        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), null, scope)
+        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), null, scope, HELD_CLOCK)
 
         init { for (w in windows) shell.register(w) }
 

@@ -63,7 +63,7 @@ class CachedTextTest {
         val sim = GlassFirmwareSim()
         val spy = SpyTransport(SimTransport(sim, scope, SimTransport.Timing(instant = true)))
         val journal = tmp.resolve("journal.jsonl")
-        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), journal, scope)
+        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), journal, scope, HELD_CLOCK)
 
         init { for (w in windows) shell.register(w) }
 

@@ -142,7 +142,7 @@ class HandoverTest {
         val tmp = Files.createTempDirectory("damage-handover")
         val glass = GlassFirmwareSim()
         val transport = SimTransport(glass, scope, SimTransport.Timing(instant = true))
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), null, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), null, scope, HELD_CLOCK)
         val keeper = ShellKeeper(shell, transport, scope)
         try {
             keeper.start()

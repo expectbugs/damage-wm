@@ -388,7 +388,7 @@ class OverlayCachedPaintTest {
         val spy = Spy(link, scope)
         val text = CachedText(base)
         val journalPath = tmp.resolve("journal.jsonl")
-        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), journalPath, scope)
+        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), journalPath, scope, HELD_CLOCK)
 
         fun all() = spy.all()
         fun submits(): List<String> = if (!Files.exists(journalPath)) emptyList()

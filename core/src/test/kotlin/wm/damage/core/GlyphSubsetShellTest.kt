@@ -372,7 +372,7 @@ class GlyphSubsetShellTest {
     }
 
     private class Rig(val scope: CoroutineScope, contract: Int, base: TextRasterizer = NoisyText(), cached: Boolean = true,
-        val font: FontSpec = FontSpec(Face.MONO, 22), pinClock: Boolean = false) {
+        val font: FontSpec = FontSpec(Face.MONO, 22), blindMirror: Boolean = false) {
         val tmp = Files.createTempDirectory("damage-subset")
         var clock = 1_000_000L
         val sim = GlassFirmwareSim().also { if (contract > 0) it.damageContract = contract }
@@ -381,13 +381,12 @@ class GlyphSubsetShellTest {
         val text = CachedText(base)
         val journalPath = tmp.resolve("journal.jsonl")
         val store = Persistence(tmp.resolve("state.json"))
-        // 0.64: the pins that wait real settle windows (four to ten seconds) pin the wall clock — a
-        // minute digit new to the chrome's face would cue a grow and put a second message in the
-        // interval under test (the §73 lesson: a pin that waits lets an unrelated cue in)
-        val shell = if (pinClock) Shell(text, spy, store, journalPath, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
-            else Shell(text, spy, store, journalPath, scope)
+        // 0.64: a minute digit new to the chrome's face cues a grow and puts a second message in the interval under
+        // test (the §73 lesson: a pin that waits lets an unrelated cue in) — the count's pins held the clock; C3 AH2:
+        // every test of the class holds it ([HELD_CLOCK])
+        val shell = Shell(text, spy, store, journalPath, scope, HELD_CLOCK)
         val keeper = ShellKeeper(shell, spy, scope, retryPauseMs = 100)
-        init { if (pinClock) spy.blindMirror = true }      // the count's pins: the mirror cannot see on glass what it sees here
+        init { if (blindMirror) spy.blindMirror = true }      // the count's pins: the mirror cannot see on glass what it sees here
         val win = Lines(text, font)
         val wantCached = cached
 
@@ -522,8 +521,8 @@ class GlyphSubsetShellTest {
         suspend fun close() { keeper.stop(); scope.cancel(); tmp.toFile().deleteRecursively() }
     }
 
-    private fun rig(contract: Int, base: TextRasterizer = NoisyText(), cached: Boolean = true, pinClock: Boolean = false) =
-        Rig(CoroutineScope(SupervisorJob() + Dispatchers.Default), contract, base, cached, pinClock = pinClock)
+    private fun rig(contract: Int, base: TextRasterizer = NoisyText(), cached: Boolean = true, blindMirror: Boolean = false) =
+        Rig(CoroutineScope(SupervisorJob() + Dispatchers.Default), contract, base, cached, blindMirror = blindMirror)
 
     /**
      * The whole path, on both contracts, against a shell that never touches the cache.
@@ -1188,7 +1187,7 @@ class GlyphSubsetShellTest {
     // ------------------------------------------------------------------------------------------------
     // 0.64 — a cache write the glasses acknowledged and did not count (Adam's ruling, `HANDOFF.md` §75.1:
     // no proof gate; the count read wherever the shell is, a shortfall notice and ONE re-send).
-    // These pins wait real settle windows (2 s, twice per shortfall): their rigs pin the wall clock.
+    // These pins wait real settle windows (2 s, twice per shortfall): their rigs hold the wall clock (every rig does).
     // A re-send is identified by its WRITE LIST (the offsets and lengths the shell submitted for the
     // first send), never by counting ATLAS flushes: the notice's own text is new to its faces and
     // uploads glyphs of its own while the pin waits.
@@ -1232,7 +1231,7 @@ class GlyphSubsetShellTest {
     @Test
     fun aCacheWriteOutsideTheReaderIsCountedByItsOwnReading(): Unit = runBlocking {
         for (contract in intArrayOf(1, 2)) {
-            val r = rig(contract, pinClock = true)
+            val r = rig(contract, blindMirror = true)
             try {
                 val n = warm(r)
                 assertTrue(r.count("count ok").isNotEmpty(), "contract $contract: the first upload was judged by the count: ${r.notes("atlas").takeLast(4)}")
@@ -1282,7 +1281,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun theCountsBaseIsReadBeforeTheFirstCacheWriteAndNothingIsWrittenUnderAReading(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             r.up(enable = false)
             val gate = CompletableDeferred<Unit>()
@@ -1323,7 +1322,7 @@ class GlyphSubsetShellTest {
     @Test
     fun aWriteTheGlassesDidNotCountIsSaidAndSentOnceMore(): Unit = runBlocking {
         for (contract in intArrayOf(1, 2)) {
-            val r = rig(contract, pinClock = true); val ref = rig(contract, cached = false, pinClock = true)
+            val r = rig(contract, blindMirror = true); val ref = rig(contract, cached = false, blindMirror = true)
             try {
                 val n = warm(r)
                 ref.up(); repeat(r.notches) { ref.notch("warm, in step") }
@@ -1376,7 +1375,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReSendTheGlassesDidNotCountEitherIsSaidAndNothingMoreIsSent(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             r.spy.breakAtlas = setOf(n + 1)
@@ -1425,7 +1424,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aBumpThatLandsAfterTheReSendIsSaidAsLateNotAsLost(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             r.spy.lagThroughAtlas = n + 1                      // every reading one short until the next cache write after Q's
@@ -1451,7 +1450,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReSendOwedAtALinkEndGoesAgainUnderTheKeptAtlas(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             r.spy.breakAtlas = setOf(n + 1)
@@ -1485,7 +1484,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aCountsReadingFromTheLastSessionIsDropped(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             val old = CompletableDeferred<Unit>()
@@ -1540,7 +1539,7 @@ class GlyphSubsetShellTest {
     @Test
     fun silentModeAndALapseEndTheQuestion(): Unit = runBlocking {
         for (variant in listOf("asleep between readings", "asleep under the deciding reading", "a lapse")) {
-            val r = rig(2, pinClock = true)
+            val r = rig(2, blindMirror = true)
             try {
                 val n = warm(r)
                 r.spy.breakAtlas = setOf(n + 1)
@@ -1603,7 +1602,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun withTheRowOffNothingIsReadAndTheQuestionIsAnsweredWhenItIsBack(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             r.spy.breakAtlas = setOf(n + 1)
@@ -1636,7 +1635,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aMidSessionResetDropsTheUnjudgedMessagesAndKeyframes(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             r.spy.breakAtlas = setOf(n + 1)
@@ -1673,7 +1672,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aShortfallOnALinkThatIsEndingIsJournaledAndNotANotice(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             r.spy.breakAtlas = setOf(n + 1)
@@ -1704,7 +1703,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun theMiscountProbeDrivesTheWholePathOnTheSimulator(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             val msg = reveal(r, "abQ", n)
@@ -1750,7 +1749,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun anAtlasMessageRightNeverTookGoesAgainAfterAReBase_B1(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             loseNextCacheWriteOnRight(r)
@@ -1777,7 +1776,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun anAtlasMessageRightNeverTookGoesAgainUnderAKeptAtlas_B1(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             loseNextCacheWriteOnRight(r)
@@ -1806,7 +1805,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aLateBumpThatDoesNotCoverTheShortfallStillKeyframes(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             r.spy.breakAtlas = setOf(n + 1)                    // Q's extension: refused whole
@@ -1841,7 +1840,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReBaseThatSwallowsAReSendKeyframes(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             r.spy.breakAtlas = setOf(n + 1)                    // Q's extension: acked, refused whole, never counted
@@ -1898,7 +1897,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun anExtraBumpWithNoStripInvolvedIsTheCountsOwnNote(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             r.spy.lagThroughAtlas = 0                          // the base alone reads one short; every reading after the first cache write is true
             val n = warm(r)
@@ -1925,7 +1924,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReSendAloneInItsIntervalAndNotCountedIsStatedAsFact(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val n = warm(r)
             // round one: Q's extension is not counted and its re-send is; the box is dismissed
@@ -1990,7 +1989,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReSendOwedAtAMidSessionResetIsSaidAndKeyframes(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val (_, kf) = aRowDrawnFromAnEntryTheGlassesDoNotHold(r) { r.spy.dropDoneCarrying = it }   // L6's hook: only the re-send's completion is lost
             barrier(r)
@@ -2021,7 +2020,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReSendTheGlassesRefuseSwitchesCachedTextOffAndKeyframes(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val (_, kf) = aRowDrawnFromAnEntryTheGlassesDoNotHold(r) { r.spy.refuseDoneCarrying = it }
             r.until("the refusal switches cached text off") { r.notes("atlas").any { "cached text off — the glasses refused a cache write" in it } }
@@ -2052,7 +2051,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReSendAckedAfterTheCountWentOffKeyframesAtItsAck(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val (msg, kf) = aRowDrawnFromAnEntryTheGlassesDoNotHold(r) {
                 r.spy.failDoneCarrying = it                    // the re-send's ack never comes: a lost write, the base is owed
@@ -2089,7 +2088,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReSendAfterTheCountWentOffThatTheGlassesRefuseKeyframes(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val (msg, kf) = aRowDrawnFromAnEntryTheGlassesDoNotHold(r) {
                 r.spy.failDoneCarrying = it                    // the re-send's ack never comes: a lost write, the base is owed
@@ -2127,7 +2126,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReSendStillQueuedAtARebaseThatTheGlassesThenRefuseKeyframes(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val (msg, kf) = aRowDrawnFromAnEntryTheGlassesDoNotHold(r) {
                 r.spy.failDoneCarrying = it                    // the re-send's ack never comes: a lost write, the base is owed
@@ -2156,7 +2155,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReSendAckedAndUnjudgedWhenTheCountGoesOffKeyframes(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             val (_, kf) = aRowDrawnFromAnEntryTheGlassesDoNotHold(r) { r.spy.nullCountsOnSubmitCarrying = it to 3 }
             r.until("the count is off for the session") { r.count("count off — ").isNotEmpty() }
@@ -2187,7 +2186,7 @@ class GlyphSubsetShellTest {
     @Test
     fun aCountThatGoesOffIsANoticeOnASteadyLinkOfABuildThatHasOne(): Unit = runBlocking {
         for (variant in listOf("a steady link", "a link that is ending", "a build without the telemetry bit")) {
-            val r = rig(2, pinClock = true)
+            val r = rig(2, blindMirror = true)
             try {
                 r.up(enable = false)
                 if (variant == "a build without the telemetry bit")
@@ -2258,7 +2257,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aCountTheGlassesNeverAnswerEndsInTheNoticeAndTheCacheGoesOnUnchecked(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             r.up(enable = false)
             assertTrue(r.spy.state.value.draw2, "DRAW2 is in force before the asks are muted (the start's own reads were answered)")
@@ -2299,7 +2298,7 @@ class GlyphSubsetShellTest {
     @Test
     fun theCacheOffNoticeSaysItsCauseAndNamesPageStagingOnlyWhereItsRowIsOn(): Unit = runBlocking {
         for (variant in listOf("the asks cannot be written", "the Page staging row is off")) {
-            val r = rig(2, pinClock = true)
+            val r = rig(2, blindMirror = true)
             try {
                 r.up(enable = false)
                 if (variant == "the asks cannot be written") r.lab.failCounts = true
@@ -2329,7 +2328,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun anAnswerThatArrivesAfterTheBoundIsNotTakenByTheNextReading(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             r.up(enable = false)
             r.lab.muteCounts = true
@@ -2368,7 +2367,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReadBackFromTheLastSessionClearsNoFlagButItsOwn(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             warm(r)
             val old = CompletableDeferred<Unit>()
@@ -2436,7 +2435,7 @@ class GlyphSubsetShellTest {
     fun aReadBackIsNeitherAppliedNorAskedWhileTheGlassesSleep(): Unit = runBlocking {
         for (variant in listOf("a read-back out at the sleep", "the row off and on during a rest")) {
             val held = variant == "a read-back out at the sleep"
-            val r = rig(2, pinClock = true)
+            val r = rig(2, blindMirror = true)
             try {
                 r.up()
                 r.notch("warm")
@@ -2501,7 +2500,7 @@ class GlyphSubsetShellTest {
      */
     @Test
     fun aReadBackHeldAcrossALapseIsDroppedByItsEpoch(): Unit = runBlocking {
-        val r = rig(2, pinClock = true)
+        val r = rig(2, blindMirror = true)
         try {
             warm(r)
             val gate = CompletableDeferred<Unit>()

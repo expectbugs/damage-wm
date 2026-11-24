@@ -92,7 +92,7 @@ class LoopReadsTest {
             if (holding.get() && ack) { held.add(arm to p); null } else p
         }
         val journal = tmp.resolve("inwait.jsonl")
-        val shell = Shell(FakeText(), t, Persistence(tmp.resolve("state-inwait.json")), journal, scope)
+        val shell = Shell(FakeText(), t, Persistence(tmp.resolve("state-inwait.json")), journal, scope, HELD_CLOCK)
         shell.register(SilentGlassesRows(FakeText()))
         shell.start()
         waitUntil(15_000, 10, { "settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }

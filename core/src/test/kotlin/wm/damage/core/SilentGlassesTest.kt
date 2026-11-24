@@ -43,7 +43,7 @@ class SilentGlassesTest {
         val tmp = Files.createTempDirectory("damage-silent")
         val sim = GlassFirmwareSim()
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), null, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), null, scope, HELD_CLOCK)
         val statuses = ArrayList<String>()
         val keeper = ShellKeeper(shell, transport, scope,
             onStatus = { synchronized(statuses) { statuses.add(it) } }, retryPauseMs = 100)

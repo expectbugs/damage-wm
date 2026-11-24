@@ -274,7 +274,7 @@ class QueueWhileDownTest {
     fun aFlushAnswerAndATypedLineQueuedBehindTheShutdownReachTheNextSession(): Unit = runBlocking {
         val journal = tmp.resolve("journal-behind.jsonl")
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(ackMs = 1_000))
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-behind.json")), journal, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-behind.json")), journal, scope, HELD_CLOCK)
         val typer = Typer(FakeText())
         shell.register(typer)
         shell.start()
@@ -339,7 +339,7 @@ class QueueWhileDownTest {
     fun aFlushOfTheLastSessionIsNotJudgedByTheNext(): Unit = runBlocking {
         val journal = tmp.resolve("journal-stale.jsonl")
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(ackMs = 1_500))
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-stale.json")), journal, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-stale.json")), journal, scope, HELD_CLOCK)
         shell.start()
         waitUntil(10_000, message = { "a flush is in flight: ${shell.quiescenceReport()}" }) { "inflight=" in shell.quiescenceReport() }
         val stale = Regex("\"ev\":\"submit\",\"id\":(\\d+),").findAll(journalLines(journal).joinToString("\n"))
@@ -484,7 +484,7 @@ class QueueWhileDownTest {
         val store = Persistence(tmp.resolve("state.json"))
         val journal = tmp.resolve("journal-down.jsonl")
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(ackMs = 1_500))
-        val shell = Shell(FakeText(), transport, store, journal, scope)
+        val shell = Shell(FakeText(), transport, store, journal, scope, HELD_CLOCK)
         shell.start()
         waitUntil(10_000, message = { "a flush is in flight: ${shell.quiescenceReport()}" }) { "inflight=" in shell.quiescenceReport() }
         shell.stop(stopTransport = false)           // the yield form: the acks land with no session running

@@ -194,7 +194,7 @@ class Review20260903Test {
                 text, wm.damage.core.content.LocalContent(books), scope, null)
             val store = Persistence(tmp.resolve("s.json"))
             val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
-            val shell = Shell(text, transport, store, null, scope)
+            val shell = Shell(text, transport, store, null, scope, HELD_CLOCK)
             shell.register(w)
             shell.start()
             shell.postGesture(wm.damage.core.wire.EvenHubMsg.EV_CLICK)     // enter Reader

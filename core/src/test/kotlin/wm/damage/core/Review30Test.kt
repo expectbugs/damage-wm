@@ -774,7 +774,7 @@ class Review30Test {
             val sim = wm.damage.core.sim.GlassFirmwareSim()
             val transport = wm.damage.core.transport.SimTransport(sim, scope,
                 wm.damage.core.transport.SimTransport.Timing(instant = true))
-            val shell = wm.damage.core.shell.Shell(FakeText(), transport, store, null, scope)
+            val shell = wm.damage.core.shell.Shell(FakeText(), transport, store, null, scope, HELD_CLOCK)
             val win = ScrollCanvas()
             shell.register(win)
             val bytes = java.util.concurrent.atomic.AtomicLong(0)

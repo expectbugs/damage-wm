@@ -468,7 +468,7 @@ class BindTransportTest {
             val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
             notes.clear(); collect(t)
             t.devProbe("c1", "$stage")
-            val shell = Shell(wm.damage.core.comp.CachedText(GlyphyText()), t, Persistence(dir.resolve("s.json")), null, scope)
+            val shell = Shell(wm.damage.core.comp.CachedText(GlyphyText()), t, Persistence(dir.resolve("s.json")), null, scope, HELD_CLOCK)
             shell.start()
             waitUntil(10_000, 10, { "start" }) { shell.isQuiescent() }
             shell.updateSettings { it.copy(cachedText = "on") }

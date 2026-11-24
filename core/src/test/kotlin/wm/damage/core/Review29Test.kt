@@ -115,7 +115,7 @@ class Review29Test {
         try {
             val text = ScaledFake()
             val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
-            val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope)
+            val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope, HELD_CLOCK)
             val win = RowsWindow(text)
             shell.register(win)
             shell.start()

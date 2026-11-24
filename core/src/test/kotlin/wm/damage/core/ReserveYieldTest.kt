@@ -66,7 +66,7 @@ class ReserveYieldTest {
     fun theReserveYieldsAfterTwoIdleTicksWithNoCompletion(): Unit = runBlocking {
         val journal = tmp.resolve("journal.jsonl")
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(ackMs = 5, bytesPerSec = 5_000_000.0, instant = false))
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), journal, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), journal, scope, HELD_CLOCK)
         shell.start()
         waitUntil(30_000, message = { "the session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
         val drop = AtomicInteger(2)

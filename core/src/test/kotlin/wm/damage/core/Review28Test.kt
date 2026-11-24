@@ -205,7 +205,7 @@ class Review28ScaleTest {
         store.put("shell.settings", wm.damage.core.shell.ShellSettings(fontScale = 1.3).toJson())
         val text = ScalingText()
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
-        val shell = Shell(text, transport, store, null, scope)
+        val shell = Shell(text, transport, store, null, scope, HELD_CLOCK)
         val reader = wm.damage.core.windows.reader.ReaderWindow(text, wm.damage.core.content.LocalContent(books), scope)
         shell.register(reader)
         try {
@@ -251,7 +251,7 @@ class Review28ScaleTest {
         store.put("shell.settings", wm.damage.core.shell.ShellSettings(fontScale = 1.3).toJson())
         val text = ScalingText()
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
-        val shell = Shell(text, transport, store, null, scope)
+        val shell = Shell(text, transport, store, null, scope, HELD_CLOCK)
         val listeners = java.util.concurrent.CopyOnWriteArrayList<wm.damage.core.windows.tmux.TmuxProvider.Listener>()
         val provider = object : wm.damage.core.windows.tmux.TmuxProvider {
             override fun addListener(l: wm.damage.core.windows.tmux.TmuxProvider.Listener) { listeners.add(l) }
