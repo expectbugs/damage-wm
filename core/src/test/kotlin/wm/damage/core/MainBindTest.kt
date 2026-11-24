@@ -177,7 +177,7 @@ class MainBindTest {
         }
     }
 
-    /** The fixed rule (decisions V, AU.3; the `mainseq` probe keeps it, AW.4): the fit 15.66 + 0.156 ms per 1,000 px, P0
+    /** The fixed rule (decisions V, AU.3, AW.4; a staging with no motion): the fit 15.66 + 0.156 ms per 1,000 px, P0
      *  the smallest period that holds it, T nearest 200 ms at P0, the period P0 with 10 % on it — P 46 (44.9 ms) T 5 at
      *  352, above the first trial's slowest step (41.4 ms). */
     @Test

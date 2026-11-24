@@ -183,7 +183,7 @@ interface Transport {
     suspend fun submit(flush: FlushRequest): Long
 
     /** Build C1 (spec §6.1): mode-19 and mode-26 messages on the image lane, in order, only while ENGINE is in force
-     *  (`CfwTransportBase.sendMotion`; build C2's `mainseq` probe plays Main's pans through it). False, with a `motion`
+     *  (`CfwTransportBase.sendMotion`; the `motion` probe plays the test programs through it). False, with a `motion`
      *  note where the transport has one, when nothing was sent; [lastDone] then completes exceptionally. Default: a
      *  transport with no image lane of its own (the seam's client) sends nothing. */
     fun sendMotion(messages: List<ByteArray>, lastDone: kotlinx.coroutines.CompletableDeferred<Unit>? = null): Boolean {

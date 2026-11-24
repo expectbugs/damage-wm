@@ -20,7 +20,7 @@ import wm.damage.core.motion.Motion
 import wm.damage.core.shell.ContentKit
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
-import wm.damage.core.shell.MainSeqPlan
+import wm.damage.core.shell.MotionNotify
 import wm.damage.core.shell.MainStaging
 import wm.damage.core.shell.MainSurface
 import wm.damage.core.shell.WindowView
@@ -264,36 +264,20 @@ class MainStagingTest {
             val end = m.truth(cPrime - 1, left).copy().also { ms.paintEnd(down, ms.params(down, cPrime)!!, left, it) }
             assertEquals(0, rawDiffer(end, m.truth(cPrime, left), down.areas(left)), "→ $cPrime")
         }
-        assertEquals(listOf(2 to 1, 1 to 0, 0 to 1, 1 to 2), MainSeqPlan.plan(listOf(2), 3, MainSeqPlan.Pace()).map { it.from to it.to })
     }
 
-    /** The test's plan, as Adam asked it: per width six notches up from the last row a constant apart, a pause, six down
-     *  one at a time; between widths a pause. */
-    @Test
-    fun thePlanIsSixUpFastAPauseSixDownSlowPerWidth_DMS() {
-        val pace = MainSeqPlan.Pace()
-        val plan = MainSeqPlan.plan(listOf(1, 2, 3), 8, pace)
-        assertEquals(36, plan.size)
-        for ((ki, k) in listOf(1, 2, 3).withIndex()) {
-            val part = plan.subList(ki * 12, ki * 12 + 12)
-            assertTrue(part.all { it.k == k })
-            assertEquals((7 downTo 2).map { it to it - 1 } + (1..6).map { it to it + 1 }, part.map { it.from to it.to })
-            assertEquals(listOf(if (ki == 0) 0L else pace.betweenMs) + List(5) { pace.fastMs } + listOf(pace.pauseMs) + List(5) { pace.slowMs }, part.map { it.afterMs })
-        }
-        assertEquals(listOf(280L, 2_000L, 1_000L, 3_000L, 100L), listOf(pace.fastMs, pace.pauseMs, pace.slowMs, pace.betweenMs, pace.followUpMs))
-    }
-
-    /** The run reads RIGHT's notify-114 from the transport's `motion` note: its form is [DamageMsg.Motion.describe]'s. */
+    /** The notice box (K1-4a) reads RIGHT's notify-114 from the transport's `motion` note: its form is
+     *  [DamageMsg.Motion.describe]'s (written for the `mainseq` probe, removed in K1-2 stage 2: decisions CP). */
     @Test
     fun theNotifyIsReadFromTheMotionNotesOwnForm_DMS() {
         fun body(vararg f: Pair<Int, Long>) = DamageMsg.Motion(mapOf(*f)).describe()
-        assertEquals(MainSeqPlan.Notify(0xD003, "drew", 6, 0, 24500),
-            MainSeqPlan.parseNotify(body(1 to 9L, 2 to 0L, 3 to 0xD003L, 4 to 0L, 5 to 0L, 6 to 6L, 7 to 0L, 8 to 0x1234L, 9 to 24500L, 11 to 99L)))
-        assertEquals(MainSeqPlan.Notify(0xD004, "closed", 3, 1, 18000),
-            MainSeqPlan.parseNotify(body(1 to 10L, 2 to 0L, 3 to 0xD004L, 4 to 1L, 5 to 0L, 6 to 3L, 7 to 1L, 8 to 0L, 9 to 18000L, 11 to 99L)))
-        val refused = MainSeqPlan.parseNotify(body(1 to 11L, 2 to 0L, 3 to 0xD005L, 4 to 2L, 10 to 15L, 11 to 99L))
+        assertEquals(MotionNotify.Notify(0xD003, "drew", 6, 0, 24500),
+            MotionNotify.parse(body(1 to 9L, 2 to 0L, 3 to 0xD003L, 4 to 0L, 5 to 0L, 6 to 6L, 7 to 0L, 8 to 0x1234L, 9 to 24500L, 11 to 99L)))
+        assertEquals(MotionNotify.Notify(0xD004, "closed", 3, 1, 18000),
+            MotionNotify.parse(body(1 to 10L, 2 to 0L, 3 to 0xD004L, 4 to 1L, 5 to 0L, 6 to 3L, 7 to 1L, 8 to 0L, 9 to 18000L, 11 to 99L)))
+        val refused = MotionNotify.parse(body(1 to 11L, 2 to 0L, 3 to 0xD005L, 4 to 2L, 10 to 15L, 11 to 99L))
         assertEquals(0xD005, refused?.tag)
         assertTrue(refused!!.outcome.startsWith("refused"), refused.outcome)
-        assertNull(MainSeqPlan.parseNotify("test program sent (list: …)"))
+        assertNull(MotionNotify.parse("test program sent (list: …)"))
     }
 }

@@ -19,7 +19,7 @@ import wm.damage.core.wire.CfwModes
  * Build C2, the spec's package DM (`C2-spec.md` §6.4; `C2-decisions.md` B.4, F, P and V — V replaces B.1 and K): Main's rows staged on the
  * glasses from Main's OWN painters with real text, the pan programs, the press, and the bound list they make. Context
  * for the reader: Adam's own glasses on his own firmware fork (display-rendering work on a personal device); nothing
- * here sends — the shell writes the records through its own stage writes ([MainBinding], the `mainseq` probe).
+ * here sends — the shell writes the records through its own stage writes ([MainBinding]).
  *
  * **The records** (one staging = one layout, one pair of planes, one row count), laid out from the start of the region
  * the caller gives (the shared stage reserve at 160 KiB, Main's own region at 256: [CfwModes.mainRegion]), each 4-byte
@@ -718,7 +718,7 @@ class MainStaging private constructor(
         fun timingOf(stepMs: Double, motion: ScrollMotion? = null): Pair<Int, Int> {
             val p0 = kotlin.math.ceil(stepMs * 1024.0 / 1000.0).toInt()
             val pFit = kotlin.math.ceil(p0 * PERIOD_MARGIN).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
-            // the fixed rule (T1; the `mainseq` probe keeps it, AW.4): T nearest 200 ms at P0
+            // the fixed rule (T1, AW.4; the checks' stagings with no motion): T nearest 200 ms at P0
             if (motion == null) return pFit to kotlin.math.round(MOTION_MS / (p0 * 1000.0 / 1024.0)).toInt().coerceAtLeast(MIN_STEPS)
             // build ANIM (AV, AW.1): Auto — the most steps that fit in the length at the fitted period; a fixed count — the
             // period that spreads it over the length, never under the fitted one (the motion may then run longer)
@@ -731,7 +731,8 @@ class MainStaging private constructor(
         const val MIN_STEPS = 3
         /** The band's swap — the leaving row's share of the steps — kept at its 2-of-5 proportion for any T. */
         fun swapOf(t: Int): Int = kotlin.math.round(t * MainPan.SWAP / 5.0).toInt().coerceIn(1, t - 1)
-        /** The fit: the slope from the three points measured on 11-18 with the `mainseq` probe at height 352 (76,544 /
+        /** The fit: the slope from the three points measured on 11-18 with the scroll test (the `mainseq` probe, since
+         *  removed) at height 352 (76,544 /
          *  114,688 / 152,832 px a step), the base from the bound list's own steps on glass in the first trial at stage 4
          *  (11-19, height 352, 152,832 px: 38.8–41.4 ms, median 39.5 — decisions AU.3; 11-18's fit said 38.2). */
         const val STEP_MS_BASE = 15.66
@@ -1280,41 +1281,16 @@ internal object TextureCacheImage {
 }
 
 /**
- * Build C2, stage DMS: Adam's scroll test as a plan (his words, 2026-11-18: "Six notches upwards quickly, pause 2s, six
- * notches downwards one at a time. Pause 3s." once per width). The shell's `mainseq` probe plays it; the pacing is on
- * the shell's loop, never a timeout on a send.
+ * RIGHT's notify-114 (`FIRMWARE.md` §5.8) as the transport's `motion` note says it — its form is
+ * `DamageMsg.Motion.describe()`'s, which `MainStagingTest` pins. The notice box reads it for a refused PLAY (K1-4a). (Build
+ * C2, stage DMS wrote it for the `mainseq` probe, removed in K1-2 stage 2: decisions CP.)
  */
-internal object MainSeqPlan {
-    /** [fastMs] between the up notches' PLAYs (the ring's fastest measured pace: 282 ms on C1, `C2-spec.md` §6.6),
-     *  [pauseMs] before the first down notch, [slowMs] between the down notches (and after the last, before the end),
-     *  [betweenMs] between two widths, [followUpMs] from a PLAY to the follow-up flush that draws the rows outside its
-     *  areas (it stands in for the phone's answer of the real build). */
-    data class Pace(val fastMs: Long = 280, val pauseMs: Long = 2_000, val slowMs: Long = 1_000, val betweenMs: Long = 3_000,
-                    val followUpMs: Long = 100)
-
-    /** One notch: width [k], the cursor [from] → [to], played [afterMs] after the previous PLAY was sent (the first:
-     *  once the records are counted and nothing is in flight). */
-    data class Notch(val k: Int, val from: Int, val to: Int, val afterMs: Long)
-
-    /** Up to six notches each way from the last of [rows] rows (fewer when the list is shorter), for each width. */
-    fun plan(ks: List<Int>, rows: Int, pace: Pace): List<Notch> {
-        val n = minOf(6, rows - 1)
-        val last = rows - 1
-        val out = ArrayList<Notch>()
-        for ((ki, k) in ks.withIndex()) {
-            for (i in 0 until n) out += Notch(k, last - i, last - i - 1, if (i > 0) pace.fastMs else if (ki > 0) pace.betweenMs else 0L)
-            for (i in 0 until n) out += Notch(k, last - n + i, last - n + i + 1, if (i == 0) pace.pauseMs else pace.slowMs)
-        }
-        return out
-    }
-
-    /** What RIGHT's notify-114 says (`FIRMWARE.md` §5.8), read from the transport's `motion` note — its form is
-     *  `DamageMsg.Motion.describe()`'s, which `MainStagingTest` pins. */
+internal object MotionNotify {
     data class Notify(val tag: Int, val outcome: String, val drawn: Long?, val folded: Long?, val stepUs: Long?)
 
     private val NOTIFY = Regex("""^seq \S+ slot \S+ tag 0x([0-9a-f]{4}) (?:(drew its last step|closed while drawing|outcome \S+) ordinal \S+ drawn (\S+) folded (\S+) stepUs (\S+)|refused \((.*)\))""")
 
-    fun parseNotify(detail: String): Notify? {
+    fun parse(detail: String): Notify? {
         val m = NOTIFY.find(detail) ?: return null
         val g = m.groupValues
         val outcome = when {

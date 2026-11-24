@@ -104,7 +104,7 @@ class OracleWalkTest {
             shell.register(GamesWindow(FakeText(), scope) { 1_757_000_000_000L })
             shell.register(SurfaceWindow())
             shell.register(WalkDocWindow())
-            // the glasses' engine thread: a step due is drawn (the model draws only when woken, as `MainSeqTest`'s rig)
+            // the glasses' engine thread: a step due is drawn (the model draws only when woken)
             if (stage4 || stage5) scope.launch {
                 var last = 0L
                 while (true) {
