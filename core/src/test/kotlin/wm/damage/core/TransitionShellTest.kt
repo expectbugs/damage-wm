@@ -508,6 +508,8 @@ class TransitionShellTest {
     private fun chromeTick(img: ByteArray) = subs(img).any { s -> s.joinToString("") { "%02x".format(it) }.let { h -> (0 until h.length - 5 step 2).any { h.startsWith("4b2f73", it) } } }
     private fun closeOf(s: ByteArray, slot: Int) = isSub(s, 26, CfwModes.MOTION_CLOSE) && (s[2].toInt() and 0xFF) == slot
     private fun playIn(s: ByteArray, slot: Int) = isSub(s, 26, CfwModes.MOTION_PLAY) && (s[2].toInt() and 0xFF) == slot
+    /** C3 AH2: a SETTLE (mode 26 sub 5) naming [cursor] as its list's row. */
+    private fun settleAt(s: ByteArray, cursor: Int) = isSub(s, 26, CfwModes.MOTION_SETTLE) && s.size >= 8 && u16(s, 6) == cursor
     private fun playAfter(s: ByteArray) = isSub(s, 26, CfwModes.MOTION_PLAY_AFTER)
 
     /** X2P2 item 5: where [s], a cache write (mode 19, or 25 inflated), holds a version-2 program record (`FIRMWARE.md`
@@ -1190,6 +1192,10 @@ class TransitionShellTest {
             r.until("the row is Main's first again") { r.row() == 0 }
             r.until("RIGHT's report of the wrap in the journal") { r.notes("applied").size > after }
             r.settle("after the wrap")
+            // C3 AH2: the check below is negative, so its recording runs to the wrap's lone SETTLE on RIGHT (row 0, Q after the
+            // report): the last image the phone sends for the edge, and the image lane keeps call order, so a PLAY sent for the
+            // wrap is recorded ahead of it. The settle counts no local-only flush: a PLAY sent in one could land after it
+            r.until("the wrap's lone SETTLE reaches RIGHT") { right(r).drop(at).any { img -> subs(img).any { settleAt(it, cursor = 0) } } }
             r.recording = false
             r.notes("applied").drop(after).let { a -> assertTrue(a.size == 1 && a[0].contains(" drew ") && a[0].contains("wrapped"), "the glasses' own wrap (field 18): $a") }
             assertTrue(right(r).drop(at).none { img -> subs(img).any { playIn(it, MainStaging.WRAP_SLOT) } }, "no PLAY in slot ${MainStaging.WRAP_SLOT} for the wrap")
