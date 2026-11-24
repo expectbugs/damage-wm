@@ -139,7 +139,7 @@ internal class ShellRig(settings: ShellSettings? = null) : AutoCloseable {
         waitUntil(10_000, 10, { "$what: did not settle — ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
 
     /** The box shown and the queue behind it. */
-    fun posted(): List<Notifications.Notice> = listOfNotNull(shell.notifications.current) + shell.notifications.queued()
+    fun posted(): List<Notifications.Notice> = shell.noticesNow()     // C3 AH3: on the loop (`OnLoop.kt`)
 
     override fun close() {
         scope.cancel()

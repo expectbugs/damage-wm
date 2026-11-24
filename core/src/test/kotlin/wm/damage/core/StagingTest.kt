@@ -210,7 +210,7 @@ class StagingTest {
             d.await()
         }
         fun cacheNotices(): List<wm.damage.core.shell.Notifications.Notice> =
-            (listOfNotNull(shell.notifications.current) + shell.notifications.queued()).filter { it.source == "DAMAGE · cache" }
+            shell.noticesNow().filter { it.source == "DAMAGE · cache" }     // C3 AH3: on the loop (`OnLoop.kt`)
         /** Dismiss whatever box is up (a tap on a focused box), and the ones queued behind it. */
         suspend fun dismissNotices() {
             val t0 = System.currentTimeMillis()

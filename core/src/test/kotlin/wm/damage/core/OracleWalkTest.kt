@@ -771,12 +771,12 @@ class OracleWalkTest {
                     rig.assertOracle(where)
                 }
                 val (acts, whole) = rig.shell.transitionCountsForTest()
-                println("$tag: $acts transition(s) owed, $whole ran whole (${rig.shell.transitionsWholeByEffectForTest().toSortedMap()}); ${rig.shell.divergencesReported} divergence(s) reported; " +
+                println("$tag: $acts transition(s) owed, $whole ran whole (${rig.shell.onLoop { rig.shell.transitionsWholeByEffectForTest() }.toSortedMap()}); ${rig.shell.divergencesReported} divergence(s) reported; " +
                     "${rig.timerReads} oracle read(s) with a notice timer drawing")
                 timerReads += rig.timerReads
                 // C3 X5T (the 44 of 45): an act that did not run whole is named, with what ended it
                 println(rig.notWholeReport(tag))
-                rig.shell.transitionsWholeByEffectForTest().forEach { (k, v) -> byEffect.merge(k, v, Int::plus) }
+                rig.shell.onLoop { rig.shell.transitionsWholeByEffectForTest() }.forEach { (k, v) -> byEffect.merge(k, v, Int::plus) }
                 assertTrue(whole >= 6, "$tag: $acts transition(s), $whole ran whole — the walk proves less than it claims")
                 assertEquals(0, rig.shell.divergencesReported, "$tag: no divergence")
             } finally {

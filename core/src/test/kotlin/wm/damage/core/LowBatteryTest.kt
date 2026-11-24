@@ -115,7 +115,7 @@ class LowBatteryTest {
         fun notes(kind: String): List<String> = (if (!Files.exists(journalPath)) emptyList() else Files.readAllLines(journalPath))
             .filter { "\"kind\":\"$kind\"" in it }.map { it.substringAfter("\"detail\":\"").removeSuffix("\"}") }
         fun batteryNotices(): List<Notifications.Notice> =
-            (listOfNotNull(shell.notifications.current) + shell.notifications.queued()).filter { it.thread == "battery" }
+            shell.noticesNow().filter { it.thread == "battery" }
 
         suspend fun until(what: String, cond: () -> Boolean) {
             val t0 = System.currentTimeMillis()
