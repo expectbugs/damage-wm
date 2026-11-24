@@ -1167,7 +1167,7 @@
   "file": "shell/Staging.kt",
   "edits": [
    [
-    "(it.key !is MainStageKey || it in ring?.resident.orEmpty()) &&\n            ",
+    "(it.key !is RegionStageKey || it in ring?.resident.orEmpty()) &&\n            ",
     ""
    ]
   ],
@@ -1177,7 +1177,7 @@
   "expect": [
    "aDocumentsStripsTakeTheSharedReserveNeverMainsOwnRegion_DM2"
   ],
-  "note": "a document's staging drops Main's own region",
+  "note": "a document's staging drops Main's own region (C3 DW-1a: the clause reads the region's tenants' key)",
   "from": "DM2"
  },
  {
@@ -6690,8 +6690,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        val met = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }",
-    "        val met = stage.records.values.filter { it.key !is MainStageKey }"
+    "        val met = stage.records.values.filter { it.key !is RegionStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }",
+    "        val met = stage.records.values.filter { it.key !is RegionStageKey }"
    ]
   ],
   "tests": [
@@ -6700,7 +6700,7 @@
   "expect": [
    "anEncodeActDropsOnlyTheStripsItsListsMeet_X2T"
   ],
-  "note": "C3-X2T: item 3: every Encode act drops every page-staging strip (DM-T's take) (lane row `x2t-drop-all`)",
+  "note": "C3-X2T: item 3: every Encode act drops every page-staging strip (DM-T's take) (lane row `x2t-drop-all`) (C3 DW-1a: the clause reads the region's tenants' key)",
   "from": "C3-X2T"
  },
  {
@@ -10419,5 +10419,320 @@
   ],
   "note": "K1-2 stage 2: Slide's and Fall's entering row travels a row, not the band's height (it starts inside the band)",
   "from": "K12S2"
+ },
+ {
+  "id": "DW1a-retain-not-tenant",
+  "file": "shell/Staging.kt",
+  "edits": [
+   [
+    "        val gone = records.values.filter { (it.key !is RegionStageKey || it in ring?.resident.orEmpty()) &&",
+    "        val gone = records.values.filter { (it.key !is MainStageKey || it in ring?.resident.orEmpty()) &&"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.pageStagingsDrops*"
+  ],
+  "expect": [
+   "pageStagingsDropsLeaveTheBlock_DW1a"
+  ],
+  "note": "C3 DW-1a (CK A7): a book change (Staging.retain) reads 'not Main's' and drops the wheel's resident block",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-pagesclear-not-tenant",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val gone = stage.records.values.filter { it.key !is RegionStageKey }\n        for (r in gone) stage.remove(r)",
+    "        val gone = stage.records.values.filter { it.key !is MainStageKey }\n        for (r in gone) stage.remove(r)"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.pageStagingsDrops*"
+  ],
+  "expect": [
+   "pageStagingsDropsLeaveTheBlock_DW1a"
+  ],
+  "note": "C3 DW-1a (CK A7): Page staging's own clear (stagePagesClear) drops the wheel's resident block",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-dropunder-not-tenant",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val met = stage.records.values.filter { it.key !is RegionStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }",
+    "        val met = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.pageStagingsDrops*"
+  ],
+  "expect": [
+   "pageStagingsDropsLeaveTheBlock_DW1a"
+  ],
+  "note": "C3 DW-1a (CK A7): an Encode act's lists (stagePagesDropUnder) read 'not Main's' and drop the wheel's block their bytes meet",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-recount-not-tenant",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        stagedProvenCount = stage.records.values.count { it.state == StagedRecord.State.PROVEN && it.key !is RegionStageKey }",
+    "        stagedProvenCount = stage.records.values.count { it.state == StagedRecord.State.PROVEN && it.key !is MainStageKey }"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.pageStagingsDrops*"
+  ],
+  "expect": [
+   "pageStagingsDropsLeaveTheBlock_DW1a"
+  ],
+  "note": "C3 DW-1a (CK A7): Page staging's count of drawable strips takes the wheel's block for one",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-encodelistsat-not-tenant",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val strips = stage.records.values.filter { it.key !is RegionStageKey && it.off >= 0 && it.off in res }",
+    "        val strips = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off in res }"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.pageStagingsDrops*"
+  ],
+  "expect": [
+   "<no pin: the filter reads only records whose offset lies in the stage reserve (`it.off in res`), and the wheel's block lies in Main's region below it — the key's clause there changes nothing a run can see>"
+  ],
+  "note": "C3 DW-1a (CK A7): Encode's placement of its lists (encodeListsAt) counts the wheel's block among Page staging's strips",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-lane-before-main",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "!pumpStagePiece(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st) && !pumpWheel(st)) pumpStage(st)",
+    "!pumpStagePiece(st) && !pumpWheel(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st)) pumpStage(st)"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.theBlockIsStagedAhead*"
+  ],
+  "expect": [
+   "theBlockIsStagedAheadAfterMainsStagingAndCountedWithTheWheelNeverOpened_DW1a"
+  ],
+  "note": "C3 DW-1a (CK A3): the wheel's lane ahead of Main's in the idle chain — the block goes before Main's staging at a start in Main",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-writes-while-open",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!st.effects || switcher.open || transition != null) return false",
+    "        if (!st.effects || transition != null) return false"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.nothingOfTheBlock*"
+  ],
+  "expect": [
+   "nothingOfTheBlockGoesWhileTheWheelIsOpen_DW1a"
+  ],
+  "note": "C3 DW-1a: nothing bound, so nothing of the block goes while the wheel is open — a dirty flip behind the open wheel is written at once",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-transition-gate",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!st.effects || switcher.open || transition != null) return false",
+    "        if (!st.effects || switcher.open) return false"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.theBlockIsStagedAhead*"
+  ],
+  "expect": [
+   "<no pin: a block write owed while a transition runs (a session start in Main with a Select inside its first second) — the act's held flushes and the stage lane's gates (nothing pending, nothing in flight) already keep it off the link for most of the run; declared>"
+  ],
+  "note": "C3 DW-1a (the amendment's §3.3): the wheel's lane runs while a transition does",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-main-wins-poll",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (ms != null && ms.regionEnd == wheel.regionEnd && ms.end > b.base)\n            wheelDrop(",
+    "        if (ms != null && ms.regionEnd == wheel.regionEnd && ms.end > b.base && false)\n            wheelDrop("
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.mainsStagingOverTheBlock*"
+  ],
+  "expect": [
+   "mainsStagingOverTheBlockDropsItAndASmallerOnePlacesItAgain_DW1a"
+  ],
+  "note": "C3 DW-1a (decisions BD, Main wins): Main's staging laid out over the placed block leaves the block in the registry",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-place-over-main",
+  "file": "shell/WheelResident.kt",
+  "edits": [
+   [
+    "            mainEnd != null && mainEnd > baseFor(regionEnd, size) -> ",
+    "            mainEnd != null && mainEnd > baseFor(regionEnd, size) && false -> "
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.mainsStagingOverTheBlock*",
+   "*WheelResidentTest.aBlockPastTheCap*"
+  ],
+  "expect": [
+   "mainsStagingOverTheBlockDropsItAndASmallerOnePlacesItAgain_DW1a",
+   "aBlockPastTheCapIsNotPlacedAndSaidOnce_DW1a"
+  ],
+  "note": "C3 DW-1a (decisions BD, Main wins): the block placed over Main's staging",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-no-cap",
+  "file": "shell/WheelResident.kt",
+  "edits": [
+   [
+    "            size > CAP -> ",
+    "            size > 2 * CAP -> "
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aBlockPastTheCap*"
+  ],
+  "expect": [
+   "aBlockPastTheCapIsNotPlacedAndSaidOnce_DW1a"
+  ],
+  "note": "C3 DW-1a (decisions BQ (4)): a block past the 20 KiB cap placed",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-rebuilt-never",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "            if (cells.size != this.cells.size || g.w != geo.w || g.hC != geo.hC || g.hN != geo.hN) return null",
+    "            if (true || cells.size != this.cells.size || g.w != geo.w || g.hC != geo.hC || g.hN != geo.hN) return null"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.firstVisits*",
+   "*WheelResidentTest.aChangeRewrites*",
+   "*WheelResidentTest.aRebuiltBlock*"
+  ],
+  "expect": [
+   "firstVisitsWriteTheItemTableAloneAndNothingMoves_DW1a",
+   "aChangeRewritesOnlyTheRecordItChanges_DW1a",
+   "aRebuiltBlockDiffersOnlyInTheRecordThatChanged_DW1a"
+  ],
+  "note": "C3 DW-1a (the amendment's §3.4): no record kept current in place — every change places the block anew, whole",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-order-registered",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val order = switcher.order(if (mode == Mode.WINDOW) current else null, recency).map { w -> regs.indexOfFirst { it === w } }.toIntArray()",
+    "        val order = switcher.order(if (mode == Mode.WINDOW) current else null, recency).map { w -> regs.indexOfFirst { it === w } }.sorted().toIntArray()"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.firstVisits*",
+   "*WheelResidentTest.aStartInAWindow*"
+  ],
+  "expect": [
+   "firstVisitsWriteTheItemTableAloneAndNothingMoves_DW1a"
+  ],
+  "note": "C3 DW-1a (decisions CK A1): the item table in the registered windows' order, not the switcher's (Main, the window in front, then by recency)",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-key-no-dirty",
+  "file": "shell/WheelResident.kt",
+  "edits": [
+   [
+    "            other.dirty == dirty && other.bm56 === bm56 && other.bm20 === bm20",
+    "            other.bm56 === bm56 && other.bm20 === bm20"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aChangeRewrites*",
+   "*WheelResidentTest.nothingOfTheBlock*"
+  ],
+  "expect": [
+   "aChangeRewritesOnlyTheRecordItChanges_DW1a",
+   "nothingOfTheBlockGoesWhileTheWheelIsOpen_DW1a"
+  ],
+  "note": "C3 DW-1a (the amendment's §3.4): a cell's key without its dirty tick — a dirty flip never rewrites the cell",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-key-no-geometry",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val key: List<Any> get() = listOf(keys, order.toList(), g.toString(), motion, regionEnd)",
+    "        val key: List<Any> get() = listOf(keys, order.toList(), motion, regionEnd)"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aChangeRewrites*"
+  ],
+  "expect": [
+   "aChangeRewritesOnlyTheRecordItChanges_DW1a"
+  ],
+  "note": "C3 DW-1a (decisions CK A2): the programs' key without the geometry the wheel opens at — another height leaves the programs as they were",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-registry-left",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (stage.records[rec.key] !== rec) { wheelDrop(\"its write left the stage registry (the stage notes say why)\", keepCells = false); return }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aClearedRegistry*"
+  ],
+  "expect": [
+   "aClearedRegistryWritesTheBlockAgain_DW1a"
+  ],
+  "note": "C3 DW-1a (the envelope's (a)): the block's records gone from the registry (a stageClear) and the books still think it placed — never written again",
+  "from": "DW-1a"
+ },
+ {
+  "id": "DW1a-lost-patch-kept",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                wheel.patches.remove(p); wheel.sent.remove(p.first)\n",
+    "                wheel.patches.remove(p)\n"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aChangeRewrites*"
+  ],
+  "expect": [
+   "<no pin: an in-place write that leaves the registry before its count with the session going on (a failed piece, a shortfall's interval) — no rig here makes one; the bytes are written again at the next session's placement; declared>"
+  ],
+  "note": "C3 DW-1a (the envelope's (b)): an in-place write lost on its way is taken as sent — its record is not written again",
+  "from": "DW-1a"
  }
 ]
