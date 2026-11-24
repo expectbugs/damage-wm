@@ -1438,8 +1438,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "    @Volatile var boundSurface: () -> wm.damage.core.local.BoundSurface? = { main }",
-    "    @Volatile var boundSurface: () -> wm.damage.core.local.BoundSurface? = { null }"
+    "    private fun boundSurface(): wm.damage.core.local.BoundSurface? = slot0()?.surface",
+    "    private fun boundSurface(): wm.damage.core.local.BoundSurface? = null"
    ]
   ],
   "tests": [
@@ -1450,7 +1450,7 @@
    "reportNotchesAndATap_DI",
    "theStartsBindBatchPerTapsValue_P1"
   ],
-  "note": "merge point: DP2's stand-in (no list in front) \u2014 Main's list is never bound",
+  "note": "merge point: DP2's stand-in (no list in front) — Main's list is never bound",
   "from": "DI"
  },
  {
@@ -2070,8 +2070,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    " ${st.cacheSize} ${motionInForce()} stage5=$stage5 ${List(n) { rowKey(it) }.hashCode()}\"",
-    " ${st.cacheSize} ${motionInForce()} stage5=$stage5\""
+    " stage5=$stage5 ${List(n) { rowKey(it) }.hashCode()}${stagingOf()",
+    " stage5=$stage5${stagingOf()"
    ]
   ],
   "tests": [
@@ -2266,8 +2266,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        !notifications.active && !notifications.animating",
-    "        !(notifications.active && notifications.focused)"
+    "        menu.open || switcher.open || keyboard.open || notifications.active || notifications.animating -> null",
+    "        menu.open || switcher.open || keyboard.open || (notifications.active && notifications.focused) -> null"
    ]
   ],
   "tests": [
@@ -2720,8 +2720,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "if (reason != mainBindRefusalSaid) { mainBindRefusalSaid = reason; journal.note(\"mainstage\", note) }",
-    "run { mainBindRefusalSaid = reason; journal.note(\"mainstage\", note) }"
+    "if (reason != mainBindRefusalSaid) { mainBindRefusalSaid = reason; this.note(note) }",
+    "run { mainBindRefusalSaid = reason; this.note(note) }"
    ]
   ],
   "tests": [
@@ -2928,7 +2928,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            stagePagesClear(\"the live font set changed\")\n            mainList.mainBind.recheckAll()",
+    "            stagePagesClear(\"the live font set changed\")\n            for (h in lists) h.mainBind.recheckAll()",
     "            stageClear(\"the live font set changed\")"
    ]
   ],
@@ -3112,8 +3112,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (frontBefore != null && localFrontNow == null && (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE || mode == Mode.SILENT) &&",
-    "        if (frontBefore != null && localFrontNow == null &&"
+    "        if (frontBefore != null && localFrontNow?.list != frontBefore.list &&\n            (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE || mode == Mode.SILENT || (mode == Mode.MAIN && frontBefore.list != MainStaging.LIST)) &&",
+    "        if (frontBefore != null && localFrontNow?.list != frontBefore.list &&"
    ]
   ],
   "tests": [
@@ -3757,7 +3757,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (c.booked || k.firstLine < MainBinding.PATCH_KEY || k.content !== mainList.mainBind.staging) return\n",
+    "        if (c.booked || k.firstLine < MainBinding.PATCH_KEY || b == null) return\n",
     "        if (true) return\n"
    ]
   ],
@@ -3889,8 +3889,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (counted && !local.burstOpen && localUncovered()) {",
-    "        if (counted && localUncovered()) {"
+    "        if (counted && !local.burstOpen && slot0() === this) {",
+    "        if (counted && slot0() === this) {"
    ]
   ],
   "tests": [
@@ -4836,8 +4836,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "ms.layout != mainBindLayout() -> \"Main's layout changed\"",
-    "ms.layout != layout -> \"Main's layout changed\""
+    "ms.layout != mainBindLayout() -> \"$who's layout changed\"",
+    "ms.layout != layout -> \"$who's layout changed\""
    ]
   ],
   "tests": [
@@ -4854,8 +4854,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            MainStaging.Paint(lay, surface.view(), kit).also { mainBindPaint = it }",
-    "            MainStaging.Paint(layout, surface.view(), kit).also { mainBindPaint = it }"
+    "            MainStaging.Paint(lay, surface.view() ?: return false, kit,",
+    "            MainStaging.Paint(layout, surface.view() ?: return false, kit,"
    ]
   ],
   "tests": [
@@ -6344,8 +6344,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "(mode == Mode.WINDOW || mode == Mode.EXCLUSIVE || mode == Mode.SILENT) &&",
-    "(mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) &&"
+    "mode == Mode.EXCLUSIVE || mode == Mode.SILENT || (mode == Mode.MAIN",
+    "mode == Mode.EXCLUSIVE || (mode == Mode.MAIN"
    ]
   ],
   "tests": [
@@ -9835,7 +9835,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (counted && !local.burstOpen && localUncovered()) {\n",
+    "        if (counted && !local.burstOpen && slot0() === this) {\n",
     "        if (counted && !local.burstOpen) {\n"
    ]
   ],
@@ -10515,8 +10515,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "!pumpStagePiece(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st) && !pumpWheel(st)) pumpStage(st)",
-    "!pumpStagePiece(st) && !pumpWheel(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st)) pumpStage(st)"
+    "!pumpStagePiece(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)",
+    "!pumpStagePiece(st) && !pumpWheel(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st) && !pumpWindowList(st)) pumpStage(st)"
    ]
   ],
   "tests": [
@@ -10734,5 +10734,113 @@
   ],
   "note": "C3 DW-1a (the envelope's (b)): an in-place write lost on its way is taken as sent — its record is not written again",
   "from": "DW-1a"
+ },
+ {
+  "id": "K12S3a-body-to-main",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val b = if (known == null) mainList else lists.firstOrNull { it.listNo == known } ?: return",
+    "        val b = mainList"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.theWindowListsStepsNeverMoveMainsPeriod_K12S3a"
+  ],
+  "expect": [
+   "theWindowListsStepsNeverMoveMainsPeriod_K12S3a"
+  ],
+  "note": "pin 14 (BF per list): every slot-0 body goes to Main's measured window, as before stage 3a",
+  "from": "K12S3a"
+ },
+ {
+  "id": "K12S3a-adjust-not-cover",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        mode == Mode.WINDOW && !(current === settingsWindow && settingsWindow.isAdjusting) && windowListMatches() -> windowList",
+    "        mode == Mode.WINDOW && windowListMatches() -> windowList"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.adjustUnbindsAndLeavingBindsAgain_K12S3a"
+  ],
+  "expect": [
+   "adjustUnbindsAndLeavingBindsAgain_K12S3a"
+  ],
+  "note": "pin 2: Settings' adjust level is no cover — the list stays bound under an adjust",
+  "from": "K12S3a"
+ },
+ {
+  "id": "K12S3a-main-overlap-kept",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            mainList.mainBind.staging?.takeIf { it.end > ms.start && it.start < ms.end }?.let { m ->",
+    "            mainList.mainBind.staging?.takeIf { false }?.let { m ->"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.mainWinsTheSpaceAndAListThatDoesNotFitStaysUnbound_K12S3a"
+  ],
+  "expect": [
+   "mainWinsTheSpaceAndAListThatDoesNotFitStaysUnbound_K12S3a"
+  ],
+  "note": "pin 5: a window list kept under Main's staging laid out over it (Main does not win)",
+  "from": "K12S3a"
+ },
+ {
+  "id": "K12S3a-wheel-no-yield",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        windowList.mainBind.staging?.takeIf { it.end > base && it.start < w.regionEnd }?.let { l ->",
+    "        windowList.mainBind.staging?.takeIf { false }?.let { l ->"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.theWheelsBlockPlacedOverTheListMakesItYield_K12S3a"
+  ],
+  "expect": [
+   "theWheelsBlockPlacedOverTheListMakesItYield_K12S3a"
+  ],
+  "note": "decisions CV: the wheel's block placed over a staged window list without the list yielding first (its CLEAR after the block's write)",
+  "from": "K12S3a"
+ },
+ {
+  "id": "K12S3a-another-list-kept",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            windowFront()?.let { f -> if (stagedFor?.second != f.id) return",
+    "            windowFront()?.let { f -> if (false) return"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a"
+  ],
+  "expect": [
+   "aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a"
+  ],
+  "note": "the spec §6: a staging the view in front no longer matches is kept — the new level is never staged",
+  "from": "K12S3a"
+ },
+ {
+  "id": "K12S3a-lane-in-run",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        st.effects && transition == null && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS",
+    "        st.effects && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a"
+  ],
+  "expect": [
+   "aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a"
+  ],
+  "note": "pin 11 / spec §5.3: the window list's lane runs under a transition — the new level staged and SET inside the run",
+  "from": "K12S3a"
  }
 ]
