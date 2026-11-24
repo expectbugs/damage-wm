@@ -207,11 +207,11 @@ class WheelResidentTest {
     private class Row(id: String, name: String, icon: IconKind) : DamageWindow(id, name, icon) {
         @Volatile var s = "summary of $name"
         @Volatile var h: Int? = null
-        /** Main's row for this window ink-heavy (`MainLocalCheck.worstCase`'s content): its summary and detail. */
+        /** Main's row for this window ink-heavy (`MainLocalCheck.worstCase`'s summary). */
         @Volatile var heavy = false
         override val preferredHeight: Int? get() = h
         override fun view(): WindowView = WindowView.ListView(ListModel(), { 0 }, { _, _, _, _ -> }, { _, _, _ -> }, {})
-        override fun summary() = if (heavy) "M@W#".repeat(24).let { Summary(it, detail = it, more = true, progress = 0.5) } else Summary(s, detail = "detail of $name")
+        override fun summary() = if (heavy) Summary("M@W#".repeat(24), detail = "detail of $name", more = true) else Summary(s, detail = "detail of $name")
         override fun saveState(): JsonObject = JsonObject(emptyMap())
         override fun restoreState(state: JsonObject) {}
     }
@@ -221,7 +221,8 @@ class WheelResidentTest {
      * `Depth` [depth], at [height], [n] windows registered (Settings beside them), started in Main — or, with [current], in
      * that window; the instant link; every image either lens takes kept in order; the engine woken every 4 ms.
      */
-    private inner class Rig(val n: Int = 5, height: Int = 352, depth: Int = 8, current: String? = null) {
+    private inner class Rig(val n: Int = 5, height: Int = 352, depth: Int = 8, current: String? = null, text: wm.damage.core.text.TextRasterizer = FakeText(),
+                            name: (Int) -> String = { "Window $it" }) {
         val dir: Path = Files.createTempDirectory(tmp, "r")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0xDFF }
         val t = StartRig(sim, scope, c1StageFile = dir.resolve("c1-stage").also { Files.writeString(it, wm.damage.core.transport.LadderRecord(stage = 5, sessionKib = 256).encode()) })
@@ -231,9 +232,9 @@ class WheelResidentTest {
             if (current != null) p.put("shell.state", JsonObject(mapOf("mode" to kotlinx.serialization.json.JsonPrimitive("WINDOW"),
                 "current" to kotlinx.serialization.json.JsonPrimitive(current))))
         }
-        val shell = Shell(CachedText(FakeText()), t, p, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        val shell = Shell(CachedText(text), t, p, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val kinds = listOf(IconKind.READER, IconKind.TERMINAL, IconKind.FILES, IconKind.MUSIC, IconKind.FEED, IconKind.TORRENTS, IconKind.GAMES)
-        val rows = (0 until n).map { Row("w$it", "Window $it", kinds[it % kinds.size]) }
+        val rows = (0 until n).map { Row("w$it", name(it), kinds[it % kinds.size]) }
         /** Every top-level image a lens took, in order. */
         val images = java.util.concurrent.CopyOnWriteArrayList<Pair<Arm, ByteArray>>()
 
@@ -535,11 +536,13 @@ class WheelResidentTest {
      * its records leave the registry, one `dropped` note and one `not placed` note however many pumps follow — and a
      * smaller staging of Main's places it again. Main grows by its rows' content: one more of its rows ink-heavy at a time,
      * each followed by a `Depth` change that stages Main whole again (its planes changed), until its staging ends past the
-     * block's base; it shrinks the same way back.
+     * block's base; it shrinks the same way back. The faces are `NoisyText`'s (glyphs that compress as text on glass does
+     * not: FakeText's whole rows reached only 192,876 of the 210,908 needed) and the windows' names short, so the block's
+     * cells stay small while Main's rows grow.
      */
     @Test
     fun mainsStagingOverTheBlockDropsItAndASmallerOnePlacesItAgain_DW1a(): Unit = runBlocking {
-        val r = Rig(n = MAIN_WINS_ROWS)
+        val r = Rig(n = MAIN_WINS_ROWS, text = NoisyText(), name = { "W$it" })
         try {
             r.start()
             val b0 = assertNotNull(r.block(), "placed at the start: ${r.notes("wheel")}")
@@ -608,7 +611,7 @@ class WheelResidentTest {
 
     private companion object {
         /** The windows `mainsStagingOverTheBlock…` registers: enough that Main's ink-heavy staging reaches the block. */
-        const val MAIN_WINS_ROWS = 16
+        const val MAIN_WINS_ROWS = 8
         /** Decisions BQ (4): the wheel's block may take up to 20 KiB of Main's region. */
         const val CAP = 20 * 1024
     }
