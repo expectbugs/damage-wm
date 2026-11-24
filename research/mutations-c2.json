@@ -1235,24 +1235,6 @@
   "from": "DM2"
  },
  {
-  "id": "probe-at-stage4",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "        st.bind -> \"BIND is in force (stage 4): Main's list is bound on the glasses, and the scroll test plays at stage 3\"\n",
-    ""
-   ]
-  ],
-  "tests": [
-   "*MainBindShellTest*"
-  ],
-  "expect": [
-   "theScrollTestIsRefusedWhileMainsListIsBound_DM2"
-  ],
-  "note": "the scroll test plays into the bound slot",
-  "from": "DM2"
- },
- {
   "id": "planes-not-checked",
   "file": "shell/Shell.kt",
   "edits": [
@@ -3559,8 +3541,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)",
-    "            val sA = if (wraps) mA + 1 else mA; val sB = if (wraps) mB + 1 else mB"
+    "            // the strip's margins: the rows Main shows past either end (B082: the wrap's rows are a record of their own)\n            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)",
+    "            // the strip's margins: the rows Main shows past either end (B082: the wrap's rows are a record of their own)\n            val sA = if (wraps) mA + 1 else mA; val sB = if (wraps) mB + 1 else mB"
    ]
   ],
   "tests": [
@@ -3569,7 +3551,7 @@
   "expect": [
    "theStripCarriesMainsRowsPastEitherEndAsMarginRows_DMS"
   ],
-  "note": "B082 step 3: the strips keep G2's extra rows (every step walks them) [re-pointed by C3 DM-0 to its present text]",
+  "note": "B082 step 3: the strips keep G2's extra rows (every step walks them) [re-pointed by C3 DM-0 to its present text; by K1-2 stage 2 to Main's line alone (the window form's assembly has one like it)]",
   "from": "B082"
  },
  {
@@ -3811,8 +3793,8 @@
   "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = ease, n = swap,",
-    "lvl0 = 15, lvl1 = MainPan.LVL_BACK - 1, ease = ease, n = swap,"
+    "lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = ease, n = swap, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))",
+    "lvl0 = 15, lvl1 = MainPan.LVL_BACK - 1, ease = ease, n = swap, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))"
    ]
   ],
   "tests": [
@@ -3821,7 +3803,7 @@
   "expect": [
    "depthIsTodaysProgramsByteForByte_K11"
   ],
-  "note": "Depth's leaving form dims one level less far: END is unchanged (its last state is the entering form at 15), only the bytes pin sees it",
+  "note": "Depth's leaving form dims one level less far: END is unchanged (its last state is the entering form at 15), only the bytes pin sees it [re-pointed by K1-2 stage 2 to Main's Depth alone]",
   "from": "K1-1"
  },
  {
@@ -4388,58 +4370,6 @@
    "edgesInABurstPastTheEndOverASlowLink_2c"
   ],
   "note": "2c: the cells held behind the wrap wait for its start allowance's end, not its last-step report (0.82)",
-  "from": "B083"
- },
- {
-  "id": "B083-S1-refused-in-pieces",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "        if (c != null && c.rec.key is MainStageKey) {\n            val range = pan.program.firstRange(p)",
-    "        if (c != null && c.rec.key is MainStageKey) return null\n        if (c != null && c.rec.key is MainStageKey) {\n            val range = pan.program.firstRange(p)"
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
-  ],
-  "expect": [
-   "(declared, no pin since K1-2 stage 1: a piece that misses the wrap's read range is a strip write of a row outside the wrap's record, and those go only with the list withdrawn — no entry live, so no edge report, and the pieces wait for the CLEAR's flush to complete; a band move's pieces lie inside the range (from the wrap's record to its program). Its pin `aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1` went with the case)"
-  ],
-  "note": "S1: every wrap during a Main re-stage's pieces goes as today (0.82) [K1-2 stage 1: declared — its case went with AD.2]",
-  "from": "B083"
- },
- {
-  "id": "B083-S1-pieces-mixed",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "            if (naming || (i > 0 && meets(part) && !meets(parts[i - 1]))) close(false)",
-    "            if (naming) close(false)"
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
-  ],
-  "expect": [
-   "(declared, no pin since K1-2 stage 1: a piece that misses the wrap's read range is a strip write of a row outside the wrap's record, and those go only with the list withdrawn — no entry live, so no edge report, and the pieces wait for the CLEAR's flush to complete; a band move's pieces lie inside the range (from the wrap's record to its program). Its pin `aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1` went with the case)"
-  ],
-  "note": "S1: a piece holding both a part the wraps read and one they do not (0.82: the strip's row and the band form in one message) [K1-2 stage 1: declared — its case went with AD.2]",
-  "from": "B083"
- },
- {
-  "id": "B083-S1-pieces-unordered",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "        val parts = if (apartFrom == null) parts0 else body.filter { !meets(it) } + body.filter { meets(it) } + (if (namesLast) parts0.takeLast(1) else emptyList())",
-    "        val parts = parts0"
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
-  ],
-  "expect": ["(declared, no pin: Main's re-stage lists its strip rows ahead of what the wraps read, so the sort changes nothing it writes today; it keeps that order for a list in any order)"],
-  "note": "S1: a re-stage's parts in their own order",
   "from": "B083"
  },
  {
@@ -8030,8 +7960,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)",
-    "            val sA = mA; val sB = mB"
+    "            // the strip's margins: the rows Main shows past either end (B082: the wrap's rows are a record of their own)\n            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)",
+    "            // the strip's margins: the rows Main shows past either end (B082: the wrap's rows are a record of their own)\n            val sA = mA; val sB = mB"
    ]
   ],
   "tests": [
@@ -8042,7 +7972,7 @@
    "theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0",
    "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
   ],
-  "note": "C3 DM-0 (the DM spec §2): the ring strip's margins k, not k + 1 — at v = n the lower track's END reads past the strip (blank), at v = -1 the upper's",
+  "note": "C3 DM-0 (the DM spec §2): the ring strip's margins k, not k + 1 — at v = n the lower track's END reads past the strip (blank), at v = -1 the upper's [re-pointed by K1-2 stage 2 to Main's line alone]",
   "from": "C3-DM0"
  },
  {
@@ -8245,8 +8175,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5)",
-    "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, false)"
+    "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form)",
+    "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, false, form)"
    ]
   ],
   "tests": [
@@ -8257,7 +8187,7 @@
    "stage5TakesTheFastPathsFitAndStaysInsideTheBudget_FF",
    "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
   ],
-  "note": "C3 FF: the programs-only re-make of a stage-5 staging takes C2's fit — an effect change at stage 5 leaves the fast fit (Slide P 52 T 5 at 352 where the staging's fit gives P 16 T 19) [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
+  "note": "C3 FF: the programs-only re-make of a stage-5 staging takes C2's fit — an effect change at stage 5 leaves the fast fit (Slide P 52 T 5 at 352 where the staging's fit gives P 16 T 19) [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays; by K1-2 stage 2: the staging's form passed]",
   "from": "C3-FF"
  },
  {
@@ -10289,5 +10219,205 @@
   ],
   "note": "C3 X2MX2 item 3 (decisions CJ (4)): where no seed gives each drawn out step a picture of its own Matrix plays a table whose steps share one, in place of leaving the act's pick with its reason",
   "from": "C3-X2MX2"
+ },
+ {
+  "id": "K12S2-CM1-no-cure",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "l.entries.filter { !it.isTap }.map { e -> e to local.heldFor(l.list, e.eventId) }.let { es -> es.all { (e, h) -> h?.prog4 == e.prog4 } || es.all { it.second == null } } } == true",
+    "l.entries.filter { !it.isTap }.map { e -> e to local.heldFor(l.list, e.eventId) }.let { es -> es.all { (e, h) -> h?.prog4 == e.prog4 } } } == true"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aSwitchWhoseSetsACoverOvertook*"
+  ],
+  "expect": [
+   "aSwitchWhoseSetsACoverOvertookLetsTheNextChangePlayOnTheReturn_CM1"
+  ],
+  "note": "K1-2 stage 2, item 3a (decisions CM (1), C3-FR-DM1 item 1): the cover's CLEAR does not count for the tail books — a switch whose SETs a cover overtook keeps its slot, and the change under the cover plays only after the return",
+  "from": "K12S2"
+ },
+ {
+  "id": "K12S2-window-band-rules",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        val wL = Rect(nL.x, l.lens.y + ContentKit.LENS_RULE, bandW, l.lens.h - 2 * ContentKit.LENS_RULE)\n        val wR = Rect(nR.x, l.lens.y + ContentKit.LENS_RULE, bandW, l.lens.h - 2 * ContentKit.LENS_RULE)",
+    "        val wL = nL\n        val wR = nR"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theWindowFormsEnd*"
+  ],
+  "expect": [
+   "theWindowFormsEndIsTheListsPaintWithTheRowFormInTheBand_K12S2"
+  ],
+  "note": "K1-2 stage 2 (O7): the window form's band track covers the band's two rules (they would flicker under every notch)",
+  "from": "K12S2"
+ },
+ {
+  "id": "K12S2-window-short",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        val rows = (kA + kB + 2) * rowH",
+    "        val rows = (kA + kB + 1) * rowH"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theWindowFormsEnd*"
+  ],
+  "expect": [
+   "theWindowFormsEndIsTheListsPaintWithTheRowFormInTheBand_K12S2"
+  ],
+  "note": "K1-2 stage 2: the rows' shared strip window one row short (down: the row entering below never drawn)",
+  "from": "K12S2"
+ },
+ {
+  "id": "K12S2-window-P2-side",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH),\n            MainStaging.Rule(CfwModes.KIND_ARG, 0))",
+    "            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA + step) * l.rowH),\n            MainStaging.Rule(CfwModes.KIND_ARG, 0))"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theWindowFormsEnd*"
+  ],
+  "expect": [
+   "theWindowFormsEndIsTheListsPaintWithTheRowFormInTheBand_K12S2"
+  ],
+  "note": "K1-2 stage 2: the window form's P2 names the row on the other side, not the leaving one (the band's first state)",
+  "from": "K12S2"
+ },
+ {
+  "id": "K12S2-window-ring-margin-k",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val ring = ringFits(l, n)                                   // `ContentKit.wrapIndex`: the list's paint wraps\n            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)",
+    "            val ring = ringFits(l, n)                                   // `ContentKit.wrapIndex`: the list's paint wraps\n            val sA = mA; val sB = mB"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theWindowFormsEnd*"
+  ],
+  "expect": [
+   "theWindowFormsEndIsTheListsPaintWithTheRowFormInTheBand_K12S2"
+  ],
+  "note": "K1-2 stage 2: a ring window list's margins k, not k + 1 — at v = -1 and v = n the shared window leaves the strip (refused 5 at every such fire; the offline check refuses the staging)",
+  "from": "K12S2"
+ },
+ {
+  "id": "K12S2-window-floor",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            if (start < floor) throw LintError(",
+    "            if (false) throw LintError("
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theWindowFormsFallbacks*"
+  ],
+  "expect": [
+   "theWindowFormsFallbacksAndRefusals_K12S2"
+  ],
+  "note": "K1-2 stage 2 (O4): a window list laid out below Main's end (over Main's records)",
+  "from": "K12S2"
+ },
+ {
+  "id": "K12S2-window-spare-kept",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val slots = if (progSpare && top - (sl.slot + 2 * progSlot) >= floor) 2 else 1",
+    "            val slots = if (progSpare) 2 else 1"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theWindowFormsFallbacks*"
+  ],
+  "expect": [
+   "theWindowFormsFallbacksAndRefusals_K12S2"
+  ],
+  "note": "K1-2 stage 2: where the space is short the spare pan slot is not given up first (the list is refused instead)",
+  "from": "K12S2"
+ },
+ {
+  "id": "K12S2-window-tap-press",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            ?: BoundList.Entry(entryIds[2], CfwModes.EV_TAP, 0, periodInForce, CfwModes.PROG_NONE, List(4) { CfwModes.BindParam(CfwModes.KIND_ARG, 0) }, null)",
+    "            ?: BoundList.Entry(entryIds[2], CfwModes.EV_TAP, 0, periodInForce, down.prog4, params(down.rules), down.program)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theWindowFormsEnd*",
+   "*MainBindTest.theWindowListFormHolds*"
+  ],
+  "expect": [
+   "theWindowFormsEndIsTheListsPaintWithTheRowFormInTheBand_K12S2",
+   "theWindowListFormHoldsThroughTheHookAtEveryHeight_K12S2"
+  ],
+  "note": "K1-2 stage 2 (the spec §1): a window list's tap entry draws a program (a press) instead of being report-only",
+  "from": "K12S2"
+ },
+ {
+  "id": "K12S2-window-restage-band",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "        val bg = if (form == ListForm.STRIP_WINDOWS) null else paintBandForm(view, kit, l, row, relay)",
+    "        val bg = paintBandForm(view, kit, l, row, relay)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.aWindowListsChangedRow*"
+  ],
+  "expect": [
+   "aWindowListsChangedRowIsItsStripSegmentAlone_K12S2"
+  ],
+  "note": "K1-2 stage 2: a window list's re-stage paints and moves a band form (it has none)",
+  "from": "K12S2"
+ },
+ {
+  "id": "K12S2-band-row-dy",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "    const val BAND_ROW_DY = 4",
+    "    const val BAND_ROW_DY = ContentKit.LENS_RULE"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theBandRowsPlace*"
+  ],
+  "expect": [
+   "theBandRowsPlaceIsReadOffSettingsTwoPaints_K12S2"
+  ],
+  "note": "K1-2 stage 2 (O7): the row form drawn at the band area's first line (+ 2), its name line 2 px above the band's title line",
+  "from": "K12S2"
+ },
+ {
+  "id": "K12S2-window-slide-travel",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "                        draw(strip, x = cx - dB, xR = cx + dB, y = bandY + step * l.lens.h, dy = -step * l.lens.h, ease = ease, n = t, windowRows = rowH, prefs = entering)",
+    "                        draw(strip, x = cx - dB, xR = cx + dB, y = bandY + step * rowH, dy = -step * rowH, ease = ease, n = t, windowRows = rowH, prefs = entering)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theWindowFormsEnd*"
+  ],
+  "expect": [
+   "theWindowFormsEndIsTheListsPaintWithTheRowFormInTheBand_K12S2"
+  ],
+  "note": "K1-2 stage 2: Slide's and Fall's entering row travels a row, not the band's height (it starts inside the band)",
+  "from": "K12S2"
  }
 ]
