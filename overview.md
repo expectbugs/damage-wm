@@ -1544,7 +1544,10 @@ unconditionally.**
 **Why the timing matters:** a public, cross-platform release is intended (`DESIGN.md` §10) and
 compensation is a live possibility; GPL-3.0 attaching to the whole derived work would foreclose
 options open today. The boundary costs nothing to keep before the compositor exists and is close
-to unfixable afterwards. The rule is in `CLAUDE.md`.
+to unfixable afterwards. The rule is in `CLAUDE.md`. *2026-11-23: the reason above is superseded by Adam's words of
+that day — Damage is for himself, not for sale and not for release, no money involved; the repository is public so
+that others can fork it and so that he can show what he built. The clean-room rule stays, with that reason
+(`CLAUDE.md`, "Who it is for" and "Clean-room").*
 
 ## 15. Collaboration — the Babcock thread (opened 2026-08-16)
 

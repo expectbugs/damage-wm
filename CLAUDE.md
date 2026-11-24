@@ -1,12 +1,22 @@
 # Damage (`damage-wm`) — Claude Code Rules
 
 **What this is:** a personal, first-party framebuffer window manager and compositor for Adam's own Even Realities G2
-glasses. They run custom firmware (`g2flash`) that replaces the vendor's EvenHub container model with direct framebuffer
-access, so a compositor renders whole scenes with real fonts and pushes pixels. Everything runs on hardware Adam owns
+glasses. They run custom firmware — the published `g2flash` build at first, since 2026-09-15 his own fork of it
+(`~/damage-cfw`, `FORK.md`) — that replaces the vendor's EvenHub container model with direct framebuffer access, so a
+compositor renders whole scenes with real fonts and pushes pixels; since the fork's builds C1–C3 (2026-11-18 to 20) the
+glasses also play motion programs, scroll bound lists and draw transition effects themselves. Everything runs on hardware Adam owns
 over his home network: his phone, glasses, PC, auth token. Working out the glasses' Bluetooth wire format is ordinary
 device interoperability. Outside accounts: his TorrentLeech login (Torrents window; credentials only in the gitignored
 `~/.damage/config.json`), three keyless lyric services, YouTube via yt-dlp and the local `claude` CLI under his own login
-(Music window). Nothing else. This is UI and display-rendering work.
+(Music window), the public sites the Feed window reads (no account), and his own Home Assistant hub, which the bus alert
+watcher only reads. Nothing else. This is UI and display-rendering work.
+
+**Who it is for (Adam, 2026-11-23; this wins over anything older, here or in any other document):** himself. "This
+project is very specifically for me and my unique use-cases." It is not for sale and not for release; no money is
+involved ("I don't even take donations"), and it is not altered for anyone else's use. The repository is public "in case
+anyone is inspired by it and wishes to fork the repo and make it their own", and so that he can show "the kinds of things
+I can make in my spare time with no programming skills and a Claude Code subscription". Nothing is built, polished,
+worded or held back for an audience, and no concern is raised on an audience's behalf.
 
 System-wide rules in `~/.claude/CLAUDE.md` apply. This file holds Damage-specific rules.
 
@@ -17,21 +27,23 @@ anything) → this file (wins on RULES) → `REMINDER.md` (the entry point: what
 (wins on the ORDER OF WORK since Adam ruled it on 2026-11-12: its §4 as amended by §14 and §17) → `CONTRACT.md` (wins on the APP
 CONTRACT: the state model, descriptions, actions, the wire, access; read it before any window or interface work) →
 `FORK.md` (the fork's protocol, its decisions and the design of each firmware piece; its §5 phase order no longer
-governs) → `FIRMWARE.md` (wins on the FIRMWARE CONTRACT)**.
+governs) → `FIRMWARE.md` (wins on the FIRMWARE CONTRACT) → `MOTION.md` (its §7, the animation plan he ruled on
+2026-11-19 and amended on 11-21, wins on MOTION)**. **Where two statements clash, the later one wins** (Adam,
+2026-11-23); the older one gets a dated line beside it, not a silent rewrite.
 
 ## Gates
 
 - `python3 tools/lint.py` after any geometry, layout or drawn-string change, and after any change under
   `core/…/bastion/`: SYM002 checks every Kotlin string literal, RO001 that the bus watcher's package only reads the hub
   (one `Http.request("GET", …)` site, no write-method literal, no other HTTP client), GEO the cells `DESIGN.md`
-  declares, BUD the ink of the renders. `--selftest` passes and names the rules it does not cover; the repo run exits
+  declares, BUD the ink of the renders, SEC001 that no log line interpolates a token. `--selftest` passes and names the rules it does not cover; the repo run exits
   0. The runtime rules (stereo pairs, the rect budget, fid order, the frame walls) are
   `core`'s `geom` package (`Geometry.kt`, `FidTracker.kt`), checked on every emit and pinned by `GeometryTest`, the
   emit's refusals by `EmitRulesTest`.
 - `python3 design/render_shots.py` after any design change; read the numbers. Everything renders at **true 1× 640×480**:
   a 2× view flatters delicate type.
 - `python3 research/verify_cfw.py` before any flashing conversation (offline; the upstream a5d1c31 image — the rollback
-  behind Phase 1's — is reproducible from held sources, no Thumb-bit defect). The installed image is the fork's C3 build `58741c4a…` (flashed 2026-11-20, `HANDOFF.md` §99; before it C2's `b3f04453…`, the rollback kept in `fws/`); for it at the fork's `c3` branch and
+  behind Phase 1's — is reproducible from held sources, no Thumb-bit defect). The installed image is the fork's C3 build `58741c4a…` (flashed 2026-11-20, `HANDOFF.md` §99; before it C2's `b3f04453…`, the rollback kept in `fws/` — `REMINDER.md` names both after any later flash); for it at the fork's `c3` branch and
   **for any fork candidate:** `python3 tools/verify.py` (and its `--selftest`) **run in a tree at the candidate's branch** (a worktree; `~/damage-cfw`'s own checkout may sit on another branch — `HANDOFF.md` §98.4) — the pin, reproducibility with our clang,
   the Thumb-bit audit, the size guard and the list of changed sites, reviewed against `FORK.md` §3.1 (no new site on a
   boot-time path).
@@ -47,11 +59,15 @@ governs) → `FIRMWARE.md` (wins on the FIRMWARE CONTRACT)**.
   `:core:cleanTest :core:test --no-build-cache` for a rate) · `./gradlew :desktop:test` · `desktop --selfcheck` (the truth
   oracle on every settle, both contracts; run it more than once, twenty when the question is a rate) · `desktop
   --snapshot DIR` (look at the renders; run it, and any harness you suspect, more than once) · `--epub-check ~/books` ·
-  `--music-check` · `--games-check` · `--feed-check` (`live` fetches the real sites once, read-only) · `tools/lint.py` ·
+  `--music-check` · `--games-check` · `--feed-check` (`live` fetches the real sites once, read-only) · `--motion-check DIR` and
+  `--local-check DIR` (the engine's programs, the transitions and Main's bound list on the simulator: ALL HOLD) ·
+  `tools/lint.py` ·
   `./gradlew :phone:assembleDebug` **in its own gradle invocation**, then `python3 tools/check_apk_wiring.py` (exit 0) ·
   `node --test 'core/src/test/js/*.test.mjs'` · the tools' `--selftest` (`research/mutate_core.py`,
   `tools/journal_report.py`, `tools/journal_pull.py`, `tools/check_apk_wiring.py`, `tools/snapdiff.py`). After a
-  card-art change also `--card-render`. Deploy = `./gradlew :desktop:stageJar &&
+  card-art change also `--card-render`; after a change to the local rules or a list's holder also the sequence fuzz
+  at its three timings (`LocalSequenceFuzzTest`: the default, `LOCAL_FUZZ_TIMING=stage4` and `=stage5`). **Every merge
+  into the integration branch is gated by the WHOLE core suite** (2026-11-21: a targeted gate left a class red). Deploy = `./gradlew :desktop:stageJar &&
   sudo rc-service damage restart` (`DAILY.md`); a PC deploy never touches the display. Stop the service before any
   `:desktop:run` dev session. Never rebuild the jar under a running instance. `REMINDER.md` carries the current counts.
 
@@ -65,7 +81,8 @@ repack that moves every offset, another task freeing the buffer). Hence:
    piece of state, wait and guard BEFORE a line is written. A plan that lists only features gets only features; "be
    thorough" adds nothing a plan left out.
 2. **A build ends with a "Not built" list and the two instruments' numbers** — the differential fuzz
-   (`firmware/fuzz_vectors.py`) and the mutation sweep (`~/damage-cfw/tools/mutate.py`). A test written in the same pass
+   (`firmware/fuzz_vectors.py`) and the mutation sweep (`~/damage-cfw/tools/mutate.py`); on Damage's side the sequence
+   fuzz (`LocalSequenceFuzzTest`) and the mutation list (`research/mutations-c2.json`, run by `research/mutate_core.py`). A test written in the same pass
    as the code encodes the same model; the sweep is what says which guards a gate proves.
 3. **A fix sweeps its class, not its site.** Name the class (the v1 twin of a v2 op, the reader and the writer, both
    lenses, every second pass, every start gate) and list the sites checked. One-site fixes were the largest recoverable
@@ -78,7 +95,9 @@ repack that moves every offset, another task freeing the buffer). Hence:
    expected value of anything on the table; the last pass is unreviewed by construction, and only an instrument or the
    glass ends that regress.
 6. **Records short.** One place per fact (`HANDOFF.md`), pointers elsewhere; a review's record is not a restatement of
-   its diff. The targeted gate during a session, the full battery once at its end.
+   its diff. The targeted gate during a session, the full battery once at its end. **At the close of every build,
+   deploy or flash the status statements of EVERY document are swept — the README first, and this file with them**
+   (Adam, 2026-11-22: "Some of it really seems to be behind, some of it way behind"; 11-23: this file "gets left out").
 7. **Where this protocol applies in full, and where it does not (2026-11-17, `HANDOFF.md` §83).** In full: the fork's
    firmware, the glasses' wire and compositor, any path that moves or deletes his files, any bus action. Everywhere
    else (window cores, pages, wiring, the PC's lanes): a lean spec, the build, ONE review pass whose readers apply the
@@ -128,7 +147,9 @@ pairing or policy ceremony that blocks a thing he would use.
 ## Status and the order of work
 
 **The order of work is `REPLAN.md` as Adam ruled it on 2026-11-12 (its §14 wins; `HANDOFF.md` §78), corrected on 2026-11-17 (its §17 wins over
-both; `HANDOFF.md` §83).** The end goal: four
+both; `HANDOFF.md` §83) and amended since in its §17.3 (items 6–10: new firmware features are armed and tried at once;
+the motion kit's shell part and the animation plan come before S2; work goes on while a build waits on him; Music's
+motion update at K3, `MUSIC.md` §14; S1-5's answers).** The end goal: four
 more interfaces beside the glasses (XFCE4, the phone app, the kitchen TV, any browser) and a bus control system, then new
 windows. Until its steps close: no new windows, no Feed polish, no popover build outside the plan (the suspension of
 2026-09-12, `HANDOFF.md` §48, carried over). The fork is its own GPL-3.0 repo (`~/damage-cfw`); Damage stays clean-room
@@ -144,13 +165,14 @@ built the web listener (APK 0.67, `HANDOFF.md` §80); Torrents and Files followe
 the cleanup L1, APK 0.68, §84), then Feed and Tmux (S1-3, APK 0.70, §89, §91); Music's first half is built and not merged (§97); Games, Main and Settings are
 S1-5. The firmware side: the fork's builds C1 (the motion engine), C2 (local input) and C3 (the effects) are flashed, the
 ladder at stage 5 since 2026-11-21 (§88, §94, §99, §101). **What runs until S1 closes (`HANDOFF.md` §19,
-§79):** the **phone APK drives** (radio and shell); the OpenRC `damage` service on beardos is the **data provider** (and
-the bus alert watcher) and never drives by itself — PC-direct BLE only by hand (the replica probe `drive=ble`, back with
+§79):** the **phone APK drives** (radio and shell); the OpenRC `damage` service on beardos **holds the converted windows' state
+and serves the content** (and runs the bus alert watcher) and never drives the glasses by itself — PC-direct BLE only by hand (the replica probe `drive=ble`, back with
 `drive=auto`; the PC shell's `Target` row; `--transport ble`); `--transport remote` is the dev override. Detect the CFW
 by the `EVENCFW/` string and the DamageCaps field, never the version. App layer: Main · Settings · Reader · Tmux ·
 Files · Torrents · Music · Games · Feed, and the Bastion Settings category (a host category: the watcher's rows before
 its window, `core/…/bastion/BastionRows.kt`) (`WINDOWS.md` the conversion checklist; `TMUX.md`, `TORRENTS.md`,
-`MUSIC.md`, `HOLDEM.md`, `FEED.md` the per-window records; `POPOVER.md` a spec, not built).
+`MUSIC.md`, `HOLDEM.md`, `FEED.md` the per-window records; `POPOVER.md` a spec, not built; the `Animations` Settings
+category is `MOTION.md` §7's, one sub menu a tier).
 
 **Rules from the whole-codebase reviews (`HANDOFF.md` §25–§36) that bind every change:**
 - **A rect a paint returns is a promise.** Size every band from the face's MEASURED ink (`ascent + descent`), never a
@@ -203,7 +225,10 @@ hours and every lane's work in `/tmp` was lost at the reboot. Since then:
 - **His subscription is a budget, watched all the time** (`REPLAN.md` §17.6). Before a run: its size in percent of
   his week and what he will see or be able to do for it — "nothing he would notice" goes to him first. Both meters
   are read before and after every run and the change is reported; a build that passes its budget says so and goes
-  on (his word, 2026-11-17: no stop for budget).
+  on (his word, 2026-11-17: no stop for budget). **A week is paced to last to its reset:** on 2026-11-21, at 93 % with
+  no resets left, he asked for a taper (lanes stopped with their work committed, the records written, the build
+  staged) and the work resumed on his word after the reset. The lead's own turns cost several times an Opus lane's:
+  when the meter is tight, reading and editing go to a lane.
 - **What is already written is cleaned up before more is added** (`REPLAN.md` §17.3 item 0: the audit L0, then the
   cleanup build L1, measured by the line count going down).
 
@@ -221,15 +246,18 @@ not copyrightable; Babcock's implementation is GPL-3.0.
   **FF1** = the emulation posture (the user rips their own cartridge; only the bridge ships; ROM-derived output counts
   as the work — ship `gen_data.py`, gitignore `data/*.json`; check the vendored `reference/` disassembly's licence before
   republishing). Unconditionally out: Even's SDK, third-party fonts with unclear terms, any faceclaw/g2flash code.
-- Why: a public release is intended and compensation is on the table; GPL-3.0 attaching to the derived work forecloses
-  options. Reading `reference/faceclaw` or `reference/g2flash`: extract facts into our own words and implementation,
+- Why (reworded 2026-11-23 to his words of that day; August's reason — a public release with compensation on the table
+  — no longer holds): the repository is public so that others can fork it and so that he can show what he built; it is
+  not for sale or release. Keeping Babcock's GPL-3.0 code out keeps the repository his own work under his own terms,
+  and keeping other people's work out of it is what a public repository owes them. Reading `reference/faceclaw` or `reference/g2flash`: extract facts into our own words and implementation,
   never paste, cite the source file in a comment.
 
 ## Do NOT modify G2CC
 
 `/home/user/G2CC` is a shipped system. Read from it freely (the BLE reverse engineering, the pre-pivot rasterizer, 20+
 windows, render scripts — `overview.md` §10). Never edit, refactor or fix anything in it. Its server is retired
-(`HANDOFF.md` §44) — never start it by hand. The glasses now run the CFW: G2CC's stock-firmware display path no longer
+(`HANDOFF.md` §44) — never start it by hand. Its phone app stays disabled: left enabled it takes the glasses' Bluetooth
+link (2026-11-20, after a phone restart had re-enabled it). The glasses now run the CFW: G2CC's stock-firmware display path no longer
 applies; stock 2.2.2.20 is gone and not in the public archive.
 
 ## Permission and irreversibility
@@ -247,6 +275,14 @@ applies; stock 2.2.2.20 is gone and not in the public archive.
 - Leaving 2.2.2 happened 2026-08-30; that door is closed (no read-back path). The CFW remains revertible to any archived
   version; state the reversibility picture before any flashing conversation.
 - **Read the patch source before flashing it** (g2flash has shipped one HardFault, `overview.md` §9).
+- **Before any flash run on a lens that is on C3 or later** (a rollback, a fix flash, the last dry-run rung) that
+  lens's heap figures are read first, as `FORK.md` §7 lists: the flash tool's storage test allocates from the heap the
+  larger context uses.
+- **His, never done on momentum:** installing an APK; pushing the fork; any probe that changes the phone's or the
+  glasses' state (the ladder's stage `c1=N`, `rest=on|off` — `tools/ladder.py` is his own tool for it);
+  `tools/glassdrive.py` only when he has asked or is there to watch. A go for one of these is spent when it is used.
+- **He never restarts the glasses by hand** (no button; he wears them all day and charges them at home): nothing may
+  need a hand action after the overnight charge.
 
 ## Project-specific verify-before-execute
 
@@ -276,7 +312,9 @@ Every high-frame-rate claim we investigated traced to the EvenHub simulator (≈
 no BLE bottleneck). Never cite a performance number without knowing whether it came from hardware; preserve
 `overview.md` §5's measured-vs-modeled labels. `overview.md` §5.2's `ms ≈ 60 + bytes/50` is PC-direct and four hours of
 one session (`HANDOFF.md` §31.6); the daily path is the phone's (the latency standards below). **Price with
-`REMINDER.md`'s table.**
+`REMINDER.md`'s table.** The model's agreement with the firmware's own C on the conformance vectors (246 files on
+2026-11-23) is about bytes and pixels, never about time: a step's time on the glasses is what RIGHT reports; the
+simulator's is modeled.
 
 ## The Three Absolute Rules
 
@@ -332,7 +370,7 @@ got into the world).
 - **Hold the framebuffer lease or lose the screen**: sid 0x09 field 101 op 5, both arms, renew every 45 s against the
   firmware's 90,000-tick (87.9 s) expiry; it fails open. **Exception (§36): in Silent Mode the shell releases the lease
   on purpose** and the wake **rebuilds the session** (§38). `cfw_fb_lease_active()` also gates modes 12–15 (12–24 on a
-  contract-2 build), long-press forwarding (events 9/10) and suppresses the stock quit dialog.
+  contract-2 build; the later modes' own gates are `FIRMWARE.md` §5.5 and §6.3), long-press forwarding (events 9/10) and suppresses the stock quit dialog.
 - **A mode-3 delta requires a prior mode-6 keyframe.** Never emit a delta against an unseeded shadow; the simulator
   raises any sticky flag it models (`f_reorder`, `f_skip`, `f_dup`; the firmware's `f_snap_of` it never sets —
   `HANDOFF.md` §77.8) as a hard error. Nothing sends mode-7 sub-2. **v1 modes 3/6 stream into the shadow** — a refused
@@ -349,6 +387,20 @@ got into the world).
 - **Depth:** horizontal offsets only, small, never different content per eye. **Content far back; notifications, modals
   and popups FORWARD** (Adam, 2026-08-17). Global `Depth` moves everything, the selection bar one notch nearer, a per-app
   `Depth` row only that app (§41.2).
+- **The glasses play motion themselves** (the fork's C1–C3; `FIRMWARE.md` §5–§7; `IMPLEMENTATION.md`, "The phone's
+  halves of C1–C3"): the phone stages records in the cache and sends programs (mode 26) and bound lists (mode 27); a
+  ring notch on a bound list is drawn by the glasses at once, and the phone adopts RIGHT's report by its rules (§6.7,
+  §7.11). **A program's bytes come only from the Motion DSL** (`motion/Motion.kt`, written from the contract's text);
+  a new program shape gets a conformance vector the fork fills, and a disagreement is a finding. Four instances on
+  fixed slots: 0 the bound list, 1 the wrap, 2 a transition's out half or the notice, 3 the in half.
+- **The ladder** (`DAILY.md`): stage 0 nothing · 1 the deflated cache write · 2 the 256 KiB cache · 3 the engine · 4
+  local input · 5 the effects. The phone stores the stage and arms it at each session start; it changes only on his
+  word.
+- **His rules for motion** (`MOTION.md` §7 with its amendment): five tiers — Scroll, Select, Close / Back, Lock
+  Screen, Popups — each with None; one Scroll effect per app (one for all, as built), never random; checkbox-random
+  in the other tiers; **a transition always plays in full at the tier's length — the length holds, frames give**;
+  what moves, moves together; the selected row comes forward in depth; he judges sequences, not single plays; a
+  tier's options live in that tier's sub menu.
 
 ## Latency standards (`HANDOFF.md` §37; `WINDOWS.md` §6)
 
@@ -357,6 +409,9 @@ Phase 2 build's LE 2M (`REMINDER.md`, measured).
 - **A gesture is priced by its FIRST flush**: its bytes plus one floor. Make it small (a mode-9 translation ~40 B, or a
   strip); the heavy fill follows. Measure with `tools/journal_report.py` — **price against its WAIT column, not the ack**
   (§64.4); a list notch at 0.8 s is a defect.
+- **Where a list is bound on the glasses (Main today; every window's list with K1-2) the notch does not wait for the
+  phone:** the glasses draw it and the phone's flush follows the report. The phone never draws over a local motion
+  whose end it has not been told.
 - **Text and icons go through the texture cache when Global `Cached text` is on** (§41.4): every rasterizer is a
   `CachedText` recorder, every icon crosses `IconPaint.blit`; the journal says why a rect went to pixels (`cacheMiss`).
   Never repaint a whole list because one cell changed.
@@ -364,7 +419,8 @@ Phase 2 build's LE 2M (`REMINDER.md`, measured).
 - **A live window may keep the link busy only while ACTIVE** (Adam, 2026-09-05); inactive, park the poll.
 - **The phone's CPU is a term of its own**: never wrap, parse or lay out what did not change; never network or disk on the
   loop; read the journal's split (`handlerMs`, `slidesMs`, `chromeMs`, `textMs`, `truthMs`, `compressMs`).
-- **Animation adapts to the link** (`Slide frames`, default `auto`). A window never adds frames.
+- **Animation adapts to the link** (`Slide frames`, default `auto`). A window never adds frames. The engine's tiers
+  have their own length and frames (`Animations`); `Slide frames` and `Slide fill` drive what the phone still draws.
 - **Every new window ships with its latency profile** measured through `tools/glassdrive.py`.
 
 ## Hardware and environment
@@ -373,7 +429,7 @@ Phase 2 build's LE 2M (`REMINDER.md`, measured).
   phone-side: "scanning forever" while the OS shows Connected is a stale ACL — toggle phone Bluetooth.
 - **Subscribe to RIGHT for async events** (Left is silent; only RIGHT can send). **Bulk pixels → LEFT, control + events →
   RIGHT** (Faceclaw's split; runs daily; graded strong, not proven optimal).
-- **BLE:** MTU 247, **LE 2M on both arms on the fork's Phase 2 build** (the phone asks at every session start; 1M on stock
+- **BLE:** MTU 247, **LE 2M on both arms since the fork's Phase 2 build** (the phone asks at every session start; 1M on stock
   and a5d1c31), ~232 B per AA fragment; 7–13 KB/s measured end-to-end PC-direct (~10× under spec, cause unknown —
   `overview.md` §5.1); the phone path was ~8 KB/s on 1M (two 247 B packets per served connection event, LEFT served
   every 60 ms in the busy sessions — `HANDOFF.md` §54.4).
@@ -397,7 +453,8 @@ architectural references only — never copy G1 UUIDs or characteristic IDs.
 ## Communication
 
 Adam's global rules apply. Two more: **distinguish measured from modeled every time**, unasked; and put links, APK paths
-and key actions **last** (terminal scrolling is hard at his work machine).
+and key actions **last** (terminal scrolling is hard at his work machine). A size is said in percent of his week; a
+time written into a record is read from the clock, never estimated.
 
 ### Plain engineering wording — this costs Adam real time
 
