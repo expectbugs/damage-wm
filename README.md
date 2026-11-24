@@ -28,7 +28,7 @@ instead of one per region is the whole thesis: the round-trip cost is per messag
   Torrents and Files (0.68, §84), Feed and Tmux (0.70, §89) in a browser on the author's own networks. The PC owns
   those windows' state behind an operation log; the phone keeps a working copy (`CONTRACT.md`).
 - **A Damage build of the custom firmware** (`~/damage-cfw`, GPL-3.0, its own repository; `FORK.md`) on both
-  lenses since 2026-09-16; the installed build is C3 (since 2026-11-20, `HANDOFF.md` §99): telemetry, a self-test,
+  lenses since 2026-09-15; the installed build is C3 (since 2026-11-20, `HANDOFF.md` §99): telemetry, a self-test,
   the drawing contract v2 — per-lens cached draws, fills, clips, a partial panel refresh, LE 2M (`FIRMWARE.md` §3,
   §4) — and, from builds C1–C3, motion programs the glasses play on their own clock, local ring input and the
   transition effects (`FIRMWARE.md` §5–§7; the animation plan is `MOTION.md` §7).

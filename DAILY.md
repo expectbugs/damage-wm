@@ -8,16 +8,17 @@ phone's Tailscale address (`tailscale status | grep aphone`).**
 **As built.** `REPLAN.md` §14 (2026-11-12) rules the PC the owner of every window's state, with the phone keeping a
 working copy, and PC-direct BLE a manual choice, never automatic. The second is in the code since the alert watcher, W
 (APK 0.66 and its PC deploy, `HANDOFF.md` §79): the service never drives by itself. The first begins with S1-1 (APK
-0.67, `HANDOFF.md` §80; built, not yet deployed as this is written): Reader runs on a record on the PC with the
-phone's working copy, and a browser page reads it (the section below); every other window syncs as below.
+0.67, `HANDOFF.md` §80; deployed, §80.13): Reader runs on a record on the PC with the
+phone's working copy, and a browser page reads it (the section below); from 0.68 Torrents, Files and the notices, from
+0.70 Feed and Tmux, the same (`core/…/app/Windows.kt`); every other window syncs as below.
 
 ## The moving parts
 
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | THE driver — owns the BLE radio and runs the shell; serves the seam :7402 (status probe + explicit dev claims) and the replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | data host: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed · `bastion`, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); since 0.66's deploy also the bus alert watcher (the hub read every 10 s when `haUrl` is set), `damage.phone` once a minute, the nightly copy at `backupAt` into `backupDir`, and the reach gate on every listener; from 0.67's deploy also Reader's record (`record.json` + `oplog.jsonl`) and the
-web listener :7405; probes the phone's seam every 5 s for its status line and never drives on its own — PC-direct BLE only by hand (`drive=ble` / `drive=auto`, below); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `auto` = standby; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
+| **beardos `damage` service** | data host: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed · `bastion`, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); since 0.66's deploy also the bus alert watcher (the hub read every 10 s when `haUrl` is set), `damage.phone` once a minute, the nightly copy at `backupAt` into `backupDir`, and the reach gate on every listener; from 0.67's deploy also Reader's record (`record.json` + `oplog.jsonl`; from 0.68 and 0.70 the other converted windows' too) and the
+web listener :7405; probes the phone's seam every 5 s for its status line and never drives on its own — PC-direct BLE only by hand (`drive=ble` / `drive=auto`, below); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `--transport auto` = the data host; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
 | **beardos `qbittorrent` service** | the Torrents backend: `qbittorrent-nox` on Adam's own profile (`~/.config/qBittorrent`), Web API `127.0.0.1:8090` | OpenRC `qbittorrent` (Gentoo's script + `/etc/conf.d/qbittorrent`, `default` runlevel, 2026-09-10) |
 
 **Who drives when** (automatic, event-driven, pacing not timeouts): APK up → the phone shell drives — home,
@@ -31,7 +32,8 @@ phone's shelf answers from its cache at once while
 the PC is out of reach. Reboot either machine → both restart themselves. **State sync:** settings and every
 window blob flow between phone and PC whenever both are up — most recent wins, per key; from 0.67 Reader's places,
 bookmarks and rows are not synced but sent to the PC's record as ops (queued on the phone while the PC is out of
-reach).
+reach); from 0.68 and 0.70 the same for Torrents, Files, the notices, Feed and Tmux (a converted window's keys never
+sync, `Persistence.syncable`).
 
 ## One-time setup (for a re-pair or a fresh phone; done 2026-08-31)
 
@@ -272,7 +274,8 @@ without writing a row.
   on a rise takes `"direction": "up"`. The connection path alone has read `away` on his days out since ruling R3.1
   (the PC's log: relayed, or direct to a public address, then `unknown -> away` after 15 min); at the bus it reads
   `home`. The four away rules held back since 11-13 are armed by the lead at deploy 2, with a copy of
-  the rule file kept beside it. While `damage.phone` reads `unknown` (the phone's peer offline) a guarded rule has no
+  the rule file kept beside it. *2026-11-23: they are armed — the live rule file has held the four `…change-away`
+  rules since 2026-11-18.* While `damage.phone` reads `unknown` (the phone's peer offline) a guarded rule has no
   reading: it neither raises, clears an alert nor drops its baseline.
 - **Reading the state:** Settings → Bastion → `Watcher` on the glasses or the phone (the PC watcher's state line — a
   rule with no usable reading for `haSilentMin` says so there — or "home not answering · PC unreachable since H:MM");
@@ -320,7 +323,7 @@ without writing a row.
   machine's own name and the arriving address — the tailnet's full name goes here). `Host` and `Origin` are checked on
   every request; a page opened under another name is refused 403.
 - **Files in `~/.damage`:** `record.json` (the PC record: Reader's places, bookmarks, the book read most recently, the
-  glasses rows; from 0.68 Torrents' and Files' own rows and the notice record), `oplog.jsonl` (one line per op; set
+  glasses rows; from 0.68 Torrents' and Files' own rows and the notice record; from 0.70 Feed's and Tmux's), `oplog.jsonl` (one line per op; set
   aside whole as `oplog-YYYYMMDD-HHMMSS.jsonl` at a start once past 64 MiB or holding a bad line, never deleted),
   `record.seq` (left by 0.67; no longer read or written), `reader-index.json` (a cache of each book's length, chapters
   and cover; deleting it costs one walk of the shelf at the next start), `devices.json` (the approved browsers),
@@ -380,7 +383,8 @@ clears the phone's working copy and queue — pull the phone's journal before, `
 
 - **The ladder's stage** is kept on the phone (`c1-stage` in its files) and armed at each session start: 0 nothing ·
   1 ZWRITE · 2 and the 256 KiB cache · 3 and ENGINE · 4 and BIND (local input; only on a build that reports
-  DamageCaps bit 10 — on the C1 image a stored 4 arms stage 3's bytes). Set by hand only: the replica WebSocket's
+  DamageCaps bit 10 — on the C1 image a stored 4 arms stage 3's bytes) · 5 and EFFECTS (C3; only on a build that reports
+bit 11 — on the C2 image a stored 5 arms stage 4's). Set by hand only: the replica WebSocket's
   `{"t":"probe","name":"c1","value":"N"}`; it changes the STORED stage, and the next session start arms it (rest on,
   then off, starts one). A lens reset after an arming steps the stage down by itself and says so (`holdback`).
 - **The session's cache size** is the stored last one after an app install or restart (since 0.77); it rises to the
@@ -389,14 +393,18 @@ clears the phone's working copy and queue — pull the phone's journal before, `
 - **Without a Claude session:** `python3 tools/ladder.py state` says what RIGHT reports now; `python3 tools/ladder.py
   4` (or `5`) stores the stage and starts a session so it arms — the display blanks for about two seconds. Stage 5
   (EFFECTS: the transitions, the ring list, the fast DRAW path) is stage 4's bytes plus one flag; 4 is the way back.
-- **Other probes** (same door): `local=state` (what is armed and why not), `taps=phone|report|glasses` (also the
-  Settings row, shown on a C2 build), `hold=on|off` and `mainseq=1|2|3|all` (test pictures; both refused at stage 4),
+- **Other probes** (same door): `local=state` (what is armed and why not), `local=rearm` (the Settings row `Local
+  input`'s re-arm: lifts a hold-back, keeps the stored stage), `taps=phone|report|glasses` (also the
+  Settings row, shown on a C2 build), `hold=on|off`, `mainseq=1|2|3|all` and `motion=NAME` (test pictures; all three
+  refused while BIND is in force, stages 4 and 5),
   `flags=0xNNNN` (refuses a bit `FIRMWARE.md` does not define, and any ladder bit beyond the stage), `rest=on|off`.
 - **After stage 4 is armed, read in the phone's journal:** `local` (reports, answers, what was not sent and why),
   `mainstage` (what was staged, its bytes, "not staged — why"), `snapback` (with its cause), `tapdrop`, `repair`,
   and the telemetry fields 35–39. `tools/journal_report.py` prints them.
 - **The flash** is `FORK.md` §7, on his go per lens, never otherwise. The C2 candidate is a file in the fork's
   `c2` worktree (pin `b3f04453…`); the installed C1 image is kept in `fws/2.2.6.10-cfw-0dab2154/` as the rollback.
+  *2026-11-23: since 11-20 the installed image is C3's `58741c4a…` (`fws/2.2.6.10-cfw-58741c4a/`), C2's `b3f04453…` the
+  rollback (`fws/2.2.6.10-cfw-b3f04453/`); stage 5 since 11-21 (`HANDOFF.md` §99, §101.1).*
 
 ## What was verified vs what awaits glass
 
@@ -407,5 +415,5 @@ glass test:** the sync feel across a driver swap (a book position following the 
 moot since W made PC-direct BLE manual (`drive=ble` by hand is its replacement, below). **Games
 (`HOLDEM.md`) needs nothing from ops** — no host, no provider, no channel; its state is the shell's own store
 (`window.games`, `window.games.world`, `window.games.bankroll`, `window.games.table`,
-`window.games.char.<id>`) and syncs like every other window's. ⚠ Its layouts and card art have never been seen
+`window.games.char.<id>`) and syncs like every window not yet on the PC's record. ⚠ Its layouts and card art have never been seen
 on the glasses — only on the simulator at true 1×.

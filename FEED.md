@@ -19,8 +19,8 @@ fallback for everything that we can"* — as built; verdict 15's note). Where §
 §8 (as built) differ, §8 is what runs; `IMPLEMENTATION.md` → "Feed" is the running inventory.
 
 **Status since build S1-3 (APK 0.70, 2026-11-18; `HANDOFF.md` §89 the record; `CONTRACT.md` §12 the contract):
-Feed is on the PC's record**, built and gated on the simulator, the PC and in headless Firefox; not yet deployed or
-used by him. What changed against the sections below:
+Feed is on the PC's record**, built and gated on the simulator, the PC and in headless Firefox; deployed 2026-11-18
+(`HANDOFF.md` §91.1), his use not yet reported. What changed against the sections below:
 - **One copy on the PC.** `FeedCore` holds his state in the record (`rec.feed.…`: a read list per source, the 600
   newest; flags; seen stamps; the open article's place as block and offset; the archive's place; pins; browse recents;
   Fetch, Keep and the three Notify rows; the glasses rows) and raises Feed's notices once, on the PC (a first sight of
@@ -173,7 +173,8 @@ tests replay the captured responses. Image decode through the existing `ImageDec
 ## 3. The window (`FeedWindow`, id `feed`)
 
 **Declares:** `needs` = **none** on every host — the desktop runs the engine locally; the phone
-prefers the remote engine with its own as fallback (the staleness line says which serves) · face
+prefers the remote engine with its own as fallback (the staleness line says which serves; since S1-3 the phone
+reads the PC's engine only, §3.6) · face
 **Fira Sans** for lists and comments, **Alegreya** for the article Document (`EXPLOSION.md` §16.6)
 · icon `IconKind.FEED` (theme names `application-rss`, `feedreader`, `internet-feed-reader`,
 `internet-news-reader`, `com.gitlab.newsflash` — all in Papirus-Dark; the drawn fallback is the rss
@@ -199,7 +200,8 @@ SOURCES (List, root) ─tap─▶ ITEMS (List, one source) ─tap─▶ ARTICLE 
 - **SOURCES** (root; `ActivationSource.MAIN` lands here, `SWITCHER` resumes). Rows in config order:
   name (bold while unread) · `12 new` · fetch age; pinned browses after; the 8-Bit Theater row reads
   `page 412 of 1225`. Lens: `25 items · 12 unread · fetched 4 m ago` or the staleness line (`PC
-  unreachable 40 s` / `phone engine · PC down 3 m` / `Reddit rate-limited · retry 50 s`). Cursor:
+  unreachable 40 s` / `phone engine · PC down 3 m` / `Reddit rate-limited · retry 50 s`; since S1-3 the first is
+`PC unreachable since 14:02` and the second is gone). Cursor:
   row 0 on descent, the row left on ascent.
 - **ITEMS** (one source). Row: drawn flag mark when flagged · title (fit) · tail per kind — Reddit
   `↑ 45 cmts · 3 h · r/linux` (the Atom has no score), Slashdot `59 cmts · 2 h · linux`, xkcd
@@ -307,7 +309,9 @@ for feeds, hourly for comics, never on the shell loop.
 cursor, page) · `article` (text blob) · `comic` (strips blob) · `binge` (comic, episode → episode
 line + strips blob; `index` → the episode table) · `comments` (text blob) · `refresh` (source or
 all) · `browse` (kind + name → a transient source id) · push `changed` (source, version) so an
-active list repaints only what changed. Strips ride the blob lane as packed 4-bit rows, deflated.
+active list repaints only what changed. Strips ride the blob lane as packed 4-bit rows, deflated. (As built the
+archive's op is `episode`, beside `item`, `articleUrl`, `image`, `comicRange`, `comicAt`, `forget`, `focus` and a
+pushed `state` — `FeedNet.kt` 110–213.)
 
 **The switch (verdict 15, Music's shape; retired in S1-3 — the phone reads the PC's engine only):**
 `SwitchingFeedProvider` wraps `remote` (preferred) and `local`. Past the `PC loss` threshold the
@@ -372,7 +376,8 @@ The bar (`WINDOWS.md` §6): a list notch's first flush under ~1 KB and first vis
 - **`ScriptedFeed`**: seeded sources and items, scripted refreshes (new items under the cursor), a
   scripted rate-limit, a scripted PC loss. The selfcheck walks root → source → article → actions →
   comments → flag → flagged → a comic → the binge (next, previous, jump) → Browse (keyboard) → Pin
-  → Mark all read (confirm) → the switch and the `Back to PC` row.
+  → Mark all read (confirm) → the switch and the `Back to PC` row. *2026-11-23: the PC loss, the switch and the row
+  left with the phone engine in S1-3; the scripted outage is a source's (`ScriptedFeed.slashdotDown`).*
 - **Core tests**: parser pins per source; the read-set union; the tombstone rule; the persistence
   round-trip (byte-identical frame); continuity (§3.5); `open(target)` for every form; the identity
   cursor across an inserting refresh; the §3.4 decision on the samples; the strip cutter's bytes
@@ -415,6 +420,9 @@ M1 engine · M2 window · M3 channel + switch with M4 phone · M5 the record; wh
   not "fix" a 90 % comic by dimming it.
 - **Measured vs modeled**: every number in §2.6 and §3.8 is modeled until the walk measures it.
 - **Wording**: `CLAUDE.md`'s plain-engineering table in comments, notices and this record.
+
+*2026-11-23: since S1-3 two of these name code that is gone — `saveSubState` (a source's marks are `FeedCore`'s
+record items) and the phone engine (§3.6).*
 
 ## 7. Kickoff for the POLISH session (the build is done; this replaces the build kickoff)
 

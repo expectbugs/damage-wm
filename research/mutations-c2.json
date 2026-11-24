@@ -3907,8 +3907,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (!r.switched && r.record.state == StagedRecord.State.PROVEN && !local.burstOpen) {",
-    "        if (!r.switched && r.record.state == StagedRecord.State.PROVEN) {"
+    "        if (counted && !local.burstOpen && localUncovered()) {",
+    "        if (counted && localUncovered()) {"
    ]
   ],
   "tests": [
@@ -3917,7 +3917,7 @@
   "expect": [
    "(declared, no pin: the write itself goes only with no burst open, so the switch is reached in a burst only when a burst opens between the write's submit and its count — tens of ms on the instant rig; the run shows what fails beside it)"
   ],
-  "note": "the switch's SETs no longer wait for a burst opened after the write",
+  "note": "the switch's SETs no longer wait for a burst opened after the write [re-pointed at C3 X3: the switch's condition reads the count once and the list uncovered]",
   "from": "K1-1"
  },
  {
@@ -3963,8 +3963,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (!r.switched && r.record.state == StagedRecord.State.PROVEN && !local.burstOpen) {",
-    "        if (!r.switched && (r.record.state == StagedRecord.State.ACKED || r.record.state == StagedRecord.State.PROVEN) && !local.burstOpen) {"
+    "        val counted = !r.switched && r.record.state == StagedRecord.State.PROVEN\n",
+    "        val counted = !r.switched && (r.record.state == StagedRecord.State.ACKED || r.record.state == StagedRecord.State.PROVEN)\n"
    ]
   ],
   "tests": [
@@ -3973,7 +3973,7 @@
   "expect": [
    "aScrollRowChangeWritesThePansAloneNeverAStrip_K11"
   ],
-  "note": "the switch (and so the SETs) at the write's ack, before the count (field 17) proved it",
+  "note": "the switch (and so the SETs) at the write's ack, before the count (field 17) proved it [re-pointed at C3 X3: the count is read once, into `counted`]",
   "from": "K1-1 fix stage"
  },
  {
@@ -5908,7 +5908,7 @@
   "file": "motion/Motion.kt",
   "edits": [
    [
-    "        if (program.version == 2) budget(others + Drawing(program.cost(p)), \"PLAY\")",
+    "        if (program.version == 2) budget(others + Drawing(cost ?: program.cost(p)), \"PLAY\")",
     ""
    ]
   ],
@@ -5918,7 +5918,7 @@
   "expect": [
    "theDslRefusesWhatSection72Refuses_7_2"
   ],
-  "note": "C3-DP1b: 7.12: no step budget at a PLAY (lane row `budget-at-play`)",
+  "note": "C3-DP1b: 7.12: no step budget at a PLAY (lane row `budget-at-play`) [re-pointed at C3 X3: the PLAY reads a kept C where its caller has one]",
   "from": "C3-DP1b"
  },
  {
@@ -6832,8 +6832,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "                k.cells = screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, Rect(0, 0, comp.width, layout.safe.bottom))\n            }\n            k.pick = e",
-    "                k.cells = screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, Rect(0, 0, comp.width, layout.safe.bottom))\n            } else k.cells = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom))\n            k.pick = e"
+    "                if (record) k.cells = screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, Rect(0, 0, comp.width, layout.safe.bottom))\n            }\n            k.pick = e",
+    "                if (record) k.cells = screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, Rect(0, 0, comp.width, layout.safe.bottom))\n            } else k.cells = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom))\n            k.pick = e"
    ]
   ],
   "tests": [
@@ -6842,7 +6842,7 @@
   "expect": [
    "theScreensAreRecordedOnlyForEncodePicks_X2T"
   ],
-  "note": "C3-X2T: item 4: the leaving screen recorded at every pick, not only Encode's (lane row `x2t-record-every-pick`) [re-pointed at MR-083: C3-X4T item 1 filters the recording under a notice box (the box is Encode's branch's own): the variant now records at every other pick too]",
+  "note": "C3-X2T: item 4: the leaving screen recorded at every pick, not only Encode's (lane row `x2t-record-every-pick`) [re-pointed at MR-083: C3-X4T item 1 filters the recording under a notice box (the box is Encode's branch's own): the variant now records at every other pick too] [re-pointed at C3 X3: Encode's recording is skipped for an act that changes no screen]",
   "from": "C3-X2T"
  },
  {
@@ -9877,6 +9877,154 @@
   ],
   "note": "C3 X1MX2 item 3's class: the frames give at the setting's own period (a step lost to whole-tick rounding, e.g. Warp at 300 ms / 4 frames plays one step a half)",
   "from": "C3-X1MX2"
+ },
+ {
+  "id": "X3-stale-switched",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (counted && r.programs.motion != motionInForce()) {\n",
+    "        if (false) {\n"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.stepsUnderACover*"
+  ],
+  "expect": [
+   "stepsUnderACoverSwitchOnceToTheLastOnTheReturn_X3"
+  ],
+  "note": "C3 X3 item A (decisions CA (2)): a counted re-make the rows no longer ask for is switched (on the return) instead of dropped — the return SETs the intermediate effect and the chosen one follows in front",
+  "from": "C3-X3"
+ },
+ {
+  "id": "X3-covered-switch",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (counted && !local.burstOpen && localUncovered()) {\n",
+    "        if (counted && !local.burstOpen) {\n"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.stepsUnderACover*"
+  ],
+  "expect": [
+   "stepsUnderACoverSwitchOnceToTheLastOnTheReturn_X3"
+  ],
+  "note": "C3 X3 item A (decisions CA (2)): a counted re-make is switched under the cover (the tree before X3) — its old pans' slot is held until the return, so a second change is made only then, with Main in front",
+  "from": "C3-X3"
+ },
+ {
+  "id": "X3-costs-each-read",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "        val outCost: Long by lazy { out.cost() }\n",
+    "        val outCost: Long get() = out.cost()\n"
+   ],
+   [
+    "        val inCost: Long by lazy { inn.cost() }\n",
+    "        val inCost: Long get() = inn.cost()\n"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.anEncodeActWorks*"
+  ],
+  "expect": [
+   "anEncodeActWorksEachCostOutOnceAndAnActOnTheSameScreenRecordsNothing_X3"
+  ],
+  "note": "C3 X3 item B (decisions CD (a)): the plan's costs worked out at every read (the tree before X3: about nine an act)",
+  "from": "C3-X3"
+ },
+ {
+  "id": "X3-play-works-its-own",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "tagOut, 0, IntArray(4), cost = b.outCost) }",
+    "tagOut, 0, IntArray(4)) }"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.anEncodeActWorks*"
+  ],
+  "expect": [
+   "anEncodeActWorksEachCostOutOnceAndAnActOnTheSameScreenRecordsNothing_X3"
+  ],
+  "note": "C3 X3 item B (decisions CD (a)): the out half's PLAY works its C out again instead of reading the plan's",
+  "from": "C3-X3"
+ },
+ {
+  "id": "X3-record-same-screen-tap",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            record = !(mode == Mode.WINDOW && current === settingsWindow && !settingsWindow.tapChangesScreen()))",
+    "            record = true)"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.anEncodeActWorks*"
+  ],
+  "expect": [
+   "anEncodeActWorksEachCostOutOnceAndAnActOnTheSameScreenRecordsNothing_X3"
+  ],
+  "note": "C3 X3 item B (decisions CD (b)): a Settings tap entering the adjust level records the leaving screen (the tree before X3)",
+  "from": "C3-X3"
+ },
+ {
+  "id": "X3-record-same-screen-back",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        }, record = !(mode == Mode.WINDOW && current === settingsWindow && settingsWindow.adjustingNow()))",
+    "        }, record = true)"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.anEncodeActWorks*"
+  ],
+  "expect": [
+   "anEncodeActWorksEachCostOutOnceAndAnActOnTheSameScreenRecordsNothing_X3"
+  ],
+  "note": "C3 X3 item B's class: a Back leaving Settings' adjust level records the leaving screen (the tree before X3)",
+  "from": "C3-X3"
+ },
+ {
+  "id": "X3-category-tap-unrecorded",
+  "file": "shell/SettingsWindow.kt",
+  "edits": [
+   [
+    "        if (openCat < 0) return true\n",
+    "        if (openCat < 0) return false\n"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.anEncodeActWorks*"
+  ],
+  "expect": [
+   "anEncodeActWorksEachCostOutOnceAndAnActOnTheSameScreenRecordsNothing_X3"
+  ],
+  "note": "C3 X3 item B: the predicate too eager — a tap opening a category is taken for one that changes no screen, so Encode leaves the pick",
+  "from": "C3-X3"
+ },
+ {
+  "id": "X3-sub-tap-unrecorded",
+  "file": "shell/SettingsWindow.kt",
+  "edits": [
+   [
+    "        return e.sub != null || e.tap != null\n",
+    "        return e.tap != null\n"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.anEncodeActWorks*"
+  ],
+  "expect": [
+   "anEncodeActWorksEachCostOutOnceAndAnActOnTheSameScreenRecordsNothing_X3"
+  ],
+  "note": "C3 X3 item B: the predicate too eager — a tap opening a tier's sub menu is taken for one that changes no screen",
+  "from": "C3-X3"
  },
  {
   "id": "K12S1-O1-no-withdrawal-at-256",

@@ -1,7 +1,8 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §100** (APK 0.83 integrated and STAGED on 11-21: the scroll rules, Main's scroll
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §101** (stage 5 on his glasses; APK 0.84 staged) →
+**§100** (APK 0.83 integrated and STAGED on 11-21: the scroll rules, Main's scroll
 effects, the notice on the engine and the transitions in one build; the ring list built and read once) → **§99** (C3 FLASHED on both lenses on 11-20, APK 0.82 on his phone, the
 first sessions and the stage-4 trial) → **§98** (the effects build C3 to a final candidate and through its
 flash-readiness review — nothing flashed; the transitions; his fast-scroll session read against the rules: late
@@ -29,15 +30,24 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   scroll effects, the wheel's stage-5 margins. **Told to him at the staging, and still true:** Crush, Flip, the new
   Matrix and Warp/Flip at the new fit have no filled vector yet (model and pins only); a scroll effect stepped
   through several values at once comes back as the first for a moment; the wheel is still phone-drawn.
+  ***2026-11-23: the first of the three is closed*** — the 34 files are filled by the fork's C and the model agrees
+  on all 246 files, 15,230 lens-steps, 0 disagreements (`main` `d4eeaaba`; 0.84's product code is unchanged by it;
+  the whole core suite 2,090 / 0 on that head). Matrix has had its second and last general pass: nothing stops it;
+  a small fix stage follows (Warp and Flip to fill the tier's length, the rain's plane against Global `Depth`).
 - **The way back from stage 5 without a session:** `python3 tools/ladder.py 4` (`DAILY.md`).
 - **Planned on 2026-11-22 (his ask, no code): Music's motion update** — `MUSIC.md` §14 (the bar and timer, the
   visualizers and the lyrics as programs the glasses play, sent ahead of the playhead; a Global beat pulse as a
   firmware item); placed at K3 (`REPLAN.md` §17.3 item 9).
 - **The documents were brought to date on 2026-11-22 (his ask):** every document's statements about the present
   (the README, the plan's status block under `REPLAN.md` §16.1, `FORK.md`, the window and spec records), and
-  seventeen listed passages settled against the code. **Owed:** the bodies read line by line against the code, and
-  a section in `IMPLEMENTATION.md` for the phone's halves of C1–C3 (the motion programs, the scroll effects, the
-  transitions) — it has none.
+  seventeen listed passages settled against the code. **On 2026-11-23 every body was read against the code** (six
+  lanes; `IMPLEMENTATION.md` gained its section on the phone's halves of C1–C3). What that read found that no
+  document can fix is "Open from the documents' audit" below. Since then every document's status is swept at the
+  close of each build, the README first.
+- **2026-11-23, 15:00 — his usage reset and the work resumed on his word.** The fork filled the 34 new ship vectors
+  (Crush, Flip, the new Matrix, Warp and Flip at the raised fit: no refusal, 246 of 246 on its side); their
+  comparison with the model, the two stopped stages (`wip/084-x3b`, `wip/084-k12s1`), Matrix's second pass and the
+  wheel's spec amendment for DW-1 are in work. Nothing new is on his devices: 0.84 is still the one staged build.
 - **Stopped at his word on the week's usage (93 %), work in progress committed:** `wip/084-x3b` (the stale re-make;
   Encode's plan once), `wip/084-k12s1` (Main on one strip, per-row band slots). The vector lane's inputs
   (`wip/084-sv2`) then ONE fork fill and the comparison are the first thing owed.
@@ -48,6 +58,29 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   uneven ones); Matrix's drops gather for a few frames, hold one, then fall; in his fastest bursts (about 120 ms
   between notches) Crush's far rows jump about 23 px at each notch — the installed firmware starts every notch
   from the rest before it; at stage 5 the switcher's panel has a black margin of its depth.
+
+## Open from the documents' audit (2026-11-23)
+
+Where the code does not do what a ruled design or the contract says; each document carries a dated note at the place.
+- **His to decide** (put to him 11-23; **the four rows answered the same day, "All your recommendations above are
+  good":** `Profiler`, `Diag overlay` and `Head tracking` are removed and `Battery alert` hidden until its pulse
+  exists — S1-5's Settings stage does it): four Global rows have no reader — `Profiler`, `Diag overlay`, `Battery
+  alert`, `Head tracking` (`DESIGN.md` §4.2; the lead would remove the first, second and fourth when Settings is
+  next touched); the battery cell's pulse at 20 % or below was never driven (§4.1; the lead would build it when the
+  status cells go to the firmware and hide the row until then); `Slide frames` and `Slide fill` still sit in Global
+  beside `Animations` (they drive the phone-drawn slides); §6.2's rule on what a transition may cost reads as
+  general while the engine's effects exist.
+- **The lead's to place:** `Quiet hours` holds only the notices raised on the PC (Torrents, Feed, Tmux, the
+  watcher, "home unreachable") — it closes as Music, Games, Reader and the shell's own notices move (S1-4, S1-5) ·
+  Tmux and Torrents do not dim their keys and actions while the PC is out of reach (`CONTRACT.md` §12, `REPLAN.md`
+  §14.3 #2), a press is sent and fails — with S1-5's cross-window pieces unless he wants it sooner · `CONTRACT.md`
+  §3.1's vocabulary against what the cores send (`min`; `availability` loading · waiting · away; no window sends
+  `stale{since}` or `attention`) — ruled at S1's close · the moved-book alias (`CONTRACT.md` §5, §14 (b)) was never
+  built: a moved book gets a new id — placed or dropped at S1's close · the switcher's centre title is cut with the
+  drawn mark where the design says marquee, its icon is 56 px where §4.3 says 64, the notice's source icon is not
+  drawn — with DW-1 and K1's notice.
+- **Small, for whoever next touches the code:** the `mainseq` probe (refused at stages 4 and 5) · the comment in
+  `LadderRecord.kt` that says stage 0..4 · the comment in the service's init script that describes the old standby.
 
 ## Where we were (2026-11-21, morning)
 
@@ -141,6 +174,10 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 | the test motions (Main's rows staged, `hold`, `mainseq`) | `main` | deployed: APK 0.72 (18:54) and 0.74 (21:55) on 11-18; judged by him (§92.1) |
 | C2 (the second flash: local input) | fork `c2` `5c728bb` (pin `b3f04453…`); its phone half on `main` | **flashed 11-19, stage 4 armed 12:22; four looks (§94–§97); APK 0.81 installed, 0.82 staged** |
 
+*2026-11-23: the table stands as of 11-20. Since: C3 flashed on both lenses 11-20 (§99) and stage 5 armed 11-21
+(§101.1); APK 0.83 (the transitions, the scroll effects, the notice on the engine) on his phone, 0.84 staged and on the
+PC (§100, §101); S1-4 still waits. The state is "Where we are" above.*
+
 The counts of APK 0.82's tree (simulator; §97.2): core 233 classes / 1,828 tests · desktop 14 classes / 53 ·
 `--selfcheck` 486 PASS ×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the mask · `--local-check` 64 cases ·
 the 66 conformance vectors in both forms · node 200 · lint 0 · wiring 79 ok. The fork at `c2`: `tools/verify.py` 38
@@ -157,22 +194,28 @@ every stage are in the gitignored `private/build068` … `build072` (C2: `build0
 
 The order is `REPLAN.md` §17.3. **Every run: its size and what he gets for it first, both meters read before and
 after** (§17.6). New firmware features are armed and tested at once on his go, not over days (§91.3).
+*2026-11-23: items 1–3 are as of 11-20; since, C3 and stage 5 are on his glasses with APK 0.83, and the motion kit's
+shell part is in build (0.83, 0.84 staged; §100, §101). What is owed first is in "Where we are" above.*
 1. **C2's trial goes on with APK 0.82** (§97.2; what is owed on his face is above), and what the trial still owes: the feel of Main's scroll and tap; fields 16, 33, 34, 37, 38; `tapdrop`, `snapback`; the 114
    and 115 gaps; LEFT's first step on 240 fps video; a gesture's WAIT right after a session start (each staged strip
    is one flush of about 20 KB — two windows of about 1.3 s, modeled; the cure, a record split across flushes, is the
    first build after if it is felt). The `mainseq` probe leaves in the first build after stage 4 is armed.
-   **Recommended to him, not built:** a liveness supervisor for the phone's shell loop (§92.10).
+   *2026-11-23: it is still in 0.83 and 0.84; it is refused while BIND is in force (stages 4 and 5), and it goes when
+   that code is next touched.*
+   **Recommended to him, not built:** a liveness supervisor for the phone's shell loop (§92.10) — built since as RA-1
+   (`core/…/shell/LoopWatch.kt`), deployed with 0.79.
 2. **C1's numbers as he uses the glasses** (the 114 gap counts, field 33 under a working shell, the round trip's
    p90) feed C2's constants (`FIRMWARE.md` §6.9).
 3. **After C2: the motion kit's shell part** (`REPLAN.md` §17.3 item 6), before S2.
 4. **Reddit in Feed** (§91.5, §100.9): no network path gets a feed — Reddit ended them; his word on what replaces the source, then the change.
 5. **S1-4** (Music: his five answers are in, `REPLAN.md` §17.3 item 7; the lean spec, then the build), **S1-5** (the alerts onto the notice record; the phone's caches), **R-b**
-   (one health view on every surface, §17.4), then §16.1's order. His answer is owed on moving the motion kit's shell
-   part ahead of S2.
+   (one health view on every surface, §17.4), then §16.1's order. The motion kit's shell part goes ahead of S2 (his yes, §91.8; `REPLAN.md` §17.3
+   item 6).
 6. **The first days of 0.66 and 0.67** (§79.9, §80.10) are still unread on his devices.
 
-**What waits on him:** the 0.70 sitting (the PC deploy and his install together, `DAILY.md`); each C1 stage's arming;
-**his go per lens for C2's flash** (prepared: §93.4). Also his, whenever he likes: the lead's
+**What waits on him:** his install of APK 0.84 (staged 11-22, §101); any change of the ladder's stage (at its top,
+5, since 11-21) and any flash, per lens (C3 installed since 11-20, §99; the 0.70 sitting and C2's flash are done,
+§91, §94). Also his, whenever he likes: the lead's
 calls in §84.2 and S1-3's four in §89.5 (each reversible); a hardware watchdog for the PC (R-c); the fork's push and
 its records' move to `c1`; "delete" for the stray private page (§79.8); which alerts are urgent; deleting the phone's
 old `feed/` folder after 0.70.
@@ -289,7 +332,8 @@ his shelf's titles in a tracked file; tests use made-up ids such as `sensor.fres
   `retry="SIGTERM/30/SIGKILL/5"`; the original is `~/.damage/backup/init.d-damage.pre-72` (never in `/etc/init.d`).
 - `/etc/local.d/tailscale-bypass.start` (§47): Tailscale's marked traffic (fwmark 0x80000) via the LAN gateway (table
   100, pref 5200), not the VPN; after a change `sudo rc-service tailscale restart`. `~/damage-cfw` (`FORK.md` §10 and its
-  remotes; `origin` = upstream, fetch only, never pushed to) is from `reference/g2flash` at `a5d1c31`, branch `damage`;
+  remotes; `origin` = upstream, fetch only, never pushed to) is from `reference/g2flash` at `a5d1c31`, branch `damage`
+(then `c1`, `c2`, `c3`; the installed image is `c3`'s);
   its `g2_2.2.6.10.bin` links to `fws/2.2.6.10/e287…bin`. `~/.local/bin/yt-dlp` updates itself (`-U`).
 
 ## How to resume
@@ -297,8 +341,8 @@ his shelf's titles in a tracked file; tests use made-up ids such as `sensor.fres
 **`aphone` does not resolve on beardos: use the phone's Tailscale address (`tailscale status | grep aphone`). Every
 `glassdrive.py` line drives or writes to his glasses through his phone: only when he asked or is there to watch. The
 `curl` reads are read-only.** "Scanning forever" while the OS shows Connected: toggle the phone's Bluetooth. Gates:
-`CLAUDE.md`; the ops crib, the watcher, the web listener and the drive lines: `DAILY.md`. Kept builds: `~/.damage/backup/` (the 0.67 and 0.68 jars and
-APKs; the data files as they stood before 0.68's first start in `pre-068/`; from the 0.70 sitting the 0.69 ones and
+`CLAUDE.md`; the ops crib, the watcher, the web listener and the drive lines: `DAILY.md`. Kept builds: `~/.damage/backup/` (the jar and APK of each deploy, 0.62–0.63 to
+0.83; the data files as they stood before 0.68's first start in `pre-068/`; from the 0.70 sitting the 0.69 ones and
 `pre-070/`).
 
 ```

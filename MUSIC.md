@@ -78,7 +78,7 @@ radio is not the default.
 - **Shell pieces already waiting:** `IconKind.MUSIC` + theme names `multimedia-audio-player` /
   `audio-x-generic`; Silent Mode's input path (`DESIGN.md` §1.5) is the model for Music Mode. (The
   Global `notifyMusic` gate of the time was removed, `HANDOFF.md` §24.3: the field remains,
-  `ShellSettings.kt:125`, and gates nothing — `noticeAllowed`, `Shell.kt:2338`, leaves Music to
+  `ShellSettings.kt:164`, and gates nothing — `noticeAllowed`, `Shell.kt:2553`, leaves Music to
   its own six Notify rows.)
 - **The seam:** the §16.10 window channel (`WinNet.kt`), the Torrents Local/Remote split
   (`TorrentsNet.kt`), the Files blob lane (`FilesNet.kt`). Music built the channel's PUSH slice
@@ -221,7 +221,8 @@ mode, volume 0–100, boost %, output, pcLink UP | DOWN(sinceMs), sleep, holdVol
 are by `qid`; `setVolume(pct, cause)` names its cause; `backToPc()` is the deliberate switchback;
 `positionMs()` is EXACT, monotonic-extrapolated between ticks (lyrics use it); listeners get
 state, a paced tick(posMs) and events TrackChange · QueueEnd · RouteLost · Error · LimiterUndone ·
-LimiterKeeps · BoostOff · BoostLoud · SleepEnded · BackendChanged · PcUnreachable.
+LimiterKeeps · BoostOff · BoostLoud · SleepEnded · BackendChanged · PcUnreachable (as built also QuietStream ·
+OutputGone, `MusicModel.kt`).
 **Persistence** (`PlayerCore.persist()`): engine (queue / index / mode / label), the REAL play
 state, `posMs` + `posAt`, backend, spotifyAuto, volume, holdVolume, profile, prefetch,
 spotifyFallback, output → the sub-record `window.music.player`, no stamp of its own (LWW
@@ -337,7 +338,7 @@ NOW PLAYING (Canvas, root; scroll = volume) ──tap──▶ MENU (MenuSurface
 ```
 - **Card (the lens)**: art 56 px (or the drawn note) · title · artist — album · a 12-block bar +
   m:ss / m:ss on the current entry (queue position i/n and the mode word on others) · state glyph
-  ▶ ❚❚ ■ · backend/link badge (`PC` · `PC ↓ 2m` · `Spotify`) · boost badge when active. Cursor
+  ▶ ❚❚ ■ · backend/link badge (`PC` · `PC down 2m` · `Spotify`; `MusicWindow.linkBadge`) · boost badge when active. Cursor
   rests on the current entry at every level change; row identity is `qid`.
 - **Row menu**: Pause/Play (current) or Play from here · Track info (Document) · Play next (not the
   current) · Move up · Move down · Add to playlist… · Lyrics · Remove (not the current; LAST — the
@@ -536,7 +537,7 @@ radio, pre-transcode) · **M6** docs + staging (APK 19/0.19). The later rounds a
 - **Row identity**: queue rows keyed by `qid`, never by index — shuffle and radio reorder under the
   cursor. Restored cursors wait for content.
 - **One dirty rect per surface per frame.** A visualizer painted bar-by-bar burns the mode-3 fid
-  budget (~6 per batch) and is silently skipped; paint the strip as one rect. Cached draws (modes
+  budget (5 per batch at the 3-deep pipeline, `Geometry.rectBudget`) and is silently skipped; paint the strip as one rect. Cached draws (modes
   13/14) are the compositor's, never a window's; mode 15 never.
 - **Pacing, not timeouts**: the lyric scheduler, sleep, prefetch, hold-volume all use scheduled loop
   ticks with generation stamps (the `SilentTick` shape). No `wait_for`, no time-bounded wrappers.

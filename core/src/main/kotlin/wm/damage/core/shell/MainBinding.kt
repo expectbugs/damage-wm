@@ -67,7 +67,9 @@ internal class MainBinding(
     /**
      * K1-1: a re-make of the pans alone (a change of the scroll rows, or Auto's steps following the period in force) — the
      * six questions (`FORK.md` §3.8): (a) begun in the idle pump with no burst open and no motion of the list that may
-     * still draw, no row's re-stage unreleased and the base records counted; gone at the staging's drop. (b) [record] is
+     * still draw, no row's re-stage unreleased and the base records counted; gone at the staging's drop, and (C3 X3) when
+     * it is counted for a motion the rows no longer ask (never switched; the next is made for the rows as they are); switched
+     * only with the list uncovered, so a change made under a cover is SET by the return's batch. (b) [record] is
      * written into the free pan slot (nothing names it there); the entries are SET only once it is counted (field 17) —
      * a write that fails or is called short leaves the registry and the re-make is owed again from the start. (c) Keyed
      * on the staging and the slot. (d) The shell's loop only. (e) One read of the record's state per poll. (f) Its

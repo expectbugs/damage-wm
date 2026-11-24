@@ -23,6 +23,9 @@ record is an ACTION LOG the engine replays) · `FeedWindow` (`FEED.md`: ONE engi
 phone's parked and switching back only by hand — as built; the phone's engine retires at step S1, `CONTRACT.md`
 §14 (a) row 1 — retired in S1-3, APK 0.70, `HANDOFF.md` §89.1; the Reader grammar over nine levels; synced reading state with a union rule for read marks; an
 endless archive Document; strips on demand from `view()`).
+*2026-11-23: since S1-1 to S1-3 the five converted precedents are `XGlasses` presenters over an `XCore`
+(`ReaderGlasses`, `TmuxGlasses`, `FilesGlasses`, `TorrentsGlasses`, `FeedGlasses`); `XWindow(…)` stays as each one's
+compatibility factory (`core/…/windows/*/*Glasses.kt`). `MusicWindow` and `GamesWindow` are classes still.*
 
 **What changes at step S1** (`REPLAN.md` §14, `CONTRACT.md` §11): everything below describes the contract as built.
 From S1 the PC owns every window's state, each window splits into a core and a glasses presenter, and the sync
@@ -304,6 +307,9 @@ per screen.
    through `runOnShell` with a generation guard.
 6. **No animation of its own.** Frames per notch are the shell's setting (`Slide frames` and `Slide fill` as
    built; one Global `Motion` row replaces both when the motion engine is adopted — `MOTION.md` §6 C4).
+   *2026-11-23: what was built instead is the `Animations` category, one row per tier (`MOTION.md` §7; shown on a
+   build with local input, the transitions' tiers only at stage 5 — `core/…/shell/SettingsWindow.kt`); `Slide frames` and
+   `Slide fill` remain for the shell's own slides.*
 7. **Ship with numbers.** Walk it with `tools/glassdrive.py` (snap before every tap), read `/journal` through
    `tools/journal_report.py` — its **"time to first visible change per gesture"** section is the judgment (§42)
    — and put the rows in the window's record. **The bar, measured on glass on 0.40 (2026-09-07 → 09,

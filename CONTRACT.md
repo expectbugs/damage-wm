@@ -23,6 +23,8 @@ row or answer (§14.1 R3, §14.3 #2, §15 A2); this file's own decisions are cit
 and each window's recorded verdicts are not re-opened. Grades: **read** (cites `file:line`: `S/` =
 `core/src/main/kotlin/wm/damage/core/shell/`, `C/` = `core/…/core/`, `W/` = `C/windows/`, `D/` = the desktop module's
 sources), **inferred**, **unknown**. Nothing here was measured on his devices.
+*2026-11-23: the `file:line` citations are as of each section's date; file and class names are kept current, line
+numbers are not.*
 
 ---
 
@@ -250,6 +252,10 @@ one copy (§14.2). The line, fixed here for every window (§12 gives each field)
 | `levels` | kinds `collection` · `document` · `canvas` · `form` · `actions` | instances fetched by address (§5); each names its `rest` row, the harmless cursor rest (`DESIGN.md` §1.7) |
 | `current`, `settings`, `jobs`, `search` | anchor · rows (§6) · Job (§3.2) · index name | `current` is the shared item where one exists (the book read most recently, now playing); `jobs` replaces `setOperation`'s text; `search` serves `INTERFACES.md` W-05 |
 
+*2026-11-23: as built (S1-1 to S1-3) the level field is `min`; `availability` is `live` or `unavailable` (Reader,
+Files; Reader also `loading`) and `live`, `waiting` or `away` (Torrents, Feed, Tmux), with a `reason` when not live; no window
+sends `stale{since}` or `attention` (`C/app/PcScopes.kt`, each `XCore`'s describe).*
+
 ### 3.2 Content kinds
 
 | kind | fields | for |
@@ -343,8 +349,8 @@ allowlist entry, never from a model** (`REMINDERS.md` H-19). **A guarded op is t
 the command line or the helper, which passes only an action id — makes the PC word the confirm from the allowlist entry
 and show it on his interfaces; the confirm comes only from an interface with a screen at level full, so the command
 line and the helper can raise it and never give it. In S1 the glasses keep today's confirm text and shapes (the act
-behind a dim spacer, `W/files/FilesWindow.kt:974-980`, `W/torrents/TorrentsWindow.kt:697-706`; Tmux's at row 0, cursor
-on cancel, `W/tmux/TmuxWindow.kt:654-670`); the popover family's CONFIRM replaces them in K (`POPOVER.md` §4.3). A
+behind a dim spacer, `W/files/FilesGlasses.kt:1172-1178`, `W/torrents/TorrentsGlasses.kt:840-847`; Tmux's at row 0, cursor
+on cancel, `W/tmux/TmuxGlasses.kt:759-772`); the popover family's CONFIRM replaces them in K (`POPOVER.md` §4.3). A
 guarded op's confirm is void if its interface's connection ends before the act — nothing is sent on half a confirm
 (`BASTION.md` §9; built with the guarded kind). Every other confirm stands: a queued kind's op applies locally, and on a
 page an outbound or program act goes on the connection current at the act.
@@ -389,7 +395,8 @@ percent-encoded. Cursors and scroll are stored only as anchors, never as indices
 Identities: Reader's book id hashes the PC path (`C/content/Content.kt:94-97`) and a moved file keeps its records
 through a content-hash alias recorded at rescan (§14 (b)); Files rows are folder + name; Tmux sessions (host, name);
 Torrents the hash; Feed items the 16-hex hash of source + guid (`W/feed/FeedModel.kt:151`); queue entries
-`<stream>.<n>.<k>`.
+`<stream>.<n>.<k>`. *2026-11-23: the content-hash alias is not built (cut from S1-1, `HANDOFF.md` §80.8, and not in the
+code since): a moved book gets a new id.*
 
 ## 6. Settings
 
@@ -407,7 +414,7 @@ A row: `{id, label, category, scope, type choice · number · bool · text, opti
   exist before their window (Bastion's, built by the alert watcher) and the window later returns the same row ids, so
   nothing migrates. Glasses rows sit under a Glasses category and, on the glasses, in each app's category as today;
   device rows under the device's own category.
-- **Rows that are actions become actions** with a kind and a confirm: Reset progress (`W/reader/ReaderWindow.kt:114`),
+- **Rows that are actions become actions** with a kind and a confirm: Reset progress (`W/reader/ReaderGlasses.kt:159`),
   Rescan, Pre-transcode, Update, and the Bastion category's `Acknowledge` row (built in W, APK 0.66: the glasses'
   presenter of `ack {id, episode}` until notices carry actions; it moves at S1-5). A setting change is an op of the
   register kind (§2.4).
@@ -473,7 +480,7 @@ Tmux has no `Phone ·` row; as built (S1-3, the lead's call, `HANDOFF.md` §89.5
 desk's rows. **What a record carries is readable at level view**, so Tmux's says only "`<name>`[ · host] wants input",
 never the pane's content; the glasses' presenter adds the pane's last line from the session it reads at full, and the
 PC raises the record right after the status push that carries the waiting session. Feed's records say "N new · <source> · <newest title>"
-(one per source); a first sight of a source raises nothing, and a browsed source that is not pinned raises none.
+("<source> · <title>" for one new item; one per source); a first sight of a source raises nothing, and a browsed source that is not pinned raises none.
 
 ### 7.4 Raised on the phone
 
@@ -503,7 +510,7 @@ viewer, parking with none: Tmux captures frames only for sessions some view hold
 per PC — the glasses' Update row; a pace per session or per viewer is not built); Torrents polls fast for any
 `focus` viewer, idle otherwise (replacing the shared `"remote"` focus key, `W/torrents/TorrentsNet.kt:55`); `glance`
 asks only summaries. **In S1 the phone's mirrors receive what they receive today, at today's paces** (Torrents' idle
-snapshots go on feeding the glasses' speed sparkline, `W/torrents/TorrentsWindow.kt:215,277-288`). A viewer ends with
+snapshots go on feeding the glasses' speed sparkline, `W/torrents/TorrentsGlasses.kt:262,429-440`). A viewer ends with
 its view or its connection — the socket's end, or §9.3's paced ping left unanswered when the next is due (one liveness
 rule in both directions; never a failed write alone, which a half-open link can delay for hours). **The
 glasses' own rule is unchanged:** a live window keeps the Bluetooth link busy only while it is the active window there
@@ -644,8 +651,8 @@ written whole and asynchronously (`S/Persistence.kt:290-315`), 2 s after an inpu
    match (its subscriptions and ops are refused `contract`; each host runs it from its own copy). Nothing more is built
    for different builds, downgrades or deploy orders: a conversion is deployed as one of his sittings, the PC deploy and
    the APK install together. Reader's migration ran once on both hosts (S1-1) and is removed (L1). Torrents' and Files'
-   rows from before their conversion are written once, on the PC, where the record holds none, from the PC store's
-   synced `window.torrents` / `window.files` records, as ops of device `migration` stamped with the record's time (L1);
+   (since S1-3 also Feed's and Tmux's) rows from before their conversion are written once, on the PC, where the record holds none, from the PC store's
+   synced `window.<id>` records, as ops of device `migration` stamped with the record's time (L1);
    no ledger, no phone half. Unconverted windows sync as today; nothing new is built into the sync channel.
 3. **The last conversion** removes `SyncNet`, `RemoteSync` and the stamps; `shell.settings` is split by scope (§6) and
    `shell.state` is the glasses' interface row (§2.6). `SyncTest`, `SyncToleranceTest` and the stamp parts of
@@ -829,7 +836,7 @@ glasses-scope (§6).
 |---|---|---|---|---|---|
 | **Main** | PC; working copy; away: the working copies' summaries and the PC windows' last ones with their ages — today's "unavailable offline" becomes the last state with its age, his ruling (§14.3 #2), not a regression | one collection: item `{window id, name, icon, summary, attention, availability}`, plus the Reminders headline (`INTERFACES.md` W-28); cursor = window id (an index today, `S/Shell.kt:6262`) | open (v) | Presence, rest, lens (glasses) | — |
 | **Settings** | PC; working copy; away: every row | categories → rows → adjust (staging per interface); anchors `cat:`, `row:` | set a row (r, C; ⏸ for shared and glasses rows; device rows stay local); action rows become actions | — | — |
-| **Reader** | PC, which parses books to serve blocks and percent (it serves bytes only today, `C/content/Content.kt:270-307`); working copy with the whole shelf; away: full | shelf (folders nest) → chapters → book (document) → actions; book `{id, title, author, bytes, folder, fraction}`, folder, chapter `{title, anchor}`; as built (S1-1), the PC's reader index (`reader-index.json`, a cache read one book at a time with no image bytes) gives each card its `fraction` and `cover`, and the book's level its chapters `{title, anchor}` | open (v; sets the book read most recently), the place (r, ⏸, position, level view as built; written only by input), bookmark here (r, C as built, ⏸; it gains a book id, `W/reader/ReaderWindow.kt:147,864-868`), jump (v), rescan (r), reset progress (i, C, ⏸, cancel first as built) | Scroll step, Scroll accel, Size (glasses) | answers only |
+| **Reader** | PC, which parses books to serve blocks and percent (it serves bytes only today, `C/content/Content.kt:270-307`); working copy with the whole shelf; away: full | shelf (folders nest) → chapters → book (document) → actions; book `{id, title, author, bytes, folder, fraction}`, folder, chapter `{title, anchor}`; as built (S1-1), the PC's reader index (`reader-index.json`, a cache read one book at a time with no image bytes) gives each card its `fraction` and `cover`, and the book's level its chapters `{title, anchor}` | open (v; sets the book read most recently), the place (r, ⏸, position, level view as built; written only by input), bookmark here (r, C as built, ⏸; it gains a book id, `W/reader/ReaderGlasses.kt:199,1007`), jump (v), rescan (r), reset progress (i, C, ⏸, cancel first as built) | Scroll step, Scroll accel, Size (glasses) | answers only |
 | **Tmux** | PC; **min F** (§15 A2); as built (S1-3) the record holds only `alerts` (absent = on), `mute.<host>/<name>`, `glasses.size` (absent = 480, 0 = global) and `glasses.context`; sessions, windows, host health and the served keys are the PC's source state; frames, the stream and history are live or one-shot (§3.4); the phone keeps the last list and frame in memory (no disk mirror: S1-5); away: that state with its age, keys dim with the reason, a mute applies and queues | sessions → live (terminal) ⇄ history → keys · snippets · windows · session actions; `desc/tmux` `{summary, sessions[{host, name, windows, attached, activity (PC ms), waiting, lastLine, muted}], hosts[{name, health{state ok · quiet · failing, error?, lastOkMs}}], keys{quick, snippets}, actions, settings, asOf}`; a device below full gets nothing of a session (Main's card, any level, carries the summary line: session names) | all F; program ops, never queued, on ONE thread per PC so they reach tmux in arrival order: `key{key}` (a served name), `snippet{snippet}`, `line{text}` (text then Enter; the typed-line confirm is the interface's), `raw{data}` (the desk terminal's bytes: printable runs `send-keys -l --`, the rest `-H`, one exec), `new` (targets `[host]`, answers `{name}`), `rename{text}` (answers `renamed{from, to}`), `end`, `select{window}`; every `send-keys` argument's final `;` escaped once for tmux and key names after `--`; record ops `mute` (r, ⏸) and `set` (the rows). Fit pane stays the glasses' | Alerts (shared), Context rows, Size (glasses); Update (the glasses' own, one capture pace per PC) | the waiting edge, raised once on the PC by the status poll that runs with no viewer, thread `host/session`, gated by Alerts and the mute; its body carries no pane content (§7.3); host health as a value (§8) |
 | **Files** | PC; **min F** (§10.4); mirror (today's ≤200 listings); away: cached with age; the clipboard, sort and hidden apply and queue | locations → browse (paged) → view (document, or images) · trash; location `{path, label, kind, total, free}`, entry `{name, dir, size, mtime}`, trash entry `{id, name, origPath, size, at, missing?}` (`missing`: its file is not in the trash — a trash cut off before the file arrived; Restore refuses it with the reason, Delete forever clears it, and the page offers only Delete forever) | open, open in Reader (v; answers an address), open on the desk (send-to the companion), copy and cut (r, ⏸; the clipboard is shared), sort and hidden (r, ⏸; shared, `INTERFACES.md` §3), paste, rename, new folder, upload (jobs; never replaces, §9.4), to trash and restore (r), delete forever (i, double confirm), download (v), stats (a job). **One job at a time per PC**, with progress; a busy refusal names the job that holds the slot and, once its last progress is a minute old, "no progress for N min". **The supervisor** (on the PC's 2 s pacing tick) ends a job that writes nothing and has made no progress — an upload ticket whose body has not begun after 2 min (its ticket goes with it), a stats after 10 min — as failed, "ended by the supervisor: no progress for N min", and frees the slot and the surface that asked; **a job that moves, copies, trashes, restores, deletes or renames is never ended by it**. An upload's body bytes are its progress. **The trash folder** is written only by trash, restore and delete forever: rename, a move in or out, a copy into, a new folder and an upload at or under it are refused with the reason ("use Restore or Delete forever"); listing it is served. **Trash** writes its manifest row (forced to disk) before it moves the file; a failed move takes the row away again. A manifest that cannot be read refuses trash, restore and delete forever with the reason and is never overwritten or set aside. **A file moved across volumes** is copied to a hidden temporary name beside its destination, forced to disk, placed under its real name without replacing anything (a hard link that refuses an existing name), and only then is its source deleted; a failure deletes only what the move made. A single file's copy goes through the same temporary name. A folder copy makes its destination itself first, so its failure deletes only what it made. A file-system check that cannot tell whether a name exists refuses, never reads as "absent" | Size (glasses) | answers |
 | **Torrents** | PC; mirror (the cached snapshot); away: snapshot with age, actions dim, its recents apply and queue | transfers (cursor follows the hash) → details · categories → listing (paged, count unknown) → torrent page (NFO mono) → add; transfer (23 typed fields, `W/torrents/TorrentsModel.kt:13-57`), tracker item, category, file | start, stop, recheck (r, C, many), delete keeping files (i, C, confirm), delete with files (i, F, double), search, browse, account (o, F; search unconfirmed, its recorded exemption, `TORRENTS.md` §3.1), add, add stopped (o, F, confirm), open in Files (v; dim below full), open on the desk (r, F; send-to; full because it opens a file with the desktop's own opener); a fast poll for any `focus` viewer, and in S1 the idle snapshots go on feeding the speed sparkline (§8) | Notify · done, · errors (shared), Poll (device), Size (glasses) | done and error, raised once on the PC, thread = hash; the torrent client's reach as a value (§8) |

@@ -16,7 +16,9 @@ annex (`private/BASTION-annex.md`, kept out of the repository). **Nothing in thi
 hardware**: spec-sheet and bench figures say so where they appear.
 *Status 2026-11-22:* the alert watcher (R6 with that amendment) is built — build W, APK 0.66 (`HANDOFF.md` §79),
 trimmed in L1 (§84) — with its host Settings category (`core/…/bastion/BastionRows.kt`); the B and T rows, the bus
-pages and the TV are S2 and S3, not started (`REPLAN.md` §16.1).
+pages and the TV are S2 and S3, not started (`REPLAN.md` §16.1), but for what W built toward B-36–B-39: the urgent
+repeat, quiet hours by severity, acknowledge from the phone's notification and a Settings `Acknowledge` row, the
+`when` guard (`AlertRule.kt`, `AlertDelivery.kt`, `BastionRows.kt`).
 
 Columns: **size** S/M/L, relative as `FORK.md` uses them · **lean** in / later / out, the lead's first opinion for the
 refinery to override · **conflicts** names a ruling, an exclusion or another row. `DESIGN.md` §0's exclusions bind
@@ -44,7 +46,7 @@ listeners, notices and edits made in several places follow `INTERFACES.md` §4.
 | F14 | "Home unreachable" is the phone's to raise: the PC cannot report its own silence | read | `REPLAN.md`:316-317; R6 §4 |
 | F15 | Camera pictures can come from the hub's camera proxy (a still per request, bearer token), or a restreamer (WebRTC, MSE, HLS, MJPEG); a recorder can composite every camera into one stream | read | R1:91-98 |
 | F16 | HTTP/1.1 allows six connections per host: four MJPEG tiles nearly fill it; a WebSocket is outside that pool | read; inferred | R1:100 |
-| F17 | No code in `core/` or `desktop/` reads load, temperatures or the GPU today (search for hwmon, sensors, loadavg, nvidia-smi, 2026-11-13); disk fill per location exists in Files | read | `FilesWindow.kt:42` |
+| F17 | No code in `core/` or `desktop/` reads load, temperatures or the GPU today (search for hwmon, sensors, loadavg, nvidia-smi, 2026-11-13); disk fill per location exists in Files | read | `FilesWindow.kt:42` (since S1-2 `LocalFilesProvider.kt:103`) |
 | F18 | The contract hands a window pixels; a summary is a line, a detail, a "more" flag and a progress | read | `WindowContract.kt:193-198`, `REPLAN.md` F1 |
 | F19 | Web Push goes through the browser vendor's server, so phone alerts stay in the APK | read; inferred | R1:116 |
 
@@ -271,7 +273,7 @@ For the TV to draw a window it does not know, a description must express:
 | The PC out of reach from the TV (service stopped, PC off, network down) | last values greyed under a full-width "PC not answering since 14:02"; paced reconnect; state resent from epoch and sequence | — | old values shown as current |
 | The hub out of reach from the PC | every bus value greyed with its age; actions refused "hub not answering 6 min" | the watcher's built-in alert (R6 §2) | an action queued for later |
 | Hub, network and PC all out of reach at once | dark | only the phone's "home unreachable" can say it (F14) | anything claiming the bus is fine |
-| One stale value | that tile greys; the rest stay live | a `stale` rule may raise | a stale value crossing a threshold |
+| One stale value | that tile greys; the rest stay live | a `stale` rule may raise (the kind was removed in L1, `HANDOFF.md` §84) | a stale value crossing a threshold |
 | A refused action (allowlist, hub error, a script's interlock, no script of that name in the hub) | the TV offers none | the confirm shows the reason; logged | a refusal that only reaches a log |
 | An action whose state never changes | "sent · no change 4 min" stays on the tile | past a set wait an "action not confirmed" alert | a silent give-up or an automatic repeat |
 | A device never approved, or revoked | its pairing code and the clock only | the approval request on trusted interfaces | any bus value on an unapproved screen |
