@@ -87,7 +87,10 @@ object Transitions {
      * ms a lit rain cell (Matrix); the period ⌈⌈ms·1.024⌉·1.10⌉ ticks in 16..128. C3 X1MX2 item 3 (decisions BV): Warp and
      * Flip too, on the step his glasses measured ([WARP_STEP_MS_352], [FLIP_STEP_MS_352]: the larger half's, since both
      * halves share one period), carried to the area by the same form — 0.5 ms + a rate per pixel of the area, the rate
-     * his 640 × 352 gives (modeled at the other heights). Every other effect: [timing].
+     * his 640 × 352 gives (modeled at the other heights). C3 X2MX2 item 1 (decisions CJ (2); the lead extended it to all
+     * four): where the fit gave the frames, the period is then the whole tick that fills the half with them
+     * (⌊length·1.024 / frames⌋, at least the fit, at most 128) — a half plays its length less under a tick a step, as the
+     * effects off the fit do. Every other effect: [timing].
      */
     fun timingFor(effect: Effect, lengthMs: Int, frames: Int, area: Rect, cells: Int = 0): Timing {
         val base = timing(lengthMs, frames)
@@ -104,7 +107,10 @@ object Transitions {
         // ticks, so 2·T·P may pass the length by under a tick a step) the setting's frames play, as for every other effect
         if (fit <= base.period) return base
         val f = (minOf(base.steps * 2, Math.floor(lengthMs * 1.024 / fit).toInt()) / 2 * 2).coerceAtLeast(2)
-        return Timing(f / 2, fit)
+        // C3 X2MX2 item 1 (decisions CJ (2), the lead's ruling on Encode and Matrix): the length holds — once the fit has
+        // given the frames, the period stretches to the whole tick that fills the half; never under the fit (one step a
+        // half already past the length keeps it), and at the period's limit, 128, the half plays T × 128
+        return Timing(f / 2, maxOf(fit, Math.floor(lengthMs * 1.024 / f).toInt()).coerceAtMost(CfwModes.MOTION_PERIODS.last))
     }
 
     /** C3 X1MX2 item 3: Warp's step on his glasses, measured (APK 0.83, 2026-11-21, his glasses at stage 5, height 352,
@@ -201,7 +207,8 @@ object Transitions {
      * Refused ([LintError], its message naming the half) where the glasses would refuse a program, or when the records
      * do not fit [room]. No out half is ever replaced: every effect's out program is taken at every height, length and
      * frame count (pinned offline), so §7.11's one-step freeze is not built. C3 X1MX2 item 2 (decisions CB (2)): [plane]
-     * is the transition's one plane — the nearer of the leaving and the arriving screen's content planes, the shell's —
+     * is the transition's one plane — the nearer of the leaving and the arriving screen's content planes and Global `Depth`
+     * (C3 X2MX2 item 2), the shell's —
      * and Matrix's rain grid sits at it in both halves; [depth] stays Global `Depth`, which only the Depth effect reads.
      * [start]: the rain's out-half travel (C3 X1MX2 item 1; the built one unless a comparison names another).
      */
@@ -271,7 +278,8 @@ object Transitions {
      * last drawn value, at its own constant step, so its first value lies one of its steps past it. [seed] is the hash seed
      * both halves' rain records take: [s], or for B and C the first after it whose columns give every drawn out step a
      * picture of its own (a narrow grid whose earliest column sits at an edge: 1 seed in 65,536 at 288 with 18-px columns
-     * at depth 8, modeled — `TransitionsTest`). Null for one step a half (no step n − 1: the hold, then the rain).
+     * at depth 8, modeled — `TransitionsTest`); refused ([LintError]) when none of [RAIN_SEED_TRIES] seeds does (C3 X2MX2
+     * item 3: never reached in 517,440 swept acts, modeled). Null for one step a half (no step n − 1: the hold, then the rain).
      */
     class RainTravel(val out: IntArray, val inn: IntArray, val e1: Int, val seed: Int)
 
@@ -284,8 +292,10 @@ object Transitions {
         }
         var seed = s
         val out = if (shape == null) rainOutAsBuilt(grid, n)
-            else (0 until RAIN_SEED_TRIES).firstNotNullOfOrNull { i -> rainOutShaped(grid, n, (s + i) and 0xFFFF, shape, strict = true)?.also { seed = (s + i) and 0xFFFF } }
-                ?: rainOutShaped(grid, n, s, shape, strict = false)!!
+            else (0 until RAIN_SEED_TRIES).firstNotNullOfOrNull { i -> rainOutShaped(grid, n, (s + i) and 0xFFFF, shape)?.also { seed = (s + i) and 0xFFFF } }
+                // C3 X2MX2 item 3 (decisions CJ (4)): no shared-picture fallback — Matrix leaves the act's pick with this reason
+                ?: throw LintError("Matrix: none of $RAIN_SEED_TRIES rain seeds from $s gives each of the out half's ${n - 1} drawn steps a picture of its own " +
+                    "(${grid.cols} columns of ${grid.cw} px over ${grid.rows} rows of ${grid.ch} px)")
         val e1 = out[n - 2]
         return RainTravel(out, IntArray(n) { j -> e1 + ((4096 - e1) * (j + 1)) / n }, e1, seed)
     }
@@ -318,10 +328,10 @@ object Transitions {
      * shape 0.25 at u = 0 and 1 at u = 1; then E[n] = 4096. The picture changes only where a head enters a row, so each value
      * is moved inside the run between two such changes the fewest steps that give every drawn step a change of its own (a
      * forward pass, then a backward one inside eHi). On every seed step 1 lights at least one cell on both lenses. Where the
-     * columns whole on both lenses enter fewer rows below eHi than there are drawn steps, [strict] answers null (the caller
-     * tries the next seed); else those steps share a picture.
+     * columns whole on both lenses enter fewer rows below eHi than there are drawn steps, null (the caller tries the next
+     * seed, and refuses Matrix after [RAIN_SEED_TRIES]: C3 X2MX2 item 3).
      */
-    private fun rainOutShaped(grid: RainGrid, n: Int, s: Int, shape: (Double) -> Double, strict: Boolean): IntArray? {
+    private fun rainOutShaped(grid: RainGrid, n: Int, s: Int, shape: (Double) -> Double): IntArray? {
         val o = grid.offsets(s)
         val r = grid.rows; val tr = grid.trail
         val oa = o.min()
@@ -332,11 +342,10 @@ object Transitions {
             val e = ((j + o[c]) * 4096 + (r + o[c] + tr) - 1) / (r + o[c] + tr)
             if (e <= eHi) found[k++] = e
         }
-        if (k == 0) return if (strict) null else IntArray(n) { j -> if (j == n - 1) 4096 else eHi }
         found.sort(0, k)
         var m = 0
         for (i in 0 until k) if (m == 0 || found[i] != found[m - 1]) found[m++] = found[i]
-        if (strict && m < n - 1) return null
+        if (m < n - 1) return null
         val at = found.copyOf(m)
         val eLo = at[0]
         val target = IntArray(n - 1) { t -> eLo + ((eHi - eLo) * shape(if (n <= 2) 1.0 else t.toDouble() / (n - 2))).toInt() }
@@ -348,7 +357,7 @@ object Transitions {
         for (t in idx.indices.reversed()) { idx[t] = minOf(idx[t], next - 1); next = idx[t] }
         return IntArray(n) { j ->
             if (j == n - 1) 4096
-            else idx[j].coerceAtLeast(0).let { i -> target[j].coerceIn(at[i], if (i + 1 < m) at[i + 1] - 1 else eHi) }
+            else idx[j].let { i -> target[j].coerceIn(at[i], if (i + 1 < m) at[i + 1] - 1 else eHi) }
         }
     }
 

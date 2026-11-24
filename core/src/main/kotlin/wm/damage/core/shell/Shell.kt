@@ -8542,8 +8542,9 @@ class Shell(
         val tagOut = TransitionRun.TAG_OUT + (k and 0xFFF)
         val tagIn = TransitionRun.TAG_IN + (k and 0xFFF)
         // C3 X1MX2 item 2 (decisions CB (2)): ONE plane for both halves, the nearer of the two screens' (the hand-over
-        // between the halves needs one grid) — the silent clock's 0 both ways
-        val plane = minOf(before.plane, after.plane)
+        // between the halves needs one grid) — the silent clock's 0 both ways. C3 X2MX2 item 2 (decisions CJ (3)): and never
+        // behind Global `Depth`, the two bars' plane (an app's own row set further back keeps the rain at Global)
+        val plane = minOf(before.plane, after.plane, settings.depth)
         // C3 DM-T (`MOTION.md` §7: a random pick among the checked): an Encode or Matrix whose preconditions this act does not
         // meet leaves the pick, said once with its reason, and the pick is made again among the rest; when nothing checked is
         // left, the tier's defaults play — never a refusal he sees
@@ -8605,8 +8606,8 @@ class Shell(
      * atlas chunk is queued or in flight (the fonts it reads could move), on a session without 256 KiB and BIND (Encode:
      * the stage reserve holds its lists), when a screen's lists do not fit, or when a half passes 80 % of the step budget;
      * their period and frames follow "the length holds, frames give" ([wm.damage.core.motion.Transitions.timingFor]).
-     * C3 X1MX2 item 2: [plane] is the act's one plane (the nearer of the two screens'), which Matrix's rain takes in both
-     * halves; the Depth effect keeps Global `Depth` (its push back inside the 16-px budget, bytes as before).
+     * C3 X1MX2 item 2: [plane] is the act's one plane (the nearer of the two screens' and, since C3 X2MX2, Global `Depth`),
+     * which Matrix's rain takes in both halves; the Depth effect keeps Global `Depth` (its push back inside the 16-px budget, bytes as before).
      */
     private fun transitionRunOf(st: LinkState, tier: wm.damage.core.motion.Transitions.Tier, effect: wm.damage.core.motion.Transitions.Effect,
                                 reversed: Boolean, area: Rect, at4: Int, k: Int, tagOut: Int, tagIn: Int, before: ScreenKey, plane: Int): TransitionRun {

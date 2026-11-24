@@ -94,9 +94,14 @@ class ConformanceVectorTest {
         // and Matrix ship vectors (ended with X5T's comparison), APK 0.83 stage SV's scroll and notice ship vectors (ended
         // with SV's comparison), C3 stage SVR's ring-list ship vectors with the act the fast-path fit's merge wrote
         // again (ended with SVR's comparison, X8T) and C3 stage SV2's ship acts of Crush, Flip and the new Matrix with the
-        // acts MX2 and X1MX2 moved (ended with SV2's comparison, X9T) — are gone: every unfilled file in the repo fails
-        // like any other.
-        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        // acts MX2 and X1MX2 moved (ended with SV2's comparison, X9T) — are gone. C3 stage X2MX2: the Warp, Flip and Encode
+        // acts its item 1 moved and its new Crush act — exactly the names in [X2MX2_UNFILLED] — are written before the fork's
+        // runner fills them: reported "not filled" with a count and run through the model
+        // ([theUnfilledVectorsRunThroughTheModel]); every other unfilled file in the repo fails like any other. The
+        // comparison removes this exception.
+        val x2mx2 = out.notFilled.filter { it.substringBefore(" (") in X2MX2_UNFILLED }
+        if (x2mx2.isNotEmpty()) println("ConformanceVectorTest: ${x2mx2.size} X2MX2 vector(s) not filled until the comparison: ${x2mx2.joinToString("; ")}")
+        for (n in out.notFilled - x2mx2.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -811,13 +816,19 @@ class ConformanceVectorTest {
             val sv2 = "v5-ship-ring-crush-352"; val sv2w = "v5-ship-select-matrix-352"
             for (n in listOf(sv2, "${sv2}2", sv2w, "v5-ship-ring-crush-one-unfilled"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
+            // C3 stage X2MX2's exception holds exactly its names: one of them is reported, not failed; a name that only
+            // begins like it fails like any other
+            val x2 = "v5-ship-select-warp-352"
+            assertTrue(x2 in X2MX2_UNFILLED, "$x2 is X2MX2's name")
+            for (n in listOf(x2, "${x2}2"))
+                Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
                 "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
         } finally {
             Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
             Files.delete(dir); Files.delete(other)
@@ -840,6 +851,8 @@ class ConformanceVectorTest {
      * ([ShipVectors.ringSpecs]), compared on those records and on its ring form — every LIST and COMMIT of the act
      * ([ShipVectors.ringForms]); filled at SVR's comparison (X8T). C3 stage SV2: Crush's, Flip's and the new Matrix's acts
      * ([ShipVectors.sv2Acts]) and the acts MX2 and X1MX2 moved, compared like the rest; filled at SV2's comparison (X9T).
+     * C3 stage X2MX2: the Warp, Flip and Encode acts its item 1 moved, written again, and its new Crush act ([ShipVectors.x2mx2Acts]),
+     * compared like the rest; not filled until its comparison ([X2MX2_UNFILLED]).
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
@@ -939,6 +952,14 @@ class ConformanceVectorTest {
             // C3 SV2's eight that stage Main (filled on the two-strip layout; K1-2 merged after them)
             "v5-ship-ring-crush-288", "v5-ship-ring-crush-352", "v5-ship-ring-flip-352", "v5-ship-scroll-crush-stage5-480",
             "v5-ship-scroll-flip-stage5-480", "v5-ship-scroll-flip-352", "v5-ship-ring-crush-fast-352", "v5-ship-ring-pitch-352")
+        /** C3 stage X2MX2 (`private/c3-design/briefs/C3-X2MX2-brief.md`; decisions CJ (2), CM (2)): the shipped Warp, Flip and
+         *  Encode acts whose period its item 1 stretched to fill the tier's length — their inputs written again — and its new act
+         *  ([ShipVectors.x2mx2Acts]: Crush's notch answered after its END), reported "not filled" by exact name until the
+         *  firmware lane's fill; the comparison removes the exception ([notFilledFailsInTheRepo]). */
+        val X2MX2_UNFILLED: Set<String> by lazy { setOf("v5-ship-select-warp-352", "v5-ship-select-warp-480", "v5-ship-back-warp-rev-352",
+            "v5-ship-back-warp-rev-480", "v5-ship-select-flip-352", "v5-ship-select-flip-480", "v5-ship-back-flip-rev-352",
+            "v5-ship-back-flip-rev-480", "v5-ship-cut-select-warp-352", "v5-ship-select-encode-dense-480", "v5-ship-back-encode-rev-dense-480",
+            "v5-ship-select-encode-apart-480") + ShipVectors.x2mx2Acts().map { it.name } }
         /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
         const val BIND_FEATURE = 1 shl 10
         const val C2_FEATURES = 0x5FF

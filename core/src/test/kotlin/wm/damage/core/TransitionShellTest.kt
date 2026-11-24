@@ -1503,19 +1503,23 @@ class TransitionShellTest {
 
     /**
      * C3 X1MX2 item 2 (decisions CB (2)): Matrix's two halves share ONE rain grid — the hand-over between them depends on
-     * it — at the nearer of the two screens' content planes. Global `Depth` 8 with w0's own Depth row at 4: the Select
-     * (Main 8 → w0 4) and the Back (w0 4 → Main 8) at 4; with w0's row at 12 both at Main's 8; the silent clock both ways
-     * at 0, one rect in both halves. The Depth effect still reads Global `Depth` (Global 12, w0 at 4: its push back 4 px,
-     * its bytes as before).
+     * it — at the nearer of the two screens' content planes and, since C3 X2MX2 item 2 (decisions CJ (3)), never behind
+     * Global `Depth` (the two bars' plane). Global `Depth` 8 with w0's own Depth row at 4: the Select (Main 8 → w0 4), the
+     * Select inside w0 (its second level, w0 4 → w0 4) and the Back (w0 4 → Main 8) at 4; with w0's row at 12 all three at
+     * Global's 8 — the Select inside w0, both screens at 12, too; the silent clock both ways at 0, one rect in both halves.
+     * The Depth effect still reads Global `Depth` (Global 12, w0 at 4: its push back 4 px, its bytes as before).
      */
     @Test
     fun matrixsTwoHalvesShareOneGridAtTheNearerScreensPlane_X1MX2(): Unit = runBlocking {
-        for ((app, want) in listOf(4 to listOf(4, 4, 0, 0), 12 to listOf(8, 8, 0, 0))) {
+        for ((app, want) in listOf(4 to listOf(4, 4, 4, 0, 0), 12 to listOf(8, 8, 8, 0, 0))) {
             val r = Rig(stage = 5)
             try {
+                r.rows[0].levels = true
                 r.up({ s -> only("matrix")(s).copy(depth = 8).withAppStyle("w0") { it.copy(depth = app) } })
                 val acts = listOf(
                     builtOf(r, "the Select") { r.tap() }.also { assertEquals("w0", r.onLoop { r.shell.currentWindowId() }) },
+                    // X2MX2 item 2: both screens inside w0 — at 12 the rain stays at Global's 8, in front of the two bars
+                    builtOf(r, "the Select inside w0") { r.tap() }.also { assertEquals("w0" to 2, r.onLoop { r.shell.currentWindowId() to r.rows[0].levelDepth() }) },
                     builtOf(r, "the Back") { r.doubleTap() }.also { assertEquals(null, r.onLoop { r.shell.currentWindowId() }) },
                     builtOf(r, "the clock") { r.doubleTap() },
                     builtOf(r, "leaving the clock") { r.doubleTap() })
