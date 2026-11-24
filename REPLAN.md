@@ -857,7 +857,7 @@ wasting my whole subscription on very little practical value like we started whe
   stop line, I don't care about that. Absolute size is irrelevant to me (within reason), as long as it has purpose
   and isn't just useless bloat or abstractions that will never realistically be useful"): it is reported with what
   the extra lines are for, and the three tests judge them.
-- **The lead's own turns count** (they cost about as much as the agents): few turns, small context, no status message
+- **The lead's own turns count** (measured 2026-11-22: several times an Opus lane's, turn for turn): few turns, small context, no status message
   that carries no decision.
 - **Near a reset** nothing may be cut off at 100 %: the last starts are sized so that what is running can finish.
 - The measures so far: build W 9 % of a week, S1-1 13 %; six lanes spent about 3.8 % an hour.
