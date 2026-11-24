@@ -95,9 +95,10 @@ class ConformanceVectorTest {
         // with SV's comparison), C3 stage SVR's ring-list ship vectors with the act the fast-path fit's merge wrote
         // again (ended with SVR's comparison, X8T) and C3 stage SV2's ship acts of Crush, Flip and the new Matrix with the
         // acts MX2 and X1MX2 moved (ended with SV2's comparison, X9T) — are gone. C3 stage X2MX2: the Warp and Flip acts
-        // its item 1 moved and its new Crush act — exactly the names in [X2MX2_UNFILLED] — are written before the fork's runner fills them:
-        // reported "not filled" with a count and run through the model ([theUnfilledVectorsRunThroughTheModel]); every
-        // other unfilled file in the repo fails like any other. The comparison removes this exception.
+        // its item 1 moved and its new Crush act — exactly the names in [X2MX2_UNFILLED] — are written before the fork's
+        // runner fills them: reported "not filled" with a count and run through the model
+        // ([theUnfilledVectorsRunThroughTheModel]); every other unfilled file in the repo fails like any other. The
+        // comparison removes this exception.
         val x2mx2 = out.notFilled.filter { it.substringBefore(" (") in X2MX2_UNFILLED }
         if (x2mx2.isNotEmpty()) println("ConformanceVectorTest: ${x2mx2.size} X2MX2 vector(s) not filled until the comparison: ${x2mx2.joinToString("; ")}")
         for (n in out.notFilled - x2mx2.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
@@ -850,8 +851,8 @@ class ConformanceVectorTest {
      * ([ShipVectors.ringSpecs]), compared on those records and on its ring form — every LIST and COMMIT of the act
      * ([ShipVectors.ringForms]); filled at SVR's comparison (X8T). C3 stage SV2: Crush's, Flip's and the new Matrix's acts
      * ([ShipVectors.sv2Acts]) and the acts MX2 and X1MX2 moved, compared like the rest; filled at SV2's comparison (X9T).
-     * C3 stage X2MX2: the Warp and Flip acts its item 1 moved, written again and compared like the rest; not filled until
-     * its comparison ([X2MX2_UNFILLED]).
+     * C3 stage X2MX2: the Warp and Flip acts its item 1 moved, written again, and its new Crush act ([ShipVectors.x2mx2Acts]),
+     * compared like the rest; not filled until its comparison ([X2MX2_UNFILLED]).
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
