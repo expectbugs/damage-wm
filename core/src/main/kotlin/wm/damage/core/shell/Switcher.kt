@@ -64,11 +64,16 @@ class Switcher(
     private val fBig = FontSpec(Face.SYSTEM, 21, bold = true)
     private val fBody = FontSpec(Face.SYSTEM, 17)
 
+    /** The drum's order for [current] and [recency]: Main (null), the current window, then the rest by recency — what
+     *  [openWith] lists and the wheel's resident item table follows (C3 DW-1a, `motion/Wheel.kt`). */
+    fun order(current: DamageWindow?, recency: List<DamageWindow>): List<DamageWindow?> =
+        listOf<DamageWindow?>(null) + listOfNotNull(current) + recency.filter { it !== current }
+
+    /** [w]'s row as the drum shows it now (null: Main's pseudo-entry). */
+    fun entryFor(w: DamageWindow?): Entry = if (w == null) Entry(null, "Main", IconKind.SETTINGS, false) else Entry(w, w.name, w.icon, w.dirty)
+
     fun openWith(current: DamageWindow?, recency: List<DamageWindow>) {
-        val list = ArrayList<Entry>()
-        list.add(Entry(null, "Main", IconKind.SETTINGS, false))
-        if (current != null) list.add(Entry(current, current.name, current.icon, current.dirty))
-        for (w in recency) if (w !== current) list.add(Entry(w, w.name, w.icon, w.dirty))
+        val list = order(current, recency).map { entryFor(it) }
         entries = list
         origin = current
         // cursor starts on the most recent INACTIVE window when one exists

@@ -181,6 +181,15 @@ object MotionCheck {
         lines += "  the nine: ${drawn.cells.sumOf { it.encoded.size }} B -> ${themed.cells.sumOf { it.encoded.size }} B"
         lines += "the block (no spare slot; the rule, the item table and the programs' slot as built): a quarter's slack a cell (as built) " +
             "${drawn.block} B -> ${themed.block} B; an eighth's (MainStaging.segSlack) ${drawn.blockEighth} B -> ${themed.blockEighth} B"
+        // C3 DW-1a: the block's first staging at his settings — the bytes written (a slot's slack is not), and each write as
+        // mode-19 messages of at most `Shell.STAGE_CHUNK` bytes of data with their deflated mode-25 form (an estimate: the
+        // stage lane packs consecutive writes into one message, and the transport deflates one message at a time)
+        val block = WheelCheck.Rig(AwtText(), 352, 9, 8, icons = theme).block(cells = themed.cells)
+        val msgs = block.writes().flatMap { (off, b) -> b.toList().chunked(wm.damage.core.shell.Shell.STAGE_CHUNK).mapIndexed { i, part ->
+            CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(off / 4 + i * wm.damage.core.shell.Shell.STAGE_CHUNK / 4, part.toByteArray())), CfwModes.CACHE2_MAX_RIDERS) } }
+        lines += "the block's first staging (C3 DW-1a): ${block.writes().sumOf { it.second.size }} B written of its ${block.size} B; as ${msgs.size} mode-19 " +
+            "messages ${msgs.sumOf { it.size }} B, deflated (mode 25) ${msgs.sumOf { CfwModes.zwrite(it).size }} B; the largest message ${msgs.maxOf { it.size }} B → " +
+            "${CfwModes.zwrite(msgs.maxBy { it.size }).size} B deflated"
         if (asked) lines += "FAILED: the paint asked ThemeIcons for a resolve after the warm-up (pending ${theme.pending()}, completions ${theme.completions()})"
         Files.writeString(outDir.resolve("wheel-icons.txt"), lines.joinToString("\n", postfix = "\n"))
         for (l in lines) out.println(l)

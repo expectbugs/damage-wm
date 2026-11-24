@@ -21,8 +21,8 @@ import wm.damage.core.wire.CfwModes
  * the centre band) stacked on its neighbour form (rows `hC until hC + hN`, the neighbour row's box), painted by the
  * switcher's own painters through the caller's relay ([cell]); the rule record (240 × 2, every pixel DIM); the two ease
  * tables of the swapping cells; the item table (one off4 per entry, the switcher's order); the two programs. The layout
- * runs up from a base the caller gives and assumes no region (BD: the block will be Main's region's first tenant from its
- * end — DW-1 places it).
+ * runs up from a base the caller gives and assumes no region (BD: the block is Main's region's first tenant from its
+ * end — the shell places it and keeps it current, C3 DW-1a: `shell/WheelResident.kt`).
  *
  * **The programs** ([Block.down], [Block.up]; `FIRMWARE.md` §7.2 version 2, bound, no OWN): seven per-lens tracks over one
  * area pair — the panel and the margin of its disparity d on the far side of each lens (left `[p.x − d, p.right)`, right
@@ -163,18 +163,23 @@ object Wheel {
      * The wheel's records laid out from [base] (4-byte aligned) up: the rule record, the item table's slot (an entry per
      * cell), the cells each in a slot of its own size with slack (`MainStaging.slack`), then the programs' slot — the
      * drum's tables and two programs at this T, with slack, so `Switcher` = None ([none]: its one-step programs in the same
-     * slot) or a cell rewritten in place keeps every offset. A window opened re-places the block (decisions BK (2): no spare
-     * slot). Its [Block.size] does not depend on [base].
+     * slot) or a cell rewritten in place keeps every offset. Its [Block.size] does not depend on [base].
+     *
+     * C3 DW-1a (decisions CK A1): [cells] are one per REGISTERED window (Main's pseudo-entry and each window, in the order
+     * the caller keeps them), so the block's size is constant for the process; [order] is the switcher's entries as indices
+     * into [cells] — the item table, a permutation of [n] of them — so a window's first visit or a commit to another window
+     * rewrites the item table alone ([Block.parts]), and the programs are re-made in place at another height ([rebuilt]).
      */
-    class Block internal constructor(val base: Int, val geo: Geo, val cells: List<Cell>, val rule: ByteArray, val ruleOff: Int,
+    class Block internal constructor(val base: Int, val geo: Geo, val cells: List<Cell>, val order: IntArray, val rule: ByteArray, val ruleOff: Int,
         val itemsOff: Int, val itemSlot: Int, val cellOffs: IntArray, val cellSlots: IntArray, val progOff: Int,
         val progSlot: Int, val tables: List<Motion.Ease.Table>, val down: MotionProgram, val up: MotionProgram,
         val period: Int, val t: Int, val none: Boolean) {
-        val n: Int get() = cells.size
+        /** The drum's entries: the item table's length (the switcher's entries), at most the cells'. */
+        val n: Int get() = order.size
         val end: Int get() = progOff + progSlot
         val size: Int get() = end - base
         /** The item table: each entry's cell, a u16 off4, in the switcher's order. */
-        val items4: IntArray get() = IntArray(n) { cellOffs[it] / 4 }
+        val items4: IntArray get() = IntArray(n) { cellOffs[order[it]] / 4 }
         val records: List<Motion.Source.Record> get() = cells.indices.map { cellRecord(it) }
         fun cellRecord(i: Int) = Motion.Source.Record(cellOffs[i] / 4, geo.w, geo.cellH, cellSlots[i], cells[i].encoded)
         fun program(step: Int): MotionProgram = if (step > 0) down else up
@@ -185,35 +190,63 @@ object Wheel {
             return IntArray(4) { i -> items4[(v + rules(step)[i].arg).mod(n)].toShort().toInt() }
         }
 
-        /** What goes into the cache, (byte offset, bytes padded to 4 with zeros), in layout order. */
-        fun writes(): List<Pair<Int, ByteArray>> {
-            val out = ArrayList<Pair<Int, ByteArray>>()
-            out += ruleOff to pad4(rule)
-            out += itemsOff to pad4(ByteArray(2 * n).also { b -> items4.forEachIndexed { i, v -> b[2 * i] = (v and 0xFF).toByte(); b[2 * i + 1] = (v shr 8).toByte() } })
-            cells.forEachIndexed { i, c -> out += cellOffs[i] to pad4(c.encoded) }
-            for ((o4, b) in tables.map { it.off4 to it.record } + listOf(down.at to down.bytes, up.at to up.bytes)) out += o4 * 4 to pad4(b)
+        /** C3 DW-1a: one record of the block as it is written in place — the rule, the item table, a cell (by its index),
+         *  the programs (their tables and both programs) — with its writes, (byte offset, bytes padded to 4 with zeros). */
+        class Part(val name: String, val writes: List<Pair<Int, ByteArray>>) {
+            val bytes: Int get() = writes.sumOf { it.second.size }
+            fun same(o: Part?): Boolean = o != null && o.writes.size == writes.size &&
+                writes.indices.all { o.writes[it].first == writes[it].first && o.writes[it].second.contentEquals(writes[it].second) }
+        }
+
+        /** The block's records in layout order (the rule, the item table, the cells, the programs). */
+        fun parts(): List<Part> {
+            val out = ArrayList<Part>()
+            out += Part(RULE, listOf(ruleOff to pad4(rule)))
+            out += Part(ITEMS, listOf(itemsOff to pad4(ByteArray(2 * n).also { b -> items4.forEachIndexed { i, v -> b[2 * i] = (v and 0xFF).toByte(); b[2 * i + 1] = (v shr 8).toByte() } })))
+            cells.forEachIndexed { i, c -> out += Part(cellName(i), listOf(cellOffs[i] to pad4(c.encoded))) }
+            out += Part(PROGRAMS, tables.map { it.off4 * 4 to pad4(it.record) } + listOf(down.at * 4 to pad4(down.bytes), up.at * 4 to pad4(up.bytes)))
             return out
         }
+
+        /** What goes into the cache, (byte offset, bytes padded to 4 with zeros), in layout order. */
+        fun writes(): List<Pair<Int, ByteArray>> = parts().flatMap { it.writes }
 
         /** A cache of [cacheSize] bytes holding the block (and nothing else). */
         fun cache(cacheSize: Int): ByteArray = ByteArray(cacheSize).also { c -> for ((o, b) in writes()) b.copyInto(c, o) }
 
+        /**
+         * C3 DW-1a (the amendment's §3.4): the block for [cells], [order] and the programs at [g] and [motion], on THIS block's
+         * offsets and slots — what an in-place write makes the glasses hold. Null when it does not fit them: another number
+         * of cells, another cell size (the face), a cell or the programs past their slot — then the block is placed anew.
+         */
+        fun rebuilt(g: Geo, cells: List<Cell>, order: IntArray, effects: Motion.Effects, motion: MainStaging.ScrollMotion, none: Boolean = false): Block? {
+            if (cells.size != this.cells.size || g.w != geo.w || g.hC != geo.hC || g.hN != geo.hN) return null
+            if (cells.indices.any { pad4(cells[it].encoded).size > cellSlots[it] }) return null
+            return layOut(base, g, cells, order, effects, motion, none, ruleOff, itemsOff, itemSlot, cellOffs, cellSlots, progOff, progSlot)
+        }
+
         fun describe(): String = "the wheel's block at $base: $size B (cells ${cells.map { it.encoded.size }} B in slots of ${cellSlots.sum()} B, " +
-            "the rule ${rule.size} B, the item table $itemSlot B, programs ${down.bytes.size} + ${up.bytes.size} B and tables " +
+            "the rule ${rule.size} B, the item table $n of ${cells.size} entries in a slot of $itemSlot B, programs ${down.bytes.size} + ${up.bytes.size} B and tables " +
             "${tables.sumOf { it.record.size }} B in a slot of $progSlot B); P $period T $t${if (none) " (None)" else ""}"
+
+        companion object {
+            const val RULE = "rule"
+            const val ITEMS = "item table"
+            const val PROGRAMS = "programs"
+            fun cellName(i: Int) = "cell $i"
+        }
     }
 
     /**
-     * The block for [cells] (the switcher's entries in order, ≥ 3) at [g] from [base], its programs on the timing of
-     * [motion] ([none]: `Switcher` = None). Built only through [effects] (version 2: EFFECTS in force). Refuses, loudly, a
-     * shape [refusal] names and a program past 80 % of the step budget's cap at any cursor (§7.12: the phone may refuse more
-     * than the glasses do; `MotionProgram.cost`).
+     * The block for [cells] (one per registered window, ≥ 3) at [g] from [base], its item table [order] (the switcher's
+     * entries as indices into [cells]; by default every cell in turn), its programs on the timing of [motion] ([none]:
+     * `Switcher` = None). Built only through [effects] (version 2: EFFECTS in force). Refuses, loudly, a shape [refusal]
+     * names and a program past 80 % of the step budget's cap at any cursor (§7.12: the phone may refuse more than the
+     * glasses do; `MotionProgram.cost`).
      */
     fun block(base: Int, g: Geo, cells: List<Cell>, effects: Motion.Effects, motion: MainStaging.ScrollMotion = MainStaging.ScrollMotion.DEFAULT,
-              none: Boolean = false): Block {
+              none: Boolean = false, order: IntArray = IntArray(cells.size) { it }): Block {
         if (base % 4 != 0 || base < 0) throw LintError("the wheel's block at $base is not 4-byte aligned")
-        refusal(g, cells.size)?.let { throw LintError("no wheel: $it") }
-        if (cells.any { it.pic.w != g.w || it.pic.h != g.cellH }) throw LintError("a cell is not ${g.w} x ${g.cellH}")
         var at = base
         fun next(size: Int): Int { val o = at; at += (size + 3) and 3.inv(); return o }
         val rule = ruleRecord(g.w)
@@ -225,14 +258,28 @@ object Wheel {
         val cellSlots = IntArray(cells.size) { MainStaging.slack(cells[it].encoded.size) }
         val cellOffs = IntArray(cells.size) { next(cellSlots[it]) }
         val progOff = at
+        return layOut(base, g, cells, order, effects, motion, none, ruleOff, itemsOff, itemSlot, cellOffs, cellSlots, progOff, null)
+            ?: throw LintError("the wheel's programs do not fit the slot sized for them")
+    }
+
+    /** The block on the offsets given; [progSlot0] null: the programs' slot sized from the drum's programs with slack, else
+     *  that slot — null when the drum's programs pass it. */
+    private fun layOut(base: Int, g: Geo, cells: List<Cell>, order: IntArray, effects: Motion.Effects, motion: MainStaging.ScrollMotion, none: Boolean,
+                       ruleOff: Int, itemsOff: Int, itemSlot: Int, cellOffs: IntArray, cellSlots: IntArray, progOff: Int, progSlot0: Int?): Block? {
+        refusal(g, cells.size)?.let { throw LintError("no wheel: $it") }
+        if (cells.any { it.pic.w != g.w || it.pic.h != g.cellH }) throw LintError("a cell is not ${g.w} x ${g.cellH}")
+        if (order.isEmpty() || order.size > cells.size || order.any { it !in cells.indices } || order.distinct().size != order.size)
+            throw LintError("the wheel's item table ${order.toList()} is not a permutation of some of its ${cells.size} cells")
+        val rule = ruleRecord(g.w)
         val recs = cellOffs.indices.map { i -> Motion.Source.Record(cellOffs[i] / 4, g.w, g.cellH, cellSlots[i], cells[i].encoded) }
         val ruleRec = Motion.Source.Record(ruleOff / 4, g.w, 2, rule.size, rule)
         val (period, tDrum) = timing(g, cells, motion, none = false)
         val drum = programs(progOff, g, recs, ruleRec, effects, tDrum, none = false)
-        val progSlot = MainStaging.slack(drum.size)
+        val progSlot = progSlot0 ?: MainStaging.slack(drum.size)
+        if (drum.size > progSlot) return null
         val (p, t) = if (none) timing(g, cells, motion, none = true) else period to tDrum
         val use = if (none) programs(progOff, g, recs, ruleRec, effects, 1, none = true) else drum
-        val b = Block(base, g, cells, rule, ruleOff, itemsOff, itemSlot, cellOffs, cellSlots, progOff, progSlot,
+        val b = Block(base, g, cells, order, rule, ruleOff, itemsOff, itemSlot, cellOffs, cellSlots, progOff, progSlot,
             use.tables, use.down, use.up, p, t, none)
         for (step in intArrayOf(1, -1)) for (c in 0 until b.n) {
             val cost = b.program(step).cost(b.params(step, c))

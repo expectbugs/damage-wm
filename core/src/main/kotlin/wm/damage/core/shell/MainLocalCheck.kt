@@ -145,7 +145,30 @@ object MainLocalCheck {
             }
         }
         for (h in heights) table += worstCase(text, h, depth)
+        // C3 DW-1a: the wheel's block beside Main's staging at stage 5 on 256 KiB, where it is resident
+        if (256 in cachesKib) for (h in heights) wheelBlock(text, h, depth).let { (c, l) -> cases += c; table += l }
         return Result(cases, table)
+    }
+
+    /**
+     * C3 DW-1a (`C3-DW1-amendment.md` §3.2, §3.5): the wheel's block resident in Main's region at stage 5 on a 256 KiB
+     * session at [height] — Main staged from the region's start on the fixture's rows, and the wheel's block of nine cells
+     * (Main's entry and the eight windows the rows stand for) at Global `Depth` [depth] placed as the shell places it
+     * (`WheelResident`: the first tenant from the region's end, inside the cap, not met by Main's staging). The line is the
+     * region's split; the case fails where the block would not be placed.
+     */
+    fun wheelBlock(text: TextRasterizer, height: Int, depth: Int = 8): Pair<Case, String> {
+        val cache = CfwModes.CACHE2_MAX_RIDERS
+        val region = CfwModes.mainRegion(cache, bind = true)
+        val ms = MainRig(text, height, sampleRows(), depth).staging(cache, region, MainStaging.ScrollMotion.DEFAULT, stage5 = true)
+        val block = wm.damage.core.motion.WheelCheck.Rig(text, height, 9, depth).block()
+        val end = region.last + 1
+        val why = WheelResident.refusal(end, block.size, ms.end)
+        val line = "the wheel's block h$height-256k-s5 (Depth $depth, nine cells): Main's staging ${ms.start}..${ms.end} (${ms.end - ms.start} B), " +
+            "${block.base - ms.end} B free, the block ${block.size} B at ${block.base}..${block.end} of the region's end $end (the cap ${WheelResident.CAP} B): " +
+            (why?.let { "NOT PLACED — $it" } ?: "placed")
+        return Case("wheel-block-h$height", "the wheel's block resident beside Main's staging at $height, stage 5, 256 KiB", Rect(0, 0, 1, 1), emptyList(),
+            listOf(line, block.describe()), listOfNotNull(why?.let { "the wheel's block is not placed: $it" })) to line
     }
 
     /** K1-1: each effect's notches as strips (the middle row both ways, and the wrap where Main wraps) at [heights] on

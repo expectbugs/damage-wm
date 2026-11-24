@@ -27,10 +27,21 @@ open class StageKey(val content: Any, val firstLine: Int, val lines: Int, val li
     override fun toString() = "lines $firstLine..${firstLine + lines - 1}"
 }
 
+/** C3 DW-1a (`C3-DW1-amendment.md` §4.5, decisions CK A7): a record of a tenant of Main's region — Main's staging
+ *  ([MainStageKey]) or the wheel's block ([WheelStageKey]) — never a document's strip: Page staging's filters (a book
+ *  change, an Encode act's lists, its own clear, its counts) read "not a tenant" where they read "not Main's". */
+abstract class RegionStageKey(content: Any, index: Int, val name: String) : StageKey(content, index, 1, 0, 0)
+
 /** Build C2, stage DMS: one of Main's staged records ([MainStaging]) — [content] the staging it belongs to,
  *  [firstLine] its index there, [name] what the journal calls it. Never a document's: no placement draws it. */
-class MainStageKey(content: Any, index: Int, val name: String) : StageKey(content, index, 1, 0, 0) {
+class MainStageKey(content: Any, index: Int, name: String) : RegionStageKey(content, index, name) {
     override fun toString() = "Main's $name"
+}
+
+/** C3 DW-1a: one of the wheel's block's records ([WheelResident]) — [content] the books it belongs to, [firstLine] its
+ *  serial, [name] what the journal calls it. Not Main's: Main's filters read `is MainStageKey`. */
+class WheelStageKey(content: Any, index: Int, name: String) : RegionStageKey(content, index, name) {
+    override fun toString() = "the wheel's $name"
 }
 
 /** One staged strip: the pixels as painted (RAW — the diff compares raw bytes, and a slide that
@@ -149,8 +160,9 @@ class Staging {
      *  book, a rescale): their pixels can never be shown again. Returns what was dropped. */
     fun retain(content: Any?, lineH: Int, w: Int): List<StagedRecord> {
         // build C2, stage DM2: Main's records outside the ring (its own region at 256 KiB, a row's re-stage) are not the
-        // document's to drop; in the ring (the shared reserve at 160 KiB) the document's strips take their place
-        val gone = records.values.filter { (it.key !is MainStageKey || it in ring?.resident.orEmpty()) &&
+        // document's to drop; in the ring (the shared reserve at 160 KiB) the document's strips take their place. C3 DW-1a:
+        // nor the wheel's block, the region's other tenant (never in the ring)
+        val gone = records.values.filter { (it.key !is RegionStageKey || it in ring?.resident.orEmpty()) &&
             (it.key.content !== content || it.key.lineH != lineH || it.key.w != w) }
         for (r in gone) { ring?.free(r); records.remove(r.key) }
         return gone
