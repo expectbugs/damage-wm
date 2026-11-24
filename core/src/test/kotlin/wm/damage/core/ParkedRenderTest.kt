@@ -105,7 +105,7 @@ class ParkedRenderTest {
 
     private class Rig(scope: CoroutineScope, tmp: Path, timing: SimTransport.Timing, vararg windows: DamageWindow) {
         val spy = Spy(SimTransport(GlassFirmwareSim(), scope, timing))
-        val shell = Shell(FakeText(), spy, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope)
+        val shell = Shell(FakeText(), spy, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope, HELD_CLOCK)
         init { for (w in windows) shell.register(w) }
         suspend fun settle(what: String) =
             waitUntil(30_000, message = { "$what: the shell settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }

@@ -47,7 +47,7 @@ class LoopCostNoteTest {
 
     private suspend fun started(transport: Transport): Pair<Shell, Path> {
         val journal = tmp.resolve("journal.jsonl")
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), journal, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), journal, scope, HELD_CLOCK)
         shell.start()
         waitUntil(30_000, message = { "the session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
         return shell to journal

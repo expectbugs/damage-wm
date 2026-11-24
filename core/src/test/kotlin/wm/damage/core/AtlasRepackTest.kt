@@ -160,7 +160,7 @@ class AtlasRepackTest {
         val spy: CountSpy? = if (spied) CountSpy(SimTransport(sim, scope, SimTransport.Timing(instant = true))) else null
         val transport: wm.damage.core.transport.Transport = spy ?: SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val journalPath = tmp.resolve("journal.jsonl")
-        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), journalPath, scope)
+        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), journalPath, scope, HELD_CLOCK)
 
         init { shell.register(win) }
 

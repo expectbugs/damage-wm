@@ -107,7 +107,7 @@ class FirstFlushTest {
         val tmp = Files.createTempDirectory("damage-first")
         val sim = GlassFirmwareSim()
         val spy = SpyTransport(SimTransport(sim, scope, SimTransport.Timing(instant = true)))
-        val shell = Shell(GlyphyText(), spy, Persistence(tmp.resolve("state.json")), null, scope)
+        val shell = Shell(GlyphyText(), spy, Persistence(tmp.resolve("state.json")), null, scope, HELD_CLOCK)
 
         init { for (w in windows) shell.register(w) }
 

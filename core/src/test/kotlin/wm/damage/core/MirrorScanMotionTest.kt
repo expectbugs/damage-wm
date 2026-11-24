@@ -68,7 +68,7 @@ class MirrorScanMotionTest {
         val held = 1_763_480_000_000L                    // the transport's clock, held: the engine draws no step and no END
         val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { held })
         t.devProbe("c1", "3")
-        val shell = Shell(FakeText(), t, Persistence(dir.resolve("s.json")), journal, scope)
+        val shell = Shell(FakeText(), t, Persistence(dir.resolve("s.json")), journal, scope, HELD_CLOCK)
         shell.start()
         waitUntil(30_000, 10, { "the session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
         assertEquals(0x2c, t.state.value.flagsInForce, "ENGINE in force")
@@ -116,7 +116,7 @@ class MirrorScanMotionTest {
             val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { held })
             t.devProbe("c1", "3")
             val journal = dir.resolve("journal.jsonl")
-            val shell = Shell(FakeText(), t, Persistence(dir.resolve("s.json")), journal, scope)
+            val shell = Shell(FakeText(), t, Persistence(dir.resolve("s.json")), journal, scope, HELD_CLOCK)
             shell.start()
             waitUntil(30_000, 10, { "the session settles" }) { shell.isQuiescent() }
             t.devProbe("motion", "list")                  // LIST: x 32..608, from y 74

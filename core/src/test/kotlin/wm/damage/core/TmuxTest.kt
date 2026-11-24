@@ -908,7 +908,7 @@ class TmuxScrollbackTapTest {
             val transport = wm.damage.core.transport.SimTransport(wm.damage.core.sim.GlassFirmwareSim(), scope,
                 wm.damage.core.transport.SimTransport.Timing(instant = true))
             val shell = wm.damage.core.shell.Shell(BlankText(), transport,
-                wm.damage.core.shell.Persistence(tmp.resolve("state.json")), null, scope)
+                wm.damage.core.shell.Persistence(tmp.resolve("state.json")), null, scope, HELD_CLOCK)
             shell.register(w)
             shell.start()
             /** ONE evaluation per wait (§27.6). */

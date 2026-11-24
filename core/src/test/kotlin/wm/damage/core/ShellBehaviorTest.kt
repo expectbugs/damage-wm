@@ -46,6 +46,13 @@ class FakeText(private val advance: Int = 8) : TextRasterizer {
     override fun covers(text: String, font: FontSpec) = true
 }
 
+/** C3 AH2: the wall clock a shell rig holds when it counts or compares what is sent or drawn. A Shell built without one
+ *  reads the real clock, and a real minute boundary inside the test changes the chrome's clock cell: new ink where the
+ *  rasterizer draws digits apart (`ChromeFlushTest`, AH1F), and with [FakeText] a box more or fewer where `h:mm`
+ *  changes length (9:59 → 10:00, 12:59 → 1:00). Held, the minute tick (still on real minutes) has nothing new to draw
+ *  in the chrome. */
+internal val HELD_CLOCK: () -> Shell.LocalClock = { Shell.LocalClock(12, 0, "12:00", "PM") }
+
 class SlideEquivalenceTest {
     /** After any sequence of steps and retargets, the slid band must equal a
      *  direct paint of the target state (the Slide.kt doc contract). */

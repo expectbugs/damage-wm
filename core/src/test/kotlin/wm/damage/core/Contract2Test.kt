@@ -102,7 +102,7 @@ class Contract2Test {
         val sim = GlassFirmwareSim().also { it.damageContract = contract }
         val text = CachedText(KernText())
         val spy = SpyTransport(SimTransport(sim, scope, SimTransport.Timing(instant = true)))
-        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope)
+        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope, HELD_CLOCK)
 
         init { shell.register(Rows(text)) }
 

@@ -140,7 +140,7 @@ class SessionBoundaryTest {
     fun aLinkEndsSweepRaisesNoResyncAndNoHalt(): Unit = runBlocking {
         val journal = tmp.resolve("journal-sweep.jsonl")
         val transport = Scripted(GlassFirmwareSim(), scope, ackMs = 50)
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-sweep.json")), journal, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-sweep.json")), journal, scope, HELD_CLOCK)
         val rings = AtomicInteger()
         shell.onUrgent = { _, _ -> rings.incrementAndGet() }
         shell.start()
@@ -181,7 +181,7 @@ class SessionBoundaryTest {
     fun aFailureCountDoesNotCrossASessionStart(): Unit = runBlocking {
         val journal = tmp.resolve("journal-carry.jsonl")
         val transport = Scripted(GlassFirmwareSim(), scope, ackMs = 1_000)
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-carry.json")), journal, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-carry.json")), journal, scope, HELD_CLOCK)
         val rings = AtomicInteger()
         shell.onUrgent = { _, _ -> rings.incrementAndGet() }
         shell.start()
@@ -213,7 +213,7 @@ class SessionBoundaryTest {
     fun aStartsFailuresDoNotCarryIntoTheNextStart(): Unit = runBlocking {
         val journal = tmp.resolve("journal-halt.jsonl")
         val transport = Scripted(GlassFirmwareSim(), scope, ackMs = 1_000)
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-halt.json")), journal, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-halt.json")), journal, scope, HELD_CLOCK)
         val rings = AtomicInteger()
         shell.onUrgent = { _, _ -> rings.incrementAndGet() }
         shell.start()
@@ -354,7 +354,7 @@ class SessionBoundaryTest {
     fun aRestartsDisconnectWindowFailsNoFlush(): Unit = runBlocking {
         val journal = tmp.resolve("journal-restart.jsonl")
         val transport = Scripted(GlassFirmwareSim(), scope, ackMs = 50)
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-restart.json")), journal, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-restart.json")), journal, scope, HELD_CLOCK)
         val rings = java.util.concurrent.CopyOnWriteArrayList<String>()
         shell.onUrgent = { source, body -> rings.add("$source: $body") }
         shell.start()

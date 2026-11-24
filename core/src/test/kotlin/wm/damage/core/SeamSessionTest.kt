@@ -321,7 +321,7 @@ class SeamSessionTest {
         val adopted = "adopted a session whose lease is not held and whose glasses do not say Silent Mode " +
             "(released by a driver that was asleep, or lapsed) — rebuilding the session"
         val phone = wm.damage.core.shell.Shell(FakeText(), transport,
-            wm.damage.core.shell.Persistence(tmp.resolve("state.json")), journal, scope).also { it.silentPacingMs = 60_000 }
+            wm.damage.core.shell.Persistence(tmp.resolve("state.json")), journal, scope, HELD_CLOCK).also { it.silentPacingMs = 60_000 }
         val keeper = wm.damage.core.shell.ShellKeeper(phone, transport, scope, retryPauseMs = 100)
         val server = RemoteTransportServer(transport, port, "tok", scope,
             onRemoteDriver = { driving -> if (driving) runBlocking { keeper.pause("PC shell driving") } else keeper.resume() })

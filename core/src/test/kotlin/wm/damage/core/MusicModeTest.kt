@@ -88,7 +88,7 @@ class MusicModeTest {
         val store = Persistence(tmp.resolve("state.json"))
         val sim = GlassFirmwareSim()
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
-        val shell = Shell(FakeText(), transport, store, null, scope)
+        val shell = Shell(FakeText(), transport, store, null, scope, HELD_CLOCK)
         var skew = 0L
         val now: () -> Long = { System.currentTimeMillis() + skew }
         val lib = Lib()

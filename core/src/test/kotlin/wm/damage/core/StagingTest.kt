@@ -166,7 +166,7 @@ class StagingTest {
         val text = CachedText(GlyphyText())
         val simT = SimTransport(sim, scope, timing)
         val spy = SpyTransport(simT)
-        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope)
+        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope, HELD_CLOCK)
         val doc = Doc(text)
 
         init { shell.register(doc) }

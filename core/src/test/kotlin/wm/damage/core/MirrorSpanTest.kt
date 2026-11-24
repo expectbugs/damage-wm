@@ -42,7 +42,7 @@ class MirrorSpanTest {
 
     private suspend fun started(sim: GlassFirmwareSim, wrap: (SimTransport) -> Transport = { it }): Shell {
         val shell = Shell(FakeText(), wrap(SimTransport(sim, scope, SimTransport.Timing(instant = true))),
-            Persistence(tmp.resolve("state.json")), journal, scope)
+            Persistence(tmp.resolve("state.json")), journal, scope, HELD_CLOCK)
         shell.start()
         settle(shell, "the start")
         return shell
