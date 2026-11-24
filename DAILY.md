@@ -5,43 +5,38 @@ SHELL drives, always; the PC is the DATA PROVIDER.** This file is the ops crib. 
 beardos since 2026-09-21 (DNS moved from Tailscale to the VPN): wherever a line below says `aphone`, use the
 phone's Tailscale address (`tailscale status | grep aphone`).**
 
-**As built.** `REPLAN.md` §14 (2026-11-12) rules the PC the owner of every window's state, with the phone keeping a
-working copy, and PC-direct BLE a manual choice, never automatic. The second is in the code since the alert watcher, W
-(APK 0.66 and its PC deploy, `HANDOFF.md` §79): the service never drives by itself. The first begins with S1-1 (APK
-0.67, `HANDOFF.md` §80; deployed, §80.13): Reader runs on a record on the PC with the
-phone's working copy, and a browser page reads it (the section below); from 0.68 Torrents, Files and the notices, from
-0.70 Feed and Tmux, the same (`core/…/app/Windows.kt`); every other window syncs as below.
+**As built.** `REPLAN.md` §14 rules the PC the owner of every window's state, with the phone keeping a working copy,
+and PC-direct BLE a manual choice, never automatic: the service never drives by itself (`HANDOFF.md` §79). Reader,
+Torrents, Files, the notices, Feed and Tmux run on a record on the PC with the phone's working copy, and browser pages
+read them (the section below; `core/…/app/Windows.kt`, `HANDOFF.md` §80, §84, §89); every other window syncs as below.
 
 ## The moving parts
 
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | THE driver — owns the BLE radio and runs the shell; serves the seam :7402 (status probe + explicit dev claims) and the replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | data host: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed · `bastion`, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); since 0.66's deploy also the bus alert watcher (the hub read every 10 s when `haUrl` is set), `damage.phone` once a minute, the nightly copy at `backupAt` into `backupDir`, and the reach gate on every listener; from 0.67's deploy also Reader's record (`record.json` + `oplog.jsonl`; from 0.68 and 0.70 the other converted windows' too) and the
-web listener :7405; probes the phone's seam every 5 s for its status line and never drives on its own — PC-direct BLE only by hand (`drive=ble` / `drive=auto`, below); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `--transport auto` = the data host; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
+| **beardos `damage` service** | data host: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed · `bastion`, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); the bus alert watcher (the hub read every 10 s when `haUrl` is set), `damage.phone` once a minute, the nightly copy at `backupAt` into `backupDir`, and the reach gate on every listener; the converted windows' record (`record.json` + `oplog.jsonl`) and the web listener :7405; probes the phone's seam every 5 s for its status line and never drives on its own — PC-direct BLE only by hand (`drive=ble` / `drive=auto`, below); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `--transport auto` = the data host; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
 | **beardos `qbittorrent` service** | the Torrents backend: `qbittorrent-nox` on Adam's own profile (`~/.config/qBittorrent`), Web API `127.0.0.1:8090` | OpenRC `qbittorrent` (Gentoo's script + `/etc/conf.d/qbittorrent`, `default` runlevel, 2026-09-10) |
 
 **Who drives when** (automatic, event-driven, pacing not timeouts): APK up → the phone shell drives — home,
 work, LTE; PC reachability decides how CAPABLE it is (live library, tmux, sync), never who drives, and
 gestures and frames never leave the phone. PC unreachable → nothing changes on glass; content degrades to
 the caches, staleness is said (`PC gone/Nm`), sync resumes on reconnect (last-write-wins both ways); the bus
-alerts say "home unreachable" after the phone's set minutes. APK unreachable → **since 0.66's PC deploy nothing takes
-the glasses by itself**: the status line says "phone unreachable … PC-direct BLE is manual (drive=ble)". (Before it,
-`b833713`'s standby claimed after six probes with both arms seen; beardos's hci0 being rfkill-blocked held it.) The
-phone's shelf answers from its cache at once while
-the PC is out of reach. Reboot either machine → both restart themselves. **State sync:** settings and every
-window blob flow between phone and PC whenever both are up — most recent wins, per key; from 0.67 Reader's places,
-bookmarks and rows are not synced but sent to the PC's record as ops (queued on the phone while the PC is out of
-reach); from 0.68 and 0.70 the same for Torrents, Files, the notices, Feed and Tmux (a converted window's keys never
-sync, `Persistence.syncable`).
+alerts say "home unreachable" after the phone's set minutes. APK unreachable → **nothing takes the glasses by
+itself**: the status line says "phone unreachable … PC-direct BLE is manual (drive=ble)". The phone's shelf answers
+from its cache at once while the PC is out of reach. Reboot either machine → both restart themselves. **State
+sync:** settings and every window blob flow between phone and PC whenever both are up — most recent wins, per key;
+the converted windows (Reader's places, bookmarks and rows; Torrents, Files, the notices, Feed and Tmux) are not
+synced but sent to the PC's record as ops, queued on the phone while the PC is out of reach (a converted window's
+keys never sync, `Persistence.syncable`).
 
 ## One-time setup (for a re-pair or a fresh phone; done 2026-08-31)
 
 (1) Sideload from the setup page; grant Bluetooth ×2 + notifications + the battery exemption. (2) Keep the
 G2CC bridge app Disconnected (a second central). (3) Phone first light with NOTHING on beardos holding the
 pair (`sudo rc-service damage stop`), flip Target → glasses. (4) `sudo rc-service damage start` → the log
-says `data host up (auto: the phone drives; …)` (0.66's jar; `standby up (§19)` before it). Keep the APK current with the PC (`REMINDER.md` says which build is installed and
-staged): a pre-0.15 APK cannot be status-probed and a pre-0.10 one carries no sync client.
+says `data host up (auto: the phone drives; …)`. Keep the APK current with the PC (`REMINDER.md` says which build is
+installed and staged).
 
 ## Music (2026-09-02, `MUSIC.md`) — the phone plays, the PC serves
 
@@ -50,7 +45,7 @@ staged): a pre-0.15 APK cannot be status-probed and a pre-0.10 one carries no sy
 | **beardos `damage` service** | the LIBRARY: Postgres `g2cc` over the Unix socket (peer auth), Qdrant `g2cc_music`, the transcode cache (`~/.g2cc/media-cache` read in place as the Standard profile, `~/.damage/media-cache/<profile>/` for the rest), art + viz, the resolver lanes (`claude -p` for Ask, `audio/enrich/embed_query.py` on G2CC's venv), yt-dlp, enrichment; the **media endpoint :7404** (`GET /track/<id>?token=&profile=`, Range-capable) |
 | **phone APK** | the PLAYER: ExoPlayer + a media session (bud taps: single = play/pause, double = next, triple = previous, from anywhere), catalog/art/viz/lyrics cached on disk, the next 3 tracks prefetched, hold-my-volume, boost, sleep, Spotify as the fallback |
 
-**One-time phone grants (0.23):** open the app → `music access` on the strip → allow *Damage music*
+**One-time phone grants:** open the app → `music access` on the strip → allow *Damage music*
 notification access (Spotify's session and the OS volume-lowered notice ride on it). No RECORD_AUDIO is
 asked, ever. Then Settings → Music → Output (Auto follows the buds; the speaker plays only when chosen).
 
@@ -77,11 +72,11 @@ without writing a row.
   SMBC, the 8-Bit Theater archive) into `~/.damage/feed/` and serves the phone over the content port. Own
   sources: `feedSources` in `~/.damage/config.json` (copy `SourceCfg.DEFAULTS` and add; `kind: "rss"` + `url`
   [+ `"image": true` for a webcomic]); `feedUserAgent` is the one string every fetch carries. No credentials.
-- **The phone never fetches for itself** (from 0.70; before it, after the `PC loss` threshold): with the PC out of
+- **The phone never fetches for itself:** with the PC out of
   reach Feed shows what it last loaded under "PC unreachable since H:MM"; reads, flags, pins and places apply and go
   to the PC on its return; refresh, browse and anything not loaded say "PC not answering". The phone's old `feed/`
   folder in the app's files is no longer used (its size is in the service log once); deleting it is his.
-- **From 0.70 Feed and Tmux are on the PC's record and have a page each** (`HANDOFF.md` §89): `/w/feed` on any
+- **Feed and Tmux are on the PC's record and have a page each** (`HANDOFF.md` §89): `/w/feed` on any
   approved browser; `/w/tmux` only on a browser at level full (at the desk a real terminal that never resizes his
   session; on a phone the colour text with the quick keys). Tmux alerts still pop on the glasses only.
 - **Reddit is paced to one request a minute** (bursts get 429s): `reddit.com rate-limited · retry N s` on the
@@ -100,7 +95,7 @@ without writing a row.
 
 - `sudo rc-service damage start|stop|status` — the PC side. **Stop it before any `./gradlew :desktop:run` dev
   session** (one set of ports; `ble`/`remote` dev modes are a second central/driver); start it again after.
-  From 0.64's jar a shell or `--host-only` start while another process holds the data directory exits **4** with
+  A shell or `--host-only` start while another process holds the data directory exits **4** with
   one stderr line naming `~/.damage/instance.lock`; under the supervisor a refused start repeats every 5 s (one
   `damage.log` line per 5 s) for as long as the other process lives. The start banner prints `?token=…` and names
   `config.json`. With the service stopped, a dev `:desktop:run` on the real data directory is a start all the same:
@@ -109,28 +104,28 @@ without writing a row.
   server is RETIRED** (`HANDOFF.md` §44) — never start it by hand: it would take :7300 from the setup page
   and rewrite the adaptive playlists. ⚠ :7401 is a framed channel, not HTTP — an HTTP probe ends a session
   loudly (`frame length … out of range`); probe :7403 for liveness.
-- Logs: `~/.damage/damage.log` (the service: the data host's narration; from 0.66 the watcher under the tag
+- Logs: `~/.damage/damage.log` (the service: the data host's narration; the watcher under the tag
   `bastion`, `damage.phone` under `presence`, refused connections under `reach`), `~/.damage/journal.jsonl` (the PC's
-  flush journal while a PC stack drives; from 0.66 also the `reach` and `presence` notes), phone `adb logcat | grep ' damage/'` (the tags are `damage/<tag>`) + the on-phone status line.
-  **From 0.64 (both hosts) the journal is renamed at a process start once past 64 MiB** to
+  flush journal while a PC stack drives; also the `reach` and `presence` notes), phone `adb logcat | grep ' damage/'`
+  (the tags are `damage/<tag>`) + the on-phone status line.
+  **On both hosts the journal is renamed at a process start once past 64 MiB** to
   `journal-YYYYMMDD-HHMMSS.jsonl` beside it, and the fresh live file starts with a `journal` note naming the archive;
   nothing is deleted. The phone serves the archives (`/journals`, and `/journal?…&name=` for one);
   `python3 tools/journal_pull.py --live` copies them and the live file to `~/.damage/phone-journal/` (it keeps no
-  `journal-live-…` copy whose lines an archive there holds, and names the archive) and stops at a `/journals` 404
-  (0.63). From APK 0.69 the phone also keeps its LOG for 10 days, one file a day with date and time on every line
+  `journal-live-…` copy whose lines an archive there holds, and names the archive) and stops at a `/journals` 404.
+  The phone also keeps its LOG for 10 days, one file a day with date and time on every line
   (`/logs` lists them, `/log?name=log-YYYYMMDD.txt` streams one; `python3 tools/journal_pull.py --logs` copies them;
-  a day stops at 32 MiB with a line saying so). **Pull before an uninstall.** `journal_report.py` reads a pipe or `<(…)` alone or as `-` (refused among
-  several, exit 2); read a journal that spans the upgrade to 0.64 with `--since` — its `cached text:` line reads
-  "refusals by reason" and the `cache count:` line names "short on staged strips alone".
+  a day stops at 32 MiB with a line saying so). **Pull before an uninstall.** `journal_report.py` reads a pipe or
+  `<(…)` alone or as `-` (refused among several, exit 2).
 - **The phone's journal, no adb** (`HANDOFF.md` §32): `curl -s 'http://aphone:7403/journal?token=…&tail=2000000' | python3
   tools/journal_report.py -` (the lines in the last ~2 MB). **An APK before 0.61 reads the whole file into memory
-  without `&tail=` and its process ends (`HANDOFF.md` §71): drop `&tail=` only on 0.61+.** It shows the ack curve by hour (with the connection
-  parameters in force per hour since §47: `105/4` is the slow set, `15/1` the fast) and radio path, CPU
+  without `&tail=` and its process ends (`HANDOFF.md` §71): drop `&tail=` only on 0.61+.** It shows the ack curve by
+  hour (with the connection parameters in force per hour: `105/4` is the slow set, `15/1` the fast) and radio path, CPU
   per flush, the cache's account, **time to first visible change per gesture** (the number a window is judged
-  by), the `link`/`keeper` notes. The daily driver's real curve; the PC journal's is a manual PC stack's. From 0.64 it also
+  by), the `link`/`keeper` notes. The daily driver's real curve; the PC journal's is a manual PC stack's. It also
   prints the glasses' battery by state (lit, the shell's silent, rest, the firmware's Silent Mode) and a candidate
   block, "panel transfers against frames counted"; the notes list shows `wear`, `case`, `sid`, `rest`, `lowbatt`.
-- **The phone's log, no adb** (APK 0.41+, §42): `curl -s 'http://aphone:7403/log?token=…&tail=400'` (the last
+- **The phone's log, no adb** (§42): `curl -s 'http://aphone:7403/log?token=…&tail=400'` (the last
   400 of the 4,000 lines kept; without `&tail=`, all of them). The keeper's transitions (`start failed: …`, `link ended: …`) are also `keeper` journal notes.
 - **The glasses show NOTHING and the temples do nothing** (`HANDOFF.md` §36): the firmware's Silent Mode is
   probably on; the shell handles it (a phone notice, frames stop, the lease is dropped, the page traffic stops)
@@ -143,7 +138,7 @@ without writing a row.
   proven or dropped; off for the A/B); `Slide frames` (default `auto`); `Cached text` (default `off` — on, it
   uploads fonts and icons in idle chunks (`atlas` notes) and ships text and icons on EVERY plane as cached
   draws; a refused cache write switches it off for the session; every flush line carries `cached`/`cacheMiss`;
-  since 0.63 (`HANDOFF.md` §73) a face is uploaded with the characters it has drawn and gains the rest as they
+  a face is uploaded with the characters it has drawn (`HANDOFF.md` §73) and gains the rest as they
   appear — a first-seen character is pixels for one flush, the `atlas` notes say "N face(s) gained glyphs", the
   flush line's `unpacked` counts what the host drew meanwhile — and the row also sets the layout metric, so
   switching it re-wraps every page);
@@ -155,25 +150,25 @@ without writing a row.
   double wait:3 snap:/tmp/a.png down down tap …` sends ring gestures through the phone's replica and saves
   both lenses at 1× — snap before every tap (§29.2: one step per snap near an irreversible row; never scroll
   in Music's root).
-- **Phase 0 probes** (APK 0.45+, `HANDOFF.md` §49; dev only — the shell never sends them): `python3
+- **Phase 0 probes** (`HANDOFF.md` §49; dev only — the shell never sends them): `python3
   tools/glassdrive.py aphone TOKEN probe:NAME=VALUE`. `diag=show` (blanked the display on a5d1c31 until a rebuild, `HANDOFF.md` §54.8, and has not been run on the fork's build — not without Adam) puts the firmware's diagnostic line at the
   top-left of both lenses (`OK w…us p…us f13/20/27=…k`: flags, the last message's worker and copy time, free KiB
   per heap arena) — `diag=hide` removes it. `logger=on` streams the glasses' own log lines into the journal as
   `glasslog` notes (RAM-only on the glasses; re-sent after every session start; `logger=off` stops it) — read
   with `journal_report.py - --since … --glasslog`. On a Damage build (`FIRMWARE.md` §3/§4): `telemetry=read`,
-  `cache=info`, `flags=clear|probe|0xNNNN`, `selftest=begin|end|step:HEX`, and since 0.51 `cachesize=KiB` (op 5) and
+  `cache=info`, `flags=clear|probe|0xNNNN`, `selftest=begin|end|step:HEX`, `cachesize=KiB` (op 5) and
   `selftest=live:HEX` (a vector's cache write to the live cache; `glassdrive.py selftest:FILE` drives a whole vector:
   its live writes drop the shell's atlas for the session and nothing presents during a step, so a quiet minute; it
   exits non-zero on a step that differs — read the status, not only the lines; `HANDOFF.md` §64.4, §65).
-  From 0.64: `cache=miscount`, `wear=query` and `rest=on|off` (each his word only on glass), and on the SIM target
+  Also `cache=miscount`, `wear=query` and `rest=on|off` (each his word only on glass), and on the SIM target
   only `sim=battery=N|charging=on|off|worn=yes|no|wearswitch=on|off|case=docked|out`. The new notes: `wear` (every
   sid-0x10 frame; op 7's answer; the READ's field 10 and field 14's presence), `case` (sid 0x81), `sid` (a service
   with no handler, once a session), `lowbatt` (where the low-battery notice went), `rest` and `power`.
-  `phy=2m` asks the radio for 2M PHY (`link` notes carry the
-  answer; `phy=1m` goes back — on the upstream build, 2026-09-14, the glasses refused 2M; the fork's Phase 2 build offers it and the APK asks at every session start, `PHY after the link request: 2M/2M`). `telemetry=read` and `flags=probe|clear` answer only on a Damage firmware build
-  (the installed one since 2026-09-16; an upstream build ignores them and the `probe` note says so). The glasses' battery changes are
-  `battery` notes (the report's battery section).
-- **The timed rest hour** (APK 0.64; his word on glass): start below the gauge's top band (it reads 100 from raw 97
+  `phy=2m` asks the radio for 2M PHY (`link` notes carry the answer; `phy=1m` goes back; the fork's build offers 2M
+  and the APK asks at every session start, `PHY after the link request: 2M/2M`). `telemetry=read` and
+  `flags=probe|clear` answer only on a Damage firmware build (an upstream build ignores them and the `probe` note
+  says so). The glasses' battery changes are `battery` notes (the report's battery section).
+- **The timed rest hour** (his word on glass): start below the gauge's top band (it reads 100 from raw 97
   up, `HANDOFF.md` §74 A3: an hour begun at 100 % reads low); note whether the pair is worn (with the lease released
   the stock head-up dashboard and the temples are stock's); rest from the host that owns the radio; `probe:rest=on`;
   one hour with no ring touch (any input ends it — the `power` notes show an early end); `probe:rest=off`; then
@@ -189,12 +184,12 @@ without writing a row.
   (`http://beardos:7403/…`) shows the data host's status, a live mirror only while a manual PC stack drives.
 - **Deploying a new PC build:** `./gradlew :desktop:stageJar && sudo rc-service damage restart` — never touches
   the display (the PC claims nothing). The service runs the stable `~/.damage/damage.jar`; never replace the
-  jar under a running instance. **When the lane protocol or the record changes (0.70 does), the PC deploy and the
-  APK install are ONE sitting** — the section "Deploying APK 0.70" below.
+  jar under a running instance. **When the lane protocol or the record changes, the PC deploy and the APK install
+  are ONE sitting** — the section "Deploying APK 0.70" below.
 - **Deploying a new APK:** bump versionCode/Name, `./gradlew :phone:stageApk`, download from the setup page
   (`http://beardos:7300/setup` on the tailnet, `SetupServer.kt`), install over; `MY_PACKAGE_REPLACED` restarts
   the phone service by itself. Before any uninstall, pull the archives first (`python3 tools/journal_pull.py
-  --live`; 0.64+).
+  --live`).
 - **The mutation runner** (`research/mutate_core.py`): `?? <file>.kt.mutate-orig` in `git status` = that file holds
   a mutant; any start of the runner puts it back and says so; `<file>.kt.mutate-left` is what the file held — look,
   then remove (none is written when the source already held the original's bytes). One run per tree: a second
@@ -202,14 +197,14 @@ without writing a row.
   scratch root). Exit 143 / 129 = ended by SIGTERM / SIGHUP with the source put back; a signal that arrives as the
   list ends stops nothing and the report is printed; a stop before the first entry says so. 29 entries print
   `NO PIN (declared)`; a `NOT RUN` makes the run exit 1. **The wiring gate** (`tools/check_apk_wiring.py`, after
-  `:phone:assembleDebug`): 17 lines at 0.64, judged by content — an output older than the manifest that agrees with
+  `:phone:assembleDebug`): judged by content — an output older than the manifest that agrees with
   it is a `note` line; exit 2 only for a missing output or one that is older and differs.
 - Tmux knobs: `~/.damage/config.json` (`tmuxHosts` — add slappy back when it is actually on — `tmuxQuickKeys`,
   `tmuxSnippets`, `tmuxWaitPatterns`); on-glass settings in Settings → Tmux. The wait alert works for ANY pane,
   a TAP on it opens the session's live view, a quiet host says so on EVERY level and in Main's row (§28–§30).
 - **Hand-editing `config.json`** is safe (§28): an unreadable file (a stray comma) is left as it is and the
-  service runs on defaults for that start with a loud log line; fix and restart. The 0.66 keys default off
-  (`haUrl` and `backupDir` empty; the bus watcher section below). Every HOST-need window on the
+  service runs on defaults for that start with a loud log line; fix and restart. The bus watcher's keys default off
+  (`haUrl` and `backupDir` empty; its section below). Every HOST-need window on the
   phone (Tmux, Files, Torrents, Reader content, Music, Feed) rides this service — :7401, plus :7404 for Music.
 - "Scans forever" while the phone says Connected → the stale-ACL recovery is still **toggle phone Bluetooth**
   (the scan fails loudly and rides the ON edge back in).
@@ -265,7 +260,7 @@ without writing a row.
   0; `change` takes `at` (the size of a change from the baseline taken at arming, in the entity's units — it fires at
   a difference of `at` OR MORE, so "more than 3" is `at: 4`; a sensor that reports in steps of 3 and flickers between
   two neighbouring steps needs `at` above one step, Adam's correction of 2026-11-18) and
-  `direction` (`any`, the default · `up` · `down`). L1 removed the kind `stale` and the option `withinMin`: a rule that
+  `direction` (`any`, the default · `up` · `down`). There is no kind `stale` and no option `withinMin`: a rule that
   names either is refused (said, `watcher.rule.<id>`). An edit applies at the next start; a severity edit from the
   alert's next episode. The token file alone is read again once a minute while it cannot be used or its token is
   refused.
@@ -273,10 +268,9 @@ without writing a row.
   2026-11-13): `change` rules with `"when": {"entity": "damage.phone", "equals": "away"}`; a rule that should fire only
   on a rise takes `"direction": "up"`. The connection path alone has read `away` on his days out since ruling R3.1
   (the PC's log: relayed, or direct to a public address, then `unknown -> away` after 15 min); at the bus it reads
-  `home`. The four away rules held back since 11-13 are armed by the lead at deploy 2, with a copy of
-  the rule file kept beside it. *2026-11-23: they are armed — the live rule file has held the four `…change-away`
-  rules since 2026-11-18.* While `damage.phone` reads `unknown` (the phone's peer offline) a guarded rule has no
-  reading: it neither raises, clears an alert nor drops its baseline.
+  `home`. The live rule file holds the four `…change-away` rules (armed 2026-11-18). While `damage.phone` reads
+  `unknown` (the phone's peer offline) a guarded rule has no reading: it neither raises, clears an alert nor drops
+  its baseline.
 - **Reading the state:** Settings → Bastion → `Watcher` on the glasses or the phone (the PC watcher's state line — a
   rule with no usable reading for `haSilentMin` says so there — or "home not answering · PC unreachable since H:MM");
   `grep -E ' (bastion|presence|reach): ' ~/.damage/damage.log`; the alerts themselves in `~/.damage/alerts.json`. The
@@ -286,16 +280,15 @@ without writing a row.
   session and block it again after; then `python3 tools/glassdrive.py localhost TOKEN probe:drive=ble` against the PC
   replica (:7403); back with `probe:drive=auto`. Each use is a `keeper` note and a log line.
 - **The nightly copy:** into `backupDir` as `damage-YYYYMMDD-HHMMSS/` (state files only: `state.json`, `torrents.json`,
-  `alerts.json`, the rules file, the feed's sources and binge lists, the pending uncaught record; from 0.67
-  `record.json` and `devices.json`); 14 kept; a failed
-  run raises a notice on the glasses and phone. A restore is a manual copy back with the service stopped.
-- **The phone (0.66):** channels "Bus alerts", "Bus alerts · urgent", "Home unreachable" (Android settings → Damage →
+  `alerts.json`, the rules file, the feed's sources and binge lists, the pending uncaught record, `record.json` and
+  `devices.json`); 14 kept; a failed run raises a notice on the glasses and phone. A restore is a manual copy back with the service stopped.
+- **The phone:** channels "Bus alerts", "Bus alerts · urgent", "Home unreachable" (Android settings → Damage →
   notifications); the Acknowledge button on a bus alert; the app's "location" button (precise location, then "Allow
   all the time") turns on presence from the phone; `Presence · location` turns it off. Global `Quiet hours` (default
   off) holds normal bus alerts and releases them at the end.
-- **Journal notes (0.66):** PC `reach` (a refused connection, once per source per minute) and `presence` (each change
+- **Journal notes:** PC `reach` (a refused connection, once per source per minute) and `presence` (each change
   of `damage.phone` and which signal decided); phone `place`, `heap3` (free memory at four points of a start), `cue`,
-  `slow`; a line marked `late` was written a second or more after its event. From 0.68 the PC also writes `devices`
+  `slow`; a line marked `late` was written a second or more after its event. The PC also writes `devices`
   (an approve, deny, rename or revoke: who, what, its answer; the desk browser's own approval as `this PC's browser`),
   `usage` (`<device> web <window> open|leave <scope>`: a page taking or leaving a scope) and `program` (an op into the
   torrent client or the filesystem): `grep '"kind":"usage"' ~/.damage/journal.jsonl`.
@@ -323,7 +316,7 @@ without writing a row.
   machine's own name and the arriving address — the tailnet's full name goes here). `Host` and `Origin` are checked on
   every request; a page opened under another name is refused 403.
 - **Files in `~/.damage`:** `record.json` (the PC record: Reader's places, bookmarks, the book read most recently, the
-  glasses rows; from 0.68 Torrents' and Files' own rows and the notice record; from 0.70 Feed's and Tmux's), `oplog.jsonl` (one line per op; set
+  glasses rows; Torrents', Files', Feed's and Tmux's own rows; the notice record), `oplog.jsonl` (one line per op; set
   aside whole as `oplog-YYYYMMDD-HHMMSS.jsonl` at a start once past 64 MiB or holding a bad line, never deleted),
   `record.seq` (left by 0.67; no longer read or written), `reader-index.json` (a cache of each book's length, chapters
   and cover; deleting it costs one walk of the shelf at the next start), `devices.json` (the approved browsers),
@@ -331,9 +324,9 @@ without writing a row.
   start, and a new one is written). The nightly copy takes `record.json` and `devices.json` only. A `record.json` that
   does not read is kept as `.bad` (then `.bad.2`, …).
 - **Reading the record's state:** the `record` line at each start in `damage.log` (`opened: epoch E (kept | new: why),
-  seq S, N line(s) replayed past C, …`) and its journal note; at the first start of 0.68 one `migrate` note on the PC
-  naming the Torrents and Files rows it wrote from their old records (a later start writes none); `web` lines (the
-  local secret's state, the device count, the port); the diagnosis page (epoch, seq, contracts, connections, the log's
+  seq S, N line(s) replayed past C, …`) and its journal note; `migrate` lines at the first start of a build that
+  brings windows onto the record (0.68, 0.70: the rows written from their old records; a later start writes none);
+  `web` lines (the local secret's state, the device count, the port); the diagnosis page (epoch, seq, contracts, connections, the log's
   last 300 lines; level full); built-in alerts `record.log`, `record.save`, `record.replay` on the glasses and phone. A
   `record.log` alert (the log did not open at a start) clears by itself: the log is tried again on every pacing tick,
   and the pages and the phone get their snapshots once it opens. The service owns `record.json`: read it, never edit
@@ -354,40 +347,38 @@ without writing a row.
 
 ## Deploying APK 0.70 (build S1-3, `HANDOFF.md` §89) — ONE sitting, with his install
 
-**Done 2026-11-18 (PC 14:09, his install 14:29; `HANDOFF.md` §91). Kept as the record of how a deploy that changes
-the lane protocol or the record is done; 0.71 changed neither and went the ordinary way (stage both, restart the
-PC, he installs).**
+The way a deploy that changes the lane protocol or the record is done (0.70's, 2026-11-18, `HANDOFF.md` §91, is the
+worked example; a build that changes neither goes the ordinary way: stage both, restart the PC, he installs).
 
-The PC is not restarted onto 0.70 until he is about to install the APK: marks made on the 0.69 phone after the new
-PC's first start are not carried (the migration runs only at that start), and a 0.69 phone's Feed and Tmux do not work
-against the 0.70 PC (its lane is ended `proto`; no Tmux alerts reach it). In order, at the PC, from the repository on
-the 0.70 commit:
+The PC is not restarted onto the new build until he is about to install the APK: marks made on the old phone after
+the new PC's first start are not carried (a migration runs only at that start), and the old phone's converted
+windows do not work against the new PC (its lane is ended `proto`). In order, at the PC, from the repository on the
+new build's commit:
 
-1. **Back up 0.69** (the service still running it): `mkdir -p ~/.damage/backup/pre-070 && cp -p ~/.damage/damage.jar
-   ~/.damage/backup/damage-0.69-1153ded.jar && cp -p ~/.damage/damage-wm.apk ~/.damage/backup/damage-wm-0.69.apk &&
-   cp -p ~/.damage/record.json ~/.damage/oplog.jsonl ~/.damage/state.json ~/.damage/backup/pre-070/`.
-2. **The PC:** `./gradlew :desktop:stageJar && sudo rc-service damage restart`. Its first start writes the migration
-   (`grep -E ' (record|migrate): ' ~/.damage/damage.log | tail`: the record opened with its epoch kept, the `migrate`
-   lines naming Feed's and Tmux's rows — on a copy of his data 21 and 4 — and none at any later start).
-3. **The APK:** `./gradlew :phone:stageApk` (bumped to 0.70 / 70 already), then **he installs** it from the setup page;
-   `MY_PACKAGE_REPLACED` restarts the phone's service.
-4. **Check:** Feed's sources and his read marks on the glasses as he left them, Tmux's mutes and Alerts row; then
-   `/w/feed` and `/w/tmux` on the desk browser (the terminal is seen in Firefox only so far: Chromium is his first use).
+1. **Back up the running build** (the service still running it): the jar and the APK into `~/.damage/backup/`
+   (`damage-<version>-<commit>.jar`, `damage-wm-<version>.apk`), and `record.json`, `oplog.jsonl` and `state.json`
+   into `~/.damage/backup/pre-<new version>/`, each with `cp -p`.
+2. **The PC:** `./gradlew :desktop:stageJar && sudo rc-service damage restart`. Read its first start: `grep -E '
+   (record|migrate): ' ~/.damage/damage.log | tail` — the record opened with its epoch kept, the `migrate` lines
+   naming the rows written, and none at any later start.
+3. **The APK:** `./gradlew :phone:stageApk` (versionCode and name already bumped), then **he installs** it from the
+   setup page; `MY_PACKAGE_REPLACED` restarts the phone's service.
+4. **Check:** the moved windows' state on the glasses as he left it, then their pages on the desk browser.
 
-**The way back:** stop the service, put `damage-0.69-1153ded.jar` back as `~/.damage/damage.jar` WITH the three files
-from `pre-070/` (anything written after the deploy is lost; downgrades are not built), start it, and install
-`damage-wm-0.69.apk` (an older versionCode does not install over a newer one: it needs an uninstall first, which
-clears the phone's working copy and queue — pull the phone's journal before, `python3 tools/journal_pull.py --live`).
+**The way back:** stop the service, put the backed-up jar back as `~/.damage/damage.jar` WITH the three files from
+`pre-<version>/` (anything written after the deploy is lost; downgrades are not built), start it, and install the
+backed-up APK (an older versionCode does not install over a newer one: it needs an uninstall first, which clears the
+phone's working copy and queue — pull the phone's journal before, `python3 tools/journal_pull.py --live`).
 
 ## The firmware ladder and local input (C1 since 11-18; C2's phone half in APK 0.77, `HANDOFF.md` §91, §92)
 
 - **The ladder's stage** is kept on the phone (`c1-stage` in its files) and armed at each session start: 0 nothing ·
   1 ZWRITE · 2 and the 256 KiB cache · 3 and ENGINE · 4 and BIND (local input; only on a build that reports
-  DamageCaps bit 10 — on the C1 image a stored 4 arms stage 3's bytes) · 5 and EFFECTS (C3; only on a build that reports
-bit 11 — on the C2 image a stored 5 arms stage 4's). Set by hand only: the replica WebSocket's
+  DamageCaps bit 10 — on the C1 image a stored 4 arms stage 3's bytes) · 5 and EFFECTS (C3; only on a build that
+  reports bit 11 — on the C2 image a stored 5 arms stage 4's). Set by hand only: the replica WebSocket's
   `{"t":"probe","name":"c1","value":"N"}`; it changes the STORED stage, and the next session start arms it (rest on,
   then off, starts one). A lens reset after an arming steps the stage down by itself and says so (`holdback`).
-- **The session's cache size** is the stored last one after an app install or restart (since 0.77); it rises to the
+- **The session's cache size** is the stored last one after an app install or restart; it rises to the
   stage's 256 KiB only at a start after about 103 s with no lease renewal — in daily use the first start after a
   night in the case.
 - **Without a Claude session:** `python3 tools/ladder.py state` says what RIGHT reports now; `python3 tools/ladder.py
@@ -401,18 +392,15 @@ bit 11 — on the C2 image a stored 5 arms stage 4's). Set by hand only: the rep
 - **After stage 4 is armed, read in the phone's journal:** `local` (reports, answers, what was not sent and why),
   `mainstage` (what was staged, its bytes, "not staged — why"), `snapback` (with its cause), `tapdrop`, `repair`,
   and the telemetry fields 35–39. `tools/journal_report.py` prints them.
-- **The flash** is `FORK.md` §7, on his go per lens, never otherwise. The C2 candidate is a file in the fork's
-  `c2` worktree (pin `b3f04453…`); the installed C1 image is kept in `fws/2.2.6.10-cfw-0dab2154/` as the rollback.
-  *2026-11-23: since 11-20 the installed image is C3's `58741c4a…` (`fws/2.2.6.10-cfw-58741c4a/`), C2's `b3f04453…` the
-  rollback (`fws/2.2.6.10-cfw-b3f04453/`); stage 5 since 11-21 (`HANDOFF.md` §99, §101.1).*
+- **The flash** is `FORK.md` §7, on his go per lens, never otherwise. Each image, the installed one and its rollback
+  included, is kept in `fws/2.2.6.10-cfw-<pin8>/`; which is installed and the stage: `REMINDER.md`.
 
 ## What was verified vs what awaits glass
 
-The §13 hardware pass ran 2026-08-31 (`HANDOFF.md` §13); the §19 re-shape is
-test-pinned (`SyncTest` ×6; since 0.64 `SyncToleranceTest` for the 2 s tolerance) and seen live (`sync-host: peer attached to the sync channel`; a phone-side
-`window.tmux` record applied store-direct while the PC shell was in standby). **Still awaiting a deliberate
-glass test:** the sync feel across a driver swap (a book position following the swap); the standby engagement test is
-moot since W made PC-direct BLE manual (`drive=ble` by hand is its replacement, below). **Games
+The §13 hardware pass ran 2026-08-31 (`HANDOFF.md` §13); the §19 re-shape is test-pinned (`SyncTest` ×6,
+`SyncToleranceTest` for the 2 s tolerance) and seen live (`sync-host: peer attached to the sync channel`; a
+phone-side `window.tmux` record applied store-direct while the PC shell was in standby). **Still awaiting a
+deliberate glass test:** the sync feel across a driver swap (a book position following the swap). **Games
 (`HOLDEM.md`) needs nothing from ops** — no host, no provider, no channel; its state is the shell's own store
 (`window.games`, `window.games.world`, `window.games.bankroll`, `window.games.table`,
 `window.games.char.<id>`) and syncs like every window not yet on the PC's record. ⚠ Its layouts and card art have never been seen
