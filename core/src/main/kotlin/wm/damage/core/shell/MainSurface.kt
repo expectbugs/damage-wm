@@ -28,7 +28,7 @@ class MainSurface(
     private val presence: () -> Int = { 1 },
     /** Theme icons (2026-09-01); null/miss falls back to the drawn set. */
     private val icons: () -> wm.damage.core.gfx.IconSource? = { null },
-) : wm.damage.core.local.BoundSurface {
+) : ListSurface {
     val model = ListModel()
     var resting = false
 
@@ -36,7 +36,7 @@ class MainSurface(
     private val fRow = FontSpec(Face.SYSTEM, 18)
     private val fRowB = FontSpec(Face.SYSTEM, 18, bold = true)
 
-    fun view(): WindowView.ListView = WindowView.ListView(
+    override fun view(): WindowView.ListView = WindowView.ListView(
         model,
         rowCount = { windows().size },
         paintRow = ::paintRow,
@@ -49,7 +49,7 @@ class MainSurface(
     // ------------------------------------------------------------------ build C2: Main's bound list (stage DM2)
     /** Main's list as staged on the glasses, set by the shell ([MainBinding]) once every record is counted (field 17)
      *  and cleared when the staging goes; null while nothing staged is counted. Loop-confined, like the model. */
-    internal var offered: wm.damage.core.local.BoundList? = null
+    override var offered: wm.damage.core.local.BoundList? = null
 
     /** What Main offers the rules while it is in front (`FIRMWARE.md` §6.7 "the bound list is the list in front"; the
      *  shell decides "in front, nothing over it"): its staged list once counted, else null. */
