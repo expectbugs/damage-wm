@@ -753,6 +753,10 @@ class TransitionShellTest {
                 paceLikeHis(r, outLate = outLate, inExtra = inExtra)
                 r.recording = true
                 selectAndSettle(r)
+                // C3 AH1F: the CLOSE after the in half's body goes in a local-only flush, which the shell's quiescence does
+                // not count — its image can reach RIGHT after the settle (this row stopped the recording at the settle and
+                // failed in 6–15 % of runs repeated in one JVM, 2 of 47 in a class run under load)
+                r.until("the CLOSE of slot 2 reaches RIGHT") { right(r).any { img -> subs(img).any { closeOf(it, 2) } } }
                 r.recording = false
                 val what = "out body +$outLate ms, in body +$inExtra ms"
                 assertTrue(r.notes("transition").none { "no in-half body" in it }, "$what: the backstop fired: ${r.notes("transition")}")
@@ -808,6 +812,7 @@ class TransitionShellTest {
             r.dropBodySlots = setOf(2)
             r.recording = true
             selectAndSettle(r)
+            r.until("the CLOSE of slot 2 reaches RIGHT") { right(r).any { img -> subs(img).any { closeOf(it, 2) } } }          // C3 AH1F: as the row above
             r.recording = false
             assertTrue(r.notes("transition").none { "no in-half body" in it }, "the backstop fired: ${r.notes("transition")}")
             assertTrue(inHalfWhole(r), "ended by RIGHT's in-half body: ${r.notes("transition")}")
