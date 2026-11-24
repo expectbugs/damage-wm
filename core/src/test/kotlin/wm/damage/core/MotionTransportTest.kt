@@ -77,8 +77,11 @@ class MotionTransportTest {
     private val full = Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480)))
     private val notes = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
     private fun has(kind: String, text: String) = notes.any { it.first == kind && text in it.second }
+    /** C3 AH1F: the collector runs in the emitter's own call ([Dispatchers.Unconfined]), so a note a call emits is in
+     *  [notes] when that call returns — collected on another thread, a check right after `start` read the list before
+     *  the start's own note was in it (`aDraw2HoldBackLiftedByHand…_C1Q`, 1 in 5,000 runs). */
     private fun collect(t: CfwTransportBase) {
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
             t.events.collect {
                 if (it is TransportEvent.Note) notes.add(it.kind to it.detail)
                 if (it is TransportEvent.Fault) notes.add("fault" to "${it.what}: ${it.detail}")
@@ -1984,8 +1987,11 @@ class MotionTransportTest {
         writesLandOnBoth(sim, t, "the held-back session (v1)", v1 = true)              // LEFT, fresh, allocates 64
         assertEquals(64 * 1024, sim.cacheSize(Arm.LEFT), "LEFT holds 64 KiB")
         assertEquals(160 * 1024, sim.cacheSize(Arm.RIGHT), "RIGHT holds 160 KiB")
-        t.devProbe("flags", "0x4")
+        // C3 AH1F: the clock moves BEFORE the hand probe — the probe's FLAGS_SET is written by the control lane after
+        // the call returns, and RIGHT's reply made before a jump and read after it read as a reset 0 s after the probe's
+        // arming (the start after the lapse then held DRAW2 back: 1 in 5,000 runs)
         clock.addAndGet(20_000L)
+        t.devProbe("flags", "0x4")
         assertTrue(t.restartSession("test: a renewal after the lift"))
         t.start(full)
         assertEquals(64 * 1024, t.state.value.cacheSize, "the renewal asks the last session's 64 KiB: ${said()}")
