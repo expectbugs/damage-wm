@@ -8939,6 +8939,8 @@ class Shell(
         screenRuns().let { it to screenCells(it, Rect(0, 0, comp.width, layout.safe.bottom)) }
     /** Tests only: the atlas's entry of [spec] as the glasses hold it. */
     internal fun atlasEntryForTest(spec: FontSpec): GlyphAtlas.Entry? = atlas?.takeIf { it.isAcked(spec) && spec in cachedFontsLive }?.entry(spec)
+    /** Tests only (C3 AH1F): the atlas lane has nothing queued and nothing in flight (on the loop). */
+    internal fun atlasLaneIdleForTest(): Boolean = atlasInFlight == null && atlasQueue.isEmpty()
 
     // ------------------------------------------------------------------ chrome
     private fun chromeState(): Chrome.State {

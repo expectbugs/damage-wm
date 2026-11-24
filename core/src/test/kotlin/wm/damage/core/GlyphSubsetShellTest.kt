@@ -406,6 +406,13 @@ class GlyphSubsetShellTest {
             throw AssertionError("$what: did not settle — ${shell.quiescenceReport()}")
         }
 
+        /** C3 AH1F: [block] evaluated once, on the shell's loop. */
+        fun <T> onLoop(block: () -> T): T {
+            val out = java.util.concurrent.CompletableFuture<T>()
+            shell.services.runOnShell { out.complete(block()) }
+            return out.get(10, java.util.concurrent.TimeUnit.SECONDS)
+        }
+
         /** Decided on the answer that ended the wait ([waitUntil]; 0.64 R1, review 1a RD-7). */
         suspend fun until(what: String, cond: () -> Boolean) = until({ what }, cond)
         /** The same, with a text that holds a live value: [what] is read when the wait gives up. */
@@ -1852,6 +1859,13 @@ class GlyphSubsetShellTest {
             r.spy.lagReads = true                              // its reading stays one short: pending, and the lane is open between readings
             r.spy.holdAtlasDone = null; acks.complete(Unit)
             r.until("the re-send is acked and its reading is pending") { r.count("count pending").size > pending }
+            // C3 AH1F: the cache notice raised at Q's shortfall grows its faces in the atlas, and its chunks leave as the
+            // lane opens after the pending reading — the pump right after the note the wait above reads. Armed before they
+            // left, the one-shot flag below took the notice's first chunk instead of Z's message: nothing first-time was
+            // acked at the re-base, and nothing went once more (1 in 61 suite runs; 15 of 30 with that wait polled without
+            // a pause). Decided on ONE evaluation on the loop: the notice up and still, the atlas lane empty and idle
+            r.until("the cache notice's faces in the atlas, the lane idle") { r.onLoop {
+                r.shell.notifications.current?.source == "DAMAGE · cache" && !r.shell.notifications.animating && r.shell.atlasLaneIdleForTest() } }
             r.spy.failNextAtlas = true                         // the next cache write's ack never comes
             r.win.suffix = "abQZ"
             r.notch("a character whose message is lost")
@@ -1860,9 +1874,10 @@ class GlyphSubsetShellTest {
                 r.count("count re-based — ").any { "a write was lost before the reading" in it && "a re-send among them: keyframing" in it } }
             r.until("a keyframe") { r.spy.keyframes() > kf }
             r.atlasIdle("after the re-base")
-            // FX-083 B1: Z — a first-time message acked and unjudged at the re-base (its first send was the lost one, its
-            // second acked) — goes once more, and its counted re-send keyframes as a shortfall's does: two keyframes here,
-            // the re-base's (for Q's re-send) and the counted re-send's (for Z's)
+            // FX-083 B1: the first-time messages acked and unjudged at the re-base go once more, and their counted re-send
+            // keyframes as a shortfall's does: two keyframes here, the re-base's (for Q's re-send) and the counted re-send's.
+            // (C3 AH1F, read in the journal: those messages are the cache notice's two chunks, acked between the readings;
+            // Z's message is the lost one, and it goes again from the acked mark.)
             assertTrue(r.count("count re-based — ").any { "first-time message(s)" in it && "go once more" in it }, "Z goes once more: ${r.count("count re-based")}")
             assertEquals(kf + 2, r.spy.keyframes(), "the re-base's keyframe and Z's counted re-send's")
             assertTrue(r.count("count short again").isEmpty(), "no verdict is made up for Q's re-send: ${r.count("re-send") + r.count("count short again")}")
