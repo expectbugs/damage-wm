@@ -43,7 +43,11 @@ class ChromeFlushTest {
                 return transport.submit(flush)
             }
         }
-        init { shell = Shell(GlyphyText(), spy, Persistence(tmp.resolve("state.json")), null, scope) }
+        // C3 AH1F: the wall clock pinned — at a real minute boundary the shell's minute tick marks the chrome dirty, and the
+        // next content-neutral repaint ships the clock cell's new minute (a cell that is not telemetry), one flush more
+        // than this test counts (once in the lead's whole-suite run of 11-23; every time with the minute moved inside the
+        // repaints on purpose)
+        init { shell = Shell(GlyphyText(), spy, Persistence(tmp.resolve("state.json")), null, scope) { Shell.LocalClock(12, 0, "12:00", "PM") } }
         fun thruAt(i: Int): String? = synchronized(thruAtSubmit) { thruAtSubmit[i] }
         /** Counted on the shell's loop, so a settle covers it (a collector on
          *  the transport's events can lag the loop and miss the last one). */
