@@ -203,7 +203,8 @@ class TransitionShellTest {
             // are written and counted after the start, one at a time; a row begins once they are and no cache work is on
             // its way — one evaluation on the loop deciding — else a program's write (mode 25 in the notice's slice, inside
             // the stage reserve) lands in the row's recording ahead of its act (2 of 3 runs on the vector lane's branch)
-            until("the idle lanes at rest") { onLoop { shell.noticeLaneDoneForTest() && !shell.cacheWorkInFlight } }
+            // C3 DW-1a: the wheel's lane too (its block at stage 5 on 256 KiB, staged after Main's and the notice's)
+            until("the idle lanes at rest") { onLoop { shell.noticeLaneDoneForTest() && shell.wheelLaneDoneForTest() && !shell.cacheWorkInFlight } }
             settle("up, the idle lanes at rest")
         }
 

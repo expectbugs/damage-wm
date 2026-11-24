@@ -55,7 +55,9 @@ class MainBindTest {
         // C3 DM-0: every one of them again at stage 5 on a bit-11 build — at 288 and 352 (Main wraps) the ring form, whose wrap
         // fires through the hook (`ring-wrap-`), per effect. C3 DM-1: six effects (Flip and Crush: their fallbacks at stage 4,
         // their version-2 pans at stage 5), and the switch between the pitch forms at stage 5 (`-pitchswitch`)
-        assertEquals(2 * (4 * 2 * (7 + 5 * 2 + 1)) + 2 * 2 * 2 * 6 + 2 * 2 * 2 * 6 + 4 * 2, r.cases.size, "every height and cache ran its cases at stage 4 and 5, and the wrapping heights their wraps per effect")
+        // C3 DW-1a: and the wheel's block beside Main's staging at stage 5 on 256 KiB, one case a height
+        assertEquals(2 * (4 * 2 * (7 + 5 * 2 + 1)) + 2 * 2 * 2 * 6 + 2 * 2 * 2 * 6 + 4 * 2 + 4, r.cases.size, "every height and cache ran its cases at stage 4 and 5, and the wrapping heights their wraps per effect")
+        assertEquals(4, r.cases.count { it.name.startsWith("wheel-block-h") && it.failures.isEmpty() }, "the wheel's block placed at every height")
         assertEquals(48, r.cases.count { it.name.contains("-wrap-") && !it.name.contains("-s5-") }, "the stage-4 wrap cases: ${r.cases.filter { it.name.contains("-wrap-") }.map { it.name }}")
         assertEquals(48, r.cases.count { it.name.contains("-s5-") && it.name.contains("-ring-wrap-") }, "the ring wraps, both ways, every effect, at 288 and 352 on both caches")
         assertEquals(8, r.cases.count { it.name.endsWith("-pitchswitch") && it.lines.size == 2 }, "the pitch switch both ways at every height and cache at stage 5")
