@@ -271,6 +271,20 @@ class SettingsWindow(
      *  tier's sub menu; entering and leaving the adjust level changes one row, not the screen, so it is no level here. */
     internal fun listLevel(): Int = 1 + (if (openCat >= 0) 1 else 0) + (if (openSub != null) 1 else 0)
 
+    /** C3 X3 (decisions CD (b)): whether a tap on the cursor row changes the screen the transitions read ([listLevel]), read
+     *  before the tap as [view]'s commit reads the row — a category and a tier's row (its sub menu) do, and a row's own
+     *  action may (`Local input` changes nothing else, but an action is not judged here); a row that enters the adjust
+     *  level, or has nothing to do, changes one row only. */
+    internal fun tapChangesScreen(): Boolean {
+        val es = entriesAt()                      // clamps a stale openCat and openSub first, as [view] does
+        if (openCat < 0) return true
+        val e = es.getOrNull((if (openSub != null) subModel else model).cursor) ?: return false
+        return e.sub != null || e.tap != null
+    }
+
+    /** C3 X3: a Back while adjusting leaves the adjust level only ([back]) — the same screen for the transitions. */
+    internal fun adjustingNow(): Boolean = adjusting != null
+
     private fun onOff(b: Boolean) = if (b) "on" else "off"
 
     private fun hostEntry(h: HostSetting) = Entry(h.name, {

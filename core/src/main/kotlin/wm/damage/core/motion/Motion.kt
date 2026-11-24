@@ -608,8 +608,10 @@ object Motion {
     /** Mode 26 PLAY of [program] (§5.5) with [p]: the parameters' checks run first (a refusal the phone can foresee
      *  is never sent); [cap4] must hold [MotionProgram.captureBytes] when a track uses `self`. Build C3: a version-2
      *  program's step budget (§7.12) — its C with every instance in [others] that can still draw after the PLAY's
-     *  closes ([stepSum]) — at most the cap, else refused (12). */
-    fun play(program: MotionProgram, slot: Int, period: Int, tag: Int, cap4: Int, p: IntArray, others: List<Drawing> = emptyList()): ByteArray {
+     *  closes ([stepSum]) — at most the cap, else refused (12). C3 X3: [cost] the program's C under [p] where the caller
+     *  keeps it (a transition's plan), else worked out here. */
+    fun play(program: MotionProgram, slot: Int, period: Int, tag: Int, cap4: Int, p: IntArray, others: List<Drawing> = emptyList(),
+             cost: Long? = null): ByteArray {
         program.resolve(p, staticOnly = false)
         if (program.captureBytes > 0) {
             val cap = cap4 * 4 until cap4 * 4 + program.captureBytes
@@ -617,18 +619,19 @@ object Motion {
             if (cap.first < first.last + 1 && first.first < cap.last + 1)
                 throw LintError("the capture range [${cap.first}, ${cap.last + 1}) meets the program's first read range — refused (5)")
         }
-        if (program.version == 2) budget(others + Drawing(program.cost(p)), "PLAY")
+        if (program.version == 2) budget(others + Drawing(cost ?: program.cost(p)), "PLAY")
         return CfwModes.motionPlay(slot, period, program.at, tag, cap4, p)
     }
 
     /** Build C3, mode 26 sub 8 PLAY-AFTER (§7.7) of [program] in [slot], its in half after the owner in [after]: the
      *  program carries OWN (12); the parameters' checks; the step budget with [others] — [waitsOn] the index in
-     *  [others] of the drawing owner it waits on (its slot `after`), −1 when that slot holds none drawing (§7.12). */
+     *  [others] of the drawing owner it waits on (its slot `after`), −1 when that slot holds none drawing (§7.12). C3 X3:
+     *  [cost] as [play]'s. */
     fun playAfter(program: MotionProgram, slot: Int, period: Int, tag: Int, after: Int, p: IntArray,
-                  others: List<Drawing> = emptyList(), waitsOn: Int = -1): ByteArray {
+                  others: List<Drawing> = emptyList(), waitsOn: Int = -1, cost: Long? = null): ByteArray {
         if (program.version != 2 || !program.own) throw LintError("§7.7: a PLAY-AFTER's program carries OWN — refused (12)")
         program.resolve(p, staticOnly = false)
-        budget(others + Drawing(program.cost(p), waitsOn), "PLAY-AFTER")
+        budget(others + Drawing(cost ?: program.cost(p), waitsOn), "PLAY-AFTER")
         return CfwModes.motionPlayAfter(slot, period, program.at, tag, after, p)
     }
 
@@ -922,6 +925,10 @@ class MotionProgram internal constructor(val at: Int, val bytes: ByteArray, val 
         return total
     }
 
+    /** Tests only (C3 X3's pin): how many times [cost] was worked out for this program. */
+    internal var costsWorked = 0
+        private set
+
     /**
      * Build C3, §7.12: this program's cost C under [p], in u, unsigned 64-bit — over its tracks 1,024 + the backdrop's
      * term + the largest of its segments' terms, every term from both lenses' rects (A the larger area, Wa and Ha the
@@ -929,6 +936,7 @@ class MotionProgram internal constructor(val at: Int, val bytes: ByteArray, val 
      * too (it counts in a sum, though the budget never refuses one).
      */
     fun cost(p: IntArray = IntArray(4)): Long {
+        costsWorked++
         val segs = resolve(p, staticOnly = false)
         var c = 0L
         tracks.forEachIndexed { i, t ->

@@ -396,6 +396,65 @@ class TransitionShellTest {
         } finally { r.close() }
     }
 
+    /**
+     * C3 X3 item B (decisions CD): an Encode act works each half's cost out ONCE — the share check, the PLAY, the PLAY-AFTER
+     * and the `owed:` line read the plan's kept figures — for a Select into a window and its Back, and for the Select into
+     * Settings and into a category (every tier Encode only, at 352); and an act that plays no transition records no
+     * screen: in Settings the tap that enters a row's adjust level and the Back that leaves it (the same screen key before
+     * and after them), while the taps that open Settings and a category record their two each.
+     */
+    @Test
+    fun anEncodeActWorksEachCostOutOnceAndAnActOnTheSameScreenRecordsNothing_X3(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true, nRows = 7)
+        try {
+            r.rows[0].labels = listOf("Window zero" to wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18))
+            r.up(only("encode"))
+            fun runs() = r.onLoop { r.shell.screenRunsForTest() }
+            fun owed() = r.notes("transition").count { it.startsWith("owed: ") }
+            /** One act, its run held at the in half until its plan is in hand; the plan's two programs' counts once it ended. */
+            suspend fun encodeAct(what: String, done: () -> Boolean, act: () -> Unit) {
+                val runs0 = runs()
+                r.shell.transitionHoldInHalfForTest = true
+                act()
+                r.until("$what: the run in hand") { r.onLoop { r.shell.transitionBuiltForTest() } != null }
+                val b = r.onLoop { r.shell.transitionBuiltForTest() }!!
+                r.shell.transitionHoldInHalfForTest = false
+                r.shell.postIdleTick()
+                runEnds(r, "$what ends"); r.until(what) { done() }; r.settle(what)
+                assertEquals(wm.damage.core.motion.Transitions.Effect.ENCODE, b.effect, "$what plays Encode")
+                assertEquals(1 to 1, b.out.costsWorked to b.inn.costsWorked, "$what: each half's cost worked out once (out to in)")
+                assertEquals(runs0 + 2, runs(), "$what: the leaving and the arriving screen recorded")
+            }
+            fun win() = r.onLoop { r.shell.currentWindowId() }
+            encodeAct("the Select into w0", { win() == "w0" }) { r.tap() }
+            encodeAct("the Back to Main", { win() == null }) { r.doubleTap() }
+            r.fire(CfwModes.EV_DOWNROLL); r.until("Main's cursor on Settings") { r.row() == 7 }; r.settle("on Settings' row")
+            encodeAct("the Select into Settings", { win() == "settings" }) { r.tap() }
+            val sw = r.shell.javaClass.getDeclaredField("settingsWindow").also { it.isAccessible = true }.get(r.shell) as wm.damage.core.shell.SettingsWindow
+            fun depth() = r.onLoop { sw.levelDepth() }
+            val d1 = depth()
+            encodeAct("the Select into Global", { depth() == d1 + 1 }) { r.tap() }
+            // Global's first row (Brightness) adjusts: its tap enters the adjust level, the Back leaves it — no screen changes
+            val d2 = depth()
+            val runs0 = runs(); val owed0 = owed()
+            r.tap(); r.until("the adjust level entered") { depth() == d2 + 1 }; r.settle("adjusting")
+            assertEquals(runs0, runs(), "a tap entering the adjust level records no screen")
+            r.doubleTap(); r.until("the adjust level left") { depth() == d2 }; r.settle("back on the rows")
+            assertEquals(runs0, runs(), "a Back leaving the adjust level records no screen")
+            assertEquals(owed0, owed(), "neither plays a transition")
+            // the predicate's other side: back to the categories, into Animations, and a tap on its first row (Scroll, a
+            // tier: its sub menu is one more level) — each changes the screen and records its two
+            encodeAct("the Back to the categories", { depth() == d1 }) { r.doubleTap() }
+            val catModel = wm.damage.core.shell.SettingsWindow::class.java.getDeclaredField("catModel").also { it.isAccessible = true }
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the categories' cursor on Animations") { r.onLoop { (catModel.get(sw) as wm.damage.core.shell.ListModel).cursor } == 1 }
+            r.settle("on Animations")
+            encodeAct("the Select into Animations", { depth() == d1 + 1 }) { r.tap() }
+            encodeAct("the Select into Scroll's rows", { depth() == d1 + 2 }) { r.tap() }
+            assertTrue(r.notes("transition").none { "left out" in it }, "${r.notes("transition")}")
+        } finally { r.close() }
+    }
+
     private suspend fun fourActsBelowStage5(glyphsStored: Boolean) {
         val r = Rig(stage = 4)
         try {
