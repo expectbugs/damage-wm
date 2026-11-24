@@ -30,6 +30,12 @@ internal open class StartRig(val glass: GlassFirmwareSim, scope: CoroutineScope,
     @Volatile var onNotify: ((Arm, ByteArray) -> ByteArray?)? = null
     @Volatile var disconnectGate: CompletableDeferred<Unit>? = null
     @Volatile var disconnectParked = false
+    /** C3 AH1F: the process this rig stands for has ended (`MotionTransportTest.endInsideOp5`): from here nothing of it
+     *  reaches the model — no write, no link reset, no tick, no answer taken. Its scope's cancel alone did not end it: a
+     *  start cancelled inside op 5 rolls back under `NonCancellable`, and when that rollback ran late its disconnect
+     *  reset the SHARED model's page state under the next process's start (its writes then never landed: 5–10 % of the
+     *  AH1 row's runs repeated in one JVM, 3 of 8 class runs). */
+    @Volatile var ended = false
     /** Packets that reached an arm while [counting] was set. */
     val counted = java.util.concurrent.atomic.AtomicInteger()
     @Volatile var counting = false
@@ -38,6 +44,7 @@ internal open class StartRig(val glass: GlassFirmwareSim, scope: CoroutineScope,
         glass.attachListener(object : GlassFirmwareSim.SimDiag {
             override fun event(kind: String, detail: String) {}
             override fun notify(arm: Arm, packet: ByteArray) {
+                if (ended) return
                 val f = onNotify
                 val p = if (f == null) packet else (f(arm, packet) ?: return)
                 onNotifyPacket(arm, p)
@@ -51,15 +58,17 @@ internal open class StartRig(val glass: GlassFirmwareSim, scope: CoroutineScope,
     override suspend fun disconnectLink() {
         val g = disconnectGate
         if (g != null) { disconnectParked = true; g.await() }
+        if (ended) return
         glass.linkReset()
     }
     override suspend fun writeArm(arm: Arm, packet: ByteArray) {
+        if (ended) return
         val f = onWrite
         val p = if (f == null) packet else (f(arm, packet) ?: return)
         if (counting) counted.incrementAndGet()
         glass.write(arm, p, nowMs())
     }
-    override fun onMaintenanceTick() { glass.tick(nowMs()) }
+    override fun onMaintenanceTick() { if (!ended) glass.tick(nowMs()) }
     fun endLink(reason: String) = onLinkDown(reason)
     /** Hand a packet [onNotify] held back to the transport late, as a link whose answer is still on its way. */
     fun deliver(arm: Arm, packet: ByteArray) = onNotifyPacket(arm, packet)

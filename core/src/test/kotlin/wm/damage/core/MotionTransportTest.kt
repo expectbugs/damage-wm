@@ -2390,18 +2390,18 @@ class MotionTransportTest {
 
     /** The last process ends inside a start's op-5 round trip: [p]'s next start goes as far as op 5's first byte, which
      *  (like everything after it) never reaches the glasses, and its scope [old] is cancelled there. The record's text at
-     *  that byte. Not joined: a cancelled start's rollback waits on a lane the cancel ended — a process that ends runs
-     *  nothing, and everything it would write is swallowed. */
+     *  that byte. Not joined: the cancelled start's rollback (`NonCancellable`) mostly waits for good on a release the
+     *  cancelled lane never takes, and sometimes runs on to its disconnect later. A process that ends runs nothing: from
+     *  op 5's first byte the rig is [StartRig.ended] (C3 AH1F: that late disconnect reset the model under the next
+     *  process's start). */
     private suspend fun endInsideOp5(p: StartRig, old: CoroutineScope): String {
-        val ended = java.util.concurrent.atomic.AtomicBoolean(false)
         var fileAtOp5: String? = null
         p.onWrite = { _, packet ->
-            if (ended.get()) null
-            else if (StartRig.damageOp(packet) == DamageMsg.OP_CACHE_SIZE) { fileAtOp5 = Files.readString(stageFile); ended.set(true); null }
+            if (StartRig.damageOp(packet) == DamageMsg.OP_CACHE_SIZE) { fileAtOp5 = Files.readString(stageFile); p.ended = true; null }
             else packet
         }
         old.launch { try { p.start(full) } catch (e: Exception) { notes.add("test" to "the last process's start ended: $e") } }
-        waitUntil(10_000, message = { "op 5's first byte: ${said()}" }) { ended.get() }
+        waitUntil(10_000, message = { "op 5's first byte: ${said()}" }) { p.ended }
         old.cancel()
         return fileAtOp5!!
     }
