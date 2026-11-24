@@ -23,18 +23,22 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   Warp's and Flip's fit raised to the glass, Crush and Flip as scroll effects, the wheel's stage-5 margins. Its new
   effects (Crush, Flip, the new Matrix, Warp and Flip at the raised fit) have their 34 ship vectors filled by the
   fork's C, and the model agrees on all 246 files (`main` `d4eeaaba`; 0.84's product code is unchanged by it).
-  **Told to him at the staging, and still true:** a scroll effect stepped through several values at once comes
-  back as the first for a moment; the wheel is still phone-drawn.
-- **In work, on branches** (nothing new goes onto his devices before he installs 0.84): `wip/084-x3b` (that scroll
-  effect's fix; Encode's plan computed once) and `wip/084-k12s1` (Main on one strip, per-row band slots), stopped
-  at the week's usage on 11-22 and resumed on 11-23; Matrix's fix stage (Warp and Flip to fill the tier's length,
-  the rain's plane against Global `Depth`) — its second and last general pass found nothing that stops it; the
-  wheel's spec amendment for DW-1.
-- **Owed before more is built on them** (§101.9): the focused reads of Crush's and Flip's fix stages; the four
-  tests whose rigs decide on a race; the APK's `release` variant tried with him there (the phone runs the mirror's
-  loops 70–93 times slower than the PC — the debug build is suspected, not measured); a sweep of the whole mutation
-  list (`research/mutations-c2.json`) on the current tree, machine time only (the last whole sweep: 0.77's tree,
-  §92.11).
+  **Told to him at the staging:** a scroll effect stepped through several values at once comes back
+  as the first for a moment (corrected on `main` since; 0.84 as staged still does it); the wheel is still
+  phone-drawn.
+- **On `main` since 0.84 was staged, not on his devices** (the next build carries them): the 34 ship vectors; the
+  fix for a scroll effect changed in several steps under a cover, and Encode's costs computed once an act; six tests
+  whose rigs decided too early (none a product defect). **In work, on branches:** `wip/084-k12s1` (Main on one
+  strip, per-row band slots); Matrix's fix stage `wip/084-x2mx2` (Warp and Flip fill the tier's length, the rain's
+  plane against Global `Depth`, ten ship acts for one more fork fill) — Matrix's second and last general pass found
+  nothing that stops it. **Specified and ruled, not started:** the wheel's shell stages DW-1a and DW-1b; S1-5 (his
+  five answers: `REPLAN.md` §17.3 item 10).
+- **Owed before more is built on them:** Matrix's focused read, after its fix stage (Crush's and Flip's is done:
+  no code defect; one narrow path goes into K1-2's stage 2); the rest of the racing tests' class — 18 rigs that
+  read the real clock, and those of 42 test files that read their notes too early; the APK's `release` variant
+  tried with him there (the phone runs the mirror's loops 70–93 times slower than the PC — the debug build is
+  suspected, not measured); a sweep of the whole mutation list (`research/mutations-c2.json`, 549 rows) on the
+  current tree, machine time only (the last whole sweep: 0.77's tree, §92.11).
 - **Owed on glass from his earlier looks:** his answer to §97.1's question (in very fast scrolling, are the lenses
   a whole row apart, or the same row at different positions); at his next fast-scroll session the phone's `/log`
   pulled early (the late echoes' cause, §98.6, is inferred until a stock message's arrival is read there); C2's
@@ -56,7 +60,7 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   while rows travel 32; Warp, Flip and Explode centred on the larger height; a notice arriving within about 2 s
   after a fast burst can still double-move Main.
 - **No browser of his is approved yet;** he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
-- **The counts** (simulator): on `main` `d4eeaaba` the whole core suite 2,090 / 0 and the conformance vectors 246
+- **The counts** (simulator): on `main` `621a4914` (2026-11-24) the whole core suite 2,094 / 0 and the conformance vectors 246
   files, 15,230 lens-steps, 0 disagreements. The last full battery, on 0.83's tree (`f81afd38`, §100.7): core 243
   classes / 2,032 tests, desktop 14 / 53; `--selfcheck` twice (486 checks at 0.82); `--motion-check` 8 + 3 + 28;
   `--local-check` 128 cases; the snapshot 94 + 66 scenes, 0 px outside the mask; node 200; lint 0; the mutation
