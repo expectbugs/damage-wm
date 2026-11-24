@@ -61,6 +61,8 @@ class AndroidMusicPlayer(
     private val onEngaged: () -> Unit = {},
 ) : PlayerCore(library, { System.currentTimeMillis() }) {
     private var engaged = false
+    /** S1-4 K: ExoPlayer reports playing later than its open (`onIsPlayingChanged`). */
+    override val startsAsync: Boolean = true
 
     private val main = Handler(Looper.getMainLooper())
     private val audio = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -97,6 +99,7 @@ class AndroidMusicPlayer(
     }
 
     override fun positionMs(): Long {
+        if (offHost()) return super.positionMs()          // S1-4 K: the PC plays; its place, extrapolated from the record
         if (curBackend == Backend.SPOTIFY) return spotifyPos()
         if (onMain()) { val p = super.positionMs(); posSample = p; posSampleAt = clock(); return p }
         return if (playingFlag) posSample + (clock() - posSampleAt) else posSample
@@ -131,6 +134,7 @@ class AndroidMusicPlayer(
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             playingFlag = isPlaying
             samplePosition()
+            if (isPlaying) onStarted(true)               // S1-4 K (§3.5 step 2): a take-over writes `out` when sound comes
             // an audio-focus pause (another app, a call) shows honestly
             if (!isPlaying && play == PlayState.PLAYING && exo?.playbackState == Player.STATE_READY && exo?.playWhenReady == false) {
                 play = PlayState.PAUSED
@@ -161,8 +165,10 @@ class AndroidMusicPlayer(
             override fun seekToNextMediaItem() { this@AndroidMusicPlayer.next() }
             override fun seekToPrevious() { this@AndroidMusicPlayer.prev() }
             override fun seekToPreviousMediaItem() { this@AndroidMusicPlayer.prev() }
-            override fun play() { this@AndroidMusicPlayer.play() }
-            override fun pause() { this@AndroidMusicPlayer.pause() }
+            // S1-4 review 1, 1.3: with the PC as the output the idle ExoPlayer's playWhenReady says nothing of the PC,
+            // so both earbud keys are the core's toggle there
+            override fun play() { if (isOutput) this@AndroidMusicPlayer.play() else this@AndroidMusicPlayer.toggle() }
+            override fun pause() { if (isOutput) this@AndroidMusicPlayer.pause() else this@AndroidMusicPlayer.toggle() }
             override fun getAvailableCommands(): Player.Commands = super.getAvailableCommands().buildUpon()
                 .addAll(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_PLAY_PAUSE).build()
             override fun isCommandAvailable(command: Int): Boolean =
@@ -277,7 +283,7 @@ class AndroidMusicPlayer(
         playingFlag = exo?.isPlaying == true
         watchFlag = curBackend == Backend.LIBRARY && streamedNow && exo?.playWhenReady == true &&
             exo?.playbackState == Player.STATE_BUFFERING
-        val playing = playingFlag || curBackend == Backend.SPOTIFY
+        val playing = playingFlag || curBackend == Backend.SPOTIFY || following()
         if ((playing || watchFlag) && tickJob?.isActive != true) {
             tickJob = scope.launch {
                 while (isActive) {
@@ -300,7 +306,10 @@ class AndroidMusicPlayer(
         }
     }
 
-    private fun ticking(): Boolean = playingFlag || curBackend == Backend.SPOTIFY || watchFlag
+    private fun ticking(): Boolean = playingFlag || curBackend == Backend.SPOTIFY || watchFlag || following()
+
+    /** S1-4 K: the PC's playing, followed from the record, paces the card's ticks too. */
+    override fun recordMoved() = ensureTicks()
 
     private val volumeReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, intent: Intent?) {
@@ -424,6 +433,10 @@ class AndroidMusicPlayer(
         curOutput = "${d.id}"                  // the handle it has THIS session
         Log.i("music-android", "output restored: ${d.productName} (${kindOf(d)}) as id ${d.id}")
     }
+
+    /** S1-4 review 1, 1.3: the media session (and the idle ExoPlayer it wraps) made at the service's start, so earbud
+     *  taps reach the core before the phone's first local play; nothing is opened or played here. */
+    fun prepareSession() = post { player() }
 
     override fun close() {
         try { ctx.unregisterReceiver(volumeReceiver) } catch (e: Exception) { /* not registered */ }

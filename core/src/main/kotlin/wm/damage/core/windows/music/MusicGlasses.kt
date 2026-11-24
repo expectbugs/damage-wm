@@ -65,15 +65,69 @@ import wm.damage.core.util.Log
  * off-loop; every completion applies through `runOnShell` behind a sequence
  * guard; the queue cursor follows its row's IDENTITY (`qid`).
  */
-class MusicWindow(
+/**
+ * Build S1-4: Music built the way it was before its conversion — its presenter over a record of its own in memory
+ * (Feed's and Tmux's precedent): the tests, `--selfcheck` and the snapshot judge's first arrangement.
+ */
+fun MusicWindow(text: TextRasterizer, library: MusicLibrary, player: MusicPlayer, bg: CoroutineScope,
+                clock: () -> Long = { System.currentTimeMillis() }): MusicGlasses {
+    val core = MusicCore()
+    return MusicGlasses(text, library, player, bg, core,
+        wm.damage.core.app.LocalWindowSource(core, wm.damage.core.app.MemoryRecord(MusicCore.ACTIONS)), clock)
+}
+
+/**
+ * Music's glasses presenter (build S1-4: the window above, its rows on the record). The shared rows (Notify, Default
+ * mode, Lyrics sources), the lyric offset per output and the glasses rows are read from [source] and written to it as
+ * `set` ops (the field first, for the first flush; the op after). Playback comes from [player], on whichever host
+ * plays: off that host, the player shows the record's queue and place.
+ */
+class MusicGlasses(
     private val text: TextRasterizer,
     private val library: MusicLibrary,
     private val player: MusicPlayer,
     private val bg: CoroutineScope,
-    /** The desktop mirror: needs the host, cannot play. */
-    private val mirror: Boolean = false,
+    val core: MusicCore,
+    private val source: wm.damage.core.app.WindowSource,
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : DamageWindow("music", "Music", IconKind.MUSIC) {
+
+    /** The record's rows as they stand: read at the start and at each change (on this shell's loop). */
+    private fun readRows(r: wm.damage.core.app.RecordView) {
+        notifyTrack = MusicCore.notify(r, MusicCore.NOTIFY_TRACK)
+        notifyQueueEnd = MusicCore.notify(r, MusicCore.NOTIFY_QUEUE)
+        notifyRoute = MusicCore.notify(r, MusicCore.NOTIFY_ROUTE)
+        notifyPc = MusicCore.notify(r, MusicCore.NOTIFY_PC)
+        notifyYt = MusicCore.notify(r, MusicCore.NOTIFY_YT)
+        notifyPlaylist = MusicCore.notify(r, MusicCore.NOTIFY_PLAYLIST)
+        defaultMode = MusicCore.defaultMode(r)
+        val sources = MusicCore.lyricSources(r).takeIf { it in LYRICS_SOURCES } ?: "lrclib+local"
+        val sourcesMoved = sources != lyricsSources
+        lyricsSources = sources
+        if (sourcesMoved && registered) pushLyricsSources()
+        vizName = MusicCore.viz(r).takeIf { it in VIZ_NAMES } ?: "Off"
+        vizRate = MusicCore.vizRate(r)
+        mmCard = MusicCore.mm(r, "card"); mmLyrics = MusicCore.mm(r, "lyrics"); mmViz = MusicCore.mm(r, "viz")
+        mmPeek = MusicCore.mm(r, "peek"); mmClock = MusicCore.mm(r, "clock"); mmLink = MusicCore.mm(r, "link")
+        heightPref = MusicCore.size(r)?.takeIf { it in ShellSettings.HEIGHTS } ?: if (MusicCore.size(r) == null) null else 480
+        rowsRead = r
+        offsetsAsked.entries.removeIf { (item, v) -> MusicCore.offset(r, item) == v }   // the record shows them now
+    }
+
+    /** The record as last read: the lyric offsets are read from it per paint. */
+    private var rowsRead: wm.damage.core.app.RecordView = source.state()
+
+    /** A row written: the field is set by the caller first; the record follows. */
+    private fun setRow(item: String, v: kotlinx.serialization.json.JsonElement) =
+        source.act(wm.damage.core.app.Draft(MusicCore.A_SET, listOf(item), v))
+
+    private val sourceListener = object : wm.damage.core.app.SourceListener {
+        override fun changed(state: wm.damage.core.app.WindowState, keys: Set<String>) {
+            // the queue, the place and the output reach this presenter through its player: no row reads them here
+            if (keys.all { it in PLAYER_KEYS }) return
+            onShell("rows") { readRows(state); invalidateRows(); if (active || exclusive) render() }
+        }
+    }
 
     private val tx = styledText(text)
 
@@ -152,7 +206,8 @@ class MusicWindow(
     private var notifyYt = true
     private var notifyPlaylist = false
     private var defaultMode = Mode.SHUFFLE
-    private var lyricsOffsets = HashMap<String, Int>()     // per output id, ms
+    /** S1-4: the lyric offsets the presenter set and the record has not yet shown (the first flush). */
+    private val offsetsAsked = HashMap<String, Int>()
     private var lyricsSources = "lrclib+local"
     private var vizName = "Off"
     private var vizRate = 8
@@ -195,7 +250,7 @@ class MusicWindow(
     private val fLyricDim = FontSpec(Face.SYSTEM, 18)
     private val fBig = FontSpec(Face.SYSTEM, 36, bold = true)
 
-    override val needs: Set<Need> = if (mirror) setOf(Need.HOST) else emptySet()
+    override val needs: Set<Need> = emptySet()
     override val preferredHeight: Int? get() = heightPref
 
     // ================================================================ small helpers
@@ -211,8 +266,11 @@ class MusicWindow(
     private fun render() { services?.requestRender(this) }
     private val cat: Catalog get() = library.catalog()
     private fun profile(): AudioProfile = AudioProfile(quality, channels, normalization)
-    private fun outputKey(): String = st.output.ifEmpty { Output.AUTO }
-    private fun lyricsOffset(): Int = lyricsOffsets[outputKey()] ?: 0
+    /** S1-4: the record item of the current output's lyric offset (`offset.pc`, `offset.phone/<route>`). */
+    private fun outputKey(): String = MusicCore.offsetItem(st.outputs.firstOrNull { it.id == st.output.ifEmpty { Output.AUTO } }
+        ?: if (st.output == Output.PC) Output.PC_OUTPUT else null)
+    private fun lyricsOffset(): Int = offsetsAsked[outputKey()] ?: MusicCore.offset(rowsRead, outputKey())
+    private fun setOffset(item: String, v: Int) { offsetsAsked[item] = v; setRow(item, JsonPrimitive(v)) }
 
     // ================================================================ provider + player glue
     private val libListener = object : MusicLibrary.Listener {
@@ -326,6 +384,7 @@ class MusicWindow(
             is PlayerEvent.BackendChanged -> if (e.automatic) services?.notifyInternal("music", "PC unreachable — switched to Spotify", appId = id, thread = "backend")
                 else setNotice(if (e.backend == Backend.SPOTIFY) "Spotify on the phone" else "back to the PC library")
             is PlayerEvent.PcUnreachable -> if (notifyPc) services?.notifyInternal("music", "PC unreachable", appId = id, thread = "pc")
+            is PlayerEvent.MovedAway -> services?.notifyInternal("music", dn(e.detail, fBody), appId = id, thread = "output")
         }
         if (active) render()
     }
@@ -362,6 +421,7 @@ class MusicWindow(
         registered = false
         library.removeListener(libListener)
         player.removeListener(playerListener)
+        source.removeListener(sourceListener)
         player.setFocused(false)
     }
 
@@ -371,6 +431,8 @@ class MusicWindow(
             registered = true
             library.addListener(libListener)
             player.addListener(playerListener)
+            source.addListener(sourceListener)
+            readRows(source.state())
         }
         st = player.state
         catalogVersion = cat.version
@@ -495,7 +557,6 @@ class MusicWindow(
         val line = when {
             stateLine.isNotEmpty() && s.play != PlayState.PLAYING -> stateLine
             s.backend == Backend.SPOTIFY -> "Spotify · phone" + (s.spotify?.title?.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: "")
-            mirror && s.queue.isEmpty() && s.problem.isNotEmpty() -> "player: phone needed"
             s.play == PlayState.PLAYING && t != null -> "playing · ${Fmt.titleArtist(t)}"
             s.play == PlayState.PAUSED && t != null -> "paused · ${t.title}"
             s.queue.isNotEmpty() -> "${s.queue.size} queued · staged"
@@ -862,7 +923,6 @@ class MusicWindow(
 
     private fun linkBadge(): String = when {
         st.backend == Backend.SPOTIFY -> "Spotify"
-        mirror -> if (stateLine.isEmpty()) "PC · phone plays" else dn(stateLine, fSmall)
         !st.pcLink.up -> "PC down ${Fmt.ageShort(st.pcLink.ageS(clock()))}"
         stateLine.isNotEmpty() -> dn(stateLine, fSmall)
         else -> "PC"
@@ -1438,9 +1498,9 @@ class MusicWindow(
         }
         if (lyricsParsed == null) return
         val k = outputKey()
-        val v = ((lyricsOffsets[k] ?: 0) + delta * 50).coerceIn(-2000, 2000)
-        lyricsOffsets[k] = v
-        setNotice("lyrics offset ${if (v > 0) "+" else ""}$v ms · ${dn(k, fSmall)}")
+        val v = (lyricsOffset() + delta * 50).coerceIn(-2000, 2000)
+        setOffset(k, v)
+        setNotice("lyrics offset ${if (v > 0) "+" else ""}$v ms · ${dn(k.substringAfter('/').removePrefix("offset."), fSmall)}")
         scheduleLyricFlush()
         render()
     }
@@ -1449,7 +1509,7 @@ class MusicWindow(
         val t = st.track ?: run { setNotice("nothing playing"); return }
         menu("lyrics", listOf(
             item("Search lyrics", "keyboard") { openLyricsSearch(t) },
-            item("Reset offset", "${lyricsOffset()} ms") { lyricsOffsets.remove(outputKey()); scheduleLyricFlush(); render() },
+            item("Reset offset", "${lyricsOffset()} ms") { setOffset(outputKey(), 0); scheduleLyricFlush(); render() },
             item("Reload") { lyricsFor = -1; loadLyrics() },
             item("Track info") { push(Frame(Kind.INFO, "${t.id}")) },
         ))
@@ -1473,7 +1533,7 @@ class MusicWindow(
                             val rows = cands.map { c -> item(c.label.ifEmpty { c.source }, if (c.synced != null) "synced" else "plain") {
                                 runOp("saving lyrics") { library.setLyrics(t.id, c); lyricsFor = -1; loadLyrics(); "lyrics: ${c.source}" }
                             } }
-                            val shown = services?.openMenu(MenuSurface.Spec("lyrics found", rows.map { it.first }, onCommit = { i -> rows.getOrNull(i)?.second?.invoke() }), owner = this@MusicWindow) == true
+                            val shown = services?.openMenu(MenuSurface.Spec("lyrics found", rows.map { it.first }, onCommit = { i -> rows.getOrNull(i)?.second?.invoke() }), owner = this@MusicGlasses) == true
                             if (!shown) setNotice("${cands.size} candidates — open Lyrics again")
                         }.onFailure { e -> setNotice(dn(e.message ?: "search failed", fSmall)) }
                     }
@@ -1942,12 +2002,12 @@ class MusicWindow(
     private fun onOff(b: Boolean) = if (b) "on" else "off"
     private val settingsRows: List<HostSetting> by lazy {
         listOf(
-            HostSetting("Notify · track change", listOf("on", "off"), { onOff(notifyTrack) }, { notifyTrack = it == "on" }),
-            HostSetting("Notify · queue end", listOf("on", "off"), { onOff(notifyQueueEnd) }, { notifyQueueEnd = it == "on" }),
-            HostSetting("Notify · route loss", listOf("on", "off"), { onOff(notifyRoute) }, { notifyRoute = it == "on" }),
-            HostSetting("Notify · PC unreachable", listOf("on", "off"), { onOff(notifyPc) }, { notifyPc = it == "on" }),
-            HostSetting("Notify · YouTube", listOf("on", "off"), { onOff(notifyYt) }, { notifyYt = it == "on" }),
-            HostSetting("Notify · playlist saved", listOf("on", "off"), { onOff(notifyPlaylist) }, { notifyPlaylist = it == "on" }),
+            HostSetting("Notify · track change", listOf("on", "off"), { onOff(notifyTrack) }, { notifyTrack = it == "on"; setRow(MusicCore.NOTIFY_TRACK, JsonPrimitive(notifyTrack)) }),
+            HostSetting("Notify · queue end", listOf("on", "off"), { onOff(notifyQueueEnd) }, { notifyQueueEnd = it == "on"; setRow(MusicCore.NOTIFY_QUEUE, JsonPrimitive(notifyQueueEnd)) }),
+            HostSetting("Notify · route loss", listOf("on", "off"), { onOff(notifyRoute) }, { notifyRoute = it == "on"; setRow(MusicCore.NOTIFY_ROUTE, JsonPrimitive(notifyRoute)) }),
+            HostSetting("Notify · PC unreachable", listOf("on", "off"), { onOff(notifyPc) }, { notifyPc = it == "on"; setRow(MusicCore.NOTIFY_PC, JsonPrimitive(notifyPc)) }),
+            HostSetting("Notify · YouTube", listOf("on", "off"), { onOff(notifyYt) }, { notifyYt = it == "on"; setRow(MusicCore.NOTIFY_YT, JsonPrimitive(notifyYt)) }),
+            HostSetting("Notify · playlist saved", listOf("on", "off"), { onOff(notifyPlaylist) }, { notifyPlaylist = it == "on"; setRow(MusicCore.NOTIFY_PLAYLIST, JsonPrimitive(notifyPlaylist)) }),
             // the phone can set any percent (a 15-step stream): the row shows the NEAREST option so a
             // first notch steps from it, never from the list's edge
             HostSetting("Volume", (0..100 step 5).map { "$it%" }, { "${((st.volume + 2) / 5 * 5).coerceIn(0, 100)}%" }, { v -> player.setVolume(v.removeSuffix("%").toIntOrNull() ?: st.volume, "settings") }),
@@ -1960,26 +2020,26 @@ class MusicWindow(
                 { v -> AudioProfile.Quality.entries.firstOrNull { it.label == v }?.let { quality = it; player.setProfile(profile()) } }),
             HostSetting("Channels", listOf("mono", "stereo"), { if (channels >= 2) "stereo" else "mono" }, { v -> channels = if (v == "stereo") 2 else 1; player.setProfile(profile()) }),
             HostSetting("Normalization", listOf("on", "off"), { onOff(normalization) }, { v -> normalization = v == "on"; player.setProfile(profile()) }),
-            HostSetting("Default mode", Mode.entries.map { it.label }, { defaultMode.label }, { v -> Mode.entries.firstOrNull { it.label == v }?.let { defaultMode = it } }),
+            HostSetting("Default mode", Mode.entries.map { it.label }, { defaultMode.label }, { v -> Mode.entries.firstOrNull { it.label == v }?.let { defaultMode = it; setRow(MusicCore.DEFAULT_MODE, JsonPrimitive(it.name)) } }),
             HostSetting("Prefetch", PREFETCHES.map { "$it" }, { "${PREFETCHES.minByOrNull { kotlin.math.abs(it - prefetchPref) } ?: 3}" }, { v -> prefetchPref = v.toIntOrNull() ?: 3; player.setPrefetch(prefetchPref) }),
             HostSetting("Lyrics offset", (-500..500 step 50).map { "${if (it > 0) "+" else ""}$it ms" }, { val o = ((lyricsOffset() + 25).floorDiv(50) * 50).coerceIn(-500, 500); "${if (o > 0) "+" else ""}$o ms" },
-                { v -> lyricsOffsets[outputKey()] = v.removeSuffix(" ms").replace("+", "").toIntOrNull() ?: 0 }),
-            HostSetting("Lyrics sources", LYRICS_SOURCES, { lyricsSources }, { v -> lyricsSources = v; pushLyricsSources() }),
-            HostSetting("Visualizer", VIZ_NAMES, { vizName }, { vizName = it }),
-            HostSetting("Visualizer rate", listOf("4", "8", "12"), { "$vizRate" }, { vizRate = it.toIntOrNull() ?: 8 }),
-            HostSetting("Music Mode · card", listOf("on", "off"), { onOff(mmCard) }, { mmCard = it == "on" }),
-            HostSetting("Music Mode · lyrics", listOf("on", "off"), { onOff(mmLyrics) }, { mmLyrics = it == "on" }),
-            HostSetting("Music Mode · visualizer", listOf("on", "off"), { onOff(mmViz) }, { mmViz = it == "on" }),
-            HostSetting("Music Mode · queue peek", listOf("on", "off"), { onOff(mmPeek) }, { mmPeek = it == "on" }),
-            HostSetting("Music Mode · clock", listOf("on", "off"), { onOff(mmClock) }, { mmClock = it == "on" }),
-            HostSetting("Music Mode · PC link", listOf("on", "off"), { onOff(mmLink) }, { mmLink = it == "on" }),
+                { v -> setOffset(outputKey(), v.removeSuffix(" ms").replace("+", "").toIntOrNull() ?: 0) }),
+            HostSetting("Lyrics sources", LYRICS_SOURCES, { lyricsSources }, { v -> lyricsSources = v; pushLyricsSources(); setRow(MusicCore.LYRIC_SOURCES, JsonPrimitive(v)) }),
+            HostSetting("Visualizer", VIZ_NAMES, { vizName }, { vizName = it; setRow(MusicCore.VIZ, JsonPrimitive(it)) }),
+            HostSetting("Visualizer rate", listOf("4", "8", "12"), { "$vizRate" }, { vizRate = it.toIntOrNull() ?: 8; setRow(MusicCore.VIZ_RATE, JsonPrimitive(vizRate)) }),
+            HostSetting("Music Mode · card", listOf("on", "off"), { onOff(mmCard) }, { mmCard = it == "on"; setRow(MusicCore.MM + "card", JsonPrimitive(mmCard)) }),
+            HostSetting("Music Mode · lyrics", listOf("on", "off"), { onOff(mmLyrics) }, { mmLyrics = it == "on"; setRow(MusicCore.MM + "lyrics", JsonPrimitive(mmLyrics)) }),
+            HostSetting("Music Mode · visualizer", listOf("on", "off"), { onOff(mmViz) }, { mmViz = it == "on"; setRow(MusicCore.MM + "viz", JsonPrimitive(mmViz)) }),
+            HostSetting("Music Mode · queue peek", listOf("on", "off"), { onOff(mmPeek) }, { mmPeek = it == "on"; setRow(MusicCore.MM + "peek", JsonPrimitive(mmPeek)) }),
+            HostSetting("Music Mode · clock", listOf("on", "off"), { onOff(mmClock) }, { mmClock = it == "on"; setRow(MusicCore.MM + "clock", JsonPrimitive(mmClock)) }),
+            HostSetting("Music Mode · PC link", listOf("on", "off"), { onOff(mmLink) }, { mmLink = it == "on"; setRow(MusicCore.MM + "link", JsonPrimitive(mmLink)) }),
             HostSetting("Spotify fallback", listOf("auto", "never"), { if (spotifyFallbackPref) "auto" else "never" }, { v -> spotifyFallbackPref = v == "auto"; player.setSpotifyFallback(spotifyFallbackPref) }),
             HostSetting("Sleep", Sleep.CHOICES, { st.sleep.choice() },
                 { v -> player.setSleep(Sleep.fromChoice(v, clock())) }),
             HostSetting("Pre-transcode library", listOf("no", "start"), { "no" }, { v -> if (v == "start") runOp("pre-transcode") { library.pretranscode(profile()) } }),
             HostSetting("Rescan library", listOf("no", "start"), { "no" }, { v -> if (v == "start") runOp("rescan") { library.rescan() } }),
             HostSetting("Size", listOf("global") + ShellSettings.HEIGHTS.map { "$it" }, { heightPref?.toString() ?: "global" },
-                { heightPref = it.toIntOrNull() }),
+                { heightPref = it.toIntOrNull(); setRow(MusicCore.SIZE, JsonPrimitive(heightPref ?: 0)) }),
         )
     }
     private var prefetchPref = 3
@@ -2001,16 +2061,11 @@ class MusicWindow(
             })
         }
         put("askDraft", askDraft); put("searchDraft", searchDraft); put("ytDraft", ytDraft); put("nameDraft", nameDraft); put("lyricsDraft", lyricsDraft)
-        put("notifyTrack", notifyTrack); put("notifyQueueEnd", notifyQueueEnd); put("notifyRoute", notifyRoute)
-        put("notifyPc", notifyPc); put("notifyYt", notifyYt); put("notifyPlaylist", notifyPlaylist)
-        put("defaultMode", defaultMode.name)
-        put("lyricsOffsets", buildJsonObject { for ((k, v) in lyricsOffsets) put(k, v) })
-        put("lyricsSources", lyricsSources); put("viz", vizName); put("vizRate", vizRate)
-        put("mmCard", mmCard); put("mmLyrics", mmLyrics); put("mmViz", mmViz); put("mmPeek", mmPeek); put("mmClock", mmClock); put("mmLink", mmLink)
+        // S1-4: the shared rows, the offsets and the glasses rows are the record's (`readRows`); the phone player's
+        // rows below stay this device's own
         put("quality", quality.name); put("channels", channels); put("normalization", normalization)
         put("prefetch", prefetchPref); put("spotifyFallback", spotifyFallbackPref)
         put("lyricsPlainPage", lyricsPlainPage)
-        put("height", heightPref ?: 0)
     }
 
     override fun restoreState(state: JsonObject) {
@@ -2040,32 +2095,12 @@ class MusicWindow(
         ytDraft = state["ytDraft"]?.jsonPrimitive?.contentOrNull ?: ""
         nameDraft = state["nameDraft"]?.jsonPrimitive?.contentOrNull ?: ""
         lyricsDraft = state["lyricsDraft"]?.jsonPrimitive?.contentOrNull ?: ""
-        notifyTrack = state["notifyTrack"]?.jsonPrimitive?.booleanOrNull ?: true
-        notifyQueueEnd = state["notifyQueueEnd"]?.jsonPrimitive?.booleanOrNull ?: true
-        notifyRoute = state["notifyRoute"]?.jsonPrimitive?.booleanOrNull ?: true
-        notifyPc = state["notifyPc"]?.jsonPrimitive?.booleanOrNull ?: false
-        notifyYt = state["notifyYt"]?.jsonPrimitive?.booleanOrNull ?: true
-        notifyPlaylist = state["notifyPlaylist"]?.jsonPrimitive?.booleanOrNull ?: false
-        defaultMode = state["defaultMode"]?.jsonPrimitive?.contentOrNull?.let { n -> Mode.entries.firstOrNull { it.name == n } } ?: Mode.SHUFFLE
-        lyricsOffsets = HashMap<String, Int>().apply {
-            (state["lyricsOffsets"] as? JsonObject)?.forEach { (k, v) -> v.jsonPrimitive.intOrNull?.let { put(k, it) } }
-        }
-        lyricsSources = state["lyricsSources"]?.jsonPrimitive?.contentOrNull?.takeIf { it in LYRICS_SOURCES } ?: "lrclib+local"
-        vizName = state["viz"]?.jsonPrimitive?.contentOrNull?.takeIf { it in VIZ_NAMES } ?: "Off"
-        vizRate = state["vizRate"]?.jsonPrimitive?.intOrNull?.takeIf { it in listOf(4, 8, 12) } ?: 8
-        mmCard = state["mmCard"]?.jsonPrimitive?.booleanOrNull ?: true
-        mmLyrics = state["mmLyrics"]?.jsonPrimitive?.booleanOrNull ?: true
-        mmViz = state["mmViz"]?.jsonPrimitive?.booleanOrNull ?: false
-        mmPeek = state["mmPeek"]?.jsonPrimitive?.booleanOrNull ?: false
-        mmClock = state["mmClock"]?.jsonPrimitive?.booleanOrNull ?: true
-        mmLink = state["mmLink"]?.jsonPrimitive?.booleanOrNull ?: true
         quality = state["quality"]?.jsonPrimitive?.contentOrNull?.let { n -> AudioProfile.Quality.entries.firstOrNull { it.name == n } } ?: AudioProfile.Quality.HIGH
         channels = state["channels"]?.jsonPrimitive?.intOrNull?.takeIf { it in 1..2 } ?: 1
         normalization = state["normalization"]?.jsonPrimitive?.booleanOrNull ?: true
         prefetchPref = state["prefetch"]?.jsonPrimitive?.intOrNull ?: 3
         spotifyFallbackPref = state["spotifyFallback"]?.jsonPrimitive?.booleanOrNull ?: true
         lyricsPlainPage = state["lyricsPlainPage"]?.jsonPrimitive?.intOrNull ?: 0
-        heightPref = when (val h = state["height"]?.jsonPrimitive?.intOrNull) { null -> 480; 0 -> null; else -> h.takeIf { it in ShellSettings.HEIGHTS } ?: 480 }
         if (opBusy) services?.setOperation("idle")
         opBusy = false
         lyricsSeq++; lyricsGen++
@@ -2110,6 +2145,8 @@ class MusicWindow(
     }
 
     companion object {
+        /** The record items the player follows (S1-4): a write of only these redraws no row here. */
+        private val PLAYER_KEYS = setOf(MusicCore.Q, MusicCore.NOW, MusicCore.OUT).map { wm.damage.core.app.Record.key(MusicCore.WINDOW, it) }.toSet()
         const val CARD_PACE_MS = 5_000L
         /** The modeled display cost of a lyric repaint (`60 + bytes/50`, a few hundred bytes). */
         const val LYRIC_DISPLAY_MS = 70L

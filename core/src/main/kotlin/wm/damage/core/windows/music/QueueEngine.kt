@@ -27,6 +27,7 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
         private set
     var label: String = ""
         private set
+    /** The old record's counter (its shape is still read: `fromJson`, the migration); new entries are minted at random. */
     private var nextQid = 1L
 
     val entries: List<QueueEntry> get() = list
@@ -35,7 +36,58 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
     val remaining: Int get() = maxOf(0, list.size - index - 1)
     val isEmpty: Boolean get() = list.isEmpty()
 
-    private fun mint(t: TrackRef) = QueueEntry(nextQid++, t)
+    /** S1-4 (the lean spec's §3.1): an entry's id is a random 64-bit number minted by the device that adds it, so a
+     *  presenter off the playing host adds its rows at once with ids the playing host then takes ([appendEntries]). */
+    private fun mint(t: TrackRef): QueueEntry {
+        var id: Long
+        do id = random.nextLong() and Long.MAX_VALUE while (id == 0L || list.any { it.qid == id })
+        return QueueEntry(id, t)
+    }
+
+    /** S1-4: the record's queue `q` (one register, written by the playing host) and the entry it plays, [current]
+     *  (absent or not held: the first). */
+    fun load(q: MusicCore.Queue, current: Long?) {
+        list.clear()
+        list.addAll(q.entries)
+        mode = q.mode
+        label = q.label
+        index = current?.let { c -> list.indexOfFirst { it.qid == c } }?.takeIf { it >= 0 } ?: 0
+    }
+
+    /** S1-4: `q` as the record holds it. */
+    fun recordJson(): JsonObject = MusicCore.queueJson(list, mode, label)
+
+    /** S1-4: [KEEP_PLAYED] played entries are kept behind the current one (hours of radio would grow every `q` write
+     *  without bound), trimmed in batches: only once [TRIM_BATCH] or more lie past them, so a track change between
+     *  trims leaves `q` as it was and writes `now` alone (the lead's ruling after the upgrade check: one whole-queue
+     *  rewrite about every 50 tracks, not every track). */
+    private fun trimPlayed() {
+        val drop = index - KEEP_PLAYED
+        if (drop < TRIM_BATCH) return
+        repeat(drop) { list.removeAt(0) }
+        index -= drop
+    }
+
+    /** S1-4: a queue of [entries] as given (the asker's ids and order), at [startIndex]. */
+    fun setEntries(entries: List<QueueEntry>, startIndex: Int, mode: Mode, label: String) {
+        list.clear()
+        list.addAll(entries)
+        this.mode = mode
+        this.label = label
+        index = startIndex.coerceIn(0, maxOf(0, list.size - 1))
+    }
+
+    /** S1-4: after the current entry, with the asker's ids. */
+    fun insertNextEntries(entries: List<QueueEntry>) {
+        val fresh = entries.filter { e -> list.none { it.qid == e.qid } }
+        val at = if (list.isEmpty()) 0 else index + 1
+        list.addAll(at.coerceIn(0, list.size), fresh)
+    }
+
+    /** S1-4: at the end, with the asker's ids. */
+    fun appendEntries(entries: List<QueueEntry>) {
+        list.addAll(entries.filter { e -> list.none { it.qid == e.qid } })
+    }
 
     /** A fresh queue starting at [startIndex]; in SHUFFLE the start track
      *  stays first and the rest is artist-spread shuffled (verdict 9 — the
@@ -56,6 +108,7 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
     fun next(): Boolean {
         if (index + 1 >= list.size) return false
         index++
+        trimPlayed()
         return true
     }
 
@@ -71,6 +124,7 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
         val i = indexOf(qid)
         if (i < 0) return false
         index = i
+        trimPlayed()
         return true
     }
 
@@ -157,6 +211,10 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
 
     companion object {
         const val LOW_WATER = 2
+        /** S1-4: the played entries kept behind the current one. */
+        const val KEEP_PLAYED = 100
+        /** S1-4: the played entries past [KEEP_PLAYED] that make one trim (and so one `q` rewrite). */
+        const val TRIM_BATCH = 50
 
         /** The same record from a SNAPSHOT (a caller off the engine's thread). */
         fun jsonOf(queue: List<QueueEntry>, index: Int, mode: Mode, label: String, nextQid: Long = 0L,

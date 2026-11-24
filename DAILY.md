@@ -7,8 +7,9 @@ phone's Tailscale address (`tailscale status | grep aphone`).**
 
 **As built.** `REPLAN.md` §14 rules the PC the owner of every window's state, with the phone keeping a working copy,
 and PC-direct BLE a manual choice, never automatic: the service never drives by itself (`HANDOFF.md` §79). Reader,
-Torrents, Files, the notices, Feed and Tmux run on a record on the PC with the phone's working copy, and browser pages
-read them (the section below; `core/…/app/Windows.kt`, `HANDOFF.md` §80, §84, §89); every other window syncs as below.
+Torrents, Files, the notices, Feed, Tmux and Music run on a record on the PC with the phone's working copy, and browser
+pages read them, Music's from its second half (the section below; `core/…/app/Windows.kt`, `HANDOFF.md` §80, §84, §89,
+§97.5); every other window syncs as below.
 
 ## The moving parts
 
@@ -26,7 +27,8 @@ alerts say "home unreachable" after the phone's set minutes. APK unreachable →
 itself**: the status line says "phone unreachable … PC-direct BLE is manual (drive=ble)". The phone's shelf answers
 from its cache at once while the PC is out of reach. Reboot either machine → both restart themselves. **State
 sync:** settings and every window blob flow between phone and PC whenever both are up — most recent wins, per key;
-the converted windows (Reader's places, bookmarks and rows; Torrents, Files, the notices, Feed and Tmux) are not
+the converted windows (Reader's places, bookmarks and rows; Torrents, Files, the notices, Feed, Tmux; Music's queue,
+place, output and rows) are not
 synced but sent to the PC's record as ops, queued on the phone while the PC is out of reach (a converted window's
 keys never sync, `Persistence.syncable`).
 
@@ -38,7 +40,7 @@ pair (`sudo rc-service damage stop`), flip Target → glasses. (4) `sudo rc-serv
 says `data host up (auto: the phone drives; …)`. Keep the APK current with the PC (`REMINDER.md` says which build is
 installed and staged).
 
-## Music (2026-09-02, `MUSIC.md`) — the phone plays, the PC serves
+## Music (2026-09-02, `MUSIC.md`) — the phone or the PC plays, the PC serves and holds the queue
 
 | piece | job |
 |---|---|
@@ -48,6 +50,13 @@ installed and staged).
 **One-time phone grants:** open the app → `music access` on the strip → allow *Damage music*
 notification access (Spotify's session and the OS volume-lowered notice ride on it). No RECORD_AUDIO is
 asked, ever. Then Settings → Music → Output (Auto follows the buds; the speaker plays only when chosen).
+
+**The PC as an output:** Output → **PC** moves the music to the PC at the same place (Output → a phone route
+moves it back). The PC plays to PipeWire's default device until `musicPcDevice` in `~/.damage/config.json` names one,
+in the player's own form `pipewire/<node name>` as `mpv --audio-device=help` lists it (the listing opens no device;
+copy the quoted name). Any other form is refused at the next Play with the reason on the glasses, never played
+elsewhere. `musicPcPlayer` is the player program (default `/usr/bin/mpv`). A service restart while the PC plays stops
+it: "Play resumes at 2:13".
 
 🔊 **Playing but silent? Check the phone's media volume first** — the 2026-09-02 report was the level at 8 %
 with the whole chain working (`HANDOFF.md` §24.4). Now Playing shows the level HOT at or below 10 %, a start

@@ -174,6 +174,12 @@ data class Output(val id: String, val name: String, val kind: String = "") {
     companion object {
         const val AUTO = "auto"
         val AUTO_OUTPUT = Output(AUTO, "Auto", "auto")
+        /** S1-4 (ruling 8): the PC's output, listed after the phone's routes; choosing it moves the music there. */
+        const val PC = "pc"
+        val PC_OUTPUT = Output(PC, "PC", "pc")
+        /** S1-4: the phone's output as the PC lists it (a move back to the phone). */
+        const val PHONE = "phone"
+        val PHONE_OUTPUT = Output(PHONE, "Phone", "phone")
     }
 }
 
@@ -260,6 +266,9 @@ sealed class PlayerEvent {
     data class SleepEnded(val detail: String) : PlayerEvent()
     data class BackendChanged(val backend: Backend, val automatic: Boolean) : PlayerEvent()
     data class PcUnreachable(val sinceMs: Long) : PlayerEvent()
+    /** S1-4 (§3.5 step 3): the output moved to the other host while this one was out of reach ("music moved to the PC
+     *  output at 14:00"). */
+    data class MovedAway(val detail: String) : PlayerEvent()
 }
 
 // ====================================================================== audio profiles

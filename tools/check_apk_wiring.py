@@ -752,6 +752,26 @@ def check(root=ROOT, say=print):
     line(not gone, 'ShellService.stopStack: Tmux\'s presenter leaves its source, and the source the working copy',
          'not in stopStack: ' + ', '.join(gone))
 
+    # 15. build S1-4 (K; ruling 9): the phone's music player lives with the service, on the working copy — made after
+    #     the copy at the service's start, closed before the copy at its end; a stack builds only the presenter over
+    #     the player's source and detaches it at its stop, never closing the player. The PC hands every stack its one
+    #     player, core and source.
+    music_start = body_of(svc_code, 'private fun startMusicPlayer(') or ''
+    line('startWorkingCopy(dir, journalFile)\n' in svc and svc.find('startMusicPlayer(') > svc.find('startWorkingCopy(') >= 0
+         and 'AndroidMusicPlayer(' in music_start and 'player.bind(src' in music_start,
+         'ShellService.onCreate: the music player made once, after the working copy, and put on it',
+         'startMusicPlayer( does not follow startWorkingCopy( in onCreate, or does not build and bind the player')
+    line('closeMusicPlayer()' in destroy and destroy.find('closeMusicPlayer()') < destroy.find('closeWorkingCopy()'),
+         'ShellService.onDestroy: the music player closed before the working copy',
+         'no closeMusicPlayer() before closeWorkingCopy() in onDestroy')
+    per = [w for w in ('AndroidMusicPlayer(', 'RemoteMusicLibrary(', 'musicPlayer?.close(') if w in stack or w in stop]
+    line(not per and 'MusicGlasses(' in stack and 'musicGlasses?.detach()' in stop,
+         'ShellService.startStack/stopStack: Music\'s presenter per stack over the service\'s player, detached at the stop',
+         ('built or closed per stack: ' + ', '.join(per)) if per else 'no MusicGlasses( in startStack or musicGlasses?.detach() in stopStack')
+    line('musicPc = musicParts?.let' in run,
+         'runShell: the PC\'s one music player, core and source, handed to every stack it builds',
+         'no musicPc = musicParts?.let { … } in DesktopStack(…) of runShell')
+
     for n in notes:
         say('note  ' + n)
     for u in unjudged:

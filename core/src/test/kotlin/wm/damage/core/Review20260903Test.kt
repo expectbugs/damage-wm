@@ -261,31 +261,7 @@ class Review20260903Test {
         } finally { scope.cancel() }
     }
 
-    // ------------------------------------------------------------------ F6
-    /** The desktop mirror holds an EMPTY player record until the phone's first
-     *  push: publishing it fresh-stamped a REMOVAL of the phone's real queue
-     *  into a syncable key. */
-    @Test
-    fun theMirrorNeverPublishesAnEmptyPlayerRecord() = runBlocking {
-        val tmp = Files.createTempDirectory("damage-mirror-tomb")
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            val lib = TinyLib()
-            val win = MusicWindow(FakeText(), lib, MirrorMusicPlayer(), scope, mirror = true)
-            assertTrue(win.saveSubState().isEmpty(),
-                "an empty player record must not be reported at all: ${win.saveSubState()}")
-            val store = Persistence(tmp.resolve("state.json"))
-            val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
-            val shell = Shell(FakeText(), transport, store, null, scope)
-            shell.register(MusicWindow(FakeText(), lib, MirrorMusicPlayer(), scope, mirror = true))
-            shell.start()
-            val t0 = System.currentTimeMillis()
-            while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 10_000) delay(10)
-            shell.stop()
-            assertEquals(null, store.record("window.music.player"),
-                "the mirror wrote a fresh-stamped tombstone into a SYNCABLE key")
-        } finally { scope.cancel(); tmp.toFile().deleteRecursively() }
-    }
+    // F6 (the desktop mirror's empty record) went with the mirror in S1-4 K: the PC plays through its own player.
 
     // ------------------------------------------------------------------ F7
     /** The quiet notice says "scroll here to raise it"; doing so left the
