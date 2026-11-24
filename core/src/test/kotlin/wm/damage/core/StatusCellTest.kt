@@ -114,13 +114,13 @@ class StatusCellTest {
 
         /** The answer (or fault) notice up, on [thread], whose body starts with [prefix]: decided on one evaluation. */
         suspend fun noticeUp(thread: String, prefix: String) =
-            waitUntil(10_000, 10, { "a '$thread' notice '$prefix…' is up (is ${shell.notifications.current}, queued ${shell.notifications.queued()})" }) {
+            waitUntil(10_000, 10, { "a '$thread' notice '$prefix…' is up (${shell.noticesNow()})" }) {
                 shell.notifications.current.let { it != null && it.thread == thread && it.body.startsWith(prefix) } }
 
         /** The same notice shown or queued (a box waits behind an open keyboard, decision 6): it passed the gate. */
         suspend fun noticePosted(thread: String, prefix: String) =
-            waitUntil(10_000, 10, { "a '$thread' notice '$prefix…' is posted (is ${shell.notifications.current}, queued ${shell.notifications.queued()})" }) {
-                (listOfNotNull(shell.notifications.current) + shell.notifications.queued()).any { it.thread == thread && it.body.startsWith(prefix) } }
+            waitUntil(10_000, 10, { "a '$thread' notice '$prefix…' is posted (${shell.noticesNow()})" }) {
+                shell.noticesNow().any { it.thread == thread && it.body.startsWith(prefix) } }
 
         /** A focused window to hang a menu or a keyboard on. */
         val win = object : wm.damage.core.shell.DamageWindow("w", "W", wm.damage.core.gfx.IconKind.FILES) {

@@ -93,7 +93,7 @@ class TorrentsArrangementsTest {
         waitUntil(10_000, 10, { "no box" }) { r.shell.notifications.active }
         r.settle()
         val cur = assertNotNull(r.shell.notifications.current)
-        assertEquals(0, r.shell.notifications.queueDepth, "one box: ${listOf(cur) + r.shell.notifications.queued()}")
+        assertEquals(0, r.shell.notifications.queueDepth, "one box: ${r.shell.noticesNow()}")
         assertEquals(listOf("1"), r.pops.map { it.occ }, "raised once, handed on once")
         assertEquals(1, host.read(Notices.WINDOW).third.items.keys.count { it.endsWith(":c0ffee01") }, "one notice in the record")
         return cur

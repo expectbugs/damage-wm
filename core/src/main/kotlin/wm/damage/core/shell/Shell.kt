@@ -8797,6 +8797,16 @@ class Shell(
     internal fun atlasEntryForTest(spec: FontSpec): GlyphAtlas.Entry? = atlas?.takeIf { it.isAcked(spec) && spec in cachedFontsLive }?.entry(spec)
     /** Tests only (C3 AH1F): the atlas lane has nothing queued and nothing in flight (on the loop). */
     internal fun atlasLaneIdleForTest(): Boolean = atlasInFlight == null && atlasQueue.isEmpty()
+    /** Tests only (C3 AH3): [block] evaluated once ON the loop, answered either way — by the loop's turn, or where a
+     *  stopping loop drops it (nothing changes the shell's state there any more); at once with no loop alive, or when
+     *  asked from the loop itself. The one door for a test to read what the loop changes in place (`OnLoop.kt`). */
+    internal fun <T> readOnLoopForTest(block: () -> T): java.util.concurrent.CompletableFuture<T> {
+        val out = java.util.concurrent.CompletableFuture<T>()
+        val read: () -> Unit = { try { out.complete(block()) } catch (e: Throwable) { out.completeExceptionally(e) } }
+        if (!loopAlive || turns.open()?.thread === Thread.currentThread()) read()
+        else post(Msg.Run(dropped = read, tag = "test read", action = read))
+        return out
+    }
 
     // ------------------------------------------------------------------ chrome
     private fun chromeState(): Chrome.State {

@@ -193,7 +193,7 @@ class ShellNoticeRecordTest {
         assertEquals("torrents", r.shell.currentWindowId(), "the window came back")
         assertEquals(ActivationSource.RESTORE, r.probe.seen.first())
         assertEquals(emptyList(), input.reads, "a RESTORE is no input: nothing read")
-        val all = listOfNotNull(r.shell.notifications.current) + r.shell.notifications.queued()
+        val all = r.shell.noticesNow()
         assertEquals(listOf(NoticeRef("torrent:h7", "7")), all.map { it.record }, "the restored notice is still there")
     }
 
@@ -211,7 +211,7 @@ class ShellNoticeRecordTest {
         assertEquals(2, r.shell.notifications.queueDepth)
         r.shell.withdrawNotice(b.ref, queuedOnly = false)
         settle(r.shell)
-        assertEquals(listOf(c.ref), r.shell.notifications.queued().map { it.record }, "a queued entry leaves")
+        assertEquals(listOf(c.ref), r.shell.queuedNow().map { it.record }, "a queued entry leaves")
         r.shell.withdrawNotice(a.ref, queuedOnly = true)
         settle(r.shell)
         assertEquals(a.ref, r.shell.notifications.current?.record, "read elsewhere: the shown box stays")

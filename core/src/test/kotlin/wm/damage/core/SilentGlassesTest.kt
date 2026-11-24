@@ -272,7 +272,7 @@ class SilentGlassesTest {
             waitUntil(10_000, message = { "the mark went through the loop" }) { "m1" in notes("mark") }
             assertEquals(emptyList(), notes("silent").filter { "rebuild refused" in it },
                 "a paced check asked a transport with no session for a rebuild (behind the mark, eight pacings)")
-            val faults = listOfNotNull(shell.notifications.current) + shell.notifications.queued()
+            val faults = shell.noticesNow()
             assertEquals(emptyList(), faults.filter { it.thread == "rebuild" }.map { it.body }, "and raised a notice about a refusal that was the link being down")
             shell.stop()
         } finally {
