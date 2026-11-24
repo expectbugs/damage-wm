@@ -914,7 +914,7 @@ class ConformanceVectorTest {
         /** `FIRMWARE.md` §5.1: today's 0x7f plus bit 7 ENGINE and bit 8 the riders (bit 9 is not in C1). */
         const val C1_FEATURES = 0x1FF
         /** K1-2 stage 1 (`private/build083/K1-2-S1-built.md` §2): the shipped acts that stage Main — SV-083's 30 scroll acts
-         *  and 8 notice acts, SVR's 20 ring acts — whose records Main's staging lays out again (O1: one strip at 256 KiB; O12:
+         *  and 8 notice acts, SVR's 20 ring acts, SV2's 8 (Crush's and Flip's, the pitch switch) — whose records Main's staging lays out again (O1: one strip at 256 KiB; O12:
          *  band slots per row, two spares), so the records their messages name sit at other offsets; as many writes and
          *  PLAYs as their files'. Not compared in [theShipVectorsHoldTheProgramsTheShellSends_X3D] until the vector lane
          *  writes their inputs again (`DAMAGE_SHIP_DUMP`) and the firmware lane fills them; then this set goes. */
@@ -935,7 +935,10 @@ class ConformanceVectorTest {
             "v5-ship-ring-none-352", "v5-ship-ring-depth-352", "v5-ship-ring-slide-352", "v5-ship-ring-fall-352",
             "v5-ship-ring-tap-report-row0-352", "v5-ship-ring-tap-report-last-352", "v5-ship-ring-tap-glasses-row0-352",
             "v5-ship-ring-tap-glasses-last-352", "v5-ship-ring-back-wrap-352", "v5-ship-ring-table-352",
-            "v5-ship-ring-burst-352", "v5-ship-ring-burst-each-352")
+            "v5-ship-ring-burst-352", "v5-ship-ring-burst-each-352",
+            // C3 SV2's eight that stage Main (filled on the two-strip layout; K1-2 merged after them)
+            "v5-ship-ring-crush-288", "v5-ship-ring-crush-352", "v5-ship-ring-flip-352", "v5-ship-scroll-crush-stage5-480",
+            "v5-ship-scroll-flip-stage5-480", "v5-ship-scroll-flip-352", "v5-ship-ring-crush-fast-352", "v5-ship-ring-pitch-352")
         /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
         const val BIND_FEATURE = 1 shl 10
         const val C2_FEATURES = 0x5FF
