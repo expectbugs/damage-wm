@@ -2437,7 +2437,10 @@ one-period wait; with this it is drawn a few ms late.
   last picture is step T − 1's, so "later tracks over a still in-place track repaint at every step what they
   painted at the step before" does not hold at that one step — a lens that folds step T − 1 shows step T − 2's
   shorter trails for one period, inside the owned area; the in half's first step covers every cell either drew.
-  Both halves' grid sits at one plane, the nearer of the leaving and the arriving screen's.
+  Both halves' grid sits at one plane: the nearest of the leaving screen's, the arriving screen's and Global `Depth`
+  (the two bars' plane) — a window's own Depth row set further back than Global keeps the rain at Global, and the
+  Lock Screen's 0 holds both ways. Where none of 16 seeds from the act's own gives each drawn out step a picture of
+  its own, the phone leaves Matrix out of the act's pick with that reason (never reached in the sweeps, modeled).
 - **The pitch switch (S6).** A change between a scroll effect of pitch −rowH and one of pitch +rowH (Crush) goes as
   the programs-only re-make with the LIST (LIST-RING on a ring list) carrying the new pitch ahead of the SETs in
   one image; the fresh mark and the report's own program and parameters both refuse a report computed at the old
@@ -2559,6 +2562,17 @@ comes to 6.9 / 8.8 / 10.8 / 12.7 ms a step at 288 / 352 / 416 / 480, P 16 and 19
 114's field 9 (a step's measured time) raises the period for the staging in force, Auto's step count follows in idle,
 and a period is never lowered under the staging's own. Below stage 5, and for a staging made before EFFECTS was in
 force, C2's fit (§6.9) unchanged.
+
+**The phone's fit of a transition's step** (phone code, `Transitions.timingFor`): Warp's and Flip's step is the one
+his glasses measured at 352 (58.8 and 60.3 ms, APK 0.83, 2026-11-21, the larger half's), carried to the area at
+0.5 ms + a rate per pixel (modeled at the other heights). For the four effects on the fit (Warp, Flip, Encode,
+Matrix) the frames give only to a longer period, and where they give the period is max(fit, ⌊length × 1.024 /
+frames⌋) ticks, at most 128 — **the length holds, frames give**: a transition plays its length less under a tick a
+step (Warp and Flip 3 × 76 ticks at 352 and 2 × 115 at 480 at a 450-ms tier of 10 frames; a dense Encode page there
+3 × 76). At the period's limit a half plays T × 128 ticks, short of its length (Warp and Flip at 300 ms at 416 and
+480: one step a half, 250 ms; Encode on pages of about 1,000 cells or more at 300 ms, 1,350 at 600 and 800 ms,
+1,550 at 450 ms). Where one step a half at the fit already passes the length, the period stays the fit. Both halves
+and the end rule's backstop share one period.
 
 **What the terms do not carry** (the first review pass of the built code, 2026-11-20): each term bounds its verb's
 pixel and byte work at these rates; work per element that no term names is outside the budget. RAIN visits every
@@ -3115,3 +3129,5 @@ phone's keeper applies the hold-back rule before re-arming.
   rulings (§6.7 P9, §6.8, §6.9, §7.11, §7.12); which build is flashed and the vector set's count are `REMINDER.md`'s.
 - 2026-11-24 — §6.7 P9: one strip at every cache size (a row-form change withdraws the list); Main's band slots per
   row with two spares (K1-2 stage 1; decisions BC O1, O12).
+- 2026-11-24 — §7.11: Matrix's plane includes Global `Depth`, and its last fallback is a refusal; §7.12: the fit
+  of a transition's step, with the period stretched to the tier's length for the four effects on the fit (X2MX2).
