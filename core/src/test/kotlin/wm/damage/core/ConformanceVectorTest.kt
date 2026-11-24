@@ -93,16 +93,11 @@ class ConformanceVectorTest {
         // X2D's phase 2), stage X3D's `v5-ship-*` and `v5-x3-hint` (ended with X3D's comparison), stage X3T's Encode
         // and Matrix ship vectors (ended with X5T's comparison), APK 0.83 stage SV's scroll and notice ship vectors (ended
         // with SV's comparison), C3 stage SVR's ring-list ship vectors with the act the fast-path fit's merge wrote
-        // again (ended with SVR's comparison, X8T) and C3 stage SV2's ship acts of Crush, Flip and the new Matrix with the
-        // acts MX2 and X1MX2 moved (ended with SV2's comparison, X9T) — are gone. C3 stage SV3, one exception for two stages:
-        // the ship acts K1-2 stage 1 moved, written again on the merged head, C3 stage X2MX2's Warp, Flip and Encode acts
-        // and its new Crush act, and SV3's new act — exactly the names in [SV3_UNFILLED] — are written before the fork's
-        // runner fills them: reported "not filled" with a count and run through the model
-        // ([theUnfilledVectorsRunThroughTheModel]); every other unfilled file in the repo fails like any other. The
-        // comparison removes this exception.
-        val sv3 = out.notFilled.filter { it.substringBefore(" (") in SV3_UNFILLED }
-        if (sv3.isNotEmpty()) println("ConformanceVectorTest: ${sv3.size} SV3 vector(s) not filled until the comparison: ${sv3.joinToString("; ")}")
-        for (n in out.notFilled - sv3.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        // again (ended with SVR's comparison, X8T), C3 stage SV2's ship acts of Crush, Flip and the new Matrix with the
+        // acts MX2 and X1MX2 moved (ended with SV2's comparison, X9T) and C3 stage SV3's one exception for two stages —
+        // the ship acts K1-2 stage 1 moved, C3 stage X2MX2's Warp, Flip and Encode acts and its new Crush act, and SV3's
+        // new act (ended with SV3's comparison, X10T) — are gone: every unfilled file in the repo fails like any other.
+        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -806,27 +801,26 @@ class ConformanceVectorTest {
             val x3t = "v5-ship-select-encode-352"
             for (n in listOf(x3t, "${x3t}2"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
-            // C3 stage SVR's exception for its ring vectors and the moved act ended with its comparison (X8T): a name that
-            // only begins like one of its names and a ring name no spec makes fail like any other; its name here is SV3's
-            // now (K1-2 stage 1 moved it), reported until SV3's comparison
+            // C3 stage SVR's exception for its ring vectors and the moved act ended with its comparison (X8T), and SV3's,
+            // which held its name here again (K1-2 stage 1 moved it), with SV3's comparison (X10T): that name, a name that
+            // only begins like it and a ring name no spec makes fail like any other
             val svr = "v5-ship-ring-depth-352"
             for (n in listOf(svr, "${svr}2", "v5-ship-ring-one-unfilled"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
-            // C3 stage SV2's exception for its new acts and the acts it wrote again ended with its comparison (X9T): one it
-            // wrote again fails like any other, as do a name that only begins like one and a Crush name no spec makes; its
-            // new act here is SV3's now (K1-2 stage 1 moved it), reported until SV3's comparison
+            // C3 stage SV2's exception for its new acts and the acts it wrote again ended with its comparison (X9T), and SV3's,
+            // which held its new act here again (K1-2 stage 1 moved it), with SV3's comparison (X10T): that act, one it wrote
+            // again, a name that only begins like one and a Crush name no spec makes fail like any other
             val sv2 = "v5-ship-ring-crush-352"; val sv2w = "v5-ship-select-matrix-352"
             for (n in listOf(sv2, "${sv2}2", sv2w, "v5-ship-ring-crush-one-unfilled"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
-            // C3 stage SV3's exception (K1-2 stage 1's moved acts and X2MX2's, one set) holds exactly its names: three of
-            // them (SVR's, SV2's and X2MX2's) are reported, not failed; a name that only begins like one fails like any other
+            // C3 stage SV3's exception (K1-2 stage 1's moved acts and X2MX2's, one set) ended with its comparison (X10T):
+            // X2MX2's act and a name that only begins like it fail like any other
             val x2 = "v5-ship-select-warp-352"
-            for (n in listOf(svr, sv2, x2)) assertTrue(n in SV3_UNFILLED, "$n is SV3's name")
             for (n in listOf(x2, "${x2}2"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", "${sv2}2", "v5-ship-ring-crush-one-unfilled", "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
                 "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
@@ -856,7 +850,7 @@ class ConformanceVectorTest {
      * C3 stage X2MX2: the Warp, Flip and Encode acts its item 1 moved, written again, and its new Crush act ([ShipVectors.x2mx2Acts]),
      * compared like the rest. C3 stage SV3: every act that stages Main written again after K1-2 stage 1 (one strip at
      * 256 KiB, band slots per row), and its new act, the withdrawal at 256 KiB ([ShipVectors.sv3Acts]), compared like the
-     * rest; X2MX2's and SV3's not filled until SV3's comparison ([SV3_UNFILLED]).
+     * rest; filled at SV3's comparison.
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
@@ -917,40 +911,6 @@ class ConformanceVectorTest {
     private companion object {
         /** `FIRMWARE.md` §5.1: today's 0x7f plus bit 7 ENGINE and bit 8 the riders (bit 9 is not in C1). */
         const val C1_FEATURES = 0x1FF
-        /** C3 stage SV3 (`private/c3-design/briefs/C3-SV3-brief.md`; decisions CO, CP): one exception for two stages' acts —
-         *  the shipped acts that stage Main, whose records K1-2 stage 1 laid out again (O1: one strip at 256 KiB; O12: band
-         *  slots per row, two spares), written again on the merged head; and C3 stage X2MX2's Warp, Flip and Encode acts
-         *  (the period stretched to fill the tier's length) and its new act ([ShipVectors.x2mx2Acts]: Crush's notch answered
-         *  after its END), written again there too (their sessions stage Main); and SV3's own new act ([ShipVectors.sv3Acts]:
-         *  the withdrawal at 256 KiB). Reported "not filled" by exact name until the firmware lane's ONE fill; the comparison
-         *  removes the exception ([notFilledFailsInTheRepo]). */
-        val SV3_UNFILLED = setOf(
-            "v5-ship-back-encode-rev-dense-480", "v5-ship-back-flip-rev-352", "v5-ship-back-flip-rev-480",
-            "v5-ship-back-warp-rev-352", "v5-ship-back-warp-rev-480", "v5-ship-cut-select-warp-352",
-            "v5-ship-notice-fade-352", "v5-ship-notice-fade-480", "v5-ship-notice-slide-352", "v5-ship-notice-slide-480",
-            "v5-ship-notice-timer-352", "v5-ship-notice-timer-480", "v5-ship-notice-timer-notch-480",
-            "v5-ship-notice-timer-withdraw-480", "v5-ship-ring-back-wrap-352", "v5-ship-ring-burst-352",
-            "v5-ship-ring-burst-each-352", "v5-ship-ring-crush-288", "v5-ship-ring-crush-352",
-            "v5-ship-ring-crush-fast-352", "v5-ship-ring-crush-late-352", "v5-ship-ring-depth-288",
-            "v5-ship-ring-depth-352", "v5-ship-ring-fall-288", "v5-ship-ring-fall-352", "v5-ship-ring-flip-352",
-            "v5-ship-ring-none-288", "v5-ship-ring-none-352", "v5-ship-ring-pitch-352", "v5-ship-ring-slide-288",
-            "v5-ship-ring-slide-352", "v5-ship-ring-table-352", "v5-ship-ring-tap-glasses-last-288",
-            "v5-ship-ring-tap-glasses-last-352", "v5-ship-ring-tap-glasses-row0-288",
-            "v5-ship-ring-tap-glasses-row0-352", "v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-report-last-352",
-            "v5-ship-ring-tap-report-row0-288", "v5-ship-ring-tap-report-row0-352", "v5-ship-ring-withdraw-352", "v5-ship-scroll-crush-stage5-480",
-            "v5-ship-scroll-depth-352", "v5-ship-scroll-depth-480", "v5-ship-scroll-depth-burst-480",
-            "v5-ship-scroll-depth-frames12-480", "v5-ship-scroll-depth-frames16-480", "v5-ship-scroll-depth-frames4-480",
-            "v5-ship-scroll-depth-frames6-480", "v5-ship-scroll-depth-frames8-480", "v5-ship-scroll-depth-len225-480",
-            "v5-ship-scroll-depth-len450-480", "v5-ship-scroll-depth-len600-480", "v5-ship-scroll-depth-len800-480",
-            "v5-ship-scroll-depth-stage5-480", "v5-ship-scroll-depth-wrap-352", "v5-ship-scroll-fall-352",
-            "v5-ship-scroll-fall-480", "v5-ship-scroll-fall-burst-480", "v5-ship-scroll-fall-frames10-480",
-            "v5-ship-scroll-fall-frames16-480", "v5-ship-scroll-fall-frames6-480", "v5-ship-scroll-fall-frames8-480",
-            "v5-ship-scroll-fall-len225-480", "v5-ship-scroll-fall-len450-480", "v5-ship-scroll-fall-len600-480",
-            "v5-ship-scroll-fall-len800-480", "v5-ship-scroll-fall-wrap-352", "v5-ship-scroll-flip-352",
-            "v5-ship-scroll-flip-stage5-480", "v5-ship-scroll-none-352", "v5-ship-scroll-none-480",
-            "v5-ship-scroll-slide-352", "v5-ship-scroll-slide-480", "v5-ship-select-encode-apart-480",
-            "v5-ship-select-encode-dense-480", "v5-ship-select-flip-352", "v5-ship-select-flip-480",
-            "v5-ship-select-warp-352", "v5-ship-select-warp-480")
         /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
         const val BIND_FEATURE = 1 shl 10
         const val C2_FEATURES = 0x5FF
