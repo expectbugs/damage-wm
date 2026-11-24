@@ -695,7 +695,11 @@ object Snapshot {
         // scene clock), so its scenes here are the same scenes
         val music = MusicScene(text, scope, wc)
         shell.register(music.win)
-        val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
+        // build S1-5 G: Games' presenter over the working copy (its world written to the scratch PC record), as the phone
+        // builds it; the same pinned world as the first arrangement's
+        val gamesCore = wm.damage.core.windows.games.GamesCore()
+        val gamesSource = wm.damage.core.app.LocalWindowSource(gamesCore, wc)
+        val gamesWin = wm.damage.core.windows.games.GamesGlasses(text, scope, gamesCore, gamesSource)
         gamesWin.roster.worldSeed = 20260905L
         shell.register(gamesWin)
         // build S1-3 J: Feed on its own scene clock from the same instant as the first arrangement's
@@ -808,6 +812,12 @@ object Snapshot {
             // arrangement's steps: the two windows S1-5 moves onto the PC's record are judged here
             settingsOwnScenes(shell, sim, out)
             gamesScenes(shell, sim, out, gamesWin, toWindow, iconsSettled = { iconsSettled() })
+            // build S1-5 G: the world the phone's presenter wrote reached the scratch PC record, and the PC's card reads
+            // the line the glasses' Main row shows
+            waitFor("the phone's Games world in the PC record, its card equal to Main's row") {
+                val st = wm.damage.core.app.WindowState(gamesCore.window, pcRecord.read(gamesCore.window).third.items)
+                st.itemNamed(wm.damage.core.windows.games.GamesCore.WORLD) != null && gamesCore.summary(st) == gamesWin.summary()
+            }
         } finally {
             shell.stop()
             filesWin.detach()
@@ -819,6 +829,8 @@ object Snapshot {
             torrentsSource.close()
             torrentsRemote.close()
             music.win.detach()                                 // build S1-4 K: the presenter leaves the working copy's source
+            gamesWin.detach()                                  // build S1-5 G: the same
+            gamesSource.close()
             music.source?.close()
             phoneMirror.detach(shell.noticeSink)
             phoneMirror.close()

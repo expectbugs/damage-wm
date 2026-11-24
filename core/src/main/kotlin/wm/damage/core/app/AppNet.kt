@@ -785,8 +785,15 @@ class AppNet(
                 chgFrame(c, scope, AppWire.windowsOf(scope, conn.visible))?.let { conn.outbox.offer(it) }
             }
             // P7: a PC-served scope this change moves is described again (coalesced, on its provider's executor)
-            for ((scope, h) in conn.described) if (h.p.d.follows(scope, c)) describeFor(conn, scope)
+            for ((scope, h) in conn.described) if (h.p.d.follows(scope, c) || (scope == PcScopes.MAIN && cardMoved(c))) describeFor(conn, scope)
         }
+    }
+
+    /** S1-5 G: true when [c] writes a window served with a card and no scopes of its own (Games): Main is described
+     *  again with its record, as a window with scopes is with its source. */
+    private fun cardMoved(c: Change): Boolean = providers.any { p ->
+        val w = p.window
+        p.card != null && p.d === NO_SCOPES && w != null && c.effect.items.keys.any { it.startsWith(Record.prefix(w)) }
     }
 
     /** [c] limited to [windows], or null when none of its entries is theirs. */

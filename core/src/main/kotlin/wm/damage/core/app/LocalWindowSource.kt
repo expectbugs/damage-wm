@@ -20,11 +20,16 @@ class LocalWindowSource(val core: WindowCore, private val backend: RecordBackend
     private val listeners = CopyOnWriteArrayList<SourceListener>()
     @Volatile private var current: WindowState
     @Volatile private var described: Pair<WindowState, JsonObject>? = null
+    /** S1-5 G: latched after [current] holds a state the backend had heard, so a reader that sees it true reads that
+     *  state or a later one. */
+    @Volatile private var heard = false
 
     private val relay = object : SourceListener {
         override fun changed(state: WindowState, keys: Set<String>) {
             current = state
-            if (keys.isEmpty()) return
+            val first = !heard && backend.heard(window)
+            if (first) heard = true
+            if (keys.isEmpty() && !first) return
             for (l in listeners) say("a change") { l.changed(state, keys) }
         }
 
@@ -43,9 +48,12 @@ class LocalWindowSource(val core: WindowCore, private val backend: RecordBackend
     init {
         current = backend.executor.call {
             backend.watch(window, relay)
+            heard = backend.heard(window)
             backend.stateOf(window)
         }
     }
+
+    override fun heard(): Boolean = heard
 
     override fun state(): WindowState = current
 

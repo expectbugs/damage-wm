@@ -144,6 +144,8 @@ class ShellService : Service() {
     /** Build S1-3 B16: Feed's presenter over the working copy and its source (the copy outlives the stack). */
     private var feedSource: wm.damage.core.app.LocalWindowSource? = null
     private var feedGlasses: wm.damage.core.windows.feed.FeedGlasses? = null
+    private var gamesSource: wm.damage.core.app.LocalWindowSource? = null
+    private var gamesGlasses: wm.damage.core.windows.games.GamesGlasses? = null
     /** Build S1-3 B16: Tmux's presenter over the working copy and its source (the copy outlives the stack). */
     private var tmuxSource: wm.damage.core.app.LocalWindowSource? = null
     private var tmuxGlasses: wm.damage.core.windows.tmux.TmuxGlasses? = null
@@ -550,9 +552,17 @@ class ShellService : Service() {
             musicGlasses = mw
             sh.register(mw)
         }
-        // Games is pure Kotlin — no provider, no channel, no `needs`. Its whole
-        // world lives in its own synced records (HOLDEM.md §11.1).
-        sh.register(wm.damage.core.windows.games.GamesWindow(text, scope))
+        // Games is pure Kotlin — no provider, no channel, no `needs`. S1-5 G: its world is the PC record's, read from the
+        // working copy; the phone is its engine host and writes it at the settle points. Without a copy, Games runs on a
+        // record of its own in memory.
+        val gamesWin = if (wc != null) {
+            val core = wm.damage.core.windows.games.GamesCore()
+            val src = wm.damage.core.app.LocalWindowSource(core, wc)
+            gamesSource = src
+            wm.damage.core.windows.games.GamesGlasses(text, scope, core, src)
+        } else wm.damage.core.windows.games.GamesWindow(text, scope)
+        gamesGlasses = gamesWin
+        sh.register(gamesWin)
         // Feed (FEED.md §3.6): the PC's engine over the window channel. Build S1-3 B5 (C§14 (a) row 1, his ruling of
         // 11-12): the phone's own fetching is retired — with the PC out of reach Feed shows what it last had under the
         // channel's staleness line. The old engine's folder stays on disk (deleting it is his), its size said once.
@@ -800,6 +810,11 @@ class ShellService : Service() {
         try { feedSource?.close() } catch (e: Exception) { Log.w("service", "feed source close: ${e.message}") }
         feedSource = null
         try { feedProvider?.close() } catch (e: Exception) { Log.w("service", "feed provider close: ${e.message}") }
+        // S1-5 G: the presenter leaves the source, and the source the working copy
+        try { gamesGlasses?.detach() } catch (e: Exception) { Log.w("service", "games detach: ${e.message}") }
+        gamesGlasses = null
+        try { gamesSource?.close() } catch (e: Exception) { Log.w("service", "games source close: ${e.message}") }
+        gamesSource = null
         feedProvider = null
         torrentsProvider = null
         // S1-4 K (ruling 9): the presenter leaves; the player and library outlive the stack (closed at the service's end)

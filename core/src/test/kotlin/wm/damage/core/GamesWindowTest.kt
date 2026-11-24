@@ -23,7 +23,6 @@ import wm.damage.core.shell.ShellSettings
 import wm.damage.core.shell.WindowView
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.SimTransport
-import wm.damage.core.windows.games.GamesWindow
 import wm.damage.core.windows.games.holdem.HoldemRules
 import wm.damage.core.wire.EvenHubMsg
 
@@ -44,7 +43,11 @@ class GamesWindowTest {
         // clock dealt, on 2 of seeds 1..300 (53 and 123), a first hand where he is the big blind and everyone folds to
         // him: he wins it without acting, the result stays up until he acts (verdict 29), and `your turn` never came
         // (the one recorded miss, build066/W-R3-built.md:132)
-        val win = GamesWindow(FakeText(), scope, worldSeed = SEED)
+        /** S1-5 G: the record the presenter writes its world to (a restart reads it again). */
+        val record = wm.damage.core.app.MemoryRecord(wm.damage.core.windows.games.GamesCore.ACTIONS)
+        private val core = wm.damage.core.windows.games.GamesCore()
+        val win = wm.damage.core.windows.games.GamesGlasses(FakeText(), scope, core,
+            wm.damage.core.app.LocalWindowSource(core, record), worldSeed = SEED)
 
         init {
             if (height != 480) store.put("shell.settings", ShellSettings(heightMode = height).toJson())
@@ -383,12 +386,15 @@ class GamesWindowTest {
             r.shell.stop()
             r.scope.cancel()
 
-            // a fresh shell over the same store
+            // a fresh shell over the same store, and a fresh presenter over the same record (S1-5 G: the world is the
+            // record's, the store keeps the view)
             val scope2 = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val store2 = Persistence(tmp.resolve("state.json"))
             val t2 = SimTransport(GlassFirmwareSim(), scope2, SimTransport.Timing(instant = true))
             val shell2 = Shell(FakeText(), t2, store2, null, scope2)
-            val win2 = GamesWindow(FakeText(), scope2, worldSeed = SEED)   // ruling 1.9 (the world comes from the store)
+            val core2 = wm.damage.core.windows.games.GamesCore()
+            val win2 = wm.damage.core.windows.games.GamesGlasses(FakeText(), scope2, core2,
+                wm.damage.core.app.LocalWindowSource(core2, r.record), worldSeed = SEED)   // ruling 1.9 (the world comes from the record)
             shell2.register(win2)
             shell2.start()
             val t0 = System.currentTimeMillis()
