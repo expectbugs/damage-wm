@@ -350,12 +350,12 @@ object MainLocalCheck {
     private const val FEATURES_C2 = 0x5ff
     /** C3 DM-0: a bit-11 build (`FIRMWARE.md` §7.9: features 0xdff), armed at stage 5 (EFFECTS beside BIND). */
     private const val FEATURES_C3 = 0xdff
-    private fun features(stage5: Boolean) = if (stage5) FEATURES_C3 else FEATURES_C2
-    private fun flags(stage5: Boolean) = DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ENGINE or DamageMsg.FLAG_BIND or (if (stage5) DamageMsg.FLAG_EFFECTS else 0)
+    internal fun features(stage5: Boolean) = if (stage5) FEATURES_C3 else FEATURES_C2
+    internal fun flags(stage5: Boolean) = DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ENGINE or DamageMsg.FLAG_BIND or (if (stage5) DamageMsg.FLAG_EFFECTS else 0)
     /** C3 DM-1: the gate's token as the model's link state gives it — a bit-11 build with EFFECTS armed at stage 5; none below. */
     fun effectsAt(stage5: Boolean): Motion.Effects? = if (stage5) Motion.effects(DamageMsg.Caps(2, FEATURES_C3), flags(true)) else null
 
-    private class Lens(val sim: GlassFirmwareSim, val cacheSize: Int) {
+    internal class Lens(val sim: GlassFirmwareSim, val cacheSize: Int) {
         var now = 1_000L
         fun send(what: String, m: ByteArray, fails: MutableList<String>) {
             for (arm in Arm.entries) if (!sim.conformanceMessage(arm, m, now)) fails += "$arm refused $what (refusal ${sim.refusalRecord(arm)})"
@@ -394,7 +394,7 @@ object MainLocalCheck {
     }
 
     /** Pixels of [nibbles] (a 4-bit panel or shadow) inside [areas] (or everywhere) whose level is not [want]'s. */
-    private fun differ(nibbles: ByteArray, want: Gray8, areas: List<Rect>?): Int {
+    internal fun differ(nibbles: ByteArray, want: Gray8, areas: List<Rect>?): Int {
         var n = 0
         val rs = areas ?: listOf(Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H))
         for (r in rs) for (y in r.y until r.bottom) for (x in r.x until r.right)
@@ -1021,5 +1021,5 @@ object MainLocalCheck {
         }
     }
 
-    private fun union(rs: List<Rect>): Rect = rs.reduce { a, b -> a.union(b) }
+    internal fun union(rs: List<Rect>): Rect = rs.reduce { a, b -> a.union(b) }
 }

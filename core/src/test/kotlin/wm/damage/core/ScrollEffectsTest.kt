@@ -5,16 +5,22 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
+import wm.damage.core.geom.LintError
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
+import wm.damage.core.local.BoundList
 import wm.damage.core.motion.BoxFace
+import wm.damage.core.motion.ListForm
 import wm.damage.core.motion.Motion
 import wm.damage.core.motion.ScrollEffect
 import wm.damage.core.motion.ScrollEffects
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.MainLocalCheck
 import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ContentKit
 import wm.damage.core.shell.ShellSettings
+import wm.damage.core.shell.WindowListCheck
 import wm.damage.core.wire.CfwModes
 
 /**
@@ -950,6 +956,160 @@ class ScrollEffectsTest {
             outcomes += "$st two rows (Files own $f0 B, Feed own $d0 B, the largest $big B): $a1; $b1; Files again $a2; the full staging gives both $big2 B; then $a3; $b2; $a4"
         }
         println("O12 FACT (the rig, BoxFace): " + outcomes.joinToString(" | "))
+    }
+
+    // ------------------------------------------------------------------- K1-2 stage 2: a window's list in the window form
+    private val region256 = CfwModes.mainRegion(CfwModes.CACHE2_MAX_RIDERS, true)
+
+    /**
+     * K1-2 stage 2 (the K1-2 spec §2.1, §8 pin 10): every effect of the window form ([ScrollEffects.WINDOW_EFFECTS]) at
+     * every cursor a notch lands on, both ways, at the four heights, on a ring list and a plain one (Settings' categories,
+     * Global and a three-row category, through Settings' own painters), both lenses: END is the list's own paint at the new
+     * cursor in the rows' areas and the entering row's ROW form at the band area's first line in the band's area; the start
+     * state (every effect but None, whose one step is its end) is the list at the old cursor with the leaving row's row
+     * form there. The staging is the strip and the programs alone, laid out down from the top it is given; the list is
+     * glasses list 1 at pitch +rowH with no item table and a report-only tap entry; every rule is kind 2 (P0..P2) and kind 0
+     * (P3); the band's area leaves its two rules out — no area of any track covers a rule's pixel.
+     */
+    @Test
+    fun theWindowFormsEndIsTheListsPaintWithTheRowFormInTheBand_K12S2() {
+        var ends = 0
+        val table = ArrayList<String>()
+        for (h in heights) for (sample in WindowListCheck.Sample.entries) {
+            val rig = WindowListCheck.WindowRig(BoxFace, h, sample)
+            val l = rig.layout
+            for (e in ScrollEffects.WINDOW_EFFECTS) {
+                val ms = rig.staging(e, region256.first, region256.last + 1)
+                val what0 = "$h ${sample.id} ${e.word}"
+                assertEquals(ListForm.STRIP_WINDOWS, ms.form, what0)
+                assertTrue(ms.bands.isEmpty() && ms.wrap == null && ms.blobs.map { it.name } == listOf("strip", "programs"), "$what0: the strip and the programs alone: ${ms.blobs.map { it.name }}")
+                assertEquals(MainStaging.ringFits(l, ms.rows), ms.ring, "$what0: a ring list exactly where the list's paint wraps")
+                assertEquals(region256.last + 1, ms.end, "$what0: laid out down from its top")
+                assertEquals(e, ms.plays.effect, "$what0: the form plays its own effect")
+                val list = ms.boundList(1, list = WindowListCheck.LIST, entryIds = WindowListCheck.ENTRIES)
+                assertTrue(list.list == 1 && list.items == null && list.items4 == CfwModes.ITEMS_NONE && list.pitch == l.rowH && list.ring == ms.ring,
+                    "$what0: list 1, no item table, pitch +rowH")
+                assertEquals(listOf(3, 4, 5), list.entries.map { it.entry }.sorted(), "$what0: entries 3–5 (decisions BD)")
+                assertTrue(list.entryFor(CfwModes.EV_TAP)!!.reportOnly, "$what0: the tap entry is report-only (no press)")
+                for (pan in ms.pans) {
+                    assertEquals(listOf(CfwModes.KIND_PITCH, CfwModes.KIND_PITCH, CfwModes.KIND_PITCH, CfwModes.KIND_ARG), pan.rules.map { it.kind }, "$what0: the rules' kinds")
+                    for (left in listOf(true, false)) {
+                        val band = pan.areas(left)[2]
+                        assertTrue(band.y == l.lens.y + ContentKit.LENS_RULE && band.bottom == l.lens.bottom - ContentKit.LENS_RULE, "$what0: the band's area leaves its rules out: $band")
+                        assertTrue(pan.areas(left).none { a -> a.y < l.lens.y + ContentKit.LENS_RULE && a.bottom > l.lens.y || a.y < l.lens.bottom && a.bottom > l.lens.bottom - ContentKit.LENS_RULE },
+                            "$what0: no track's area covers a rule: ${pan.areas(left)}")
+                    }
+                    val entry = list.entryFor(if (pan.step > 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)!!
+                    for (c in 0 until ms.rows) {
+                        val f = list.predict(c, entry) as? BoundList.Fire.Drew ?: continue
+                        val to = f.cursor; val p = f.p!!
+                        Motion.play(pan.program, MainStaging.SLOT, ms.period, 1, 0, p)          // the offline checks at these P
+                        for (left in listOf(true, false)) {
+                            val areas = pan.areas(left)
+                            val end = rig.truth(c, left).copy().also { ms.paintEnd(pan, p, left, it) }
+                            assertEquals(0, differ(end, rig.withBandRow(rig.truth(to, left), to, left, areas[2]), areas),
+                                "$what0 step ${pan.step} $c→$to left=$left: px where END is not the list's paint (and the row form in the band)")
+                            if (e != ScrollEffect.NONE) {
+                                val start = rig.truth(c, left).copy().also { ms.paintStart(pan, p, left, it) }
+                                assertEquals(0, differ(start, rig.withBandRow(rig.truth(c, left), c, left, areas[2]), areas),
+                                    "$what0 step ${pan.step} $c→$to left=$left: px where the start state is not the list at $c (and its row form in the band)")
+                            }
+                        }
+                        ends++
+                    }
+                }
+                if (e == ScrollEffect.DEPTH) table += "$what0: ${ms.rows} rows ${if (ms.ring) "ring" else "plain"}, strip ${ms.strip.encoded.size} B in ${ms.strip.slot} B, pan slot ${ms.progSlot} B ×${ms.progSlots?.size ?: 1}, P ${ms.period} T ${ms.t}"
+            }
+        }
+        assertTrue(ends >= 800, "$ends notches checked")
+        println("K12S2-window-form ($ends notches; BoxFace)\n" + table.joinToString("\n"))
+    }
+
+    /**
+     * K1-2 stage 2 (O7): the row form's place in the band read off Settings' two paints (the first window list to bind):
+     * a category's row draws its name in the row face, its band the same name in that face's bold — drawn
+     * [ScrollEffects.BAND_ROW_DY] below the band's top, the row's name line lies on the band's title line (the first ink row
+     * of the same word in its columns; BoxFace's metrics), every category. Global's rows are printed beside it (their
+     * value in the row face on the same line, their 13-px label above).
+     */
+    @Test
+    fun theBandRowsPlaceIsReadOffSettingsTwoPaints_K12S2() {
+        fun inkTop(g: Gray8, x0: Int, x1: Int, y0: Int, y1: Int): Int = (y0 until y1).first { y -> (x0 until x1).any { x -> g[x, y] != 0 } }
+        val seen = ArrayList<String>()
+        for (sample in listOf(WindowListCheck.Sample.CATEGORIES, WindowListCheck.Sample.GLOBAL)) {
+            val rig = WindowListCheck.WindowRig(BoxFace, 352, sample)
+            val l = rig.layout
+            for (i in 0 until rig.rows) {
+                val row = rig.rowForm(i)                                     // at the row's own x 0 = content.x
+                val name = inkTop(row, 40, 260, 0, row.h)
+                val g = Gray8(wm.damage.core.geom.Geometry.PANEL_W, wm.damage.core.geom.Geometry.PANEL_H)
+                rig.kit.paintLensBand(g, l, rig.view, i)
+                val title = inkTop(g, l.lens.x + 44, l.lens.x + 260, l.lens.y + ContentKit.LENS_RULE, l.lens.bottom - ContentKit.LENS_RULE) - l.lens.y
+                seen += "${sample.id} $i: name ${name + ScrollEffects.BAND_ROW_DY}, title $title"
+                if (sample == WindowListCheck.Sample.CATEGORIES)
+                    assertEquals(title, name + ScrollEffects.BAND_ROW_DY, "category $i: the name line in the band, against its title")
+            }
+        }
+        println("K12S2-band-row (BoxFace, 352): " + seen.joinToString("; "))
+    }
+
+    /** K1-2 stage 2: Crush and Flip asked on a window list play Slide and Depth (not built on the form yet), said; the form
+     *  is refused below stage 5, at 160 KiB and where its space is short (the spare pan slot given up first). */
+    @Test
+    fun theWindowFormsFallbacksAndRefusals_K12S2() {
+        val fx = MainLocalCheck.effectsAt(true)
+        assertEquals(ScrollEffect.SLIDE, ScrollEffects.playsFor(ScrollEffect.CRUSH, ListForm.STRIP_WINDOWS, fx).effect)
+        assertEquals(ScrollEffect.DEPTH, ScrollEffects.playsFor(ScrollEffect.FLIP, ListForm.STRIP_WINDOWS, fx).effect)
+        assertEquals("plays Slide", ScrollEffects.playsFor(ScrollEffect.CRUSH, ListForm.STRIP_WINDOWS, fx).words(ScrollEffect.CRUSH))
+        assertEquals("plays Depth", ScrollEffects.playsFor(ScrollEffect.FLIP, ListForm.STRIP_WINDOWS, fx).words(ScrollEffect.FLIP))
+        // Main's words as before
+        assertEquals("plays Slide", ScrollEffects.plays(ScrollEffect.CRUSH, null).words(ScrollEffect.CRUSH))
+        assertEquals("plays its height turn", ScrollEffects.plays(ScrollEffect.FLIP, null).words(ScrollEffect.FLIP))
+        assertEquals("", ScrollEffects.plays(ScrollEffect.FLIP, fx).words(ScrollEffect.FLIP))
+        assertEquals("", ScrollEffects.plays(ScrollEffect.DEPTH, fx).words(ScrollEffect.DEPTH))
+        val rig = WindowListCheck.WindowRig(BoxFace, 352, WindowListCheck.Sample.GLOBAL)
+        val crush = rig.staging(ScrollEffect.CRUSH, region256.first, region256.last + 1)
+        assertTrue(crush.plays.effect == ScrollEffect.SLIDE && crush.motion?.effect == ScrollEffect.CRUSH && crush.plays.why == ScrollEffects.WINDOW_NOT_YET, "Crush on a window list: ${crush.plays}")
+        val m = MainStaging.ScrollMotion.DEFAULT
+        val cache = CfwModes.CACHE2_MAX_RIDERS
+        assertFailsWith<LintError>("below stage 5") { MainStaging.buildWindow(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, cache, m, null) }
+        assertFailsWith<LintError>("at 160 KiB") { MainStaging.buildWindow(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, m, MainLocalCheck.effectsAt(true), 0, 160 * 1024) }
+        val full = rig.staging(ScrollEffect.DEPTH, region256.first, region256.last + 1)
+        val need = full.end - full.start
+        val floorTight = region256.last + 1 - (need - full.progSlot)
+        val tight = rig.staging(ScrollEffect.DEPTH, floorTight, region256.last + 1)
+        assertTrue(tight.progSlots == null && tight.start == floorTight, "the spare pan slot is given up first where the space is short: ${tight.progSlots?.toList()} at ${tight.start}")
+        val e = assertFailsWith<LintError> { rig.staging(ScrollEffect.DEPTH, region256.last + 1 - (need - full.progSlot) + 4, region256.last + 1) }
+        assertTrue("not bound" in (e.message ?: ""), "${e.message}")
+    }
+
+    /** K1-2 stage 2: a window list's row whose value changes is re-staged by its strip's part alone — its segment(s) written
+     *  in place inside the strip's slot, no band form and no item word — and after it every END is the list's paint. */
+    @Test
+    fun aWindowListsChangedRowIsItsStripSegmentAlone_K12S2() {
+        for (h in heights) {
+            val rig = WindowListCheck.WindowRig(BoxFace, h, WindowListCheck.Sample.APP3)
+            val ms = rig.staging(ScrollEffect.DEPTH, region256.first, region256.last + 1)
+            rig.values["${rig.app}/1"] = "On"
+            rig.repainted()
+            val r0 = ms.restage(1, rig.view, rig.kit, { _, b -> b() })
+            val r = r0 as? MainStaging.Restage.Changed ?: throw AssertionError("$h: row 1 changed, re-staged as $r0")
+            assertTrue(r.band == null && r.wrapWrites.isEmpty() && r.strip.isNotEmpty(), "$h: the strip's part alone")
+            assertTrue(r.writes.all { w -> w.off >= ms.strip.off && w.off + w.bytes.size <= ms.strip.off + ms.strip.slot }, "$h: every write inside the strip's slot")
+            ms.apply(r)
+            val list = ms.boundList(1, list = WindowListCheck.LIST, entryIds = WindowListCheck.ENTRIES)
+            for (pan in ms.pans) {
+                val entry = list.entryFor(if (pan.step > 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)!!
+                for (c in 0 until ms.rows) {
+                    val f = list.predict(c, entry) as? BoundList.Fire.Drew ?: continue
+                    for (left in listOf(true, false)) {
+                        val areas = pan.areas(left)
+                        val end = rig.truth(c, left).copy().also { ms.paintEnd(pan, f.p!!, left, it) }
+                        assertEquals(0, differ(end, rig.withBandRow(rig.truth(f.cursor, left), f.cursor, left, areas[2]), areas), "$h after the re-stage: $c→${f.cursor} left=$left")
+                    }
+                }
+            }
+        }
     }
 
     private fun differ(a: Gray8, b: Gray8, areas: List<Rect>): Int {

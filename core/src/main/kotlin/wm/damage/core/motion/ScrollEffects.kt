@@ -3,6 +3,7 @@ package wm.damage.core.motion
 import wm.damage.core.geom.Layout
 import wm.damage.core.geom.LintError
 import wm.damage.core.geom.Rect
+import wm.damage.core.shell.ContentKit
 import wm.damage.core.shell.MainStaging
 import wm.damage.core.wire.CfwModes
 
@@ -18,6 +19,13 @@ enum class ScrollEffect(val id: String, val word: String) {
         fun byId(id: String): ScrollEffect? = entries.firstOrNull { it.id == id }
     }
 }
+
+/** K1-2 stage 2 (the K1-2 spec §2.1, §4; decisions BC O3): what a list's staging holds, so what its programs draw from.
+ *  [MAIN_BANDS] — Main's: the strip, each row's band form, the item table, the press (P1 and P2 name band forms by kind 1);
+ *  [STRIP_WINDOWS] — a window's list: the strip and its pan slots alone (no band forms, no item table, no press, no wrap
+ *  record), every track drawing the strip as source windows at pitch +rowH (`FIRMWARE.md` §7.5), the band's track the
+ *  entering row's ROW form at the band area's first line (its real band arrives one held flush after, O7). */
+enum class ListForm { MAIN_BANDS, STRIP_WINDOWS }
 
 /**
  * K1-1 (`MOTION.md` §7, ruled by Adam 2026-11-19; `private/build081/K1-spec.md` §2–§3): the Scroll tier on Main's bound
@@ -69,9 +77,13 @@ object ScrollEffects {
     /** Fall's overshoot at step T − 1, in percent of the travel (a pitch for the rows, the band's height for the band). */
     const val FALL_OVERSHOOT_PCT = 6
 
-    /** What is staged that every pan draws from: Main's [layout], its list's plane [listD] and its band's [bandD], [band]
-     *  a band form's record (any: P1 and P2 name the real one), [records] every record a parameter may name. */
-    class Staged(val layout: Layout, val listD: Int, val bandD: Int, val band: Motion.Source.Record, val records: List<Motion.Source.Record>)
+    /** What is staged that every pan draws from: the list's [layout], its plane [listD] and its band's [bandD], a band
+     *  form's record (any: P1 and P2 name the real one; none on a window list), [records] every record a parameter may
+     *  name, and the staging's [form] (K1-2 stage 2). */
+    class Staged(val layout: Layout, val listD: Int, val bandD: Int, private val band0: Motion.Source.Record?, val records: List<Motion.Source.Record>,
+                 val form: ListForm = ListForm.MAIN_BANDS) {
+        val band: Motion.Source.Record get() = band0 ?: throw LintError("a window list stages no band forms (the K1-2 spec §2.1: the strip alone)")
+    }
 
     /**
      * C3 DM-1 (D3 as ruled, decisions AD): what one notch draws for an asked effect — [effect]'s own program, of version 2
@@ -81,8 +93,8 @@ object ScrollEffects {
     data class Plays(val effect: ScrollEffect, val v2: Boolean, val why: String? = null) {
         /** The words the `Scroll effect` row adds for [asked] when this is not its own program ("" when it is). */
         fun words(asked: ScrollEffect): String = when {
-            asked == ScrollEffect.CRUSH && effect != ScrollEffect.CRUSH -> "plays ${effect.word}"
-            asked == ScrollEffect.FLIP && !v2 -> "plays its height turn"
+            asked == ScrollEffect.FLIP && effect == ScrollEffect.FLIP -> if (v2) "" else "plays its height turn"
+            asked != effect -> "plays ${effect.word}"
             else -> ""
         }
     }
@@ -105,9 +117,27 @@ object ScrollEffects {
     fun fallback(asked: ScrollEffect, why: String): Plays =
         if (asked == ScrollEffect.CRUSH) Plays(ScrollEffect.SLIDE, false, why) else Plays(asked, false, why)
 
+    /** K1-2 stage 2: what plays for [asked] on a staging of [form]. Main's: [plays]. A window list's (stage 5 only: its
+     *  programs are version 2, source windows, so [fx] is never null there): None, Depth, Slide and Fall themselves;
+     *  Crush and Flip on the window form are not built yet (DM-1's programs on this form, the K1-2 spec §4) — Crush plays
+     *  Slide, as its fallback does on Main, and Flip plays Depth (its rows are Depth's), each said ([WINDOW_NOT_YET]). */
+    fun playsFor(asked: ScrollEffect, form: ListForm, fx: Motion.Effects?): Plays = when {
+        form == ListForm.MAIN_BANDS -> plays(asked, fx)
+        asked == ScrollEffect.CRUSH -> Plays(ScrollEffect.SLIDE, true, WINDOW_NOT_YET)
+        asked == ScrollEffect.FLIP -> Plays(ScrollEffect.DEPTH, true, WINDOW_NOT_YET)
+        else -> Plays(asked, true)
+    }
+
+    /** Why Crush and Flip play another effect on a window list. */
+    const val WINDOW_NOT_YET = "Crush and Flip are not built on a window list's form yet (K1-2: DM-1's programs on that form come later)"
+
+    /** The effects a window list plays itself ([playsFor]): its pan slots are sized by the largest of them. */
+    val WINDOW_EFFECTS = listOf(ScrollEffect.NONE, ScrollEffect.DEPTH, ScrollEffect.SLIDE, ScrollEffect.FALL)
+
     /** The list's pitch for what plays (decisions AD's S6): +rowH for Crush (its kind-2 values are source-window first
      *  rows, `FIRMWARE.md` §7.5), −rowH for every other form (the strips' start y). */
-    fun pitch(p: Plays, l: Layout): Int = if (p.effect == ScrollEffect.CRUSH && p.v2) l.rowH else -l.rowH
+    fun pitch(p: Plays, l: Layout, form: ListForm = ListForm.MAIN_BANDS): Int =
+        if (form == ListForm.STRIP_WINDOWS || p.effect == ScrollEffect.CRUSH && p.v2) l.rowH else -l.rowH
 
     /** The four parameters' rules (`FIRMWARE.md` §6.2 step 9; c' the new cursor, [marginA] the strip's rows before row 0 —
      *  k, or k + 1 on a ring strip, C3 DM-0): P0 lens.y − (c + marginA) × rowH and P3 lens.bottom − (c + 1 + marginA) ×
@@ -123,12 +153,24 @@ object ScrollEffects {
      *  strip row, Main's row c' − k − 1 (a notch down) or c' − k (up): (M − k − 1) × rowH, resp. (M − k) × rowH, with M
      *  [marginA] and k the pan's rows above ([kA]); P1 the entering band form, P2 the leaving one (kind 1); P3 row c's own row in the
      *  strip, (M − step) × rowH. On a ring list kinds 1 and 2 take the virtual row (§7.8). Every other form: [rules]. */
-    fun rules(p: Plays, l: Layout, marginA: Int, step: Int, kA: Int): List<MainStaging.Rule> =
-        if (p.effect != ScrollEffect.CRUSH || !p.v2) rules(l, marginA, step) else listOf(
+    fun rules(p: Plays, form: ListForm, l: Layout, marginA: Int, step: Int, kA: Int): List<MainStaging.Rule> = when {
+        // K1-2 stage 2 (the K1-2 spec §2.1): the window form at pitch +rowH — P0 the strip window both row tracks share,
+        // its first row Main's formula for Crush ((M − k − 1) × rowH down, (M − k) × rowH up; window kA + kB + 2 rows: down
+        // [c' − 1 − kA, c' + kB], up [c' − kA, c' + kB + 1]), P1 the entering row c' (M × rowH, one row), P2 the leaving
+        // row c' − step ((M − step) × rowH), P3 kind 0 (free: Crush on this form takes it later). On a ring list kind 2
+        // takes the virtual row (§7.8), and the margins hold every window at v = −1 and v = n
+        form == ListForm.STRIP_WINDOWS -> listOf(
+            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - kA - (if (step > 0) 1 else 0)) * l.rowH),
+            MainStaging.Rule(CfwModes.KIND_PITCH, marginA * l.rowH),
+            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH),
+            MainStaging.Rule(CfwModes.KIND_ARG, 0))
+        p.effect != ScrollEffect.CRUSH || !p.v2 -> rules(l, marginA, step)
+        else -> listOf(
             MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - kA - (if (step > 0) 1 else 0)) * l.rowH),
             MainStaging.Rule(CfwModes.KIND_ITEM, 0),
             MainStaging.Rule(CfwModes.KIND_ITEM, -step),
             MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH))
+    }
 
     /** Flip's height turn's split of [t] steps (version 1, below stage 5 or refused): phase 1 takes ⌈t / 2⌉ (the leaving
      *  form turned to its edge), phase 2 the rest. Crush and Flip's width turn split at [halfStep] (C3 X1DM1). */
@@ -153,9 +195,11 @@ object ScrollEffects {
      *  [bandD] — every track's area, what its period is fitted on. Crush (its version-2 form, the DM spec §1.6's model):
      *  its two row tracks, its two band tracks, and the leaving row's one row (its track paints only what it draws:
      *  backdrop none). Flip: Depth's area (the turn is the band track's). */
-    fun areaPx(e: ScrollEffect, l: Layout, listD: Int, bandD: Int): Int {
+    fun areaPx(e: ScrollEffect, l: Layout, listD: Int, bandD: Int, form: ListForm = ListForm.MAIN_BANDS): Int {
         val rowW = l.content.w - Layout.RAIL_W
-        return (l.rowsAbove + l.rowsBelow) * l.rowH * rowW + bandTracks(e) * l.lens.h * (rowW + kotlin.math.abs(listD - bandD)) +
+        // K1-2 stage 2: a window list's band tracks leave the band's two rules out of their area
+        val bandH = if (form == ListForm.STRIP_WINDOWS) l.lens.h - 2 * ContentKit.LENS_RULE else l.lens.h
+        return (l.rowsAbove + l.rowsBelow) * l.rowH * rowW + bandTracks(e) * bandH * (rowW + kotlin.math.abs(listD - bandD)) +
             (if (e == ScrollEffect.CRUSH) l.rowH * rowW else 0)
     }
 
@@ -164,9 +208,10 @@ object ScrollEffects {
      *  of the two row tracks (a step between two places shows parts of k + 1 rows) and one band form per band track
      *  (Depth's two band segments draw one at a time); Crush's leaving row one row more. Rows and forms at the DM spec's
      *  §1.6 sizes ([MainStaging.FAST_ROW_BYTES], [MainStaging.FAST_BAND_FORM_BYTES]; M-PC). */
-    fun walkBytes(e: ScrollEffect, l: Layout): Int =
+    fun walkBytes(e: ScrollEffect, l: Layout, form: ListForm = ListForm.MAIN_BANDS): Int =
         (l.rowsAbove + 1 + l.rowsBelow + 1 + (if (e == ScrollEffect.CRUSH) 1 else 0)) * MainStaging.FAST_ROW_BYTES +
-            bandTracks(e) * MainStaging.FAST_BAND_FORM_BYTES
+            // K1-2 stage 2: a window list's band track draws one strip row (its row form), not a band form
+            bandTracks(e) * (if (form == ListForm.STRIP_WINDOWS) MainStaging.FAST_ROW_BYTES else MainStaging.FAST_BAND_FORM_BYTES)
 
     /** The pixels one step of what plays writes a pixel at a time on the fast DRAW path (`FIRMWARE.md` §7.12: "every draw
      *  whose width scales writes a pixel at a time"): Flip's width turn, its band's area; none for the rest (Crush's
@@ -183,11 +228,12 @@ object ScrollEffects {
      *  ([MainStaging.timing]) — or, C3 FF, with EFFECTS in force ([stage5]: every fire then runs the fast DRAW path,
      *  `FIRMWARE.md` §7.12), the fast path's ([MainStaging.fastStepMs] of the area, [walkBytes] and, DM-1, [pixelPx]) — on
      *  K1-1's rule ([MainStaging.timingOf]); one step for None (at the fitted period: the swap at once). */
-    fun timing(p: Plays, l: Layout, listD: Int, bandD: Int, motion: MainStaging.ScrollMotion, stage5: Boolean): Pair<Int, Int> {
+    fun timing(p: Plays, l: Layout, listD: Int, bandD: Int, motion: MainStaging.ScrollMotion, stage5: Boolean,
+               form: ListForm = ListForm.MAIN_BANDS): Pair<Int, Int> {
         val e = p.effect
-        val area = areaPx(e, l, listD, bandD)
+        val area = areaPx(e, l, listD, bandD, form)
         val m = if (e == ScrollEffect.NONE) motion.copy(frames = 0) else motion
-        val pt = if (stage5) MainStaging.timingOf(MainStaging.fastStepMs(area, walkBytes(e, l), pixelPx(p, l, listD, bandD)), m) else MainStaging.timing(area, m)
+        val pt = if (stage5) MainStaging.timingOf(MainStaging.fastStepMs(area, walkBytes(e, l, form), pixelPx(p, l, listD, bandD)), m) else MainStaging.timing(area, m)
         return if (e == ScrollEffect.NONE) pt.first to 1 else pt
     }
 
@@ -251,6 +297,8 @@ object ScrollEffects {
                 tables: List<Motion.Ease.Table> = emptyList(), fx: Motion.Effects? = null): MotionProgram {
         val e = p.effect
         if (p.v2 && fx == null) throw LintError("§7.11: ${e.word}'s version-2 pans are built only through the gate (EFFECTS in force)")
+        if (s.form == ListForm.STRIP_WINDOWS) return windowPan(e, s, strip, kA, kB, step, t, at4, tables,
+            fx ?: throw LintError("§7.11: a window list's pans are version 2 (source windows), built only through the gate (EFFECTS in force)"))
         if (e == ScrollEffect.CRUSH) return crush(s, strip, kA, kB, step, t, at4, tables, fx!!)
         if (e == ScrollEffect.FLIP) return flip(p.v2, s, strip, kA, kB, step, t, at4, tables, fx)
         val l = s.layout
@@ -309,6 +357,82 @@ object ScrollEffects {
         }
     }
 
+    /**
+     * K1-2 stage 2 (the K1-2 spec §2.1; decisions BC O3, O7): a window list's pan of [e] — version 2, every track drawing
+     * [strip] as a source window (`FIRMWARE.md` §7.5) at pitch +rowH ([rules]' window form), so one program serves every
+     * cursor, and the step's cost does not grow with the list (§7.12, the window form's row):
+     * - the rows above the band (area as Main's, level 0): the shared window (first row ← P0, [kA] + [kB] + 2 rows) at a
+     *   fixed y, one pitch of travel in the notch's direction;
+     * - the rows below it (area as Main's, level 0): the same window drawn the band's height less a row lower — the band
+     *   is two pitches tall and holds one row, as Main's pan places its two halves;
+     * - the band, over both planes' x as Main's, its area the band LESS its two rules ([ContentKit.LENS_RULE]) so they never
+     *   flicker (O7): one strip row ← P2 (the leaving row) and ← P1 (the entering row) in their ROW form, drawn at the area's
+     *   first line ([BAND_ROW_DY] below the band's top). Depth: Main's swap (the leaving row goes back to the list's plane
+     *   and dims, then the entering one comes forward and brightens); Slide and Fall: two band tracks travelling the band's
+     *   height (Main's two speeds); None: one step, the entering row at once.
+     * END = the window's own paint at c' in the rows' areas, and in the band's area the entering row's row form at its first
+     * line (pinned at every cursor both ways, four heights, ring and plain); the real band follows one held flush after.
+     */
+    private fun windowPan(e: ScrollEffect, s: Staged, strip: Motion.Source.Record, kA: Int, kB: Int, step: Int, t: Int, at4: Int,
+                          tables: List<Motion.Ease.Table>, fx: Motion.Effects): MotionProgram {
+        if (e !in WINDOW_EFFECTS) throw LintError("${e.word} has no window-list form yet (${WINDOW_EFFECTS.joinToString { it.word }} only)")
+        val l = s.layout
+        val r = Rects(l, kA, kB, s.listD, s.bandD)
+        val cx = r.cx; val dL = s.listD; val dB = s.bandD; val rowH = l.rowH
+        val shift = dL - dB
+        val n = if (e == ScrollEffect.NONE) 1 else t
+        val ease: Motion.Ease = when (e) {
+            ScrollEffect.NONE -> Motion.Ease.linear
+            ScrollEffect.FALL -> tables.firstOrNull() ?: throw LintError("Fall's pans are drawn on their uploaded table")
+            else -> Motion.Ease.easeOut
+        }
+        val window = listOf(Motion.Pref(0, Motion.Field.AUX0))
+        val rows = (kA + kB + 2) * rowH
+        // the shared window's first row at its first state: a notch down shows its rows 0 .. kA − 1 above the band (Main's
+        // rows c − kA .. c − 1), a notch up its rows 1 .. kA
+        val y1 = l.lens.y - kA * rowH - (if (step < 0) rowH else 0)
+        val bandY = l.lens.y + BAND_ROW_DY
+        return Motion.program2(at4, fx, records = s.records) {
+            track(r.aL, r.aR, Motion.Backdrop.Level(0)) {
+                draw(strip, x = cx - dL, xR = cx + dL, y = y1, dy = -step * rowH, ease = ease, n = n, windowRows = rows, prefs = window)
+            }
+            track(r.bL, r.bR, Motion.Backdrop.Level(0)) {
+                draw(strip, x = cx - dL, xR = cx + dL, y = y1 + l.lens.h - rowH, dy = -step * rowH, ease = ease, n = n, windowRows = rows, prefs = window)
+            }
+            val leaving = listOf(Motion.Pref(2, Motion.Field.AUX0))
+            val entering = listOf(Motion.Pref(1, Motion.Field.AUX0))
+            when (e) {
+                ScrollEffect.DEPTH -> track(r.wL, r.wR, Motion.Backdrop.Level(0)) {
+                    val swap = MainStaging.swapOf(t)
+                    draw(strip, x = cx - dB, xR = cx + dB, y = bandY, dx = -shift, dxR = shift, lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = ease, n = swap,
+                        windowRows = rowH, prefs = leaving)
+                    draw(strip, x = cx - dL, xR = cx + dL, y = bandY, dx = shift, dxR = -shift, lvl0 = MainPan.LVL_BACK, lvl1 = 15, ease = ease, n = t - swap,
+                        windowRows = rowH, prefs = entering)
+                }
+                ScrollEffect.NONE -> track(r.wL, r.wR, Motion.Backdrop.Level(0)) {
+                    draw(strip, x = cx - dB, xR = cx + dB, y = bandY, n = 1, windowRows = rowH, prefs = entering)
+                }
+                else -> {
+                    // Slide and Fall: the leaving row slides out of the band and the entering one in from the notch's side,
+                    // one eased offset of the band's height for both (Main's two speeds, K1-1 review finding 3)
+                    track(r.wL, r.wR, Motion.Backdrop.Level(0)) {
+                        draw(strip, x = cx - dB, xR = cx + dB, y = bandY, dy = -step * l.lens.h, ease = ease, n = t, windowRows = rowH, prefs = leaving)
+                    }
+                    track(r.wL, r.wR, Motion.Backdrop.None) {
+                        draw(strip, x = cx - dB, xR = cx + dB, y = bandY + step * l.lens.h, dy = -step * l.lens.h, ease = ease, n = t, windowRows = rowH, prefs = entering)
+                    }
+                }
+            }
+        }
+    }
+
+    /** K1-2 stage 2 (O7): where a window list's band track draws a row form, below the band's top — read off Settings' two
+     *  paints (the first window list to bind): a category's row draws its name at row + 4 (+ 5 on the 2-px grid) in the
+     *  row face, its band the title at + 8 in its bold, so at + 4 the name line lies on the title line (pinned,
+     *  `ScrollEffectsTest`); Global's rows draw their value in the same face on the same line (their 13-px label sits
+     *  above it). Files' rows (name + 4, band + 6) land 2 px low. Inside the band's area (it starts below the 2-px rule). */
+    const val BAND_ROW_DY = 4
+
     /** The rects every Main pan draws in, per lens: the rows above the band ([aL], [aR]), below it ([bL], [bR]) and the
      *  band over both planes' x ([nL], [nR]; Depth's band rects). */
     private class Rects(l: Layout, kA: Int, kB: Int, listD: Int, bandD: Int) {
@@ -318,6 +442,9 @@ object ScrollEffects {
         val bL = Rect(cx - listD, l.lens.bottom, rowW, kB * l.rowH); val bR = Rect(cx + listD, l.lens.bottom, rowW, kB * l.rowH)
         val bandW = rowW + kotlin.math.abs(listD - bandD)
         val nL = Rect(cx - maxOf(listD, bandD), l.lens.y, bandW, l.lens.h); val nR = Rect(cx + minOf(listD, bandD), l.lens.y, bandW, l.lens.h)
+        /** K1-2 stage 2 (O7): a window list's band area — Depth's band rects less the band's two rules. */
+        val wL = Rect(nL.x, l.lens.y + ContentKit.LENS_RULE, bandW, l.lens.h - 2 * ContentKit.LENS_RULE)
+        val wR = Rect(nR.x, l.lens.y + ContentKit.LENS_RULE, bandW, l.lens.h - 2 * ContentKit.LENS_RULE)
     }
 
     /**
