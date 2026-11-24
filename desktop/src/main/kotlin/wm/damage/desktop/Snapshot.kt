@@ -126,16 +126,8 @@ object Snapshot {
             wm.damage.core.app.LocalWindowSource(torrentsCore, wm.damage.core.app.HostBackend(pcRecord,
                 wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), recordNotices = { true })
         shell.register(torrentsWin)
-        val musicLib = ScriptedMusic()
-        var musicSkew = 0L
-        val musicClock: () -> Long = { System.currentTimeMillis() + musicSkew }
-        // C1-R6 B6-7: the player's position runs on the scene's clock — a fixed instant that only the scene moves (the
-        // skew) — so every render shows the same elapsed time; on the wall clock the card read "1:05" or "1:06" by how
-        // long a run took to reach it. The window keeps the wall clock, with the skew, for its card pace and notices.
-        val musicSceneT0 = 1_763_000_000_000L
-        val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, now = { musicSceneT0 + musicSkew })
-        val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
-        shell.register(musicWin)
+        val music = MusicScene(text, scope)
+        shell.register(music.win)
         val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
         // A PINNED world (GamesCheck's precedent, `Roster(worldSeed = ...)`).
         // Seeded off the wall clock this harness dealt a different tournament
@@ -161,19 +153,6 @@ object Snapshot {
             wm.damage.core.app.LocalWindowSource(feedCore, wm.damage.core.app.HostBackend(pcRecord,
                 wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), clock = feedClock::now)
         shell.register(feedWin)
-        /** Open the Music menu (from the NOW PLAYING root, 2026-09-03) and
-         *  commit the row LABELLED [label] — by name, never by counting. */
-        suspend fun musicMenu(label: String) {
-            settle(shell, "music-menu-$label")
-            if (!shell.menuIsOpen) {
-                shell.postGesture(EvenHubMsg.EV_CLICK)
-                waitFor("the Music menu for '$label'") { shell.menuIsOpen }
-            }
-            val i = shell.menuLabels.indexOfFirst { it == label || it.startsWith(label) }
-            if (i < 0) { failures.add("Music menu row '$label' not in ${shell.menuLabels}"); return }
-            repeat((i - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
-            shell.postGesture(EvenHubMsg.EV_CLICK)
-        }
         shell.start()
         iconsSettled()   // the first wave of resolves lands before any scene
         readerScenes(shell, sim, reader, out)
@@ -217,93 +196,12 @@ object Snapshot {
         repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // cursor home
         settle(shell)
 
-        // Music (MUSIC.md, 2026-09-02): the queue with the Now Playing card at
-        // 480 and 288, the Music menu, browse, an artist, lyrics, YouTube
-        // results, the Settings → Music rows
-        repeat(4) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Music row
-        settle(shell)
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("music opens") { musicWin.title() == "music" }
-        // play AFTER entering: a track change while the window is on screen
-        // shows on the card, not as a notice
-        musicPlayer.playQueue(musicLib.catalog().tracks.take(6).map { it.ref() }, 0, wm.damage.core.windows.music.Mode.QUEUE, "Pink Floyd")
-        musicSkew += 65_000                                             // 1:05 into "Time"
-        waitFor("now playing") { musicWin.title() == "now playing" }
-        iconsSettled()
-        waitFor("the art arrived") { shell.isQuiescent() }
-        settle(shell)
-        save(sim, out, "30-music-nowplaying-480")
-        settle(shell)
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("the music menu") { shell.menuIsOpen && shell.menuTitle == "music" }
-        settle(shell)
-        save(sim, out, "31-music-menu")
-        val bi = shell.menuLabels.indexOfFirst { it.startsWith("Browse") }
-        repeat((bi - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("browse") { musicWin.title() == "browse" }
-        iconsSettled()
-        save(sim, out, "32-music-browse")
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // Artists
-        waitFor("artists") { musicWin.title() == "artists" }
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // the first artist
-        waitFor("an artist") { musicWin.levelDepth() == 4 }
-        iconsSettled()
-        save(sim, out, "33-music-artist")
-        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → Now Playing
-        musicMenu("Lyrics")
-        waitFor("lyrics") { musicWin.title() == "lyrics" }
-        waitFor("lyrics loaded") { shell.isQuiescent() }
-        settle(shell)
-        save(sim, out, "34-music-lyrics")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Now Playing
-        musicMenu("Browse")
-        waitFor("browse 2") { musicWin.title() == "browse" }
-        repeat(7) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → YouTube
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("yt keyboard") { shell.keyboardIsOpen }
-        transport.injectText("dragula live")
-        waitFor("yt results") { musicWin.title() == "youtube" && shell.isQuiescent() }
-        iconsSettled()
-        save(sim, out, "35-music-youtube")
-        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → queue
-        settle(shell)
-        // the card at 288: the window's Size row, applied on the next focus
-        shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("288") }
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
-        settle(shell)
-        // C1-R6 B6-7: the scene's clock moves on half a second between the two cards, as the wall clock did: the
-        // wall-clock renders read in build C1 drew the 480 card before 65.211 s (5 of its bar's 38 blocks lit; the 6th
-        // lights there) and this one after it (6 lit, "1:05" or "1:06")
-        musicSkew += 500
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // → Music at 288
-        waitFor("music at 288") { musicWin.title() == "now playing" }
-        iconsSettled()
-        settle(shell)
-        save(sim, out, "36-music-nowplaying-288")
-        // Music Mode (§8.3): the stacked surfaces at 480 with Bars, the short stack at 288 with Scope
-        shell.services.runOnShell {
-            musicWin.appSettings().first { it.name == "Music Mode · visualizer" }.apply("on")
-            musicWin.appSettings().first { it.name == "Music Mode · queue peek" }.apply("on")
-        }
-        for ((h, viz) in listOf(480 to "Bars", 288 to "Scope")) {
-            shell.services.runOnShell {
-                musicWin.appSettings().first { it.name == "Size" }.apply("$h")
-                musicWin.appSettings().first { it.name == "Visualizer" }.apply(viz)
-            }
-            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)  // → Main
+        // Music (MUSIC.md, 2026-09-02): scenes 30 to 39, moved into [musicScenes] unchanged (build S1-4 J: the phone
+        // arrangement takes them too); entered from Main's Music row, four notches down from the cursor's home
+        musicScenes(shell, sim, out, transport, music, ::iconsSettled) {
+            repeat(4) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Music row
             settle(shell)
-            shell.postGesture(EvenHubMsg.EV_CLICK)         // → Music at h
-            waitFor("music at $h") { shell.currentWindowId() == "music" }
-            musicMenu("Music Mode")
-            waitFor("music mode ($h)") { shell.exclusiveMode }
-            iconsSettled()
-            waitFor("art + viz + lyrics landed ($h)") { shell.isQuiescent() }
-            settle(shell)
-            save(sim, out, if (h == 480) "38-music-mode-480-bars" else "39-music-mode-288-scope")
-            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)  // exits to the window
-            waitFor("music mode exit ($h)") { !shell.exclusiveMode }
-            settle(shell)
+            shell.postGesture(EvenHubMsg.EV_CLICK)
         }
         // Walk Main's cursor by COMMITTING and checking rather than by counting
         // rows: the row order is the registration order and one new window
@@ -328,9 +226,9 @@ object Snapshot {
             failures.add("could not reach the '$id' window from Main")
         }
 
-        shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("global") }
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
-        settle(shell)
+        // build S1-4 J: Size back to global, then the Output menu at 480 (the named difference of S1-4: the PC row);
+        // ends on Main with its cursor on the Music row, as before
+        musicOutputScene(shell, sim, out, music)
         // Settings → Music, both by NAME (build W fix round 1): Settings is reached by committing and checking, and
         // the category through Settings' own `cat:` deep link. Counting rows ("Settings is one notch down", then five
         // categories) drew Games · standings under this name once Games was registered after Music.
@@ -339,6 +237,7 @@ object Snapshot {
         waitFor("settings · music") { shell.currentWindowId() == "settings" && shell.isQuiescent() }
         settle(shell)
         save(sim, out, "37-music-settings")
+        musicSettingsLower(shell, sim, out)
         // Settings → Reader (build S1-1 P4, `HANDOFF.md` §79.8: no scene showed it), by the same `cat:` deep link,
         // so the Reader conversion's rows are watched by the snapshot judge
         readerSettingsScene(shell, sim, out)
@@ -374,6 +273,167 @@ object Snapshot {
         pcRecord.close()
         scope.cancel()
         tmp.toFile().deleteRecursively()
+    }
+
+    /**
+     * Music's scene world (build S1-4 J, moved out of [script] so the phone arrangement builds the same one): the scripted
+     * library, the stand-in player and today's window. C1-R6 B6-7: the player's position runs on the scene's clock — a
+     * fixed instant that only the scene moves (the skew) — so every render shows the same elapsed time; on the wall clock
+     * the card read "1:05" or "1:06" by how long a run took to reach it. The window keeps the wall clock, with the skew,
+     * for its card pace and notices.
+     */
+    private class MusicScene(text: wm.damage.core.text.TextRasterizer, scope: CoroutineScope,
+                             wc: wm.damage.core.app.RecordBackend? = null) {
+        val lib = ScriptedMusic()
+        val skew = java.util.concurrent.atomic.AtomicLong(0)
+        private val clock: () -> Long = { System.currentTimeMillis() + skew.get() }
+        // build S1-4 K: over [wc] (the phone's working copy) the presenter and the stand-in player read and write Music's
+        // record as the phone builds them (`ShellService`): the converted path; without it, the factory's own record
+        val source = wc?.let { wm.damage.core.app.LocalWindowSource(wm.damage.core.windows.music.MusicCore(), it) }
+        val player = wm.damage.core.windows.music.SimMusicPlayer(lib, now = { FEED_T0 + skew.get() }, source = source)
+        val win: wm.damage.core.windows.music.MusicGlasses = if (source != null)
+            wm.damage.core.windows.music.MusicGlasses(text, lib, player, scope, source.core as wm.damage.core.windows.music.MusicCore, source, clock)
+        else wm.damage.core.windows.music.MusicWindow(text, lib, player, scope, clock = clock)
+    }
+
+    /** Open the Music menu (from the NOW PLAYING root, 2026-09-03) and
+     *  commit the row LABELLED [label] — by name, never by counting. */
+    private suspend fun musicMenu(shell: Shell, label: String) {
+        settle(shell, "music-menu-$label")
+        if (!shell.menuIsOpen) {
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            waitFor("the Music menu for '$label'") { shell.menuIsOpen }
+        }
+        val i = shell.menuLabels.indexOfFirst { it == label || it.startsWith(label) }
+        if (i < 0) { failures.add("Music menu row '$label' not in ${shell.menuLabels}"); return }
+        repeat((i - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+    }
+
+    /**
+     * Music's scenes 30 to 39 (MUSIC.md, 2026-09-02): the queue with the Now Playing card at 480 and 288, the Music menu,
+     * browse, an artist, lyrics, YouTube results, Music Mode at two sizes. Moved out of [script] unchanged (build S1-4 J);
+     * [enter] opens the window from Main. Ends in the window at 288, out of Music Mode.
+     */
+    private suspend fun musicScenes(shell: Shell, sim: GlassFirmwareSim, out: Path, transport: SimTransport, m: MusicScene,
+        iconsSettled: suspend () -> Unit, enter: suspend () -> Unit) {
+        enter()
+        waitFor("music opens") { m.win.title() == "music" }
+        // play AFTER entering: a track change while the window is on screen
+        // shows on the card, not as a notice
+        m.player.playQueue(m.lib.catalog().tracks.take(6).map { it.ref() }, 0, wm.damage.core.windows.music.Mode.QUEUE, "Pink Floyd")
+        m.skew.addAndGet(65_000)                                             // 1:05 into "Time"
+        waitFor("now playing") { m.win.title() == "now playing" }
+        iconsSettled()
+        waitFor("the art arrived") { shell.isQuiescent() }
+        settle(shell)
+        save(sim, out, "30-music-nowplaying-480")
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the music menu") { shell.menuIsOpen && shell.menuTitle == "music" }
+        settle(shell)
+        save(sim, out, "31-music-menu")
+        val bi = shell.menuLabels.indexOfFirst { it.startsWith("Browse") }
+        repeat((bi - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("browse") { m.win.title() == "browse" }
+        iconsSettled()
+        save(sim, out, "32-music-browse")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // Artists
+        waitFor("artists") { m.win.title() == "artists" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the first artist
+        waitFor("an artist") { m.win.levelDepth() == 4 }
+        iconsSettled()
+        save(sim, out, "33-music-artist")
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → Now Playing
+        musicMenu(shell, "Lyrics")
+        waitFor("lyrics") { m.win.title() == "lyrics" }
+        waitFor("lyrics loaded") { shell.isQuiescent() }
+        settle(shell)
+        save(sim, out, "34-music-lyrics")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Now Playing
+        musicMenu(shell, "Browse")
+        waitFor("browse 2") { m.win.title() == "browse" }
+        repeat(7) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → YouTube
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("yt keyboard") { shell.keyboardIsOpen }
+        transport.injectText("dragula live")
+        waitFor("yt results") { m.win.title() == "youtube" && shell.isQuiescent() }
+        iconsSettled()
+        save(sim, out, "35-music-youtube")
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → queue
+        settle(shell)
+        // the card at 288: the window's Size row, applied on the next focus
+        shell.services.runOnShell { m.win.appSettings().first { it.name == "Size" }.apply("288") }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
+        settle(shell)
+        // C1-R6 B6-7: the scene's clock moves on half a second between the two cards, as the wall clock did: the
+        // wall-clock renders read in build C1 drew the 480 card before 65.211 s (5 of its bar's 38 blocks lit; the 6th
+        // lights there) and this one after it (6 lit, "1:05" or "1:06")
+        m.skew.addAndGet(500)
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // → Music at 288
+        waitFor("music at 288") { m.win.title() == "now playing" }
+        iconsSettled()
+        settle(shell)
+        save(sim, out, "36-music-nowplaying-288")
+        // Music Mode (§8.3): the stacked surfaces at 480 with Bars, the short stack at 288 with Scope
+        shell.services.runOnShell {
+            m.win.appSettings().first { it.name == "Music Mode · visualizer" }.apply("on")
+            m.win.appSettings().first { it.name == "Music Mode · queue peek" }.apply("on")
+        }
+        for ((h, viz) in listOf(480 to "Bars", 288 to "Scope")) {
+            shell.services.runOnShell {
+                m.win.appSettings().first { it.name == "Size" }.apply("$h")
+                m.win.appSettings().first { it.name == "Visualizer" }.apply(viz)
+            }
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)  // → Main
+            settle(shell)
+            shell.postGesture(EvenHubMsg.EV_CLICK)         // → Music at h
+            waitFor("music at $h") { shell.currentWindowId() == "music" }
+            musicMenu(shell, "Music Mode")
+            waitFor("music mode ($h)") { shell.exclusiveMode }
+            iconsSettled()
+            waitFor("art + viz + lyrics landed ($h)") { shell.isQuiescent() }
+            settle(shell)
+            save(sim, out, if (h == 480) "38-music-mode-480-bars" else "39-music-mode-288-scope")
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)  // exits to the window
+            waitFor("music mode exit ($h)") { !shell.exclusiveMode }
+            settle(shell)
+        }
+    }
+
+    /**
+     * Build S1-4 J: Size back to global, out to Main and in again, and the Output menu at 480 — the one row list S1-4
+     * names as changing (it gains the PC). Ends on Main with its cursor on the Music row, as [musicScenes] left it.
+     */
+    private suspend fun musicOutputScene(shell: Shell, sim: GlassFirmwareSim, out: Path, m: MusicScene) {
+        shell.services.runOnShell { m.win.appSettings().first { it.name == "Size" }.apply("global") }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // → Music at 480
+        waitFor("music at 480") { m.win.title() == "now playing" }
+        musicMenu(shell, "Output")
+        waitFor("the output menu") { shell.menuIsOpen && shell.menuTitle == "output" }
+        settle(shell, "music-output-menu")
+        save(sim, out, "31b-music-output-menu")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel the menu
+        settle(shell, "music-output-cancel")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
+        settle(shell)
+    }
+
+    /**
+     * Build S1-4 J: Settings → Music's lower rows, from 37-music-settings (the cursor on its first row): twelve notches
+     * down (Volume … Lyrics sources: the Output row, the shared rows S1-4 moves onto the record), then twelve more
+     * (the glasses rows down to Size). Every row at its default.
+     */
+    private suspend fun musicSettingsLower(shell: Shell, sim: GlassFirmwareSim, out: Path) {
+        repeat(12) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        settle(shell, "music-settings-lower")
+        save(sim, out, "37h-music-settings-lower")
+        repeat(12) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        settle(shell, "music-settings-end")
+        save(sim, out, "37i-music-settings-end")
     }
 
     /** The Games part of [script], moved out unchanged with its menu helper (S1-3's merge): the script method is near the
@@ -631,10 +691,10 @@ object Snapshot {
             recordNotices = { wc.shares(phoneTorrents.window) && wc.shares(wm.damage.core.app.Notices.WINDOW) },
             device = wc.device, buildsLine = { wc.client?.contractState?.line(phoneTorrents.window) })
         shell.register(torrentsWin)
-        val musicLib = ScriptedMusic()
-        val musicClock: () -> Long = { System.currentTimeMillis() }
-        shell.register(wm.damage.core.windows.music.MusicWindow(text, musicLib,
-            wm.damage.core.windows.music.SimMusicPlayer(musicLib, musicClock), scope, clock = musicClock))
+        // build S1-4 J: Music's world as the first arrangement builds it (the scripted library, the stand-in player, the
+        // scene clock), so its scenes here are the same scenes
+        val music = MusicScene(text, scope, wc)
+        shell.register(music.win)
         val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
         gamesWin.roster.worldSeed = 20260905L
         shell.register(gamesWin)
@@ -736,6 +796,14 @@ object Snapshot {
             feedScenes(shell, sim, out, feedWin, feedScripted, toWindow, iconsSettled = { iconsSettled() })
             feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, pcRecord, toWindow)
             tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, toWindow, pcRecord)
+            // build S1-4 J: Music's scenes 30 to 39, its Output menu and Settings → Music (three screens), the first
+            // arrangement's steps over the same window and scene clock: the presenter S1-4 moves onto the working copy
+            // is judged here against today's window
+            musicScenes(shell, sim, out, transport, music, iconsSettled = { iconsSettled() }) { toWindow("music") }
+            musicOutputScene(shell, sim, out, music)
+            toWindow("settings")
+            settingsCategoryScene(shell, sim, out, "Music", "37-music-settings")
+            musicSettingsLower(shell, sim, out)
         } finally {
             shell.stop()
             filesWin.detach()
@@ -746,6 +814,8 @@ object Snapshot {
             torrentsWin.detach()
             torrentsSource.close()
             torrentsRemote.close()
+            music.win.detach()                                 // build S1-4 K: the presenter leaves the working copy's source
+            music.source?.close()
             phoneMirror.detach(shell.noticeSink)
             phoneMirror.close()
             pcTorrents.detachNotices()

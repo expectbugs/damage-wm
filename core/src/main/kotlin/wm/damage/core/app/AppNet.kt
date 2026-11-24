@@ -265,6 +265,10 @@ class AppNet(
             }
     }
 
+    /** S1-4 K: true while a connection of [device] is live — kept by this lane's paced ping, never a socket's state
+     *  (H§86). On the executor or off it. */
+    fun connected(device: String): Boolean = host.executor.call { conns.values.any { it.peer.device == device && !it.gone } }
+
     /** S1-2 Q2: [l] is told, on the executor, the id of every connection that ends. */
     fun addEndListener(l: (Long) -> Unit) {
         endListeners += l

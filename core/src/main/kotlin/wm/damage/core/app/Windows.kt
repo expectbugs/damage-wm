@@ -55,6 +55,11 @@ object Windows {
         // S1-3 B16: Feed (C§12): its reading marks, places and rows in the record; refresh and browse go to the sites
         Entry(wm.damage.core.windows.feed.FeedCore.WINDOW, "Feed", 1, wm.damage.core.windows.feed.FeedCore.ACTIONS,
             wm.damage.core.windows.feed.FeedCore::levelOf, Levels.VIEW, program = wm.damage.core.windows.feed.FeedCore.PROGRAM),
+        // S1-4 K: Music (C§12): its queue, place and output written by the host that plays (its rule), its rows beside
+        // them; every transport and queue act a program op through the PC's door (`MusicProgram`)
+        Entry(wm.damage.core.windows.music.MusicCore.WINDOW, "Music", 1, wm.damage.core.windows.music.MusicCore.ACTIONS,
+            wm.damage.core.windows.music.MusicCore::levelOf, Levels.VIEW, program = wm.damage.core.windows.music.MusicCore.PROGRAM,
+            rule = wm.damage.core.windows.music.MusicCore.RULE),
     )
 
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }
