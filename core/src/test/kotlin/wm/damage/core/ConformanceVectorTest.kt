@@ -95,10 +95,11 @@ class ConformanceVectorTest {
         // with SV's comparison), C3 stage SVR's ring-list ship vectors with the act the fast-path fit's merge wrote
         // again (ended with SVR's comparison, X8T) and C3 stage SV2's ship acts of Crush, Flip and the new Matrix with the
         // acts MX2 and X1MX2 moved (ended with SV2's comparison, X9T) — are gone. C3 stage SV3, one exception for two stages:
-        // the ship acts K1-2 stage 1 moved, written again on the merged head, and C3 stage X2MX2's Warp, Flip and Encode acts
-        // and its new Crush act — exactly the names in [SV3_UNFILLED] — are written before the fork's runner fills them:
-        // reported "not filled" with a count and run through the model ([theUnfilledVectorsRunThroughTheModel]); every other
-        // unfilled file in the repo fails like any other. The comparison removes this exception.
+        // the ship acts K1-2 stage 1 moved, written again on the merged head, C3 stage X2MX2's Warp, Flip and Encode acts
+        // and its new Crush act, and SV3's new act — exactly the names in [SV3_UNFILLED] — are written before the fork's
+        // runner fills them: reported "not filled" with a count and run through the model
+        // ([theUnfilledVectorsRunThroughTheModel]); every other unfilled file in the repo fails like any other. The
+        // comparison removes this exception.
         val sv3 = out.notFilled.filter { it.substringBefore(" (") in SV3_UNFILLED }
         if (sv3.isNotEmpty()) println("ConformanceVectorTest: ${sv3.size} SV3 vector(s) not filled until the comparison: ${sv3.joinToString("; ")}")
         for (n in out.notFilled - sv3.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
@@ -854,7 +855,8 @@ class ConformanceVectorTest {
      * ([ShipVectors.sv2Acts]) and the acts MX2 and X1MX2 moved, compared like the rest; filled at SV2's comparison (X9T).
      * C3 stage X2MX2: the Warp, Flip and Encode acts its item 1 moved, written again, and its new Crush act ([ShipVectors.x2mx2Acts]),
      * compared like the rest. C3 stage SV3: every act that stages Main written again after K1-2 stage 1 (one strip at
-     * 256 KiB, band slots per row), compared like the rest; X2MX2's and SV3's not filled until SV3's comparison ([SV3_UNFILLED]).
+     * 256 KiB, band slots per row), and its new act, the withdrawal at 256 KiB ([ShipVectors.sv3Acts]), compared like the
+     * rest; X2MX2's and SV3's not filled until SV3's comparison ([SV3_UNFILLED]).
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
@@ -919,8 +921,9 @@ class ConformanceVectorTest {
          *  the shipped acts that stage Main, whose records K1-2 stage 1 laid out again (O1: one strip at 256 KiB; O12: band
          *  slots per row, two spares), written again on the merged head; and C3 stage X2MX2's Warp, Flip and Encode acts
          *  (the period stretched to fill the tier's length) and its new act ([ShipVectors.x2mx2Acts]: Crush's notch answered
-         *  after its END), written again there too (their sessions stage Main). Reported "not filled" by exact name until the
-         *  firmware lane's ONE fill; the comparison removes the exception ([notFilledFailsInTheRepo]). */
+         *  after its END), written again there too (their sessions stage Main); and SV3's own new act ([ShipVectors.sv3Acts]:
+         *  the withdrawal at 256 KiB). Reported "not filled" by exact name until the firmware lane's ONE fill; the comparison
+         *  removes the exception ([notFilledFailsInTheRepo]). */
         val SV3_UNFILLED = setOf(
             "v5-ship-back-encode-rev-dense-480", "v5-ship-back-flip-rev-352", "v5-ship-back-flip-rev-480",
             "v5-ship-back-warp-rev-352", "v5-ship-back-warp-rev-480", "v5-ship-cut-select-warp-352",
@@ -934,7 +937,7 @@ class ConformanceVectorTest {
             "v5-ship-ring-slide-352", "v5-ship-ring-table-352", "v5-ship-ring-tap-glasses-last-288",
             "v5-ship-ring-tap-glasses-last-352", "v5-ship-ring-tap-glasses-row0-288",
             "v5-ship-ring-tap-glasses-row0-352", "v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-report-last-352",
-            "v5-ship-ring-tap-report-row0-288", "v5-ship-ring-tap-report-row0-352", "v5-ship-scroll-crush-stage5-480",
+            "v5-ship-ring-tap-report-row0-288", "v5-ship-ring-tap-report-row0-352", "v5-ship-ring-withdraw-352", "v5-ship-scroll-crush-stage5-480",
             "v5-ship-scroll-depth-352", "v5-ship-scroll-depth-480", "v5-ship-scroll-depth-burst-480",
             "v5-ship-scroll-depth-frames12-480", "v5-ship-scroll-depth-frames16-480", "v5-ship-scroll-depth-frames4-480",
             "v5-ship-scroll-depth-frames6-480", "v5-ship-scroll-depth-frames8-480", "v5-ship-scroll-depth-len225-480",

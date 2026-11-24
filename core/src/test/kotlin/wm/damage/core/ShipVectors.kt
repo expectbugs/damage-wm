@@ -467,8 +467,15 @@ internal object ShipVectors {
      * rig holds on its way to the phone until the pan has walked to its END on both lenses, so its steps past n1 (the
      * last step of its shortest track) are walked with no answer and the shadow still the old picture — as on his
      * glasses, where the answer comes after phase 1; then the report delivered, answered (the COMMIT) and its stock echo.
+     *
+     * C3 stage SV3 (the lead's addition; K1-2 stage 1, decisions BC O1): WITHDRAW — at 256 KiB a row's form changes with
+     * Main in front (row 3's line, as `MainLocalShellTest`'s O1 pin changes it): the list withdrawn (the rules' CLEAR of
+     * its entries), the row's re-stage written, the list offered again (its SETs naming the same pans, the mark kept, the
+     * return naming the phone's row); a notch fired as a lens is handed the re-stage's first cache write with no entry
+     * live on RIGHT, so it matches none and the phone draws it; once bound again a notch down, a notch up, a notch up to
+     * row 0 and a wrap up, each COMMITted.
      */
-    enum class RingForm { NOTCHES, TAP, UNDER_BACK, TABLE, BURST, BURST_EACH, FAST, PITCH, LATE }
+    enum class RingForm { NOTCHES, TAP, UNDER_BACK, TABLE, BURST, BURST_EACH, FAST, PITCH, LATE, WITHDRAW }
 
     /** C3 SV2: the step RIGHT's pan has drawn when FAST's next notch fires — at P 16 step 8 is drawn 112 ticks after its
      *  fire and step 9 falls due at 128, so the notches go about 120 ticks apart (the motion check's fast three, X1DM1). */
@@ -546,9 +553,12 @@ internal object ShipVectors {
     /** C3 stage X2MX2 (decisions CM (2)): Crush's notch on Main's ring list at 352 answered only after its END ([RingForm.LATE]). */
     fun x2mx2Acts(): List<Act> = listOf(RingSpec("${PREFIX}ring-crush-late-352", ScrollEffect.CRUSH, 352, RingForm.LATE))
 
+    /** C3 stage SV3 (the lead's addition): the withdrawal at 256 KiB on Main's ring list at 352 ([RingForm.WITHDRAW]). */
+    fun sv3Acts(): List<Act> = listOf(RingSpec("${PREFIX}ring-withdraw-352", ScrollEffect.DEPTH, 352, RingForm.WITHDRAW))
+
     /** Every ship act: the transitions ([specs]), then SV-083's scroll and notice acts, then SVR's ring acts, then SV2's,
-     *  then X2MX2's. */
-    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts() + x2mx2Acts()
+     *  then X2MX2's, then SV3's. */
+    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts() + x2mx2Acts() + sv3Acts()
 
     /** [act] as the rig plays it, and its vector. */
     suspend fun captureAct(act: Act): Captured = when (act) {
@@ -1023,6 +1033,52 @@ internal object ShipVectors {
                     r.settle("${spec.name}: after the notch")
                     words += "Crush T $t, n1 $n1: the report delivered with both lenses at step T"
                 }
+                RingForm.WITHDRAW -> {
+                    fun cacheWrite(ss: List<ByteArray>) = ss.any { (it[0].toInt() and 0x7F) == 19 || (it[0].toInt() and 0x7F) == 25 }
+                    val progs0 = list.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
+                    val restaged0 = r.notes("mainstage").count { it.startsWith("row 3 re-staged") }
+                    // the notch in between: [its index in the events, RIGHT's S before it, RIGHT's S after it]
+                    val between = java.util.concurrent.atomic.AtomicReference<IntArray?>(null)
+                    val from = rec.events.size
+                    rec.act.set(true)
+                    rec.spy = { _, img -> if (between.get() == null && cacheWrite(subs(img)) && r.sim.bindForTest(Arm.RIGHT).field39() == 0) {
+                        val s0 = r.sim.bindForTest(Arm.RIGHT).seq
+                        val at = rec.events.size
+                        rec.fire(CfwModes.EV_UPROLL)                       // row 0 → row 1, with no entry live on RIGHT
+                        between.set(intArrayOf(at, s0, r.sim.bindForTest(Arm.RIGHT).seq))
+                    } }
+                    r.rows[3].s = r.rows[3].s.copy(line = "summary 33")    // row 3's line changes: its row form
+                    r.shell.services.requestRender(r.rows[3])
+                    r.until("${spec.name}: withdrawn for row 3's form", 15_000) { r.notes("mainstage").any { it.startsWith("withdrawn — row 3") } }
+                    r.until("${spec.name}: row 3 re-staged", 15_000) { r.notes("mainstage").count { it.startsWith("row 3 re-staged") } > restaged0 }
+                    r.until("${spec.name}: offered again — Main's entries live on RIGHT, the list bound") {
+                        r.sim.bindForTest(Arm.RIGHT).field39() and 0x30 == 0x30 && r.onLoop { r.shell.mainBoundForTest().first } != null }
+                    rec.spy = null
+                    r.settle("${spec.name}: bound again"); idle(r, spec.name)
+                    val b = between.get() ?: error("${spec.name}: no notch fired while the re-stage's write was on its way with no entry on RIGHT")
+                    check(b[1] == b[2]) { "${spec.name}: the notch in between took an S on RIGHT (${b[1]} → ${b[2]}): it matched an entry" }
+                    check(r.row() == 1) { "${spec.name}: the notch in between did not move the row as today: row ${r.row()}" }
+                    check(synchronized(r.sim) { Arm.entries.all { r.sim.bindForTest(it).lists[MainStaging.LIST].let { l -> l.ring && l.cursor == 1 } } }) {
+                        "${spec.name}: the return did not name the phone's row 1 on both lenses" }
+                    val list1 = r.onLoop { r.shell.mainBoundForTest().first }!!
+                    check(list1.entries.filter { !it.isTap }.map { it.prog4 }.toSet() == progs0 && list1.mark == list.mark) {
+                        "${spec.name}: the list bound again does not name the same pans with the mark kept (P9)" }
+                    // on RIGHT, from the change: the CLEAR of Main's entries first, then the re-stage's write, then the SETs
+                    val imgs = rec.rightFrom(from)
+                    val clearAt = imgs.indexOfFirst { ss -> ss.any { isSub(it, 27, CfwModes.BIND_CLEAR) } }
+                    val writeAt = imgs.indexOfFirst { cacheWrite(it) }
+                    val setAt = imgs.indices.firstOrNull { it > writeAt && imgs[it].any { s -> isSub(s, 27, CfwModes.BIND_SET) } } ?: -1
+                    check(clearAt in 0 until writeAt && setAt > writeAt) { "${spec.name}: on RIGHT the CLEAR at $clearAt, the write at $writeAt, the SETs at $setAt" }
+                    check(imgs[clearAt].none { isSub(it, 27, CfwModes.BIND_CLEAR) && (it[2].toInt() and 0xFF) == 0xFF }) { "${spec.name}: the withdrawal's CLEAR is the whole table's" }
+                    val notchRight = rec.events.toList().drop(b[0]).filter { it.arm == Arm.RIGHT }.map { subs(it.msg!!) }
+                        .let { l -> l.take(l.indexOfFirst { ss -> ss.any { s -> isSub(s, 27, CfwModes.BIND_SET) } }.let { if (it < 0) l.size else it }) }
+                    words += "withdrawn: RIGHT handed the CLEAR [${shape(imgs[clearAt])}] (image ${clearAt + 1} of the act), the write [${shape(imgs[writeAt])}] (${writeAt + 1}), " +
+                        "the bind again [${shape(imgs[setAt])}] (${setAt + 1}); the notch in between (S ${b[1]} kept) and RIGHT's images from it to the bind: ${notchRight.map { "[${shape(it)}]" }}"
+                    notch(CfwModes.EV_UPROLL, 2, "a notch down after the bind")
+                    notch(CfwModes.EV_DOWNROLL, 1, "a notch up")
+                    notch(CfwModes.EV_DOWNROLL, 0, "a notch up to row 0")
+                    notch(CfwModes.EV_DOWNROLL, count - 1, "a wrap notch up from row 0")
+                }
             }
             idle(r, spec.name)
             rec.act.set(false)
@@ -1085,7 +1141,7 @@ internal object ShipVectors {
                 /** Each pan of [n] notches to its last step: a DREW body at T, or (None, T 1) the COMMIT's body with its one step. */
                 fun pansWhole(n: Int) = pans.filter { it.outcome != DamageMsg.OUTCOME_CLOSED }.groupBy { it.tag }.let { g -> g.size == n && g.values.all { b -> b.maxOf { it.drawn ?: 0L } == t.toLong() } }
                 when (spec.form) {
-                    RingForm.NOTCHES -> check(pansWhole(4) && pans.none { it.outcome == DamageMsg.OUTCOME_CLOSED }) { "${spec.name}: not four pans whole on RIGHT: ${said(pans, 0..0)}" }
+                    RingForm.NOTCHES, RingForm.WITHDRAW -> check(pansWhole(4) && pans.none { it.outcome == DamageMsg.OUTCOME_CLOSED }) { "${spec.name}: not four pans whole on RIGHT: ${said(pans, 0..0)}" }
                     RingForm.TAP -> check(halves.size == 2 && (spec.taps != Taps.GLASSES || pans.singleOrNull()?.let { it.outcome == DamageMsg.OUTCOME_CLOSED && it.drawn == pressT.toLong() } == true)) {
                         "${spec.name}: not both halves of the Select whole${if (spec.taps == Taps.GLASSES) " and the press closed at its HOLD (drawn $pressT)" else ""} on RIGHT: ${said(bodies, 0..3)}" }
                     RingForm.UNDER_BACK -> check(halves.size == 2 && pansWhole(1)) { "${spec.name}: not both halves of the Back and the wrap's pan whole on RIGHT: ${said(bodies, 0..3)}" }
@@ -1146,6 +1202,12 @@ internal object ShipVectors {
                 RingForm.FAST -> {
                     if (applied.size != 3 || applied.any { it.isTap || it.outcome != DamageMsg.APPLIED_DREW }) bad("not three scroll fires that drew")
                     if (applied.map { it.cursor } != listOf(1, 2, 3) || applied.any { it.field18 != null }) bad("the cursors are not 1, 2, 3 with no field 18")
+                }
+                // SV3: the notch while withdrawn matched no entry (no report); the four after the bind drew
+                RingForm.WITHDRAW -> {
+                    if (applied.size != 4 || applied.any { it.isTap || it.outcome != DamageMsg.APPLIED_DREW }) bad("not four scroll fires that drew")
+                    if (applied.map { it.cursor } != listOf(2, 1, 0, count - 1)) bad("the cursors are not 2, 1, 0, ${count - 1}")
+                    if (applied.map { it.field18 } != listOf(null, null, null, 1L)) bad("field 18 is not absent for the three and 1 at the wrap")
                 }
                 RingForm.LATE -> {
                     val a = applied.singleOrNull() ?: bad("not one report")
