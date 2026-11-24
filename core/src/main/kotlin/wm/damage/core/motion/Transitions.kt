@@ -87,10 +87,10 @@ object Transitions {
      * ms a lit rain cell (Matrix); the period ⌈⌈ms·1.024⌉·1.10⌉ ticks in 16..128. C3 X1MX2 item 3 (decisions BV): Warp and
      * Flip too, on the step his glasses measured ([WARP_STEP_MS_352], [FLIP_STEP_MS_352]: the larger half's, since both
      * halves share one period), carried to the area by the same form — 0.5 ms + a rate per pixel of the area, the rate
-     * his 640 × 352 gives (modeled at the other heights). C3 X2MX2 item 1 (decisions CJ (2)): where the fit gave Warp
-     * or Flip the frames, their period is then the whole tick that fills the half with them (⌊length·1.024 / frames⌋, at
-     * most 128) — a half plays its length less under a tick a step, as the effects off the fit do; Encode and Matrix keep
-     * the fit's period (their stretch would move three Encode ship acts: listed for the lead). Every other effect: [timing].
+     * his 640 × 352 gives (modeled at the other heights). C3 X2MX2 item 1 (decisions CJ (2); the lead extended it to all
+     * four): where the fit gave the frames, the period is then the whole tick that fills the half with them
+     * (⌊length·1.024 / frames⌋, at least the fit, at most 128) — a half plays its length less under a tick a step, as the
+     * effects off the fit do. Every other effect: [timing].
      */
     fun timingFor(effect: Effect, lengthMs: Int, frames: Int, area: Rect, cells: Int = 0): Timing {
         val base = timing(lengthMs, frames)
@@ -107,11 +107,10 @@ object Transitions {
         // ticks, so 2·T·P may pass the length by under a tick a step) the setting's frames play, as for every other effect
         if (fit <= base.period) return base
         val f = (minOf(base.steps * 2, Math.floor(lengthMs * 1.024 / fit).toInt()) / 2 * 2).coerceAtLeast(2)
-        // C3 X2MX2 item 1 (decisions CJ (2)): the length holds — once the fit has given the frames, Warp's and Flip's period
-        // stretches to the whole tick that fills the half (at least the fit: f ≤ ⌊length·1.024 / fit⌋, and their fit, at
-        // most 94 ticks, never forces one step past a half); at the period's limit, 128, the half plays T × 128
-        val p = if (effect == Effect.WARP || effect == Effect.FLIP) Math.floor(lengthMs * 1.024 / f).toInt().coerceAtMost(CfwModes.MOTION_PERIODS.last) else fit
-        return Timing(f / 2, p)
+        // C3 X2MX2 item 1 (decisions CJ (2), the lead's ruling on Encode and Matrix): the length holds — once the fit has
+        // given the frames, the period stretches to the whole tick that fills the half; never under the fit (one step a
+        // half already past the length keeps it), and at the period's limit, 128, the half plays T × 128
+        return Timing(f / 2, maxOf(fit, Math.floor(lengthMs * 1.024 / f).toInt()).coerceAtMost(CfwModes.MOTION_PERIODS.last))
     }
 
     /** C3 X1MX2 item 3: Warp's step on his glasses, measured (APK 0.83, 2026-11-21, his glasses at stage 5, height 352,

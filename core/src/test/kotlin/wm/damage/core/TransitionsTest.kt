@@ -279,46 +279,71 @@ class TransitionsTest {
     /**
      * C3 X1MX2 item 3 (decisions BV): Warp's and Flip's step fit follows the glass. At 352 — where his session measured
      * them (Warp's out half 58.8 ms a step, Flip's 60.3 ms) — every tier length and frame setting gives a period of at
-     * least the measured step plus 10 %; the frames give only to a longer period: where the fit is not above the setting's
-     * period the setting's timing plays; never more steps than the setting's. C3 X2MX2 item 1 (decisions CJ (2)): the
-     * length holds — where the frames gave, the period is at least the fit and fills the half to within one tick a step
-     * (T·P ≤ length·1.024 / 2 < T·(P + 1)), at every height, but at the period's limit, 128 ticks, where the half plays
-     * T × 128, short of its length (at 300 ms at 416 and 480: 1 × 128, 250 ms of 300). Every other path effect keeps
-     * [Transitions.timing]. Printed for the
-     * report: every length and frame setting at the four heights, the setting's timing → the effect's, and what both
-     * halves play in ms (the heights other than 352 modeled from the fit's form).
+     * least the measured step plus 10 %. For every effect on the fit (Warp, Flip, Matrix at every setting, Encode at pages
+     * of 200 to 1,600 cells): never more steps than the setting's; the frames give only to a longer period — where the fit
+     * is not above the setting's period the setting's timing plays. C3 X2MX2 item 1 (decisions CJ (2), extended by the
+     * lead to every effect): the length holds — where the frames gave, the period is at least the fit and fills the half
+     * to within one tick a step (T·P ≤ length·1.024 / 2 < T·(P + 1)), at every height; but at the period's limit, 128
+     * ticks, where the half plays T × 128, short of its length (Warp and Flip at 300 ms at 416 and 480: 1 × 128, 250 ms
+     * of 300), and where one step a half at the fit already passes the length (it keeps the fit). Every other path effect
+     * keeps [Transitions.timing]. Printed for the report: Warp's and Flip's every length and frame setting at the four
+     * heights, the setting's timing → the effect's, and what both halves play in ms (the heights other than 352 modeled
+     * from the fit's form).
      */
     @Test
     fun warpAndFlipFitTheirMeasuredStep_X1MX2() {
         val heights = listOf(288, 352, 416, 480)
+        val last = wm.damage.core.wire.CfwModes.MOTION_PERIODS.last
+        /** The rule for [e] at one setting, height and page, its step fit's own period [fit] (the fit's form); the timing. */
+        fun rule(e: Transitions.Effect, len: Int, f: Int, h: Int, cells: Int, fit: Int): Transitions.Timing {
+            val base = Transitions.timing(len, f)
+            val t = Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h), cells)
+            val at = "${e.label} at $h, $len ms / $f${if (cells > 0) ", $cells cells" else ""}: ${t.steps} × ${t.period} against the setting's ${base.steps} × ${base.period}"
+            assertTrue(t.steps <= base.steps, "$at — more steps than the setting's")
+            assertTrue(t.period in wm.damage.core.wire.CfwModes.MOTION_PERIODS, "$at — a period the PLAY refuses")
+            val half = len * 1.024 / 2
+            when {
+                fit <= base.period -> assertEquals(base, t, "$at — the fit $fit is not above the setting's period: the setting's frames play")
+                fit > half -> assertEquals(Transitions.Timing(1, fit), t, "$at — one step a half at the fit $fit already passes the length: it keeps the fit")
+                else -> {
+                    assertTrue(t.period >= fit, "$at — the period under the fit $fit")
+                    if (t.period == last) assertTrue(t.steps * t.period <= half && ((t.steps + 1) * fit > half || t.steps == base.steps),
+                        "$at — at the limit, the most steps of at least the fit inside the length (${"%.1f".format(half)} ticks)")
+                    else assertTrue(t.steps * t.period <= half && half < t.steps * (t.period + 1.0),
+                        "$at — the frames gave, so the half fills its length to within one tick a step (${"%.1f".format(half)} ticks)")
+                }
+            }
+            return t
+        }
+        /** ⌈⌈ms·1.024⌉·1.10⌉ in 16..128 — `timingFor`'s form of the period from a step in ms. */
+        fun periodOf(ms: Double) = Math.ceil(Math.ceil(ms * 1.024) * 1.10).toInt().coerceIn(wm.damage.core.wire.CfwModes.MOTION_PERIODS)
         val table = StringBuilder()
         for ((e, ms) in listOf(Transitions.Effect.WARP to Transitions.WARP_STEP_MS_352, Transitions.Effect.FLIP to Transitions.FLIP_STEP_MS_352)) {
             table.append("${e.label} (measured ${ms} ms a step at 352): length / frames | ${heights.joinToString(" | ")}   (T steps a half × P ticks: the setting's → the effect's = both halves in ms)\n")
             for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) {
                 val base = Transitions.timing(len, f)
                 val cells = heights.map { h ->
-                    val t = Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h))
-                    val at = "${e.label} at $h, $len ms / $f: ${t.steps} × ${t.period} against the setting's ${base.steps} × ${base.period}"
-                    if (h == 352) assertTrue(t.period * 1000.0 / 1024 >= ms * 1.10, "${e.label} at $len ms / $f: P ${t.period} under ${ms} ms + 10 %")
-                    assertTrue(t.steps <= base.steps, "$at — more steps than the setting's")
-                    assertTrue(t.period in wm.damage.core.wire.CfwModes.MOTION_PERIODS, "$at — a period the PLAY refuses")
                     // the step fit's own period at this height (the fit's form: 0.5 ms + the measured rate per pixel)
-                    val fit = Math.ceil(Math.ceil((0.5 + (ms - 0.5) * (Geometry.PANEL_W.toDouble() * h) / (640.0 * 352)) * 1.024) * 1.10).toInt()
-                    if (fit <= base.period) assertEquals(base, t, "$at — the fit $fit is not above the setting's period: the setting's frames play")
-                    else {
-                        val half = len * 1.024 / 2
-                        assertTrue(t.period >= fit, "$at — the period under the fit $fit")
-                        // the period's limit: one step a half at 300 ms and 416 or 480 would take 153 ticks; it plays 128
-                        if (t.period == wm.damage.core.wire.CfwModes.MOTION_PERIODS.last) assertTrue(t.steps * t.period <= half && ((t.steps + 1) * fit > half || t.steps == base.steps),
-                            "$at — at the limit, the most steps of at least the fit inside the length (${"%.1f".format(half)} ticks)")
-                        else assertTrue(t.steps * t.period <= half && half < t.steps * (t.period + 1.0),
-                            "$at — the frames gave, so the half fills its length to within one tick a step (${"%.1f".format(half)} ticks)")
-                    }
+                    val t = rule(e, len, f, h, 0, periodOf(0.5 + (ms - 0.5) * (Geometry.PANEL_W.toDouble() * h) / (640.0 * 352)))
+                    if (h == 352) assertTrue(t.period * 1000.0 / 1024 >= ms * 1.10, "${e.label} at $len ms / $f: P ${t.period} under ${ms} ms + 10 %")
                     "${if (t == base) "" else "${base.steps}×${base.period} → "}${t.steps}×${t.period} = ${2 * t.halfMs} ms"
                 }
                 table.append("$len / ${if (f == 0) "Auto" else "$f"} | ${cells.joinToString(" | ")}\n")
             }
         }
+        // the lead's extension: Matrix at every setting, Encode at pages of typical to very dense cell counts
+        for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) for (h in heights) {
+            val px = Geometry.PANEL_W.toDouble() * h
+            rule(Transitions.Effect.MATRIX, len, f, h, 0, periodOf(0.5 + 0.036e-3 * px + 0.065 * Transitions.rainCols(Rect(0, 0, Geometry.PANEL_W, h)) * Transitions.RAIN_TRAIL))
+            for (cells in listOf(200, 600, 810, 1200, 1500, 1600)) rule(Transitions.Effect.ENCODE, len, f, h, cells, periodOf(0.5 + 0.036e-3 * px + 0.058 * cells))
+        }
+        // shown: a dense Encode page at his Select at 480 (810 cells, fit 66 ticks) played 3 × 66 = 386 ms of 450; it fills it
+        assertEquals(Transitions.Timing(3, 76), Transitions.timingFor(Transitions.Effect.ENCODE, 450, 10, Rect(0, 0, Geometry.PANEL_W, 480), 810),
+            "a dense Encode page at his Select fills the length")
+        // the limit: 1,500 cells at 480 (fit 112) take 3 steps at 800 ms / 8 — 136 ticks would fill the half, it plays 3 × 128;
+        // 1,600 cells (fit 118) at 225 ms: one step a half already past the 115 ticks it holds — the period stays the fit's
+        assertEquals(Transitions.Timing(3, 128), Transitions.timingFor(Transitions.Effect.ENCODE, 800, 8, Rect(0, 0, Geometry.PANEL_W, 480), 1500))
+        assertEquals(Transitions.Timing(1, 118), Transitions.timingFor(Transitions.Effect.ENCODE, 225, 0, Rect(0, 0, Geometry.PANEL_W, 480), 1600))
         for ((_, e, _) in pathPlays.filter { it.second != Transitions.Effect.WARP && it.second != Transitions.Effect.FLIP }.distinctBy { it.second })
             for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) for (h in heights)
                 assertEquals(Transitions.timing(len, f), Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h)), "${e.label} keeps its timing")
