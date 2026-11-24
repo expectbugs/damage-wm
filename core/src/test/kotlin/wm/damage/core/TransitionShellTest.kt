@@ -203,7 +203,8 @@ class TransitionShellTest {
             // are written and counted after the start, one at a time; a row begins once they are and no cache work is on
             // its way — one evaluation on the loop deciding — else a program's write (mode 25 in the notice's slice, inside
             // the stage reserve) lands in the row's recording ahead of its act (2 of 3 runs on the vector lane's branch)
-            until("the idle lanes at rest") { onLoop { shell.noticeLaneDoneForTest() && !shell.cacheWorkInFlight } }
+            // C3 DW-1a: the wheel's lane too (its block at stage 5 on 256 KiB, staged after Main's and the notice's)
+            until("the idle lanes at rest") { onLoop { shell.noticeLaneDoneForTest() && shell.wheelLaneDoneForTest() && !shell.cacheWorkInFlight } }
             settle("up, the idle lanes at rest")
         }
 
@@ -1829,7 +1830,8 @@ class TransitionShellTest {
             r.until("five strips proven") { r.shell.stagedProvenCount >= 5 && r.shell.isQuiescent() && !r.shell.cacheWorkInFlight }
             val st = r.t.state.value
             val reserve = (st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind)) until st.cacheSize
-            val before = r.onLoop { r.shell.stagedRecordsForTest() }.filter { it.key !is wm.damage.core.shell.MainStageKey && it.state == wm.damage.core.shell.StagedRecord.State.PROVEN }
+            // C3 DW-1a: Page staging's strips — not a tenant of Main's region (Main's records, the wheel's block)
+            val before = r.onLoop { r.shell.stagedRecordsForTest() }.filter { it.key !is wm.damage.core.shell.RegionStageKey && it.state == wm.damage.core.shell.StagedRecord.State.PROVEN }
             val offs = before.associateWith { it.off }
             println("X2T item 3: the reserve ${reserve.first}..${reserve.last}; strips " + before.joinToString { "${it.key} ${it.size4} B at ${it.off}" })
             r.shell.updateSettings(only("encode")); r.settle("Encode checked")

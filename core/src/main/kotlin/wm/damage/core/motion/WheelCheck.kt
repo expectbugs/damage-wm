@@ -104,11 +104,12 @@ object WheelCheck {
 
         fun cells(relay: (Gray8, () -> Unit) -> Unit = { _, b -> b() }): List<Wheel.Cell> = entries.map { Wheel.cell(sw, layout, geo, it, relay) }
 
-        /** The block as its first tenant from the end of Main's region would lie (decisions BD; DW-1 places it). */
+        /** The block as its first tenant from the end of Main's region lies (decisions BD; the shell's placement,
+         *  `WheelResident.baseFor`). */
         fun block(motion: MainStaging.ScrollMotion = MainStaging.ScrollMotion.DEFAULT, none: Boolean = false, cells: List<Wheel.Cell> = cells()): Wheel.Block {
             val end = CfwModes.mainRegion(CACHE, bind = true).last + 1
             val size = Wheel.block(0, geo, cells, effects(), motion, none).size
-            return Wheel.block((end - size) and 3.inv(), geo, cells, effects(), motion, none)
+            return Wheel.block(wm.damage.core.shell.WheelResident.baseFor(end, size), geo, cells, effects(), motion, none)
         }
     }
 

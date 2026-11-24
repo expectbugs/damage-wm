@@ -134,17 +134,21 @@ object IconPaint {
      *  drawn icon blits like a theme bitmap and rides the cache too. */
     private val drawn = java.util.concurrent.ConcurrentHashMap<String, Gray8>()
 
+    /** The theme bitmap [draw] paints for [names] at [size], or null (it draws the drawn set) — C3 DW-1a: what the wheel's
+     *  resident cells are keyed on, asked without a paint. */
+    fun answer(src: IconSource?, names: List<String>, size: Int): Gray8? = src?.let { s ->
+        var found: Gray8? = null
+        for (n in names) {
+            if (s.missing(n, size)) continue      // confirmed miss: next in chain
+            found = s.icon(n, size)
+            break                                  // hit, or ONE pending resolve
+        }
+        found
+    }
+
     fun draw(g: Gray8, src: IconSource?, names: List<String>, x: Int, y: Int, size: Int,
         fallback: IconKind, lv: Int) {
-        val bm = src?.let { s ->
-            var found: Gray8? = null
-            for (n in names) {
-                if (s.missing(n, size)) continue      // confirmed miss: next in chain
-                found = s.icon(n, size)
-                break                                  // hit, or ONE pending resolve
-            }
-            found
-        }
+        val bm = answer(src, names, size)
         if (bm == null) {
             drawKind(g, fallback, x, y, size, lv)
             return
