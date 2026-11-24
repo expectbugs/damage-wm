@@ -1,37 +1,31 @@
 # Feed on glass — design + build record (2026-09-09)
 
-**Status: DESIGN SETTLED with Adam 2026-09-09 (fifteen verdicts, §1); BUILT the same day, M1–M5
-(§8 as built; `HANDOFF.md` §43 the build's account); ON GLASS that evening, five findings fixed
-that night (§8.2); the measured walk (§3.8 → §8.4) still owed; polish suspended until the
-re-plan's steps close (`CLAUDE.md`, `REMINDER.md`).** **Status since build S1-3 (APK 0.70, 2026-11-18;
-`HANDOFF.md` §89): Feed is on the PC's record, with a page; the phone's own fetching is retired on his ruling of 11-12
-(§89.1), so the phone-alone fetching below no longer runs. Reddit's public RSS feeds ended on 2026-11-13: the source is stale since 11-17
-and what replaces it is his call (§91.5, §100.9).** #5 in the
-`EXPLOSION.md` §20 wow order; no G2CC ancestor. Precedents: Reader (one tap opens; the page's tap
-is the actions level), Files (image strips), Torrents (a live list over the channel, the keyboard,
+**Design settled with Adam 2026-09-09 (fifteen verdicts, §1)**; built the same day (§8 as built; `HANDOFF.md` §43
+the build's account); the measured walk (§3.8 → §8.4) is owed. State today (the polish's place, Reddit's source):
+`REMINDER.md`. #5 in the `EXPLOSION.md` §20 wow order; no G2CC ancestor. Precedents: Reader (one tap opens; the
+page's tap is the actions level), Files (image strips), Torrents (a live list over the channel, the keyboard,
 paging), Music (one window, two hosts, a deliberate switchback).
 
 The §11 promise, verbatim: *"a Reddit-style feed with endless scroll."* Adam's steer since: the
 root is a **source list** (*"I will usually want one at a time. Slashdot content is far different
 from a xkcd comic"*), the glasses are used **away from the PC exclusively** (so no Open-on-PC), and
 the window keeps working **on the phone alone** wherever plain HTTP reaches (*"Let's do the phone
-fallback for everything that we can"* — as built; verdict 15's note). Where §3–§5 (design) and
+fallback for everything that we can"* — amended since, verdict 15). Where §3–§5 (design) and
 §8 (as built) differ, §8 is what runs; `IMPLEMENTATION.md` → "Feed" is the running inventory.
 
-**Status since build S1-3 (APK 0.70, 2026-11-18; `HANDOFF.md` §89 the record; `CONTRACT.md` §12 the contract):
-Feed is on the PC's record**, built and gated on the simulator, the PC and in headless Firefox; deployed 2026-11-18
-(`HANDOFF.md` §91.1), his use not yet reported. What changed against the sections below:
+**Feed is on the PC's record, with a page** (`HANDOFF.md` §89 the record; `CONTRACT.md` §12 the contract). What
+changed against the sections below:
 - **One copy on the PC.** `FeedCore` holds his state in the record (`rec.feed.…`: a read list per source, the 600
   newest; flags; seen stamps; the open article's place as block and offset; the archive's place; pins; browse recents;
   Fetch, Keep and the three Notify rows; the glasses rows) and raises Feed's notices once, on the PC (a first sight of
   a source raises nothing; a browsed source that is not pinned raises none). `FeedScopes` serves the description and
   the pages to every interface; `FeedGlasses` (the old `FeedWindow`) is the glasses' presenter over the record, its
-  picture unchanged but for Settings → Feed one row fewer. His rows from 0.69 were carried once, at the PC's first
-  start (on a copy of his data: 21 rows); the open article's line index was not (the next notch writes the place).
+  picture unchanged but for Settings → Feed one row fewer. The phone's older rows are carried once, at the PC's first
+  start (`FeedMigration`); the open article's line index is not (the next notch writes the place).
 - **The phone's own fetching is retired** (verdict 15 as amended; his ruling of 11-12): no phone engine, no `PC loss`
   row, no `Back to PC`; with the PC out of reach Feed shows what it last had under "PC unreachable since H:MM" (the
-  outage's start; it no longer counts seconds). Reads, flags, pins and places apply at once and queue; refresh, browse
-  and anything not loaded say "PC not answering". The phone's old `feed/` folder stays; deleting it is his.
+  outage's start). Reads, flags, pins and places apply at once and queue; refresh, browse and anything not loaded say
+  "PC not answering".
 - **The engine:** articles carry emphasis, code, links (http and https only) and the original page's address, the
   extracted text unchanged; a fetch that stops answering is ended after 5 minutes, said on the source's health and
   tried again at its next due time; a body shorter than its declared length is a failure, never cached.
@@ -173,8 +167,7 @@ tests replay the captured responses. Image decode through the existing `ImageDec
 ## 3. The window (`FeedWindow`, id `feed`)
 
 **Declares:** `needs` = **none** on every host — the desktop runs the engine locally; the phone
-prefers the remote engine with its own as fallback (the staleness line says which serves; since S1-3 the phone
-reads the PC's engine only, §3.6) · face
+reads the PC's engine only (§3.6) · face
 **Fira Sans** for lists and comments, **Alegreya** for the article Document (`EXPLOSION.md` §16.6)
 · icon `IconKind.FEED` (theme names `application-rss`, `feedreader`, `internet-feed-reader`,
 `internet-news-reader`, `com.gitlab.newsflash` — all in Papirus-Dark; the drawn fallback is the rss
@@ -190,7 +183,7 @@ article.
 
 ```
 SOURCES (List, root) ─tap─▶ ITEMS (List, one source) ─tap─▶ ARTICLE (Doc) ─tap─▶ item ACTIONS (List)
-   │ wrap-end "Feed" ─▶ root MENU: Refresh all · Flagged (n) · Settings   (Back to PC: removed in S1-3)
+   │ wrap-end "Feed" ─▶ root MENU: Refresh all · Flagged (n) · Settings
    │                          │ wrap-end "<source>" ─▶ source MENU: Mark all read · Refresh · Browse… · recents · Pin/Unpin
    │                          │ comic items ─tap─▶ COMIC (Doc: strip + text) ─tap─▶ item ACTIONS
    └─ 8-Bit Theater row ─tap─▶ BINGE (Doc, endless) ─tap─▶ binge ACTIONS
@@ -200,8 +193,7 @@ SOURCES (List, root) ─tap─▶ ITEMS (List, one source) ─tap─▶ ARTICLE 
 - **SOURCES** (root; `ActivationSource.MAIN` lands here, `SWITCHER` resumes). Rows in config order:
   name (bold while unread) · `12 new` · fetch age; pinned browses after; the 8-Bit Theater row reads
   `page 412 of 1225`. Lens: `25 items · 12 unread · fetched 4 m ago` or the staleness line (`PC
-  unreachable 40 s` / `phone engine · PC down 3 m` / `Reddit rate-limited · retry 50 s`; since S1-3 the first is
-`PC unreachable since 14:02` and the second is gone). Cursor:
+  unreachable since 14:02` / `Reddit rate-limited · retry 50 s`). Cursor:
   row 0 on descent, the row left on ascent.
 - **ITEMS** (one source). Row: drawn flag mark when flagged · title (fit) · tail per kind — Reddit
   `↑ 45 cmts · 3 h · r/linux` (the Atom has no score), Slashdot `59 cmts · 2 h · linux`, xkcd
@@ -217,7 +209,7 @@ SOURCES (List, root) ─tap─▶ ITEMS (List, one source) ─tap─▶ ARTICLE 
   decode) · a Reddit image post shows the image, a video post `video · not shown`. Opening marks
   read (verdict 6). Extraction is off-loop: the op cell says `loading article`; a failure is a
   notice (`could not extract · showing the summary`), never a blank page. The PC engine extracts
-  the newest ten unread per source ahead; the phone on demand only (battery). Tap → **item
+  the newest ten unread per source ahead. Tap → **item
   ACTIONS**: Comments (n) — dim with `none` at zero · Flag / Unflag · Mark unread · Next item · Back
   to list; cursor on Comments or, when dim, one row down (the §30 rule).
 - **COMMENTS** (Document, Fira Sans): author · age (`DIM`), the text under it, entries separated by
@@ -237,7 +229,7 @@ SOURCES (List, root) ─tap─▶ ITEMS (List, one source) ─tap─▶ ARTICLE 
 - **FLAGGED** (from the root menu): flagged items across sources, the source name in the tail.
 - **Staleness reaches every level and Main's row** (`WINDOWS.md` §1): the title carries it where
   the level does not paint it; the summary carries it into Main (`12 new · popular 8 · xkcd 1` /
-  `PC unreachable since 14:02` since S1-3).
+  `PC unreachable since 14:02`).
 
 ### 3.2 Heights
 
@@ -257,7 +249,6 @@ ordinary xkcd (596×218, 7 strips) fits one 288 screen (224 px of content) with 
 | Comic levels | 16 · 8 · 4 | 16 | verdict 10; a change re-derives strips from the cached source image, never a refetch |
 | Fetch | 5 min · 15 min · 30 min · 60 min | 15 min | feeds; comics check hourly regardless |
 | Keep | 7 d · 30 d · 90 d | 30 d | with the 500-per-source cap |
-| ~~PC loss~~ | — | — | removed in S1-3 with the phone's engine (§3.6) |
 | Notify · Reddit | off · on | off | verdict 13 |
 | Notify · Slashdot | off · on | off | |
 | Notify · comics | off · on | off | xkcd + SMBC; a binge archive never notifies |
@@ -275,23 +266,10 @@ a diagram inverts, a photo does not.
 
 ### 3.5 State and sync (§16.4 — the phone fallback decides this) — *superseded in S1-3: the PC's record (status block at the top)*
 
-Reading state lives in the **shell's synced store**, never inside an engine, so both engines see
-one truth (§16.4's "host-side feed read marks" note is superseded here). As built; from S1 one
-engine on the PC holds the record, and a read mark or flag is an op under `CONTRACT.md` §2.4's
-one merge rule (§9.7, §12):
-
-- **`window.feed`**: level, open source id, open item id + doc position, list cursors by identity,
-  the five recent browses per kind, pinned browses.
-- **`feed.src.<id>`** (per source): read set + flagged set as item ids (bounded by retention) and
-  `lastSeen` (the newest item id announced). **Read marks merge as a UNION on live apply** —
-  reading is monotone, so two devices reading different items within a sync gap never undo each
-  other; `Mark unread` is the one edit LWW can revert, and only while the other device still
-  carries the mark. Flags are LWW. Never an empty blob (the §25 #8 tombstone lesson): a source with
-  nothing read reports no record.
-- **`feed.binge.<comic>`**: `{episode, strip}`, LWW (the Reader per-book precedent).
-- **Items are not synced**; ids derive from the entry's guid or link (a stable hash), so read marks
-  match across engines. Continuity test: read on shell A → sync → shell B shows the same rows dim,
-  the same binge page, the same article at the same line.
+Reading state is the PC's record (`FeedCore`, the status block at the top): one engine on the PC holds it, and a
+read mark or flag is an op under `CONTRACT.md` §2.4's one merge rule (§9.7, §12). The view's state and `Images` stay
+local in `window.feed`, unsynced (`FeedMigration`'s header). Items live in the engine's `FeedStore`; ids derive from
+the entry's guid or link (a stable hash).
 
 ### 3.6 The engine, the providers, and the switch (`core/…/windows/feed/`)
 
@@ -305,27 +283,19 @@ seam: `get(url) → text`, `bytes(url)`, one user agent, a per-host pacer (Reddi
 for feeds, hourly for comics, never on the shell loop.
 
 **Providers on the §16.10 channel** (`{"t":"win","win":"feed"}`): `FeedService` (PC) and
-`RemoteFeedProvider` (phone). Ops: `sources` (counts + state line) · `items` (source, version
-cursor, page) · `article` (text blob) · `comic` (strips blob) · `binge` (comic, episode → episode
-line + strips blob; `index` → the episode table) · `comments` (text blob) · `refresh` (source or
-all) · `browse` (kind + name → a transient source id) · push `changed` (source, version) so an
-active list repaints only what changed. Strips ride the blob lane as packed 4-bit rows, deflated. (As built the
-archive's op is `episode`, beside `item`, `articleUrl`, `image`, `comicRange`, `comicAt`, `forget`, `focus` and a
-pushed `state` — `FeedNet.kt` 110–213.)
+`RemoteFeedProvider` (phone). Ops (`FeedNet.kt`): `sources` (counts + state line) · `items` (source, version
+cursor, page) · `item` · `article` / `articleUrl` (text blob) · `comic` (strips blob) · `image` · `episode` (comic,
+episode → episode line + strips blob; `index` → the episode table) · `comicRange` · `comicAt` · `comments` (text
+blob) · `refresh` (source or all) · `browse` (kind + name → a transient source id) · `forget` · `focus` · push
+`changed` (source, version) so an active list repaints only what changed, and `state`. Strips ride the blob lane as
+packed 4-bit rows, deflated.
 
-**The switch (verdict 15, Music's shape; retired in S1-3 — the phone reads the PC's engine only):**
-`SwitchingFeedProvider` wraps `remote` (preferred) and `local`. Past the `PC loss` threshold the
-phone engine starts its pacer and serves, with a notice `PC unreachable 1 min · fetching on the
-phone` and the summary naming `phone engine`.
-**Switchback is deliberate**: a `Back to PC` row (detail `the PC is reachable`) appears in the root
-menu when the channel is back; tapping it parks the phone engine (no pacer, no socket). On the
-desktop the local engine is the only provider. Every source is plain HTTP (§2), so the fallback is
-complete; the one difference is that the phone extracts on demand rather than ahead.
+**The switch** is retired (verdict 15 as amended): the phone reads the PC's engine only (status block at the top);
+on the desktop the local engine is the only provider.
 
-**Announcements** (*since S1-3 raised once by the PC's `FeedCore` into the notice record, the same rule and body*): the serving engine decides "new since `lastSeen`" per source once per fetch;
-the window raises `notifyInternal("feed", "3 new · xkcd 3297 …", appId = "feed", thread = <source
-id>, target = "src:<id>")` (a single new comic targets `item:<id>`), gated on the source kind's
-row; coalescing per thread means a PC standby shell and the phone shell replace rather than stack.
+**Announcements** are raised once, by the PC's `FeedCore`, into the notice record: "new since `seen`" per source once
+per fetch, one notice on the source's thread (`3 new · popular · <newest title>`, target `src:<id>`; a single new item
+`<source> · <title>`, target `item:<source>:<id>`), gated on the source kind's row.
 
 **Deep links** (`open(target)`): `src:<id>` → the source's list; `item:<id>` → the item with the
 level path synthesized so back returns to the list; `binge:<comic>` → the archive at its saved
@@ -345,8 +315,7 @@ position; an unresolvable target returns false (loud, §16.1).
 "feedDataDir": "~/.damage/feed"
 ```
 
-The phone takes the source list from the PC when it has ever reached it and keeps it; the same
-default list applies when it never has. `kind: "rss"` (+ `url`, optional `image: true`) is the
+The phone shows the PC's list. `kind: "rss"` (+ `url`, optional `image: true`) is the
 generic adapter for a later title.
 
 ### 3.8 Latency profile — targets, then measured
@@ -374,12 +343,10 @@ The bar (`WINDOWS.md` §6): a list notch's first flush under ~1 KB and first vis
   page, SMBC RSS + a comic page, small PNG/JPEG samples), replayed through `FeedHttp`; a format
   change is a loud parse refusal, never a quietly empty list.
 - **`ScriptedFeed`**: seeded sources and items, scripted refreshes (new items under the cursor), a
-  scripted rate-limit, a scripted PC loss. The selfcheck walks root → source → article → actions →
-  comments → flag → flagged → a comic → the binge (next, previous, jump) → Browse (keyboard) → Pin
-  → Mark all read (confirm) → the switch and the `Back to PC` row. *2026-11-23: the PC loss, the switch and the row
-  left with the phone engine in S1-3; the scripted outage is a source's (`ScriptedFeed.slashdotDown`).*
-- **Core tests**: parser pins per source; the read-set union; the tombstone rule; the persistence
-  round-trip (byte-identical frame); continuity (§3.5); `open(target)` for every form; the identity
+  scripted rate-limit, a scripted source outage (`ScriptedFeed.slashdotDown`). The selfcheck walks root → source →
+  article → actions → comments → flag → flagged → a comic → the binge (next, previous, jump) → Browse (keyboard) →
+  Pin → Mark all read (confirm).
+- **Core tests**: parser pins per source; the record and the view's round trip; `open(target)` for every form; the identity
   cursor across an inserting refresh; the §3.4 decision on the samples; the strip cutter's bytes
   against the Python pricing script's output for one strip.
 - **Snapshot scenes** at 288 and 480: source list, item list, article, xkcd, binge. `--feed-check`:
@@ -399,11 +366,10 @@ M1 engine · M2 window · M3 channel + switch with M4 phone · M5 the record; wh
   article must not replace the item the user moved to); demand work from `view()` or completions,
   never from a paint; never a provider call on the loop.
 - **Cursor by identity** on every live list; a refresh that inserts rows re-resolves it.
-- **`saveSubState` never returns an empty blob**; a source with no read marks reports nothing.
 - **A restored level below the top loads on the way back** (`MusicWindow.ensureLoaded`).
 - **A session start on the same instance keeps an open article** (no demote, no second fetch); every explicit
   navigation ends a restored re-open; a re-open armed over a loaded list reloads it; the announce floor is only
-  ever raised (0.65 P7 items 4–5, `HANDOFF.md` §77).
+  ever raised (`HANDOFF.md` §77).
 - **Listeners idempotent; `detach()` in a stack stop's `finally`** (the keeper restart class).
 - **Dynamic text everywhere** through `Draw.dynamic` at wrap time: feed titles carry emoji, curly
   quotes, CJK and HTML entities (decode entities BEFORE wrapping; the C1 mojibake lesson).
@@ -411,7 +377,6 @@ M1 engine · M2 window · M3 channel + switch with M4 phone · M5 the record; wh
   faces in any string the window might draw.
 - **A strip cache is derived state**: `Comic levels` and line-art changes re-derive from the cached
   source image; a refetch is never the answer to a settings change.
-- **The phone engine never runs while the remote serves**; parked means no pacer, no socket.
 - **Reddit's 429 is a normal state, not a defect**: paced, said with the retry time, never retried
   inside the pacing, never a stacked notice.
 - **An 8BT post that is not an episode is skipped and counted**, never a blank page; a missing xkcd
@@ -421,14 +386,10 @@ M1 engine · M2 window · M3 channel + switch with M4 phone · M5 the record; wh
 - **Measured vs modeled**: every number in §2.6 and §3.8 is modeled until the walk measures it.
 - **Wording**: `CLAUDE.md`'s plain-engineering table in comments, notices and this record.
 
-*2026-11-23: since S1-3 two of these name code that is gone — `saveSubState` (a source's marks are `FeedCore`'s
-record items) and the phone engine (§3.6).*
-
 ## 7. Kickoff for the POLISH session (the build is done; this replaces the build kickoff)
 
-Suspended: no Feed polish until the re-plan's steps close (`CLAUDE.md`; `REMINDER.md` → Suspended
-work). When it resumes: read `REMINDER.md`, `HANDOFF.md` §43 (§43.6 is the resume protocol),
-this file's §1, §3 and §8, `WINDOWS.md` §5–§6, `IMPLEMENTATION.md` → "Feed". Then: the measured
+Its place in the order of work: `REMINDER.md` → Suspended work. When it resumes: read `REMINDER.md`,
+`HANDOFF.md` §43 (§43.6 is the resume protocol), this file's §1, §3 and §8, `WINDOWS.md` §5–§6, `IMPLEMENTATION.md` → "Feed". Then: the measured
 walk (§8.4) before any change, Adam's verdicts on what he sees, §8.3's list by number, the
 battery green after each change.
 
@@ -454,9 +415,6 @@ this section says what RUNS.
   bar (item 5; the 8-Bit archive keeps the endless Document); Slashdot comments are IN (item 3,
   reversing §2.2); a Reddit article leads with the poster's own words (item 1); the reading text
   is Alegreya 17, not 20 (item 4).
-- **The phone engine adopts the PC's list.** `SourceStatus.cfg` carries each configured source over
-  the channel and `FeedEngine.adopt` takes on the ones the phone lacks; nothing is ever removed on
-  the phone. *(Removed in S1-3, APK 0.70, with the phone's own fetching — `4466b66f`, `HANDOFF.md` §89.1.)*
 - **Over the channel a strip is deflate(packed nibbles)** with its dimensions in the answer's data
   — the compositor's own bytes, no JSON of a byte array; the tests pin them byte-identical.
 - **`ScriptedFeed` lives in core's main sources** (the `SimMusicPlayer` precedent) so the core tests
@@ -524,9 +482,7 @@ them:
    Persisting the number (`openItemNum`) and re-fetching it is the fix.
 7. **The 8-Bit Theater archive has no bar** — Adam asked for the bar "for comics like xkcd"; the
    archive is an endless document with its actions on tap. Ask before adding one.
-8. **The phone fallback is tested over a loopback host, not over Tailscale with the service
-   stopped.** One deliberate try, with the journal read after, is owed (moot if S1 retires the
-   phone engine, verdict 15's note). *(Moot since S1-3, APK 0.70: the phone engine is retired, `HANDOFF.md` §89.1.)*
+8. Moot: the phone fallback it named is retired (`HANDOFF.md` §89.1).
 9. **`Notify` rows are off** (verdict 13) and untried on glass; the first-sight baseline means the
    first fetch after turning a row on announces nothing.
 10. **The measured walk is owed** (§8.4): every number in §2.6 and §3.8 is modeled.

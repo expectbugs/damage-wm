@@ -1,12 +1,11 @@
 # POPOVER.md — the popover family, and the Claude path that rides it
 
-**Status: SPEC, designed with Adam 2026-09-11/12. Not built.** Built whole in one pass when Adam
-calls it (verdict 7); nothing ships before §8's last milestone. Its place in the order: the glasses
-kit, built once after the second flash (`REPLAN.md` §4 K; `CONTRACT.md` §11.2). Precedence as always: `overview.md`
+**Spec, designed with Adam 2026-09-11/12; not built** (state today: `REMINDER.md`). Built whole in one pass when
+Adam calls it (verdict 7); nothing ships before §8's last milestone. Its place in the order: the glasses kit's K1
+(`REPLAN.md` §4 K, §16.1; `CONTRACT.md` §11.2). The notice the glasses' engine plays (`HANDOFF.md` §100) is not this
+family. Precedence as always: `overview.md`
 on facts, `CLAUDE.md` on rules, `DESIGN.md` on shell design (§4.11 is the design summary; this file
-is the record). `HANDOFF.md` §46 is the session record. *2026-11-22:* still not built; its place is K1, whose
-motion part is under way (`REPLAN.md` §16.1's status block); today's notice playing on the glasses' engine since
-APK 0.83 (`HANDOFF.md` §100) is not this family.
+is the record). `HANDOFF.md` §46 is the session record.
 
 ## 1. Verdicts (Adam)
 
@@ -44,9 +43,9 @@ Standing constraint behind 3 and 4: *less latency, not more.*
   HTTP + Bearer, exit codes that never claim "seen", a 560 B / 6-row gate on live frames.
 
 ### 2.2 Firmware (source: `zlib_glue.c`, `texture_cache.c`)
-- No dim-in-place operation: modes 3/6 fill pixels, 9 copies a rect, 13/14 draw from the cache
-  through a LUT. Dimming what is on the panel = repainting it. (True of `a5d1c31`. The fork's
-  Phase 2 build, installed, adds mode 22, a LUT over a rect — `FIRMWARE.md` §4; verdict 3's note.)
+- No dim-in-place operation on `a5d1c31`: modes 3/6 fill pixels, 9 copies a rect, 13/14 draw from the
+  cache through a LUT. Dimming what is on the panel = repainting it. The fork's builds from Phase 2 on
+  add mode 22, a LUT over a rect (`FIRMWARE.md` §4; verdict 3's note).
 - Cached draws are FLAT (plane 0). The LUT `top` (0–15) scales a draw's levels; our recorder already
   dims text with it. A plane change of an existing rect is a per-lens mode-9 copy (+4 B, `DESIGN.md` §8.4).
 - Only mode 3 burns a fid; the budget is 5 per flush.
