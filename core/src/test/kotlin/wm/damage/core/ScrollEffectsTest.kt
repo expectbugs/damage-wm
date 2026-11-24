@@ -829,6 +829,8 @@ class ScrollEffectsTest {
         val short = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, plain.end, listOf(MainStaging.WHOLE), MainStaging.ScrollMotion.DEFAULT,
             bandRoom = IntArray(plain.rows) { 6_000 })
         assertEquals(plain.bands.map { it.slot }, short.bands.map { it.slot }, "the band room given up where the region cannot hold it")
+        // and it goes with the strip's room, before the wrap's record (B082's order): the wrap kept as it was
+        assertEquals(plain.wrap?.slot, short.wrap?.slot, "the band room goes first: the wrap's record kept as it was")
     }
 
     /**
