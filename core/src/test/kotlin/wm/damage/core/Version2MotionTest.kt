@@ -245,9 +245,10 @@ class Version2MotionTest {
         val svr = ShipVectors.ringSpecs().size
         // C3 SV2: Crush's, Flip's and the new Matrix's acts (their version-2 pans with source windows, the drops and the rain)
         val sv2 = ShipVectors.sv2Acts().size
-        // K1-2 stage 1: and the files of acts whose spec is gone, until the vector lane removes them ([ShipVectors.GONE])
-        assertEquals(28 + ShipVectors.acts().size + 1 + ShipVectors.GONE.size, files.size,
-            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2, and ${ShipVectors.GONE.size} gone")
+        // C3 X2MX2: its new Crush act (K1-2 stage 1's gone act's file removed by C3 SV3)
+        val x2mx2 = ShipVectors.x2mx2Acts().size
+        assertEquals(28 + ShipVectors.acts().size + 1, files.size,
+            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2, X2MX2's $x2mx2")
         val comparedProg = HashMap<String, Int>(); val comparedTab = HashMap<String, Int>()
         val seenProg = HashSet<String>(); val seenTab = HashSet<String>()
         val inexpressible = LinkedHashMap<String, String>(); val refusedByDsl = LinkedHashMap<String, String>()

@@ -70,10 +70,6 @@ import wm.damage.core.wire.Pb
  */
 internal object ShipVectors {
     const val PREFIX = "v5-ship-"
-    /** K1-2 stage 1 (`private/build083/K1-2-S1-built.md` §2; decisions BC O1): the shipped acts whose spec went with AD.2's
-     *  strip switch — Main on one strip at 256 KiB, a row form's change withdraws the list — their files kept until the
-     *  vector lane removes them; no spec makes them (the play-back row and the DSL's count name them). */
-    val GONE = setOf("v5-ship-ring-switch-352")
     private const val FEATURES = 0xDFF
     private const val ACT_TICK = 2000L
 
@@ -456,8 +452,7 @@ internal object ShipVectors {
      * link by itself: each report answered by the flush after it, the first's COMMIT adopting nothing on the lenses (its
      * instance closed by the wrap's fire; the wrap's newer instance left drawing, §6.5) and writing its END under the
      * drawing pan, then the wrap's COMMIT. (SWITCH — AD.2's strip switch at 256 KiB — went with that switch at K1-2 stage 1,
-     * decisions BC O1: a row form's change withdraws the list at every cache size; its file is named in [GONE] until the
-     * vector lane removes it.)
+     * decisions BC O1: a row form's change withdraws the list at every cache size; its file removed by C3 SV3.)
      *
      * C3 SV2 (DM-1's acts, decisions BN, BP (4), CA (1)): FAST — from row 0 three notches down about 120 ticks apart (each
      * fired when RIGHT's pan has drawn its step [FAST_STEP], so each fire closes the pan before it mid-program, §6.2 step
