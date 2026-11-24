@@ -873,6 +873,10 @@ internal object ShipVectors {
                     r.until("${spec.name}: the Select's transition ends") { owed() == before + 1 && r.onLoop { r.shell.transitionPhaseForTest() } == null }
                     r.until("${spec.name}: the CLOSE of slot 2 reaches RIGHT") { rec.rightOfAct().any { ss -> ss.any { closeOf(it, 2) } } }
                     r.settle("${spec.name}: in $want")
+                    // K1-2 stage 3a: the act ends once the window list's lane has nothing left to write (Settings' categories
+                    // staged and bound as list 1 after the run) — one evaluation on the loop, so the act is the same every run
+                    r.until("${spec.name}: the window list's lane done") { r.shell.isQuiescent() && r.onLoop { r.shell.windowListLaneDoneForTest() && !r.shell.cacheWorkInFlight } }
+                    r.settle("${spec.name}: in $want, its list's lane done")
                 }
                 RingForm.UNDER_BACK -> {
                     // the session: into w0 by the ring's tap on row 0 (the Select tier none: no transition)
