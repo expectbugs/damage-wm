@@ -39,7 +39,9 @@ class MainStageKey(content: Any, index: Int, name: String) : RegionStageKey(cont
 }
 
 /** C3 DW-1a: one of the wheel's block's records ([WheelResident]) — [content] the books it belongs to, [firstLine] its
- *  serial, [name] what the journal calls it. Not Main's: Main's filters read `is MainStageKey`. */
+ *  serial, [name] what the journal calls it. Not Main's: Main's filters read `is MainStageKey`. Its record's `encoded` is
+ *  the bytes written, which may lie in several runs (the block's records with their slots' slack between): the block's
+ *  extent is `WheelResident.block`'s, never `off + size4`. */
 class WheelStageKey(content: Any, index: Int, name: String) : RegionStageKey(content, index, name) {
     override fun toString() = "the wheel's $name"
 }

@@ -445,7 +445,8 @@ class WheelResidentTest {
     /**
      * The amendment's §7.1 "Kept current in place" (the closed half): between two windows at one height only the item table
      * goes; a dirty flip on a window not in front rewrites that window's cell alone; a switch between windows at 352 and 480
-     * rewrites the programs' slot and the item table — never another record, and the lenses hold the block as kept.
+     * rewrites the programs' slot and the item table; the Depth alone, the programs' slot alone — never another record,
+     * and the lenses hold the block as kept.
      */
     @Test
     fun aChangeRewritesOnlyTheRecordItChanges_DW1a(): Unit = runBlocking {
@@ -473,6 +474,14 @@ class WheelResidentTest {
             b = assertNotNull(r.block())
             assertEquals(setOf("the programs", "the item table"), r.wheelWrites(from, b).map { it.substringBefore(" @") }.toSet(), "w1 at 352 → w2 at 480")
             assertEquals(r.onLoop { r.shell.layout.switcherPanel }, b.geo.panel, "the programs for w2's layout (480)")
+            // the Depth alone (the order unchanged): the programs alone, at the new disparity
+            from = r.images.size
+            r.shell.updateSettings { it.copy(depth = 4) }
+            r.until("the programs kept at Depth 4") { r.notes("wheel").any { it.startsWith("kept — the programs") && " d 4)" in it } }
+            r.done("Depth 4")
+            b = assertNotNull(r.block())
+            assertEquals(listOf("the programs"), r.wheelWrites(from, b).map { it.substringBefore(" @") }.distinct(), "Depth 8 → 4 in w2")
+            assertEquals(4, b.geo.d)
             r.assertOnTheLenses(b, "after the switches")
             println("DW-1a kept current: ${r.notes("wheel").filter { it.startsWith("kept") }}; the messages of the switch to 480: ${r.wheelMessages(from, b)}")
         } finally { r.close() }
@@ -514,7 +523,7 @@ class WheelResidentTest {
     fun aBlockPastTheCapIsNotPlacedAndSaidOnce_DW1a(): Unit = runBlocking {
         val end = regionEnd
         assertEquals(null, wm.damage.core.shell.WheelResident.refusal(end, CAP, null))
-        assertTrue(wm.damage.core.shell.WheelResident.refusal(end, CAP + 1, null)!!.contains("${CAP + 1} B"))
+        assertTrue(assertNotNull(wm.damage.core.shell.WheelResident.refusal(end, CAP + 1, null), "a block of ${CAP + 1} B is past the cap").contains("${CAP + 1} B"))
         assertTrue(wm.damage.core.shell.WheelResident.refusal(end, 10_000, end - 9_000) != null, "Main's staging over the base")
         assertEquals(null, wm.damage.core.shell.WheelResident.refusal(end, 10_000, wm.damage.core.shell.WheelResident.baseFor(end, 10_000)))
         val r = Rig(n = 24)

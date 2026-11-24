@@ -1820,7 +1820,8 @@ class TransitionShellTest {
             r.until("five strips proven") { r.shell.stagedProvenCount >= 5 && r.shell.isQuiescent() && !r.shell.cacheWorkInFlight }
             val st = r.t.state.value
             val reserve = (st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind)) until st.cacheSize
-            val before = r.onLoop { r.shell.stagedRecordsForTest() }.filter { it.key !is wm.damage.core.shell.MainStageKey && it.state == wm.damage.core.shell.StagedRecord.State.PROVEN }
+            // C3 DW-1a: Page staging's strips — not a tenant of Main's region (Main's records, the wheel's block)
+            val before = r.onLoop { r.shell.stagedRecordsForTest() }.filter { it.key !is wm.damage.core.shell.RegionStageKey && it.state == wm.damage.core.shell.StagedRecord.State.PROVEN }
             val offs = before.associateWith { it.off }
             println("X2T item 3: the reserve ${reserve.first}..${reserve.last}; strips " + before.joinToString { "${it.key} ${it.size4} B at ${it.off}" })
             r.shell.updateSettings(only("encode")); r.settle("Encode checked")
