@@ -214,6 +214,16 @@ Since then:
   a lane.
 - **What is already written is cleaned up before more is added** (`REPLAN.md` §17.3 item 0; measured by the line
   count going down).
+- **Usage is turns × context** (measured 2026-11-24 from the sessions' own transcripts: two thirds of the lanes' cost
+  was re-reading their own context, a quarter re-writing it after a wait outlived the cache; the lead was a third to a
+  half of everything, at a mean context of 543k tokens). So: the lead's window is capped (`autoCompactWindow`,
+  `.claude/settings.local.json`) and `private/RESUME.md` is current before any long wait. Lanes are the project's
+  agent types (`.claude/agents/`: `damage-builder`, `damage-reader`, `damage-packer`), which hold the standing lane
+  rules. A builder gets a PACK (`private/packs/<stage>.md`, about 300 lines, every line cited), not a reading list,
+  and a stage is cut so that its builder ends well under 400k tokens. Long runs go through `private/tools/gate` as
+  ONE background job, and a lane ends its turn only with a result. A finished branch lands through
+  `private/tools/land` (merge, rows, gate, `main`) as one job. The lead does not answer interim notices. Not used:
+  a one-hour cache for lanes (measured: no net saving).
 
 ## Clean-room: no GPL code in Damage
 
