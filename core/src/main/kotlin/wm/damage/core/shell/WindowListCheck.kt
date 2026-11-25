@@ -36,7 +36,8 @@ import wm.damage.core.wire.DamageMsg
  * - when it drew: after its last step the lens holds, in the rows' areas, the window's OWN paint at the moved cursor and,
  *   in the band's area (the band less its two rules), the entering row's row form at the area's first line; outside the
  *   areas nothing changed (the rules among them); the COMMIT that answers it writes END into the shadow — what
- *   [MainStaging.paintEndOf] puts into belief — byte for byte.
+ *   [MainStaging.paintEndOf] puts into belief — byte for byte;
+ * - at a plain list's end (the staged edge): nothing changes on either lens.
  * And per list and height the tap entry, report-only under `Taps · glasses` too (no press on a window list).
  */
 object WindowListCheck {
@@ -238,7 +239,16 @@ object WindowListCheck {
             if (a.mark != list.mark) fails += "$what: the report's mark ${a.mark}, not ${list.mark}"
             if (a.list != LIST) fails += "$what: the report names list ${a.list}, not $LIST"
             when (val f = list.predict(c, e)) {
-                is BoundList.Fire.Edge -> if (a.outcome != DamageMsg.APPLIED_EDGE || a.cursor != c) fails += "$what: predicted the edge, the lens said ${a.describe()}"
+                is BoundList.Fire.Edge -> {
+                    if (a.outcome != DamageMsg.APPLIED_EDGE || a.cursor != c) fails += "$what: predicted the edge, the lens said ${a.describe()}"
+                    // K1-2 stage 4c (decisions DA (c) 2, pin 10's cells): at a plain list's end the lens draws nothing (the
+                    // phone applies the end notch, the K1-2 spec §2.1) — both panels counted one notch's length after the fire
+                    lens.wake(lens.now + (ms.t + 1L) * e.period)
+                    for (arm in Arm.entries) MainLocalCheck.differ(lens.panel(arm), rig.truth(c, arm == Arm.LEFT), null).let { n ->
+                        if (n > 0) fails += "$what $arm: $n px changed on the lens at the staged edge (it draws nothing)"
+                    }
+                    lines += "$what: the staged edge, nothing drawn on either lens"
+                }
                 is BoundList.Fire.Refused -> fails += "$what: predicted refused ${f.reason} (${a.describe()})"
                 is BoundList.Fire.Drew -> {
                     val wraps = !e.isTap && c + e.step !in 0 until ms.rows
