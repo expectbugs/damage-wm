@@ -10836,17 +10836,19 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        st.effects && transition == null && !switcher.open && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS",
-    "        st.effects && !switcher.open && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS"
+    "        if (transition != null) return windowList.mainBindPaintUnderRun(st)",
+    "        // (mutant) the whole lane under a run"
    ]
   ],
   "tests": [
-   "*WindowListShellTest.aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a"
+   "*WindowListShellTest.aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a",
+   "*WindowListShellTest.theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
   ],
   "expect": [
-   "aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a"
+   "aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a",
+   "theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
   ],
-  "note": "pin 11 / spec §5.3: the window list's lane runs under a transition — the new level staged and SET inside the run [re-pointed at C3 DW-1b-1: the lane's gate reads the switcher too]",
+  "note": "pin 11 / spec §5.3 (K1-2 stage 4a re-points it at the lift): the window list's whole lane runs under a transition — the new level laid out, written and SET inside the run",
   "from": "K12S3a"
  },
  {
@@ -11734,8 +11736,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        st.effects && transition == null && !switcher.open && st.cacheSize",
-    "        st.effects && transition == null && st.cacheSize"
+    "        if (!st.effects || switcher.open || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS",
+    "        if (!st.effects || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS"
    ]
   ],
   "tests": [
@@ -11840,5 +11842,99 @@
   ],
   "note": "decisions DE (the second review of K1-2, finding 1): a report handled between a change of the list in front and the pump that tells the rules is handed the new list's row — adopted onto it (Main and a window list; the wheel and either)",
   "from": "DW-1b-1"
+ },
+ {
+  "id": "K12S4a-no-paint-under-run",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (transition != null) return windowList.mainBindPaintUnderRun(st)",
+    "        if (transition != null) return false"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a",
+   "*WindowListShellTest.aNotchInTheInHalfOfASelectIntoANewLevelGoesAsToday_K12S4a"
+  ],
+  "expect": [
+   "theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a",
+   "aNotchInTheInHalfOfASelectIntoANewLevelGoesAsToday_K12S4a"
+  ],
+  "note": "K1-2 stage 4a (decisions DA (c) 3; the K1-2 spec §5.3, §6): nothing of the window list's lane under a transition — the arriving list's rows are first painted after the run, so its first write waits a paint turn per row",
+  "from": "K12S4a"
+ },
+ {
+  "id": "K12S4a-layout-under-run",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (paintOnly) {\n            if (ct == null ||",
+    "        if (false) {\n            if (ct == null ||"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
+  ],
+  "expect": [
+   "theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
+  ],
+  "note": "K1-2 stage 4a: the paint under a run goes on to the layout (the records wanted) inside the run — every write is to follow the run's end, from a staging laid out after it",
+  "from": "K12S4a"
+ },
+ {
+  "id": "K12S4a-count-after-paint",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (form == wm.damage.core.motion.ListForm.STRIP_WINDOWS) MainStaging.windowCountRefusal(lay, n)?.let {",
+    "        if (false) MainStaging.windowCountRefusal(lay, n)?.let {"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aListRefusedForItsRowCountPaintsNoRow_K12S4a"
+  ],
+  "expect": [
+   "aListRefusedForItsRowCountPaintsNoRow_K12S4a"
+  ],
+  "note": "decisions DE (the second review of K1-2, finding 2): a window list's row count checked only at the layout — every row painted first (under a transition too), and painted whole again at each change of what its rows draw, a retry that cannot succeed",
+  "from": "K12S4a"
+ },
+ {
+  "id": "K12S4a-live-list-dropped-again",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "differ == compared && allChanged !== ms && f.id != allChangedFor) { allChanged = ms; allChangedFor = f.id; post(Msg.Pump) }",
+    "differ == compared && allChanged !== ms) { allChanged = ms; allChangedFor = f.id; post(Msg.Pump) }"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aLiveListIsStagedAnewOnceThenKeptRowByRow_K12S4a",
+   "*WindowListShellTest.everyRowOnScreenChanged*"
+  ],
+  "expect": [
+   "aLiveListIsStagedAnewOnceThenKeptRowByRow_K12S4a"
+  ],
+  "note": "decisions DF (the focused read of K1-2 3b's fixes, finding 1): every all-changed compose of a bound window list drops it — a live list (Torrents' speeds) staged whole again at every refresh, the mark new each time",
+  "from": "K12S4a"
+ },
+ {
+  "id": "K12S4a-no-atlas-repaint-under-run",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (ct == null || mainBindPaintVersions == (ct.wantVersion to ct.seenVersion) || cacheWritesHeld() || mainBind.paints >= MainBinding.PAINTS_MAX) return false",
+    "            return false"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a",
+   "*WindowListShellTest.aNotchInTheInHalfOfASelectIntoANewLevel*"
+  ],
+  "expect": [
+   "theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
+  ],
+  "note": "K1-2 stage 4a: no atlas-first repaint under a run — rows whose paint met characters the atlas did not hold are painted again only after the run, so the paint made under it is thrown away and the first write waits a paint turn per row",
+  "from": "K12S4a"
  }
 ]
