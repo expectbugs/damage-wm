@@ -45,8 +45,9 @@ class Notifications(private val text: TextRasterizer) {
         val answer: Boolean = false,
         /** Build W (R6 P11, option A): the HOST Settings category whose own rows already gated this notice
          *  (`"Bastion"`, the bus alert watcher, which has a category before it has a window — `Shell.hostCategories`,
-         *  `Shell.notifyFromHost`). Shown whatever Global `Notify · Damage` says, like an app's notice; it names no
-         *  app, so a tap only dismisses it. Saved and restored with the notice. */
+         *  `Shell.notifyFromHost`). Shown whatever Global `Notify · Damage` says, like an app's notice — except
+         *  [GLOBAL] itself (R-b H2), which that row gates; it names no app, so a tap only dismisses it. Saved and
+         *  restored with the notice. */
         val gatedBy: String? = null,
         /** Build S1-2 Q3: the PC record's notice this box shows (its id and occurrence), or null for every notice
          *  raised on this host as before. A gesture on it sends its reading effect (`Shell.dismissNotice`); a move
@@ -576,6 +577,10 @@ class Notifications(private val text: TextRasterizer) {
     fun barShare(span: Int): Int = if (focused) span else span * graceStep / GRACE_STEPS / 4 * 4
 
     companion object {
+        /** R-b H2: the category a notice of Damage's own names (`Notice.gatedBy`; the health record's): gated by
+         *  Global's `Notify · Damage`, unlike a host category's, whose own rows gated it. */
+        const val GLOBAL = "Global"
+
         /** The silent/exclusive box's width (§1.5) — narrower than the window
          *  form's [Layout.notificationMax], which is why [bodyLines] must know
          *  which form it is wrapping for. */

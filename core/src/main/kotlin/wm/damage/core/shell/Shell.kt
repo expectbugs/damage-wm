@@ -294,8 +294,12 @@ class Shell(
     private var loopJob: kotlinx.coroutines.Job? = null
     private var collectorLaunched = false
 
-    /** Host-link status line for the status bar (set by the content client). */
-    @Volatile var hostState: String = ""
+    /** R-b H2: the link cell's tag — the worst health line's, set by the phone's `PhoneHealth` on a change only; its
+     *  age is composed at each chrome build ([HostTag.text]), so it moves with the clock cell's minute. */
+    @Volatile var hostTag: HostTag = HostTag.NONE
+
+    /** R-b H2: the status cell's word as the last pump derived it, for the health view (any thread). */
+    val statusWordNow: String get() = statusWord
 
     /** The host's build, as the journal records it at every session start
      *  (§41): the APK's version or the desktop's git stamp — a journal read
@@ -2568,8 +2572,11 @@ class Shell(
             // is gated by that app's own rows in its own Settings category, never by a Global row
             // (P7 item 1, OS-1); S1-5 S removed the hidden SMS and MAIL gate (no row set it). An answer to Adam's own gesture
             // (`Notice.answer`, P7 item 2) is not a courtesy event either. A host category's notice
-            // (`Notice.gatedBy`, build W: the bus watcher's "Bastion") was gated by that category's own rows.
-            "DAMAGE" -> n.appId != null || n.answer || n.gatedBy != null || settings.notifyDamage
+            // (`Notice.gatedBy`, build W: the bus watcher's "Bastion") was gated by that category's own rows. R-b H2 (the
+            // lead's ruling, `RB-decisions.md` Part B): a notice that names Global (the health record's) is Damage's own,
+            // and Global's row for those is this one.
+            "DAMAGE" -> n.appId != null || n.answer || (n.gatedBy != null && n.gatedBy != Notifications.GLOBAL) ||
+                settings.notifyDamage
             else -> true
         }
     }
@@ -9415,7 +9422,7 @@ class Shell(
             compass = null,
             linkBars = if (st.connected) (if (st.leaseHeld) 4 else 2) else 0,
             linkDbm = st.rssiDbm,
-            hostState = hostState,
+            hostState = hostTag.text(System.currentTimeMillis()),
         )
     }
 
