@@ -6270,10 +6270,12 @@ class Shell(
 
     /** K1-2 stage 4a: under a transition, one row of the arriving list's staging painted (loop work only) — never for a list
      *  staged already (a kept staging's SETs ride the held frame; its rows' repaint and re-stage wait as today), never while
-     *  [mainBindBlocked] gives a reason or for a key refused ([mainBindStage] with `paintOnly`: it stops before the layout,
-     *  after which the records are wanted). True when a row was painted. */
+     *  [mainBindBlocked] gives a reason or for a key refused, and, as Main's paint, not while the atlas is being written
+     *  (§73: the atlas goes first) — [mainBindStage] with `paintOnly` stops before the layout, after which the records are
+     *  wanted. True when a row was painted. */
     private fun ListBind.mainBindPaintUnderRun(st: LinkState): Boolean =
-        mainBind.staging == null && mainBindBlocked(st) == null && mainBindStage(st, System.currentTimeMillis(), paintOnly = true)
+        mainBind.staging == null && mainBindBlocked(st) == null && atlasInFlight == null && atlasQueue.isEmpty() && !atlasLapsedOwed &&
+            !atlasCheckInFlight && mainBindStage(st, System.currentTimeMillis(), paintOnly = true)
 
     /** Test introspection, LOOP-ONLY (read inside [sampleIdle]): Main's staging and its counts; what Main offers and its row. */
     internal val mainBinding: MainBinding get() = mainList.mainBind
@@ -6575,7 +6577,16 @@ class Shell(
             post(Msg.Pump)
             return true
         }
-        if (paintOnly) return false                      // K1-2 stage 4a: the layout and every write after the run
+        // K1-2 stage 4a: under a run the layout and every write wait for its end; the atlas-first repaint below goes under it
+        // too where the atlas may extend now (not under a glyph run, which holds the atlas to its end), so the rows laid out
+        // after the run are already painted once the atlas holds what they drew
+        if (paintOnly) {
+            if (ct == null || mainBindPaintVersions == (ct.wantVersion to ct.seenVersion) || cacheWritesHeld() || mainBind.paints >= MainBinding.PAINTS_MAX) return false
+            mainBind.paints++; mainBindPaint = null
+            note("$who's rows drew characters the atlas does not hold yet — the atlas goes first, then they are painted again (under a transition)")
+            post(Msg.Pump)
+            return true
+        }
         mainBindPaint = null
         if (ct != null && mainBindPaintVersions != (ct.wantVersion to ct.seenVersion) && ++mainBind.paints <= MainBinding.PAINTS_MAX) {
             // §73, Page staging's rule: the atlas goes first, and Main is painted again once it holds what the paint drew
