@@ -10569,8 +10569,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (ms != null && ms.regionEnd == wheel.regionEnd && ms.end > b.base)\n            wheelDrop(",
-    "        if (ms != null && ms.regionEnd == wheel.regionEnd && ms.end > b.base && false)\n            wheelDrop("
+    "        if (ms != null && ms.end > b.base)\n            wheelDrop(",
+    "        if (ms != null && ms.end > b.base && false)\n            wheelDrop("
    ]
   ],
   "tests": [
@@ -10579,7 +10579,7 @@
   "expect": [
    "mainsStagingOverTheBlockDropsItAndASmallerOnePlacesItAgain_DW1a"
   ],
-  "note": "C3 DW-1a (decisions BD, Main wins): Main's staging laid out over the placed block leaves the block in the registry",
+  "note": "C3 DW-1a (decisions BD, Main wins): Main's staging laid out over the placed block leaves the block in the registry [re-pointed at DW-1aF: the region-end comparison removed (V1-DW1a R1)]",
   "from": "DW-1a"
  },
  {
@@ -10914,5 +10914,95 @@
   ],
   "note": "decisions CW: the faces one atlas message extends go out in the face map's own order (a hash order that follows the Face enum's identity hash, which differs between builds) — the key removed at Shell.atlasGrow's extension loop",
   "from": "K12S4d"
+ },
+ {
+  "id": "DW1aF-wheel-in-mains-gap",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (mainList.mainBind.records.any { it.state == StagedRecord.State.SENT || it.state == StagedRecord.State.ACKED }) return false",
+    "        if (false && mainList.mainBind.records.any { it.state == StagedRecord.State.SENT || it.state == StagedRecord.State.ACKED }) return false"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.mainIsOfferedBeforeTheBlocksFirstPiece*"
+  ],
+  "expect": [
+   "mainIsOfferedBeforeTheBlocksFirstPieceWhenItsReadingIsPending_DW1aF"
+  ],
+  "note": "C3 DW-1aF (V1-DW1a F1): the wheel's lane does not hold while Main's base records are written and not yet counted - the block's pieces go in the pace after a pending reading, ahead of Main's count (5f21143c's lane)",
+  "from": "DW-1aF"
+ },
+ {
+  "id": "DW1aF-live-not-wheel",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            wheel.liveChanged()",
+    "            if (false) wheel.liveChanged()"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aChangeOfTheLiveFaces*"
+  ],
+  "expect": [
+   "aChangeOfTheLiveFacesPaintsTheCellsAgain_DW1aF"
+  ],
+  "note": "C3 DW-1aF (V1-DW1a F2): a change of the live faces never reaches the wheel - its cells keep their paints under the old set (5f21143c's atlasLive)",
+  "from": "DW-1aF"
+ },
+ {
+  "id": "DW1aF-live-paint-only",
+  "file": "shell/WheelResident.kt",
+  "edits": [
+   [
+    "    fun liveChanged() { painted.clear(); paintedAgain = null; wantFor = null; sized = null; refusedFor = null }",
+    "    fun liveChanged() { painted.clear(); paintedAgain = null; sized = null; refusedFor = null }"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aChangeOfTheLiveFaces*"
+  ],
+  "expect": [
+   "aChangeOfTheLiveFacesPaintsTheCellsAgain_DW1aF"
+  ],
+  "note": "C3 DW-1aF (V1-DW1a F2, the review's one line): the cells painted again at a change of the live faces, but the placed block's want stays current for the unchanged keys - never rebuilt from the new paints",
+  "from": "DW-1aF"
+ },
+ {
+  "id": "DW1aF-live-size-kept",
+  "file": "shell/WheelResident.kt",
+  "edits": [
+   [
+    "    fun liveChanged() { painted.clear(); paintedAgain = null; wantFor = null; sized = null; refusedFor = null }",
+    "    fun liveChanged() { painted.clear(); paintedAgain = null; wantFor = null; }"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aChangeOfTheLiveFaces*"
+  ],
+  "expect": [
+   "<no pin: an unplaced block's size and refusal kept across a change of the live faces - they matter only where the new paints' bytes differ in size before a placement (Main's staging meeting the block, then a notice); no rig here changes a cell's bytes at a live change (F2's pin: no wheel write); declared>"
+  ],
+  "note": "C3 DW-1aF (V1-DW1a F2, the class): the measured size and a refusal of the old paints kept across a change of the live faces",
+  "from": "DW-1aF"
+ },
+ {
+  "id": "DW1aF-exclusive-d0",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun wheelOpenD(st: LinkState): Int = if (!st.effects) 0 else if (settings.depth != 0) settings.depth\n        else (if (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) current?.let { appDepth(it) } else null) ?: settings.depth",
+    "    private fun wheelOpenD(st: LinkState): Int = if (!st.effects || mode == Mode.EXCLUSIVE) 0 else if (settings.depth != 0) settings.depth else contentDepth()"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.anExclusiveVisit*"
+  ],
+  "expect": [
+   "anExclusiveVisitWritesNothingOfTheBlock_DW1aF"
+  ],
+  "note": "C3 DW-1aF (V1-DW1a F3): on an exclusive screen the wheel's want is at d 0 - the programs' slot rewritten on entering it and on leaving it (5f21143c's wheelOpenD)",
+  "from": "DW-1aF"
  }
 ]
