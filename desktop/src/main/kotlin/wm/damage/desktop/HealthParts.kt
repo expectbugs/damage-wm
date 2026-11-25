@@ -157,7 +157,7 @@ class HealthParts(
             since = up.raisedAt)
             else Reading("off: no backupDir in the config", HealthBand.ATTENTION, HealthCore.SHOWN_ONLY)
         if (up != null) return Reading(up.text, HealthBand.ALARM,
-            if (c.running != null) "nothing is cancelled; the next daily copy runs once this one has ended"
+            if (c.running != null) "nothing is cancelled; a daily copy due while this one runs is skipped"
             else "the next daily copy at ${c.at} tries again", tag = COPY_TAG, alert = BastionWatcher.COPY, since = up.raisedAt)
         val read = copyRead ?: return null
         read.failed?.let {
@@ -324,7 +324,8 @@ class HealthParts(
             val off = cards.filter { str(it, "availability") != "live" }
             if (off.isEmpty()) return Reading("all ${cards.size} live", HealthBand.NORMAL, SOURCES_DOING)
             return Reading(off.joinToString("; ") { c ->
-                "${str(c, "name") ?: str(c, "window")}: ${str(c, "availability")}" + (str(c, "reason")?.let { " ($it)" } ?: "")
+                val a = str(c, "availability")
+                "${str(c, "name") ?: str(c, "window")}: $a" + (str(c, "reason")?.takeIf { it != a }?.let { " ($it)" } ?: "")
             }, HealthBand.ATTENTION, SOURCES_DOING)
         }
 

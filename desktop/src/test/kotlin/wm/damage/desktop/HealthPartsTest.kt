@@ -298,5 +298,7 @@ class HealthPartsTest {
             buildJsonObject { put("name", "Torrents"); put("availability", "waiting"); put("reason", "no answer from qBittorrent yet") })).let {
             assertEquals(HealthBand.ATTENTION to "Torrents: waiting (no answer from qBittorrent yet)", it.band to it.text)
         }
+        assertEquals("Reader: loading", HealthParts.sources(listOf(buildJsonObject {
+            put("name", "Reader"); put("availability", "loading"); put("reason", "loading") })).text, "a reason that repeats the word is not said twice")
     }
 }
