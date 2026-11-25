@@ -109,6 +109,8 @@ const ICONS = {
   flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
   // S1-3: Tmux — a prompt in a frame (TMUX.md §3.6's TERMINAL)
   terminal: 'M3 4h18v16H3zM7 9l3 3-3 3M12 15h5',
+  // S1-5 W: Games — a playing card with a diamond (Hold'em)
+  games: 'M6 3h12v18H6zM12 7.5l3 4.5-3 4.5-3-4.5z',
 };
 
 /** A small line icon drawn in the page's own colours. */

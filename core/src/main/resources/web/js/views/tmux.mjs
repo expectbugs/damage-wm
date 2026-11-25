@@ -13,8 +13,9 @@
 // page's).
 
 import { h, fill, keepFocus } from '../dom.mjs';
-import { atLeast, hhmm } from '../proto.mjs';
+import { hhmm } from '../proto.mjs';
 import * as M from '../tmux-model.mjs';
+import * as R from '../rows.mjs';
 import * as T from '../term-render.mjs';
 import { terminalSurface } from '../terminal.mjs';
 
@@ -522,22 +523,10 @@ export function tmuxView(ctx) {
   }
 
   function setRow(row) {
-    const v = M.rowValue(row, rec, pend);
     const need = row.level || 'full';
-    const label = h('span', { text: row.label });
-    const words = row.type === 'bool' ? (v === false ? 'off' : 'on') : (M.optionsOf(row).find(([id]) => String(id) === String(v)) || [v, String(v)])[1];
-    if (!atLeast(ctx.S.level, need)) return h('div', { class: 'trow' }, label, h('span', { text: words }), h('span', { class: 'note', text: `changing it needs level ${need}` }));
-    const why = ctx.canAct(need);
-    const send = (value) => sendRecord(M.setDraft(row, value), row.id, row.label);
-    const key = `set:${row.id}`;
-    // Alerts: absent is on (TMUX.md verdict 3)
-    const ctl = row.type === 'bool'
-      ? h('input', { type: 'checkbox', checked: v !== false, 'data-key': key, focus: true, class: why ? 'dim' : null, 'data-why': why, on: { change: (e) => send(!!e.target.checked) } })
-      : h('select', { 'data-key': key, focus: true, class: why ? 'dim' : null, 'data-why': why, on: { change: (e) => {
-        const o = M.optionsOf(row).find(([id]) => String(id) === e.target.value);
-        send(o ? o[0] : e.target.value);
-      } } }, M.optionsOf(row).map(([id, l]) => h('option', { value: id, selected: String(id) === String(v) }, l)));
-    return h('label', { class: 'trow' }, label, ctl, row.scope === 'glasses' ? h('span', { class: 'note', text: 'the glasses' }) : null);
+    // Alerts: absent is on (TMUX.md verdict 3; the core's row says so in its value)
+    return R.settingRow(row, M.rowValue(row, rec, pend), { level: ctx.S.level, need, why: ctx.canAct(need),
+      send: (value) => sendRecord(M.setDraft(row, value), row.id, row.label), note: row.scope === 'glasses' ? 'the glasses' : null });
   }
 
   function newSession(host) {

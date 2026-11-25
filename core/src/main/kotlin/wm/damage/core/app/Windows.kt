@@ -31,39 +31,45 @@ object Windows {
         val program: Set<String> = emptySet(),
         /** S1-2 Q3: the window's own rule at apply time, or null. */
         val rule: ApplyRule? = null,
+        /** S1-5 W: the window's own settings rows in [WindowState] (its core's `settings` function, the rows its page and
+         *  description carry), or null when its core describes none. `desc/settings` composes them ([PcScopes]). */
+        val rows: ((WindowState) -> kotlinx.serialization.json.JsonArray)? = null,
     )
 
     /** The converted windows, in Main's order. */
     val ALL: List<Entry> = listOf(
-        Entry(ReaderCore.WINDOW, "Reader", 1, ReaderCore.ACTIONS, ReaderCore::levelOf, Levels.VIEW),
+        Entry(ReaderCore.WINDOW, "Reader", 1, ReaderCore.ACTIONS, ReaderCore::levelOf, Levels.VIEW, rows = ReaderCore::settings),
         // S1-2 Q3: the PC's notice record (C§7.1; decisions A.1): a pseudo-window with no card and no scopes of its own
         Entry(Notices.WINDOW, "Notices", 1, Notices.ACTIONS, Notices::levelOf, Levels.VIEW, rule = Notices.RULE),
         // S1-3 B16: Tmux (C§12; min full): its rows and mutes in the record; every key and session action a program op
         // into tmux, never queued. After Reader, as the glasses' Main lists it
         Entry(wm.damage.core.windows.tmux.TmuxCore.WINDOW, "Tmux", 1, wm.damage.core.windows.tmux.TmuxCore.ACTIONS,
-            wm.damage.core.windows.tmux.TmuxCore::levelOf, Levels.FULL, program = wm.damage.core.windows.tmux.TmuxCore.PROGRAM),
+            wm.damage.core.windows.tmux.TmuxCore::levelOf, Levels.FULL, program = wm.damage.core.windows.tmux.TmuxCore.PROGRAM,
+            rows = wm.damage.core.windows.tmux.TmuxCore::settings),
         // S1-2 Q5: Files (C§12; min full, C§10.4), its program ops into the filesystem; its rule keeps the core's clear of
         // a cut to the clip it names (L1 F2: the rows take what they are given; every reader drops a bad value). Before
         // Torrents, as the glasses' Main lists them (S1-2 R2 #15)
         Entry(wm.damage.core.windows.files.FilesCore.WINDOW, "Files", 1, wm.damage.core.windows.files.FilesCore.ACTIONS,
             wm.damage.core.windows.files.FilesCore::levelOf, Levels.FULL, program = wm.damage.core.windows.files.FilesCore.PROGRAM,
-            rule = wm.damage.core.windows.files.FilesCore.RULE),
+            rule = wm.damage.core.windows.files.FilesCore.RULE, rows = wm.damage.core.windows.files.FilesCore::settings),
         // S1-2 Q4: Torrents (C§12): its rows and search recents in the record; its program actions go into qBittorrent,
         // the tracker and `xdg-open`, never queued
         Entry(TorrentsCore.WINDOW, "Torrents", 1, TorrentsCore.ACTIONS, TorrentsCore::levelOf, Levels.VIEW,
-            program = TorrentsCore.PROGRAM),
+            program = TorrentsCore.PROGRAM, rows = TorrentsCore::settings),
         // S1-3 B16: Feed (C§12): its reading marks, places and rows in the record; refresh and browse go to the sites
         Entry(wm.damage.core.windows.feed.FeedCore.WINDOW, "Feed", 1, wm.damage.core.windows.feed.FeedCore.ACTIONS,
-            wm.damage.core.windows.feed.FeedCore::levelOf, Levels.VIEW, program = wm.damage.core.windows.feed.FeedCore.PROGRAM),
+            wm.damage.core.windows.feed.FeedCore::levelOf, Levels.VIEW, program = wm.damage.core.windows.feed.FeedCore.PROGRAM,
+            rows = wm.damage.core.windows.feed.FeedCore::settings),
         // S1-4 K: Music (C§12): its queue, place and output written by the host that plays (its rule), its rows beside
-        // them; every transport and queue act a program op through the PC's door (`MusicProgram`)
+        // them; every transport and queue act a program op through the PC's door (`MusicProgram`). Its core describes no
+        // rows (its glasses' rows live in the presenter), so `desc/settings` carries only its style rows
         Entry(wm.damage.core.windows.music.MusicCore.WINDOW, "Music", 1, wm.damage.core.windows.music.MusicCore.ACTIONS,
             wm.damage.core.windows.music.MusicCore::levelOf, Levels.VIEW, program = wm.damage.core.windows.music.MusicCore.PROGRAM,
             rule = wm.damage.core.windows.music.MusicCore.RULE),
         // S1-5 G: Games (C§12): its world (the table in play, the bankroll, the world and every character) and its rows,
         // written by the one engine host at its settle points; no program actions, no rule
         Entry(wm.damage.core.windows.games.GamesCore.WINDOW, "Games", 1, wm.damage.core.windows.games.GamesCore.ACTIONS,
-            wm.damage.core.windows.games.GamesCore::levelOf, Levels.VIEW),
+            wm.damage.core.windows.games.GamesCore::levelOf, Levels.VIEW, rows = wm.damage.core.windows.games.GamesCore::settings),
         // S1-5 S: Settings (C§6): one item per stored field and one per app's style, set by whichever surface he uses
         // (the latest input wins); no card, no program actions, no rule. Last, as the glasses' Main lists it
         Entry(wm.damage.core.shell.SettingsCore.WINDOW, "Settings", 1, wm.damage.core.shell.SettingsCore.ACTIONS,

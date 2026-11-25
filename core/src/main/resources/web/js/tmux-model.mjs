@@ -15,6 +15,7 @@
 
 import { atLeast, hhmm } from './proto.mjs';
 import { Pending as RecordPending } from './record.mjs';
+import * as R from './rows.mjs';
 import { dur, ago } from './torrents-model.mjs';
 
 export { dur, ago };
@@ -131,16 +132,12 @@ export function mutedOf(s, rec, pend) {
   return v === undefined ? !!s.muted : !!v;
 }
 
-export function rowValue(row, rec, pend) {
-  if (pend && pend.has(row.id)) return pend.get(row.id);
-  const v = rec && rec.value(W, row.id);
-  return v === undefined ? row.value : v;
-}
-export const optionsOf = (row) => (row.options || []).map((o) => (o && typeof o === 'object' ? [o.id, o.label ?? str(o.id)] : [o, str(o)]));
+/** A row's value and its op (the shared rows module, on Tmux's record). */
+export const rowValue = (row, rec, pend) => R.rowValue(W, row, rec, pend);
 
 /** The mute op (B8's `mute.<host>/<name>`, bool; B9 names one record action `mute` — ASSUMED for both ways). */
 export const muteDraft = (s, on) => ({ window: W, action: 'mute', targets: [muteName(s)], result: on });
-export const setDraft = (row, value) => ({ window: W, action: 'set', targets: [row.id], result: value });
+export const setDraft = (row, value) => R.setDraft(W, row, value);
 
 // ---- actions (spec §4.2: every one at level full; the window's minimum is full) ----
 
