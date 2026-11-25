@@ -38,6 +38,14 @@ import wm.damage.core.wire.EvenHubMsg
  * each second — and a pause ends it, the panel then the truth everywhere. One clock: the player's, the window's and the
  * model's engine read the same one.
  */
+/** A packed lens buffer's bytes inside [box] (whole bytes: two pixels each). */
+private fun cut(packed: ByteArray, box: Rect): ByteArray {
+    val stride = (Geometry.PANEL_W + 1) / 2
+    val o = java.io.ByteArrayOutputStream()
+    for (y in box.y until box.bottom) o.write(packed, y * stride + box.x / 2, (box.w + 1) / 2)
+    return o.toByteArray()
+}
+
 class MusicLaneShellTest {
 
     private class Lib : wm.damage.core.windows.music.MusicLibrary {
@@ -192,14 +200,6 @@ class MusicLaneShellTest {
                 surface.fillRect(x + i * 8, y + 12 - h, 6, h, level)
             }
         }
-    }
-
-    /** A packed lens buffer's bytes inside [box] (whole bytes: two pixels each). */
-    private fun cut(packed: ByteArray, box: Rect): ByteArray {
-        val stride = (Geometry.PANEL_W + 1) / 2
-        val o = java.io.ByteArrayOutputStream()
-        for (y in box.y until box.bottom) o.write(packed, y * stride + box.x / 2, (box.w + 1) / 2)
-        return o.toByteArray()
     }
 
     /** The decoded level at (x, y) of a packed lens buffer. */
