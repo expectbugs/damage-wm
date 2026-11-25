@@ -472,7 +472,7 @@ class WheelBindTest {
     }
 
     /**
-     * The amendment's §7.1 "An older cell binds" (CK A4): the chord and a dirty flip in one loop turn — the wheel binds at the
+     * The amendment's §7.1 "An older cell binds" (CK A4): a dirty flip and the chord with the lanes held — the wheel binds at the
      * open with the cell as written (not a cell's picture: the item table and the programs are current); a notch lands on the
      * dirty window and after it the panel equals the switcher's paint (the held repaint); nothing of the block is written while
      * the wheel is bound, and the cell goes after the close.
@@ -485,12 +485,21 @@ class WheelBindTest {
             val b = assertNotNull(r.block())
             val from = r.images.size
             val at = r.right.size
-            r.onLoop { r.chord(); r.rows[0].dirty = true; r.shell.services.requestRender(r.rows[0]) }
+            // the flip and the chord with no room at the pumps: the idle lanes cannot paint or write w0's cell before the
+            // open (the first run without the hold wrote it there, and the open waited for its count — the case of a
+            // keep-current write in flight, not this one); the open's poll offers the wheel all the same
+            try {
+                r.shell.noRoomAfterPollForTest = { true }
+                r.onLoop { r.rows[0].dirty = true; r.shell.services.requestRender(r.rows[0]) }
+                delay(300)
+                r.chord()
+                r.until("the wheel open and offered") { r.shell.switcherIsOpen && r.onLoop { r.shell.slot0ForTest() } == "wheel" }
+            } finally { r.shell.noRoomAfterPollForTest = null }
             r.bound("the open")
             assertNotNull(bindBatch(r, at), "list 2 bound")
             notch(r, CfwModes.EV_UPROLL, "a notch off the dirty window's row")
             notch(r, CfwModes.EV_DOWNROLL, "a notch back onto it (END draws its cell as written)")
-            assertEquals(emptyList(), r.cacheWrites(from).filter { (off, _) -> off >= b.base && off < b.end }.map { it.first }, "nothing of the block while bound")
+            assertEquals(emptyList(), r.cacheWrites(from).filter { (off, _) -> off >= b.base && off < b.end }.map { it.first }, "nothing of the block while bound: ${r.notes("wheel").takeLast(4)}")
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             r.until("closed") { !r.shell.switcherIsOpen }
             r.done("after the close")
