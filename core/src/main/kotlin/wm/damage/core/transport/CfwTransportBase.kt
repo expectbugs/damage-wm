@@ -1043,6 +1043,11 @@ abstract class CfwTransportBase(
     @Volatile var localZone: java.time.ZoneId = java.time.ZoneId.systemDefault()
     @Volatile private var record = readRecord()
     private val c1Stage: Int get() = record.stage
+
+    /** R-b H2: the ladder as the health view reads it (any thread, volatile reads): the stored stage, the stage the
+     *  latest arming left ([ladderArmedStage]), and a stage-4/5 hold-back's reason while one is in force. */
+    data class Ladder(val stored: Int, val armed: Int, val heldBack: String?)
+    val ladder: Ladder get() = record.let { r -> Ladder(r.stage, ladderArmedStage, r.holdBackAt?.let { r.holdBackWhy }) }
     private val recordLock = Any()
 
     /** Build C1-P: the record [c1StageFile] holds. No store, or no file yet: the default (stage 0), nothing said. A file

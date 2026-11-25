@@ -62,6 +62,7 @@ fun startHealth(appNet: AppNet, appHost: AppHost, notices: NoticeCore, watcher: 
                 reader: ReaderCore, dataDir: Path, scope: CoroutineScope): HealthParts {
     val core = HealthCore(appHost, notices)
     appNet.register(core)
+    appNet.health = core                                       // R-b H2: the phone's `health` message lands here
     val stamp = "desktop " + (HealthParts::class.java.getResource("/damage-build.txt")?.readText()?.trim() ?: "unstamped")
     return HealthParts(core, appHost, appNet, watcher, alerts, reader, dataDir).also { it.start(scope, stamp) }
 }
@@ -251,7 +252,9 @@ class HealthParts(
             val of = "of ${size(total)}"
             return when {
                 free < DISK_ALARM_FREE_PCT -> Reading("${tenths(free)} % free $of", HealthBand.ALARM, DISK_DOING,
-                    tag = "disk ${floor(100 - free).toInt()}%")
+                    // R-b H2: the link cell's vocabulary (`HostTag`) is measured with two digits, so a full disk's tag
+                    // reads 99 % too (a third character does not fit JetBrains Mono's host half); the text is exact
+                    tag = "disk ${minOf(99, floor(100 - free).toInt())}%")
                 free < DISK_ATTENTION_FREE_PCT -> Reading("${tenths(free)} % free $of", HealthBand.ATTENTION, DISK_DOING)
                 else -> Reading("${floor(free).toInt()} % free $of", HealthBand.NORMAL, DISK_DOING)
             }

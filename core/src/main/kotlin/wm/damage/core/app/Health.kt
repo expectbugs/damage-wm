@@ -6,8 +6,10 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import wm.damage.core.util.Log
 
@@ -60,6 +62,19 @@ data class HealthLine(
         put("doing", doing)
         tag?.let { put("tag", it) }
         alert?.let { put("alert", it) }
+    }
+
+    companion object {
+        /** A line as [json] wrote it (R-b H2: the phone's `health` message and the phone's copy of `desc/health`), or
+         *  null when its id, band or `since` does not decode (the caller says so). */
+        fun parse(o: JsonObject): HealthLine? {
+            fun s(k: String) = (o[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            fun n(k: String) = (o[k] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
+            val band = HealthBand.entries.firstOrNull { it.wire == s("band") } ?: return null
+            return HealthLine(s("id") ?: return null, s("label") ?: "", s("text") ?: "", band, n("since") ?: return null,
+                n("asOf") ?: 0L, s("source") ?: "", s("state") ?: "", s("doing") ?: "", s("reason"), s("tag"), s("alert"),
+                n("receivedAt"))
+        }
     }
 }
 
@@ -241,9 +256,10 @@ class HealthCore(
          *  health notice waits the same): how long a line is in alarm, with no alert of its own, before its one notice.
          *  His answer changes this constant and nothing else. */
         const val NOTICE_AFTER_MS = 5 * 60_000L
-        /** The notices' source and the Settings category that names them (shown whatever `Notify · Damage` says). */
+        /** The notices' source and the Settings category that names them: Global, whose `Notify · Damage` gates them on
+         *  the glasses (R-b H2; the shell's one gate, `Shell.noticeAllowed`). */
         const val SOURCE = "health"
-        const val GATED_BY = "Global"
+        const val GATED_BY = wm.damage.core.shell.Notifications.GLOBAL
 
         const val PC = "pc"
         const val PHONE = "phone"
