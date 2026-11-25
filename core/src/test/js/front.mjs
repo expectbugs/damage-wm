@@ -249,6 +249,11 @@ export function realScenes(book) {
     'real-health-back': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
       { fetch: '/__cut' }, { wait: '.hl-age' }, { fetch: '/__ctl?health-attention' }, { fetch: '/__wait?ms=1000' }, { fetch: '/__mend' },
       reach, { wait: '.hl-summary.band-attention' }, { gone: '.hl-age' }, { wait: '.hview dl.facts' }] },
+    // the lower rows (a long error wraps at 390 px) and the diagnosis, the page scrolled
+    'real-health-alarm-mid': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hview dl.facts' }, { scroll: ['main', 1100] }] },
+    'real-health-alarm-end': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hview dl.facts' }, { scroll: ['main', 6000] }] },
     'real-home-well': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__ctl?health-well' }, { wait: '.home-health.band-normal' }] },
     'real-home-alarm': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.home-health.band-alarm' }] },
     // L1: Settings with a look picked (it stays on this browser)
