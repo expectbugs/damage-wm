@@ -338,6 +338,38 @@ class MusicLaneShellTest {
         } finally { r.stop() }
     }
 
+    /** The release's write (`MM-decisions.md` "Stage L, the focused read: ruled" item 1; the pin of `MML-release-cells`):
+     *  a seek on a stream whose data stops at the seek — the place stands where the seek put it, so the chain the seek
+     *  starts is ended by the stall rule with the window's bar exactly the picture under the lane (no cell differs). Only
+     *  the release's own write then meets the chain's instance: with it, nothing of the chain stays open and the panel
+     *  under the bar is belief; without it the instance keeps drawing the bar on past the place that stands (measured in
+     *  the focused read: 1.5 s on, the chain open on both lenses and RIGHT's bar 20 px past belief). */
+    @Test
+    fun aStallAtASeekIsClosedOnBothLensesByTheReleasesWrite(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.up()
+            r.until("a chain open on the glasses") { r.laneTagIn(Arm.RIGHT) != null && r.laneTagIn(Arm.LEFT) != null }
+            val bar = assertNotNull(r.onLoop { r.shell.comp.laneHold.firstOrNull() }, "the compositor holds the lane").second
+            val y = bar.y + bar.h / 2
+            val starts0 = r.notes("lane").count { "a chain starts" in it }
+            r.player.pcStopsServing()
+            r.player.seekTo(30_000)
+            r.until("a chain starts after the seek", maxMs = 3_000) { r.notes("lane").count { "a chain starts" in it } > starts0 }
+            val ends0 = r.notes("lane").count { "the chain ends" in it }
+            r.until("the stall ends that chain", maxMs = 4_000) { r.notes("lane").count { "the chain ends" in it } > ends0 && !r.onLoop { r.shell.lanesOpenForTest } }
+            r.until("settled") { r.shell.isQuiescent() }
+            delay(1_500)
+            val tagR = r.laneTagIn(Arm.RIGHT); val tagL = r.laneTagIn(Arm.LEFT)
+            val panel = r.sim.right.panel.copyOf()
+            val belief = r.onLoop { r.shell.comp.expectedLens(false).copy() }
+            val off = (bar.x until bar.right).count { belief[it, y] / 17 != lv(panel, it, y) }
+            assertTrue(tagR == null && tagL == null && off == 0, "1.5 s into the stall — lane tag on RIGHT $tagR, LEFT $tagL; " +
+                "$off px of the bar's row differ from belief on RIGHT's panel (lit: panel ${litRun(panel, bar.x, bar.w, y, 8)}, " +
+                "belief ${(0 until bar.w).takeWhile { belief[bar.x + it, y] / 17 == 8 }.count()}) — lane ${r.notes("lane").takeLast(6)}")
+        } finally { r.stop() }
+    }
+
     /** Stage 4 (no EFFECTS): nothing of the lanes — not in force, no lane tag ever, Music's blocks as before. */
     @Test
     fun belowStage5NothingOfTheLanesRuns(): Unit = runBlocking {
