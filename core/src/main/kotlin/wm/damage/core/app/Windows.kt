@@ -16,7 +16,7 @@ import wm.damage.core.windows.torrents.TorrentsCore
  *
  * Each window package adds its own line, in the build's order (the spec's §6): notices (Q3, in), torrents (Q4, in),
  * files (Q5), each at contract version 1 (S1-2 R0 §2). A line goes in with the window's conversion and not before: an entry
- * takes the window's keys off the sync channel and makes the PC share a window it must then serve.
+ * makes the PC share a window it must then serve.
  */
 object Windows {
     /** One converted window. [levelOf] gives the level an action needs (null: no such action, which then needs
@@ -61,11 +61,11 @@ object Windows {
             wm.damage.core.windows.feed.FeedCore::levelOf, Levels.VIEW, program = wm.damage.core.windows.feed.FeedCore.PROGRAM,
             rows = wm.damage.core.windows.feed.FeedCore::settings),
         // S1-4 K: Music (C§12): its queue, place and output written by the host that plays (its rule), its rows beside
-        // them; every transport and queue act a program op through the PC's door (`MusicProgram`). Its core describes no
-        // rows (its glasses' rows live in the presenter), so `desc/settings` carries only its style rows
+        // them; every transport and queue act a program op through the PC's door (`MusicProgram`). Its core describes
+        // the rows that are record items (S1-5 F); the player's rows stay the player's
         Entry(wm.damage.core.windows.music.MusicCore.WINDOW, "Music", 1, wm.damage.core.windows.music.MusicCore.ACTIONS,
             wm.damage.core.windows.music.MusicCore::levelOf, Levels.VIEW, program = wm.damage.core.windows.music.MusicCore.PROGRAM,
-            rule = wm.damage.core.windows.music.MusicCore.RULE),
+            rule = wm.damage.core.windows.music.MusicCore.RULE, rows = wm.damage.core.windows.music.MusicCore::settings),
         // S1-5 G: Games (C§12): its world (the table in play, the bankroll, the world and every character) and its rows,
         // written by the one engine host at its settle points; no program actions, no rule
         Entry(wm.damage.core.windows.games.GamesCore.WINDOW, "Games", 1, wm.damage.core.windows.games.GamesCore.ACTIONS,

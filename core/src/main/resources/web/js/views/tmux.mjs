@@ -418,7 +418,12 @@ export function tmuxView(ctx) {
       pend.answered(name, token, ans.a === 'seen');
       draw();
     }, { need: levelOf(draft.action) });
-    if (!sent) pend.answered(name, token, false);
+    // not sent (out of reach): a settings control the browser already changed is drawn again from the record (the
+    // settings box exists only once the sessions page was drawn; a mute is a button, which the browser does not change)
+    if (!sent) {
+      pend.answered(name, token, false);
+      if (els.settings) els.settings.dataset.sig = '';
+    }
     draw();
   }
 

@@ -251,7 +251,13 @@ export function filesView(ctx) {
       if (ans.a !== 'seen' || M.settled(rec.item(M.W, name), value, at)) delete pend[name];
       draw();
     }, { need: a.level || 'full' });
-    if (!sent) delete pend[name];
+    // not sent (out of reach): a control the browser already changed (a settings row, Sort, Hidden files) is drawn
+    // again from the record
+    if (!sent) {
+      delete pend[name];
+      els.settings.dataset.sig = '';
+      els.nav.dataset.sig = '';
+    }
     draw();
   }
 
@@ -408,11 +414,9 @@ export function filesView(ctx) {
       h('summary', { 'data-key': 'set', focus: true }, 'Settings'),
       rows.map((row) => {
         const need = row.level || 'full';
-        return R.settingRow(row, R.rowValue(M.W, row, rec, pend), { level: ctx.S.level, need, why: ctx.canAct(need), send: (value) => {
-          // a row's own action if the description names one, else `set` (Torrents' row op; spec §4.5: Size, a record row)
-          setReg(row.action || 'set', row.id, value, { label: row.label, level: need });
-          els.settings.dataset.sig = '';
-        } });
+        // a row's own action if the description names one, else `set` (Torrents' row op; spec §4.5: Size, a record row)
+        return R.settingRow(row, R.rowValue(M.W, row, rec, pend), { level: ctx.S.level, need, why: ctx.canAct(need),
+          send: (value) => setReg(row.action || 'set', row.id, value, { label: row.label, level: need }) });
       }));
     return box;
   }

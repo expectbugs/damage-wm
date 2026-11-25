@@ -14,8 +14,8 @@ import wm.damage.core.util.Log
  * and a Bastion window built later returns the same rows (the window wins by name; nothing migrates).
  *
  * Rows, in order: `Watcher` — display-only, the PC watcher's state line ([watcherRow]); `Notify · alerts` and
- * `Notify · cleared` — SHARED ([Shell.sharedRow], in `ShellSettings`, synced); then the phone's own rows
- * ([category]'s `phoneRows`: `Phone · alerts`, `Home unreachable`, kept in the phone's preferences, never synced);
+ * `Notify · cleared` — SHARED ([Shell.sharedRow], in `ShellSettings`, Settings' record items); then the phone's own
+ * rows ([category]'s `phoneRows`: `Phone · alerts`, `Home unreachable`, kept in the phone's preferences only);
  * then `Acknowledge`.
  */
 object BastionRows {

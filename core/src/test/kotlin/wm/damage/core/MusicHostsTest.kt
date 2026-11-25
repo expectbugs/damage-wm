@@ -8,6 +8,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -16,6 +20,7 @@ import kotlinx.serialization.json.put
 import wm.damage.core.app.Admit
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.CoreExecutor
+import wm.damage.core.app.Draft
 import wm.damage.core.app.HostBackend
 import wm.damage.core.app.Item
 import wm.damage.core.app.LocalWindowSource
@@ -23,6 +28,7 @@ import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
 import wm.damage.core.app.OpQueue
 import wm.damage.core.app.Record
+import wm.damage.core.app.WindowSource
 import wm.damage.core.app.WindowState
 import wm.damage.core.net.WinService
 import wm.damage.core.shell.Persistence
@@ -31,6 +37,7 @@ import wm.damage.core.windows.music.Catalog
 import wm.damage.core.windows.music.Lyrics
 import wm.damage.core.windows.music.Mode
 import wm.damage.core.windows.music.MusicCore
+import wm.damage.core.windows.music.MusicGlasses
 import wm.damage.core.windows.music.MusicLibrary
 import wm.damage.core.windows.music.MusicMigration
 import wm.damage.core.windows.music.MusicPlayer
@@ -130,6 +137,73 @@ class MusicHostsTest {
         assertTrue(MusicCore.RULE.admit(state(null), op("phone", MusicCore.A_OUT, MusicCore.OUT, MusicCore.Out(MusicCore.PC, 2).json())) is Admit.Refuse)
         assertNull(MusicCore.RULE.admit(state(null), op("local", MusicCore.A_OUT, MusicCore.OUT, MusicCore.Out(MusicCore.PC, 2).json())))
         assertNull(MusicCore.RULE.admit(state(MusicCore.PC), op("migration", MusicCore.MIGRATE, MusicCore.Q, q)), "the migration passes")
+    }
+
+    /** The presenter's source with every draft it hands on kept, in order. */
+    private class Recording(private val inner: WindowSource) : WindowSource by inner {
+        val drafts = java.util.Collections.synchronizedList(ArrayList<Draft>())
+        override fun act(draft: Draft) {
+            drafts += draft
+            inner.act(draft)
+        }
+    }
+
+    private object NoShell : wm.damage.core.shell.ShellServices {
+        override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
+        override fun setOperation(op: String) {}
+        override fun notifyInternal(source: String, body: String, urgent: Boolean, appId: String?, thread: String, target: String?, answer: Boolean) {}
+        override fun openWindow(id: String, target: String?): Boolean = false
+        override fun runOnShell(action: () -> Unit) = action()
+        override fun docContentWidth(): Int = 560
+        override fun docContentHeight(): Int = 384
+    }
+
+    /**
+     * S1-5 F: Music's rows on the Settings page. Every glasses row that writes a record item is described once by
+     * [MusicCore.ROWS], in the glasses' order, with the glasses' words, options and default, and writes that item only;
+     * the reverse: every other row (the player's, and the lyric offset, an item per output) is not described. A page's
+     * `set` (another device's op on the PC's record) reaches the description and the glasses' row.
+     */
+    @Test
+    fun musicsRecordRowsAreDescribedOnce_andAPagesSetReachesTheGlassesRow() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val src = Recording(source("phone"))
+        val win = MusicGlasses(FakeText(), Lib(), SimMusicPlayer(Lib(), clock), scope, MusicCore(), src, clock)
+        try {
+            win.onRegistered(NoShell)
+            val rows = win.appSettings()
+            for (r in MusicCore.ROWS) {
+                val h = rows.filter { it.name == r.label }
+                assertEquals(1, h.size, "${r.label}: one glasses row")
+                assertEquals(r.options.map { it.second }, h[0].options(), "${r.label}: the options")
+                assertEquals(r.labelOf(null), h[0].current(), "${r.label}: the default as shown")
+            }
+            val wrote = LinkedHashMap<String, List<String>>()
+            for (h in rows) {
+                val other = h.options().firstOrNull { it != h.current() } ?: continue
+                val before = src.drafts.size
+                h.apply(other)
+                wrote[h.name] = src.drafts.drop(before).flatMap { it.targets }
+            }
+            val writers = wrote.filterValues { it.isNotEmpty() }
+            assertEquals(MusicCore.ROWS.map { it.label to listOf(it.id) }, writers.filterKeys { it != "Lyrics offset" }.toList(),
+                "each row that writes an item is described, in order, and writes its own item only")
+            assertTrue(writers.getValue("Lyrics offset").single().startsWith("offset."), "the lyric offset: the output in use's item")
+            assertEquals(MusicCore.ROWS.map { it.id }, MusicCore.settings(rec()).map { (it as JsonObject)["id"].toString().trim('"') })
+            // the page's set, later than every row above
+            t += 60_000
+            val answer = java.util.concurrent.atomic.AtomicReference<wm.damage.core.app.Answer?>()
+            host.act(Op("web-1", OpId.Queued("s-web", 1), MusicCore.WINDOW, MusicCore.A_SET, listOf(MusicCore.VIZ), JsonPrimitive("Scope"), at = t)) {
+                answer.set(it)
+            }
+            await("the page's set answered") { answer.get() != null }
+            assertEquals(wm.damage.core.app.Answer.Seen, answer.get())
+            await("the glasses' row shows the page's value") { rows.single { it.name == "Visualizer" }.current() == "Scope" }
+            assertEquals(JsonPrimitive("Scope"), MusicCore.settings(rec()).map { it as JsonObject }.single { it["id"] == JsonPrimitive(MusicCore.VIZ) }["value"])
+        } finally {
+            win.detach()
+            scope.cancel()
+        }
     }
 
     @Test

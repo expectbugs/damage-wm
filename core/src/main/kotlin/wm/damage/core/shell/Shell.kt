@@ -1021,7 +1021,7 @@ class Shell(
     fun postMinuteTick() = post(Msg.MinuteTick)
 
     /** Change the settings from outside the loop (hosts, tests): applied ON
-     *  the loop like a Settings row would, persisted and synced. */
+     *  the loop like a Settings row would: persisted, and with a [settingsSource] its changed items go to the record. */
     fun updateSettings(f: (ShellSettings) -> ShellSettings) = post(Msg.Run { applySettings(f(settings)) })
 
     /** Flushes this shell has submitted, counted ON the loop — a harness
@@ -1440,7 +1440,7 @@ class Shell(
             }
         }
         // R2 (RH-6): `done` is completed INSIDE the Shutdown's arm; the loop still has its drain to run (a
-        // probe's answer, a synced record stored, a flush's answer kept for the next session). Returned
+        // probe's answer, a change from the record applied, a flush's answer kept for the next session). Returned
         // before it, a stop let a start that followed run beside the old loop's drain. Nothing the drain
         // does waits on this stopper or takes `lifecycle`; no caller of `stop` runs on the loop.
         loopJob?.join()
@@ -7939,7 +7939,7 @@ class Shell(
      *  list rhythm is measured through them, so a face or scale change re-derives the row pitch
      *  and the lens band in `syncLayout` — which re-lays out and repaints whole by itself when
      *  the height or the rhythm moved, and is a no-op otherwise, in which case the restyle
-     *  repaints whole here. A synced record can change typography AND height in one apply
+     *  repaints whole here. A settings change from the record can change typography AND height in one apply
      *  (R3s#6): the layout is re-derived BEFORE the full repaint. */
     private fun relayoutEverything() {
         refreshStyles()
@@ -8026,7 +8026,7 @@ class Shell(
 
     /**
      * Build W (dec. B.3): a row for a HOST category ([hostCategories]) whose value is a SHARED setting — a field of
-     * [ShellSettings], synced as `shell.settings`, so the PC holds it too (`Notify · alerts`, `Notify · cleared`).
+     * [ShellSettings], an item of Settings' record, so the PC holds it too (`Notify · alerts`, `Notify · cleared`).
      * The Settings window calls [HostSetting.apply] on the loop (its tap), and the change goes through
      * [applySettings] like every Global row's. Build each row ONCE and keep it: Settings matches a staged row by
      * identity.
@@ -8136,7 +8136,7 @@ class Shell(
         // nothing visible — syncLayout says so and the cheap path runs instead
         if (mode == Mode.SILENT) {
             // the silent surface repaints only when ITS one element changed
-            // (a live-synced silent-clock size, §1.5) — paintAll clears the
+            // (a silent-clock size from the record, §1.5) — paintAll clears the
             // whole panel, so the old box never lingers
             if (reclock) composeFullSurface()
         } else if (!relayout || !syncLayout()) {
@@ -8208,7 +8208,7 @@ class Shell(
             comp.damageAll()
             // 0.64 R1: the clear took a shown notice with it, and the pump repaints a box only while
             // it animates or after a lift — a shown one is neither, so it was gone from the glass
-            // up to its 5 s early (a synced silent-clock size, a restyle or the Cached text row
+            // up to its 5 s early (a silent-clock size from the record, a restyle or the Cached text row
             // landing inside them). As every sibling of this arm does after its clear
             // ([enterSilent], [handleSilentTick], the quiet furl's end, [paintExclusiveFull]).
             if (notifications.active) { notifications.invalidateUnder(); paintNotification() }

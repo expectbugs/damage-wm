@@ -206,7 +206,7 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
 
     fun ids(): List<Int> = list.map { it.track.id }
 
-    /** The synced record's slice: entries with their qids, the index, mode, label. */
+    /** The queue as one object: entries with their qids, the index, mode, label. */
     fun toJson(): JsonObject = jsonOf(list, index, mode, label, nextQid)
 
     companion object {

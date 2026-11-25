@@ -18,6 +18,7 @@ import wm.damage.core.app.Item
 import wm.damage.core.app.Kind
 import wm.damage.core.app.Levels
 import wm.damage.core.app.Migrate
+import wm.damage.core.app.StoredRow
 import wm.damage.core.app.WindowCore
 import wm.damage.core.app.WindowState
 import wm.damage.core.shell.DamageWindow
@@ -75,18 +76,6 @@ class GamesCore : WindowCore {
         put("summary", summaryJson(summary(state)))
     }
 
-    /** One stored row: [id] its record item, [label] the glasses' words, [scope] `glasses` or `shared`, [options] its
-     *  values with their words in the glasses' order, [default] the value an absent item reads as. */
-    data class Row(val id: String, val label: String, val scope: String, val options: List<Pair<JsonElement, String>>,
-                   val default: JsonElement) {
-        val type: String get() = if (options.all { (it.first as? JsonPrimitive)?.booleanOrNull != null }) "bool" else "choice"
-
-        /** [v] when it is one of the options, else the default. */
-        fun valueOf(v: JsonElement?): JsonElement = options.firstOrNull { it.first == v }?.first ?: default
-
-        fun labelOf(v: JsonElement?): String = valueOf(v).let { x -> options.first { it.first == x }.second }
-    }
-
     /** The table's record with his figures at it (what the window blob held beside the table before the conversion). */
     class Tournament(val table: HoldemTable, val mySeat: Int, val myStake: Int, val myCashedOut: Int, val myFee: Int,
                      val castStake: Map<Int, Int>, val bgOwed: Int, val cashOutPending: Boolean)
@@ -136,36 +125,25 @@ class GamesCore : WindowCore {
         /** The bot pace choices (§14). */
         val PACES: Map<String, Long> = linkedMapOf("instant" to 0L, "300 ms" to 300L, "600 ms" to 600L, "1 s" to 1_000L, "1.5 s" to 1_500L)
 
-        private fun onOff(onFirst: Boolean) = if (onFirst) listOf(JsonPrimitive(true) to "on", JsonPrimitive(false) to "off")
-            else listOf(JsonPrimitive(false) to "off", JsonPrimitive(true) to "on")
-
         /** The eight rows, in the glasses' order; verdict 30: every Notify row off by default, in Games' own category. */
-        val ROWS: List<Row> = listOf(
-            Row(CONFIRM, "Confirm", "glasses", ActionLevel.Confirm.entries.map { JsonPrimitive(it.name) to it.label },
+        val ROWS: List<StoredRow> = listOf(
+            StoredRow(CONFIRM, "Confirm", "glasses", ActionLevel.Confirm.entries.map { JsonPrimitive(it.name) to it.label },
                 JsonPrimitive(ActionLevel.Confirm.ALL.name)),
-            Row(PACE, "Bot pace", "glasses", PACES.map { (l, ms) -> JsonPrimitive(ms) to l }, JsonPrimitive(600L)),
-            Row(DEAL, "Deal animation", "glasses", onOff(true), JsonPrimitive(true)),
-            Row(ARCHETYPES, "Archetype labels", "glasses", onOff(false), JsonPrimitive(false)),
-            Row(NOTIFY_BUST, "Notify · bot busted", "shared", onOff(false), JsonPrimitive(false)),
-            Row(NOTIFY_WIN, "Notify · tournament won", "shared", onOff(false), JsonPrimitive(false)),
-            Row(NOTIFY_RETURN, "Notify · character returned", "shared", onOff(false), JsonPrimitive(false)),
+            StoredRow(PACE, "Bot pace", "glasses", PACES.map { (l, ms) -> JsonPrimitive(ms) to l }, JsonPrimitive(600L)),
+            StoredRow(DEAL, "Deal animation", "glasses", StoredRow.onOff(true), JsonPrimitive(true)),
+            StoredRow(ARCHETYPES, "Archetype labels", "glasses", StoredRow.onOff(false), JsonPrimitive(false)),
+            StoredRow(NOTIFY_BUST, "Notify · bot busted", "shared", StoredRow.onOff(false), JsonPrimitive(false)),
+            StoredRow(NOTIFY_WIN, "Notify · tournament won", "shared", StoredRow.onOff(false), JsonPrimitive(false)),
+            StoredRow(NOTIFY_RETURN, "Notify · character returned", "shared", StoredRow.onOff(false), JsonPrimitive(false)),
             // 0 = the Global size (Music's form)
-            Row(SIZE, "Size", "glasses", listOf(JsonPrimitive(0) to "global") + ShellSettings.HEIGHTS.map { JsonPrimitive(it) to "$it" },
+            StoredRow(SIZE, "Size", "glasses", listOf(JsonPrimitive(0) to "global") + ShellSettings.HEIGHTS.map { JsonPrimitive(it) to "$it" },
                 JsonPrimitive(0)),
         )
 
-        val ROW: Map<String, Row> = ROWS.associateBy { it.id }
+        val ROW: Map<String, StoredRow> = ROWS.associateBy { it.id }
 
         /** The rows (C§6) as the record holds them: `{id, label, scope, type, options[{id, label}], value, default, level}`. */
-        fun settings(state: WindowState): JsonArray = buildJsonArray {
-            for (r in ROWS) add(buildJsonObject {
-                put("id", r.id); put("label", r.label); put("scope", r.scope); put("type", r.type)
-                put("options", buildJsonArray { for ((v, l) in r.options) add(buildJsonObject { put("id", v); put("label", l) }) })
-                put("value", r.valueOf(live(state.itemNamed(r.id))))
-                put("default", r.default)
-                put("level", Levels.CONTROL)
-            })
-        }
+        fun settings(state: WindowState): JsonArray = StoredRow.describe(ROWS, state)
 
         /** The one description of Games' Main line (the glasses' row and the page's card): the live table, else the
          *  bankroll's scoreboard. */

@@ -257,9 +257,8 @@ class RemoteWin(
                                 }
                             }
                             // the host's in-band refusal (an old host, or a
-                            // win id it does not serve): treat like the sync
-                            // channel does (R3#2) — paced quiet retry, never
-                            // "attached and healthy"
+                            // win id it does not serve): a paced quiet retry
+                            // (R3#2), never "attached and healthy"
                             "err" -> throw java.io.IOException(
                                 "host refused the '$winId' channel${if (w.detail.isNotEmpty()) ": ${w.detail}" else ""}")
                             else -> Log.w("win-remote", "unknown win control '${w.t}' ignored")
