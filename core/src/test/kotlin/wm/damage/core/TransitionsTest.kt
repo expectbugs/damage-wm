@@ -365,7 +365,8 @@ class TransitionsTest {
         val scrollRows = listOf("Scroll effect", "Scroll length", "Scroll frames")
         val popupRows = listOf("Popup length", "Popup frames", "Popup · Unfurl", "Popup · Fade", "Popup · Slide")
         assertEquals(listOf("Scroll", "Popups"), w(false).rowsForTest("Animations").map { it.first }, "no stage 5: the scroll and notice tiers only")
-        assertEquals(listOf("Scroll", "Select", "Close / Back", "Lock Screen", "Popups"), w(true).rowsForTest("Animations").map { it.first })
+        assertEquals(listOf("Scroll", "Select", "Close / Back", "Lock Screen", "Popups", "Switcher"), w(true).rowsForTest("Animations").map { it.first },
+            "at stage 5 the tiers, then the main page's own row (C3 DW-1b-2)")
         assertEquals(scrollRows, w(true).rowsForTest("Animations", "Scroll").map { it.first }, "the Scroll tier's rows")
         assertEquals(popupRows, w(true).rowsForTest("Animations", "Popups").map { it.first }, "the Popups tier's rows")
         fun tiers() = listOf("Select", "Close / Back", "Lock Screen").flatMap { w(true).rowsForTest("Animations", it) }

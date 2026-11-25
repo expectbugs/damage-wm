@@ -64,6 +64,12 @@ class WheelResident {
     var refusedFor: Any? = null
     /** The block's size for a want's key (its programs built once for it). */
     var sized: Pair<Any, Int>? = null
+    /** C3 DW-1b-2 (decisions DF finding 2): the size of the block the lane would place, measured and inside the cap and
+     *  clear of Main's staging, its write held while a window's list in front is staged first — its place below the
+     *  region's end is reserved ([baseIn]) so that list is laid out under it, never where the block goes. Kept across a
+     *  drop and a session start (a block of that size goes back there), set again at each placement's measure, cleared
+     *  where a measure refuses the block (past the cap, met by Main's staging). */
+    var reserved: Int? = null
     /** Keys to records' serials. */
     var serial = 0
     /** This process: placements, their bytes; in-place writes, their bytes. */
@@ -87,10 +93,20 @@ class WheelResident {
      *  once more. */
     fun liveChanged() { painted.clear(); paintedAgain = null; wantFor = null; sized = null; refusedFor = null }
 
+    /** THE BLOCK'S BASE in a region ending at [regionEnd] (`Shell.wheelBase`, and `WindowListCheck.top` for its fixture: one
+     *  source) — the placed block's, else the place [reserved] for it, else the region's end: a window's list is laid out
+     *  from here down. */
+    fun baseIn(regionEnd: Int): Int = block?.base ?: reserved?.let { baseFor(regionEnd, it) } ?: regionEnd
+
     companion object {
         /** Decisions BQ (4): the block may take up to 20 KiB of Main's region; past it the block is not placed (the wheel
          *  stays phone-drawn) and the journal says its bytes. */
         const val CAP = 20 * 1024
+
+        /** C3 DW-1b-2: why a session of [cacheSize] B whose Main's region ends at [regionEnd] offers no wheel (null: it may) —
+         *  the offer's session condition (`Shell.wheelNotOffered`, and `--local-check`'s "not offered" case: one source). */
+        fun sessionRefusal(cacheSize: Int, regionEnd: Int): String? =
+            if (cacheSize != wm.damage.core.wire.CfwModes.CACHE2_MAX_RIDERS || regionEnd >= cacheSize) "no 256 KiB session with a region of Main's own" else null
 
         /** Where a block of [size] B lies as the first tenant from [regionEnd] (decisions BD): 4-byte aligned below it. */
         fun baseFor(regionEnd: Int, size: Int): Int = (regionEnd - size) and 3.inv()
