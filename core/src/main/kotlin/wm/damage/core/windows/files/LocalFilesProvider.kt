@@ -39,6 +39,9 @@ import wm.damage.core.web.Uploads
 class LocalFilesProvider(
     private val booksDir: Path,
     private val trashDir: Path,
+    /** "Open on PC" (§16.11): the host's opener of a path on its display. Required, never defaulted (`C3-decisions`
+     *  Part DG): the PC's host passes `xdg-open` (`desktop/Main.kt`); every test and check passes one that opens nothing. */
+    private val opener: (String) -> Unit,
     private val decoder: ImageDecoder? = null,
     private val extraRoots: List<Pair<String, String>> = emptyList(),
     /** Writes the trash's manifest whole (L1 B-S6: atomically, synced); injected for tests. */
@@ -420,24 +423,7 @@ class LocalFilesProvider(
         return dest.toString()
     }
 
-    override fun openOnPc(path: String) {
-        val env = HashMap(System.getenv())
-        if (env["DISPLAY"].isNullOrEmpty()) env["DISPLAY"] = ":0.0"
-        val pb = ProcessBuilder("xdg-open", path)
-        pb.environment().putAll(env)
-        pb.redirectErrorStream(true)
-        val p = pb.start()
-        // fire and detach; a refusal shows up fast — read a moment's output
-        Thread({
-            try {
-                val out = p.inputStream.readBytes().toString(Charsets.UTF_8)
-                val code = p.waitFor()
-                if (code != 0) Log.e("files", "xdg-open '$path' exit $code: ${out.take(200)}")
-            } catch (e: Exception) {
-                Log.w("files", "xdg-open watcher: ${e.message}")
-            }
-        }, "files-xdg-open").apply { isDaemon = true }.start()
-    }
+    override fun openOnPc(path: String) = opener(path)
 
     // -------------------------------------------------------------- helpers
     /** Move [src] to [dest] (L1 R1 B2). On one volume, or a folder: a rename (a folder across volumes is refused with
