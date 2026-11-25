@@ -12158,5 +12158,240 @@
   ],
   "note": "the agreement check's skip names a held lane's grown cells (a delta held whole across the lane: its pixels in belief, never sent) as it names the bound list's deferral with its growth — without them a frame that grows a lane reads as a divergence: a keyframe and a 'belief and mirror disagree' notice",
   "from": "MM-L-FR, MM-LF3"
+ },
+ {
+  "id": "BL-today",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "        x.heldAsks >= HELD_ASKS && !x.ours -> Via.HELD\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "todaysCaseTakesRightByItsAddress",
+   "eitherLensOrBothCanBeTakenByAddress"
+  ],
+  "note": "the pin: the decision as the code before stage BL made it — wait until the scan has seen both lenses; today's case (2026-11-25 15:02, LEFT seen, RIGHT held and unseen) then waits without end",
+  "from": "BL"
+ },
+ {
+  "id": "BL-one-ask",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "x.heldAsks >= HELD_ASKS",
+    "x.heldAsks >= 1"
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "oneAskIsNotEnough"
+  ],
+  "note": "a lens taken on one ask: a link in the moment it ends (the app's own earlier manager) would be taken",
+  "from": "BL"
+ },
+ {
+  "id": "BL-ours",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    " && !x.ours -> Via.HELD",
+    " -> Via.HELD"
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "aLensThisAppStillHoldsIsNeverTaken"
+  ],
+  "note": "a lens one of this app's own links still holds is taken by address",
+  "from": "BL"
+ },
+ {
+  "id": "BL-scan-first",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "        x.seen -> Via.SCAN\n        x.heldAsks >= HELD_ASKS && !x.ours -> Via.HELD\n",
+    "        x.heldAsks >= HELD_ASKS && !x.ours -> Via.HELD\n        x.seen -> Via.SCAN\n"
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "aLensTheScanHasSeenIsTakenFromTheScan"
+  ],
+  "note": "a lens the scan has seen is taken by address when the phone also holds a link (the scan's device is the one to prefer)",
+  "from": "BL"
+ },
+ {
+  "id": "BLF-link-up",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "listed == true || notices[a]?.up == true",
+    "listed == true"
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "aLinkUpWithNoDownSinceIsHeldOnItsOwn"
+  ],
+  "note": "the link notices ignored: a link the GATT list does not show (a holder below the apps, or a link the phone never closed) is never taken — BL as first built",
+  "from": "BLF"
+ },
+ {
+  "id": "BLF-unknown",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "notices[a]?.up == true",
+    "notices[a]?.up != false"
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "anUnknownLinkIsNotHeld"
+  ],
+  "note": "a lens with no link notice in this transport's life counted as held",
+  "from": "BLF"
+ },
+ {
+  "id": "BLF-list",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "listed == true || notices",
+    "notices"
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "theListAloneStillWorks"
+  ],
+  "note": "the GATT list ignored: a lens another app holds, whose link-up came before this transport, is never taken",
+  "from": "BLF"
+ },
+ {
+  "id": "BLF-in-a-row",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "asks[i] = if (held) asks[i] + 1 else 0",
+    "if (held) asks[i] = asks[i] + 1"
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "aNotHeldAskStartsTheCountAgain"
+  ],
+  "note": "the asks counted in total, not in a row: two held asks with a not-held one between take the lens",
+  "from": "BLF"
+ },
+ {
+  "id": "BLF-down-ends-count",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "        if (!up) for (i in 0..1) if (address[i] == a) asks[i] = 0\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "aLinkDownEndsTheCountAtOnce"
+  ],
+  "note": "a link-down between two asks leaves the count: a scan result before the next ask takes a lens whose link has gone down",
+  "from": "BLF"
+ },
+ {
+  "id": "BLF-bt-off",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "fun bluetoothOff() = notices.clear()",
+    "fun bluetoothOff() {}"
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "bluetoothOffClearsEveryRecord"
+  ],
+  "note": "Bluetooth off keeps the record: a link-up from before the toggle still counts after it",
+  "from": "BLF"
+ },
+ {
+  "id": "BLF-new-scan",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "seen.fill(false); asks.fill(0); ours.fill(false)",
+    "seen.fill(false); ours.fill(false)"
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "aNewScanCountsFromZero"
+  ],
+  "note": "a new scan keeps the last scan's counts",
+  "from": "BLF"
+ },
+ {
+  "id": "BLF-first-time",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "val held = a != null && (listed == true || notices[a]?.up == true)",
+    "val held = listed == true || (a != null && notices[a]?.up == true)"
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "aFirstTimePairIsNeverTakenByAddress"
+  ],
+  "note": "a lens with no remembered address counted on the list (a first-time pair is untouched)",
+  "from": "BLF"
+ },
+ {
+  "id": "BLF-ours-fed",
+  "file": "transport/PairFind.kt",
+  "edits": [
+   [
+    "        this.ours[i] = ours\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*PairFindTest"
+  ],
+  "expect": [
+   "aLensThisAppStillHoldsIsNotTakenOnTheRecordEither"
+  ],
+  "note": "the ask does not carry this app's own link state into the decision",
+  "from": "BLF"
  }
 ]
