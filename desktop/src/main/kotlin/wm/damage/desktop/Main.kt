@@ -1047,9 +1047,11 @@ private suspend fun hostOnly(cfg: Config) {
     val web = wm.damage.core.web.WebAccess.atProcessStart(Path.of(cfg.dataDir)) { line -> Log.i("web", line) }
     val appNet = wm.damage.core.app.AppNet(appHost, devices = web.core)
     // build S1-2 (Q3): the notice record's raiser, at this process start as in runShell (Quiet hours read from the
-    // store's Global row at each raise); host-only runs no shell, so it has no notice mirror (absent on purpose)
+    // record's Global row at each raise, S1-5 S); host-only runs no shell, so it has no notice mirror (absent on purpose)
+    // build S1-5 (S): Settings' values from before the conversion, before the raiser below reads its Quiet hours from them
+    wm.damage.core.shell.SettingsMigration.onHost(appHost, store) { }
     val noticeCore = wm.damage.core.app.NoticeCore.atProcessStart(appHost,
-        { wm.damage.core.shell.ShellSettings.fromJson(store.get("shell.settings")).quietHours }, null)
+        { wm.damage.core.shell.SettingsCore.onHost(appHost).quietHours }, null)
     // build S1-2 (Q4): Torrents' rows from before its conversion, then its parts on the lane and its notices, as in
     // runShell (host-only has no presenter: the core serves the web and raises the notices)
     wm.damage.core.windows.torrents.TorrentsMigration.onHost(appHost, store) { }
@@ -1165,6 +1167,9 @@ class DesktopStack(
     /** Build S1-5 G: Games' core and the source on the PC record its presenter reads (device `local`); null in tools,
      *  which build Games the way it was built before (`GamesWindow`, a record in memory). */
     private val gamesCore: Pair<wm.damage.core.windows.games.GamesCore, wm.damage.core.app.WindowSource>? = null,
+    /** Build S1-5 S: Settings' source on the PC record (device `local`; it outlives the stack, whose shell leaves it at
+     *  the stop); null in tools, whose shells keep their settings in their own store, as before. */
+    private val settingsSource: wm.damage.core.app.WindowSource? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -1194,6 +1199,13 @@ class DesktopStack(
     private var filesSource: wm.damage.core.app.LocalWindowSource? = null
     /** S1-5 G: this stack's Games presenter (it leaves its source at the stop). Declared before `init`, which sets it. */
     private var gamesWindow: wm.damage.core.windows.games.GamesGlasses? = null
+    /** This stack's Tmux, Torrents, Music and Feed presenters (each leaves its provider and source at the stop). S1-5 S:
+     *  declared before `init`, which sets them — declared after it, their `= null` ran after the `init` and the stop
+     *  detached nothing (`DesktopStackTest`). */
+    private var tmuxWindow: wm.damage.core.windows.tmux.TmuxWindow? = null
+    private var torrentsWindow: wm.damage.core.windows.torrents.TorrentsWindow? = null
+    private var musicWindow: wm.damage.core.windows.music.MusicGlasses? = null
+    private var feedWindow: wm.damage.core.windows.feed.FeedWindow? = null
 
     init {
         val dataDir = Path.of(cfg.dataDir)
@@ -1202,6 +1214,7 @@ class DesktopStack(
         shell.loopClock = JvmLoopClock          // build W, package G (E4): the `slow` note's clocks (host-only runs no shell)
         shell.buildTag = "desktop " + (DesktopStack::class.java.getResource("/damage-build.txt")?.readText()?.trim() ?: "unstamped")
         shell.iconSource = themeIcons
+        shell.settingsSource = settingsSource
         notices?.let { m ->
             shell.noticeInput = m
             m.attach(shell.noticeSink)
@@ -1251,15 +1264,6 @@ class DesktopStack(
             onTerminal = { reason -> Log.e("damage", "the $mode transport ended for good: $reason") })
     }
 
-    private var tmuxWindow: wm.damage.core.windows.tmux.TmuxWindow? = null
-
-
-    private var torrentsWindow: wm.damage.core.windows.torrents.TorrentsWindow? = null
-
-    private var musicWindow: wm.damage.core.windows.music.MusicGlasses? = null
-
-    private var feedWindow: wm.damage.core.windows.feed.FeedWindow? = null
-
     /**
      * Build RA-1: this stack's loop watcher (`core/…/shell/LoopWatch.kt`). A stack exists only in a run's `runShell`
      * (the service's PC-direct BLE by hand, a dev session); the tools build their shells without one. Its end, after
@@ -1297,6 +1301,7 @@ class DesktopStack(
                 musicWindow?.detach()
                 feedWindow?.detach()
                 gamesWindow?.detach()      // S1-5 G: the source outlives the stack
+                shell.settingsSource = null    // S1-5 S: the shell leaves Settings' source, which outlives the stack
             } finally {
                 // and the stack's own resources go the same way (R3-K3): its
                 // coroutines, and the BlueZ handler on the process-wide bus
@@ -1439,13 +1444,19 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         Journal.appendNote(journalFile, "web", line)
     }
     val appNet = wm.damage.core.app.AppNet(appHost, devices = web.core)
-    // build S1-2 (Q3): the notice record's raiser at this process start (Quiet hours read from the store's Global row
-    // at each raise; a raise the log did not take is sent again on the record's tick and said if the process stops
+    // build S1-2 (Q3): the notice record's raiser at this process start (Quiet hours read from the record's Global row
+    // at each raise, S1-5 S; a raise the log did not take is sent again on the record's tick and said if the process stops
     // first), and the PC's notice mirror, before any core can raise: it outlives every stack, each stack's shell its
     // sink while it runs; its ops are the PC shell's (device `local`), its cursor in memory (`shell.state` restores
     // what was shown)
+    // build S1-5 (S): Settings' values from before the conversion become record items where the record holds none
+    // (before anything reads them: the notice raiser's Quiet hours below and every stack's shell), then the source every
+    // stack's shell reads and writes its settings through (device `local`)
+    wm.damage.core.shell.SettingsMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    val settingsSource = wm.damage.core.app.LocalWindowSource(wm.damage.core.shell.SettingsCore(),
+        wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
     val noticeCore = wm.damage.core.app.NoticeCore.atProcessStart(appHost,
-        { wm.damage.core.shell.ShellSettings.fromJson(store.get("shell.settings")).quietHours }, journalFile)
+        { wm.damage.core.shell.SettingsCore.onHost(appHost).quietHours }, journalFile)
     val noticeMirror = wm.damage.core.app.NoticeMirror(
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()),
         say = { line -> Log.i("notices", line); Journal.appendNote(journalFile, "notices", line) })
@@ -1583,7 +1594,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary, feed = feedEngine,
         reader = readerCore to readerSource, notices = noticeMirror, torrentsCore = torrentsScopes.core to torrentsSource,
         feedCore = feedScopes.core to feedSource, tmuxCore = tmuxScopes.core to tmuxSource,
-        musicPc = musicParts?.let { Triple(it.player, it.core, it.source) }, gamesCore = gamesCore to gamesSource) }
+        musicPc = musicParts?.let { Triple(it.player, it.core, it.source) }, gamesCore = gamesCore to gamesSource,
+        settingsSource = settingsSource) }
 
     if (mode != "auto") {
         val first = build(mode)

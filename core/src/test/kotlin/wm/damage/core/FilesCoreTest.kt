@@ -177,6 +177,6 @@ class FilesCoreTest {
     @Test
     fun filesKeysLeaveTheSyncChannel() {
         assertFalse(Persistence.syncable("window.files"), "Files is converted: its local row never syncs")
-        assertTrue(Persistence.syncable("window.settings"), "an unconverted window still syncs")   // S1-5 G converted Games
+        assertTrue(Persistence.syncable("shell.settings"), "the shell's settings record still syncs (until S1-5's close)")   // S1-5 S converted Settings
     }
 }

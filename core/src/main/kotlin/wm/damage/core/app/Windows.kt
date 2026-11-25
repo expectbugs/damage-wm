@@ -64,6 +64,10 @@ object Windows {
         // written by the one engine host at its settle points; no program actions, no rule
         Entry(wm.damage.core.windows.games.GamesCore.WINDOW, "Games", 1, wm.damage.core.windows.games.GamesCore.ACTIONS,
             wm.damage.core.windows.games.GamesCore::levelOf, Levels.VIEW),
+        // S1-5 S: Settings (C§6): one item per stored field and one per app's style, set by whichever surface he uses
+        // (the latest input wins); no card, no program actions, no rule. Last, as the glasses' Main lists it
+        Entry(wm.damage.core.shell.SettingsCore.WINDOW, "Settings", 1, wm.damage.core.shell.SettingsCore.ACTIONS,
+            wm.damage.core.shell.SettingsCore::levelOf, Levels.VIEW),
     )
 
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }

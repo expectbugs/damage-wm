@@ -383,6 +383,37 @@ class Shell(
      */
     @Volatile var noticeInput: wm.damage.core.app.NoticeInput? = null
 
+    /** S1-5 S: the record's settings moved — read on the loop ([settingsFromRecord]); held, the latest, while no session
+     *  runs (a keyed push), and run again at the next start. */
+    private val settingsListener = object : wm.damage.core.app.SourceListener {
+        override fun changed(state: wm.damage.core.app.WindowState, keys: Set<String>) =
+            services.runOnShell("settings:record") { settingsFromRecord() }
+    }
+
+    /**
+     * Build S1-5 S (the lean spec's §4.2): Settings' values on the PC's record — on the PC its own record, on the phone
+     * the working copy. Set by the host builder before the first start, and to null at its stack's stop (the source
+     * outlives the stack on the PC). Null (a tool, a test, `--snapshot`'s own shells without one): the local store
+     * alone, as before. With it: the start shows the local copy, then the record's values once the source has heard
+     * Settings; [applySettings] sends one op per changed item; a record change made elsewhere is applied here.
+     */
+    var settingsSource: wm.damage.core.app.WindowSource? = null
+        set(v) {
+            field?.removeListener(settingsListener)
+            field = v
+            v?.addListener(settingsListener)
+        }
+
+    /** S1-5 S: per record item, the values this shell wrote and has not yet seen come back, oldest first — an older
+     *  write's change that arrives after a newer write is never read as the record moving (a fast adjust is never
+     *  stepped back). Games' guard (`GamesGlasses.echo`). On the loop only. */
+    private val settingsInflight = HashMap<String, ArrayDeque<kotlinx.serialization.json.JsonElement>>()
+
+    /** S1-5 S: settings applied because the record moved (a test reads it: an echo of this shell's own write is never
+     *  one). */
+    @Volatile internal var settingsFromRecordCount = 0
+        private set
+
     /** S1-2 Q3: the presenters' formatters by window ([ShellServices.noticeFormatter]). */
     private val noticeFormatters = java.util.concurrent.ConcurrentHashMap<String, (wm.damage.core.app.NoticeRecord) -> String>()
 
@@ -934,6 +965,10 @@ class Shell(
      * contributes only its own rows — none). Then each HOST category ([hostCategories], build W) whose name equals
      * no registered window's name, case-insensitive — the window wins.
      */
+    /** S1-5 S (test introspection, `SettingsCoreTest`): the Settings window after a start, and the shell's own Global rows. */
+    internal fun settingsWindowForTest(): SettingsWindow = settingsWindow
+    internal fun shellRowsForTest(): List<HostSetting> = globalFontRows
+
     internal fun settingsApps(): List<Pair<String, List<HostSetting>>> {
         // K1-2 stage 3c: the app's `Scroll effect` row only at ladder stage 5, where a window's list is bound (DP2's rule: a
         // row that does nothing is not shown) — left out of the same STABLE set below it, so every row keeps its identity
@@ -1078,6 +1113,12 @@ class Shell(
         stampsAtLoad = persistence.stamps()
         stateLoaded = true
         settings = ShellSettings.fromJson(persistence.get("shell.settings"))
+        // S1-5 S (§4.2's (1)): once the source has heard Settings, the record's values over the local copy (and the copy
+        // written); until then the local copy shows — never the defaults over his settings
+        settingsSource?.takeIf { it.heard() }?.let { src ->
+            val r = recordSettingsOver(settings, src.state())
+            if (r != settings) { settings = r; persistence.put("shell.settings", r.toJson()) }
+        }
         // §73: BEFORE any window restores or wraps — with cached text on, every layout of the
         // session measures by the cache's metric, whether or not its face is uploaded yet
         cachedText?.cacheMetric = settings.cachedText == "on"
@@ -2554,16 +2595,13 @@ class Shell(
         if (n.emergency || n.fault) return true
         val kind = n.source.substringBefore('·').trim().uppercase()
         return when (kind) {
-            "SMS", "MMS" -> settings.notifySms
-            "MAIL" -> settings.notifyMail
             // MUSIC is NOT gated here: the window owns its six Notify rows
             // (WINDOWS.md §1), and the Global "Notify · Music" row that APKs up
             // to 0.17 carried could have persisted a false that no row could
             // undo — a hidden gate (docs audit 2026-09-02)
             // `Notify · Damage` is the WM's own events (`DESIGN.md` §4.5): a notice that names its app
             // is gated by that app's own rows in its own Settings category, never by a Global row
-            // (P7 item 1, OS-1). Inside this arm, not ahead of the `when`: an `appId` on an SMS or MAIL
-            // notice does not get it past `Notify · SMS` / `Notify · Mail`. An answer to Adam's own gesture
+            // (P7 item 1, OS-1); S1-5 S removed the hidden SMS and MAIL gate (no row set it). An answer to Adam's own gesture
             // (`Notice.answer`, P7 item 2) is not a courtesy event either. A host category's notice
             // (`Notice.gatedBy`, build W: the bus watcher's "Bastion") was gated by that category's own rows.
             "DAMAGE" -> n.appId != null || n.answer || n.gatedBy != null || settings.notifyDamage
@@ -7649,7 +7687,13 @@ class Shell(
         return if (w.isEmpty()) "default" else "default ($w)"
     }
 
-    private fun applySettings(s: ShellSettings, persist: Boolean = true) {
+    /**
+     * The one door every settings change goes through. [input] = an input on this device: with a [settingsSource] its
+     * changed items go to the record as ops after the field is set (the first flush never waits); false = the record's
+     * own change ([settingsFromRecord]) or the old sync's, which sends nothing back.
+     */
+    private fun applySettings(s: ShellSettings, persist: Boolean = true, input: Boolean = true) {
+        val old = settings
         val relayout = s.heightMode != settings.heightMode
         // any typography change — global face/scale/style or an app's —
         // re-derives every wrap and repaints whole (the §Type reversal)
@@ -7669,6 +7713,7 @@ class Shell(
         val relink = s.linkPriority != settings.linkPriority
         val retaps = s.taps != settings.taps
         settings = s
+        if (input) settingsSource?.let { src -> sendSettings(src, old, s) }
         if (retaps) { local.taps(s.taps); post(Msg.Pump) }     // build C2 (§6.7 Switching): the tap entry's SET or CLEAR only
         if (restage && s.pageStaging != "on") stagePagesClear("the Page staging row is off")     // AU.2: not Main's region
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
@@ -7708,6 +7753,57 @@ class Shell(
             if (redepth) composeFullSurface() else composeContent()
         }
         scheduleSave()
+    }
+
+    /** S1-5 S: one `set` per item [new] changes from [old], stamped with the input's time; each value kept until it
+     *  comes back ([settingsEcho]). */
+    private fun sendSettings(src: wm.damage.core.app.WindowSource, old: ShellSettings, new: ShellSettings) {
+        val at = src.now()
+        for (d in SettingsCore.diff(old, new, at)) {
+            settingsInflight.getOrPut(d.targets.single()) { ArrayDeque() }.addLast(d.result)
+            src.act(d)
+        }
+    }
+
+    /** S1-5 S (§4.2's (3)), on the loop: every record item that is not this shell's own write coming back and differs
+     *  from what is shown is applied — the local copy written, no op sent back. Nothing until the source has heard
+     *  Settings: the local copy shows meanwhile. */
+    private fun settingsFromRecord() {
+        val src = settingsSource ?: return
+        if (!src.heard()) return
+        val next = recordSettingsOver(settings, src.state())
+        if (next == settings) return
+        settingsFromRecordCount++
+        Log.i("settings", "settings changed on the record")
+        applySettings(next, input = false)
+    }
+
+    /** [shown] with every item of [st] that moved: absent or removed reads as the default; an echo of this shell's own
+     *  write is skipped. */
+    private fun recordSettingsOver(shown: ShellSettings, st: wm.damage.core.app.WindowState): ShellSettings {
+        val cur = SettingsCore.encode(shown)
+        val prefix = wm.damage.core.app.Record.prefix(SettingsCore.WINDOW)
+        val names = LinkedHashSet(cur.keys)
+        for (k in st.items.keys) if (k.startsWith(prefix)) names += k.removePrefix(prefix)
+        val moved = HashMap<String, kotlinx.serialization.json.JsonElement?>()
+        for (name in names) {
+            if (!SettingsCore.known(name)) continue
+            val v = SettingsCore.valueIn(st, name)
+            if (v == null || settingsEcho(name, v)) continue
+            if (v != (cur[name] ?: SettingsCore.defaultOf(name))) moved[name] = v
+        }
+        return SettingsCore.with(shown, moved)
+    }
+
+    /** True when [v] is this shell's own write of [name] coming back: it and every older write still in flight leave
+     *  the list. */
+    private fun settingsEcho(name: String, v: kotlinx.serialization.json.JsonElement): Boolean {
+        val q = settingsInflight[name] ?: return false
+        val i = q.indexOf(v)
+        if (i < 0) return false
+        repeat(i + 1) { q.removeFirst() }
+        if (q.isEmpty()) settingsInflight.remove(name)
+        return true
     }
 
     /** Repaint chrome + content from scratch (mode changes, boot, relayout). */
@@ -9328,7 +9424,7 @@ class Shell(
         when {
             key == "shell.settings" -> {
                 Log.i("sync", "settings updated from the peer")
-                applySettings(ShellSettings.fromJson(value), persist = false)
+                applySettings(ShellSettings.fromJson(value), persist = false, input = false)
             }
             key.startsWith("window.") -> {
                 val (w, sub) = windowForKey(key) ?: return
