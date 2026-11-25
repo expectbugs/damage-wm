@@ -154,6 +154,8 @@ class AppNet(
 
     /** S1-2 Q2: told on the executor of each connection that ends (an upload not yet begun is cancelled with it). */
     private val endListeners = CopyOnWriteArrayList<(Long) -> Unit>()
+    /** R-b H1: told on the executor when a window served with a card moves ([addCardListener]). */
+    private val cardListeners = CopyOnWriteArrayList<() -> Unit>()
 
     /** A PC-served scope a connection holds: its provider, and the source version its last description carried. */
     private class Held(val p: Provider) {
@@ -274,6 +276,12 @@ class AppNet(
         endListeners += l
     }
 
+    /** R-b H1: [l] is told, on the executor, whenever a window served with a card moves — what Main's cards follow
+     *  beside Reader's own sources (the health record's `sources` line reads the cards again). */
+    fun addCardListener(l: () -> Unit) {
+        cardListeners += l
+    }
+
     /** L1 F10: the PC-served scopes some connection holds now (Files reads again, at a job's end, only the folders a
      *  page holds). Never call it on the executor. */
     fun held(): Set<String> = host.executor.call { conns.values.flatMapTo(HashSet()) { it.described.keys } }
@@ -286,6 +294,7 @@ class AppNet(
     /** [p]'s source moved (executor): every scope it serves that follows the move, or whose source version moved
      *  since its last description, is described again; so is Main where [p] carries a card. */
     private fun moved(p: Provider) {
+        if (p.card != null) for (l in cardListeners) l()
         for (c in conns.values) for ((s, h) in c.described) {
             val again = if (h.p === p) p.d.follows(s, null) || versionMoved(p, s, h)
                 else p.card != null && s == PcScopes.MAIN
@@ -779,6 +788,7 @@ class AppNet(
 
     /** On the executor, in `seq` order: each connection gets the change's entries in each scope it holds. */
     private fun publish(c: Change) {
+        if (cardListeners.isNotEmpty() && cardMoved(c)) for (l in cardListeners) l()
         for (conn in conns.values) {
             for (scope in conn.scopes) {
                 if (scope == DevicesCore.SCOPE) continue
