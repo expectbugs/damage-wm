@@ -2,6 +2,7 @@ package wm.damage.core
 
 import java.nio.file.Files
 import java.nio.file.Path
+import org.junit.Rule
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
@@ -312,6 +313,8 @@ class Review28ScaleTest {
 }
 
 class Review28MainLensTest {
+    /** Stage OP: the "Open on PC" of every real provider here — a test opens nothing on the PC. */
+    @get:Rule val pc = NoPcOpen()
 
     /**
      * §28 #5 — the Main lens read "library loading" and "0 locations" from
@@ -330,7 +333,7 @@ class Review28MainLensTest {
         val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), null, scope)
         val reader = wm.damage.core.windows.reader.ReaderWindow(FakeText(), wm.damage.core.content.LocalContent(books), scope)
         val files = wm.damage.core.windows.files.FilesWindow(FakeText(),
-            wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), null,
+            wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), opener = pc, decoder = null,
                 mountsFile = tmp.resolve("no-mounts")), scope, null)
         // Tmux first, so Main's cursor rests on a window that is NOT one of
         // the two under test: neither is activated by the start

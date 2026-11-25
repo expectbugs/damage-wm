@@ -372,7 +372,7 @@ private class LookTree(val root: Path) {
         Files.write(home.resolve("plan.pdf"), madeUpPdf())
         Files.writeString(slow.resolve("waits.txt"), "a made-up file in the folder whose stats wait\n")
         for (n in listOf("old draft.txt", "screenshots-from-the-made-up-trip.zip")) Files.writeString(home.resolve(n), "to the trash: $n\n")
-        val local = wm.damage.core.windows.files.LocalFilesProvider(books, root.resolve("trash"), null, mountsFile = root.resolve("no-mounts"))
+        val local = wm.damage.core.windows.files.LocalFilesProvider(books, root.resolve("trash"), opener = NoPcOpen(), decoder = null, mountsFile = root.resolve("no-mounts"))
         files = LookFiles(root, local, listOf(
             wm.damage.core.windows.files.FLocation("Home", home.toString(), "home", 4_000_000_000_000, 1_250_000_000_000),
             wm.damage.core.windows.files.FLocation("Pictures", pics.toString(), "mount", 4_000_000_000_000, 1_250_000_000_000),
@@ -435,7 +435,6 @@ private class LookFiles(private val root: Path, private val local: wm.damage.cor
     override fun mkdir(dir: String, name: String) = local.mkdir(inside(dir), name)
     override fun copy(src: String, destDir: String) = local.copy(inside(src), inside(destDir))
     override fun move(src: String, destDir: String) = local.move(inside(src), inside(destDir))
-    override fun openOnPc(path: String) = throw IllegalArgumentException("the look opens nothing on the PC")
 }
 
 /** S1-2 Q5: the look's thumbnails (the desktop's are AWT too: `FilesThumbs`), a picture fitted inside [px], as JPEG. */

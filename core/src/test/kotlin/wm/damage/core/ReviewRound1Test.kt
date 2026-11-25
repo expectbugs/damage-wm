@@ -2,6 +2,7 @@ package wm.damage.core
 
 import java.net.ServerSocket
 import java.nio.file.Files
+import org.junit.Rule
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -44,6 +45,8 @@ import wm.damage.core.wire.EvenHubMsg
  * Files viewer continuity gate (save on shell A → sync → restore on B).
  */
 class ReviewRound1Test {
+    /** Stage OP: the "Open on PC" of every real provider here — a test opens nothing on the PC. */
+    @get:Rule val pc = NoPcOpen()
 
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
@@ -57,7 +60,7 @@ class ReviewRound1Test {
     fun readTextNeverSplitsAUtf8Character(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-utf8")
         try {
-            val p = LocalFilesProvider(tmp.resolve("b"), tmp.resolve("t"), null,
+            val p = LocalFilesProvider(tmp.resolve("b"), tmp.resolve("t"), opener = pc, decoder = null,
                 mountsFile = tmp.resolve("nm"))
             // 3-byte chars (€, U+20AC): any maxBytes not divisible by 3 lands
             // mid-character without the boundary trim
@@ -298,7 +301,7 @@ class ReviewRound1Test {
             Files.createDirectories(root)
             Files.writeString(root.resolve("log.txt"),
                 (1..200).joinToString("\n") { "line $it" } + "\n")
-            val lp = LocalFilesProvider(tmp.resolve("b"), tmp.resolve("t"), null,
+            val lp = LocalFilesProvider(tmp.resolve("b"), tmp.resolve("t"), opener = pc, decoder = null,
                 mountsFile = tmp.resolve("nm"))
             val provider = object : wm.damage.core.windows.files.FilesProvider by lp {
                 override fun locations() = listOf(

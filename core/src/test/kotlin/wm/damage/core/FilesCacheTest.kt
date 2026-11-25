@@ -3,6 +3,7 @@ package wm.damage.core
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
+import org.junit.Rule
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -33,6 +34,8 @@ import wm.damage.core.wire.EvenHubMsg
  * nothing.
  */
 class FilesCacheTest {
+    /** Stage OP: the "Open on PC" of every real provider here — a test opens nothing on the PC. */
+    @get:Rule val pc = NoPcOpen()
 
     @Test
     fun theListingCacheRoundTripsPrunesAndDropsWhatItCannotRead() {
@@ -88,7 +91,7 @@ class FilesCacheTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = tmp.resolve("sc-root"); Files.createDirectories(root)
-            val local = LocalFilesProvider(tmp.resolve("books"), tmp.resolve("trash"), decoder = null, mountsFile = tmp.resolve("no-mounts"))
+            val local = LocalFilesProvider(tmp.resolve("books"), tmp.resolve("trash"), opener = pc, decoder = null, mountsFile = tmp.resolve("no-mounts"))
             val provider = SlowProvider(local, root)
             val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
             val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), null, scope)

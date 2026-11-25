@@ -38,6 +38,8 @@ import wm.damage.core.windows.reader.ReaderWindow
  */
 object SelfCheck {
     private val failures = ArrayList<String>()
+    /** Stage OP: the Files provider's "Open on PC" — a check opens nothing on the PC. */
+    private val opens = CheckOpensNothing()
     /** Written from the transport's event collector (any dispatcher thread),
      *  read from the script at the end: a plain Int has no visibility
      *  guarantee across that hand-off, and a gate that reads a stale 0 passes
@@ -199,6 +201,7 @@ object SelfCheck {
             }
         }
         tag = ""
+        opens.failure()?.let { failures.add(it) }
         println()
         if (failures.isEmpty()) {
             println("selfcheck: ALL CHECKS PASS")
@@ -238,7 +241,7 @@ object SelfCheck {
             javax.imageio.ImageIO.write(img, "png", scRoot.resolve("img.png").toFile())
         }
         val filesLocal = wm.damage.core.windows.files.LocalFilesProvider(
-            books, tmp.resolve("trash"), AwtImages(), mountsFile = tmp.resolve("no-mounts"))
+            books, tmp.resolve("trash"), opens, AwtImages(), mountsFile = tmp.resolve("no-mounts"))
         val filesProvider = object : wm.damage.core.windows.files.FilesProvider by filesLocal {
             override fun locations(): List<wm.damage.core.windows.files.FLocation> =
                 listOf(wm.damage.core.windows.files.FLocation("SC", scRoot.toString(), "mount",

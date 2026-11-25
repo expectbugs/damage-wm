@@ -33,7 +33,7 @@ class FilesMoveTest {
     fun tearDown() = tree.close()
 
     private fun provider(sameVolume: (Path, Path) -> Boolean) =
-        LocalFilesProvider(tree.books, tree.trash, decoder = null, mountsFile = tree.root.resolve("no-mounts"), sameVolume = sameVolume)
+        LocalFilesProvider(tree.books, tree.trash, opener = tree.pc, decoder = null, mountsFile = tree.root.resolve("no-mounts"), sameVolume = sameVolume)
 
     private fun temps(dir: String): List<String> =
         Files.list(Path.of(dir)).use { s -> s.map { it.fileName.toString() }.filter { it.startsWith(".damage-move-") }.toList() }

@@ -536,7 +536,7 @@ data class Config(
             wm.damage.core.windows.torrents.QbtClient(qbtUrl, qbtUser, qbtPass),
             if (torrentleechUser.isNotEmpty()) wm.damage.core.windows.torrents.TorrentLeech(
                 torrentleechUser, torrentleechPass, Path.of(dataDir).resolve("tl-cookies.json")) else null,
-            Path.of(dataDir), scope)
+            Path.of(dataDir), scope, xdgOpen("torrents"))
 
     /** Build W: the alert store (`alerts.json` in the data directory; its epoch and sequence persist, dec. B.3). */
     fun alertStore(): wm.damage.core.bastion.AlertStore =
@@ -1013,6 +1013,30 @@ private fun bleInfo() {
     }
 }
 
+/**
+ * "Open on PC" (`FilesProvider.openOnPc`, `TorrentsProvider.openOnPc`): `xdg-open` on the PC's display — `DISPLAY` is
+ * `:0.0` when the service's environment has none — fired and detached; a refusal shows up fast, so the program's output
+ * is read and a non-zero exit is logged under [tag]. The one copy (stage OP, `C3-decisions` Part DG): this host hands it
+ * to the two providers it builds, and it is private to this file, so no check or test can reach it.
+ */
+private fun xdgOpen(tag: String): (String) -> Unit = { target ->
+    val env = HashMap(System.getenv())
+    if (env["DISPLAY"].isNullOrEmpty()) env["DISPLAY"] = ":0.0"
+    val pb = ProcessBuilder("xdg-open", target)
+    pb.environment().putAll(env)
+    pb.redirectErrorStream(true)
+    val p = pb.start()
+    Thread({
+        try {
+            val out = p.inputStream.readBytes().toString(Charsets.UTF_8).trim()
+            val code = p.waitFor()
+            if (code != 0) Log.w(tag, "xdg-open '$target' exited $code: ${out.take(200)}")
+        } catch (e: Exception) {
+            Log.w(tag, "xdg-open '$target': ${e.message}")
+        }
+    }, "$tag-xdg-open").apply { isDaemon = true }.start()
+}
+
 private suspend fun hostOnly(cfg: Config) {
     // R2 (RE-3): first, the data directory — the same store, ports and engines as the service's; a
     // directory another process holds ends this start here (exit 4, one stderr line)
@@ -1026,7 +1050,7 @@ private suspend fun hostOnly(cfg: Config) {
     val store = Persistence(Path.of(cfg.dataDir).resolve("state.json"))
     store.load()
     val filesLocal = wm.damage.core.windows.files.LocalFilesProvider(
-        Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), AwtImages())
+        Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), xdgOpen("files"), AwtImages())
     val themeIcons = ThemeIcons(AwtImages(), Path.of(cfg.dataDir).resolve("icons"))
     val torrents = cfg.torrentsProvider(scope)
     val music = startMusic(cfg, scope, reach)
@@ -1403,7 +1427,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     // phone's (over the win channel) share it — trash manifest included.
     // S1-2 Q5: behind the PC's one job slot (`filesProvider` below, once the record is open)
     val filesLocal = wm.damage.core.windows.files.LocalFilesProvider(
-        Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), AwtImages())
+        Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), xdgOpen("files"), AwtImages())
 
     // The PC always serves its library + tmux + sync + files + icons — the
     // DATA PROVIDER role (§19.1) — whoever is driving the glasses.

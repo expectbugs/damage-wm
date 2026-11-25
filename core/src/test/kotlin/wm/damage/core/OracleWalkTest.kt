@@ -1008,8 +1008,8 @@ class OracleWalkTest {
          * [WALK_FILES_FORWARDED] reach the real provider, each counted in [io] while it runs (the walk decides once a listing
          * has landed). `openOnPc` (the real one starts `xdg-open` on the PC's display) is counted in [opened] and returns;
          * any other call (the PDF calls start `pdfinfo`, `pdftotext`, `pdftoppm`; `thumb` decodes an image; a call added to
-         * the interface later) is recorded in [refused] and throws. The real provider's own `openOnPc` is replaced too: a
-         * call that reaches it is recorded in [refused] and throws, so even a rig that forwarded it starts nothing — and
+         * the interface later) is recorded in [refused] and throws. The real provider's own opener (stage OP: a required
+         * argument) records in [refused] and throws, so even a rig that forwarded `openOnPc` starts nothing — and
          * [refused] fails the walk.
          */
         fun walkFiles(tmp: java.nio.file.Path, io: java.util.concurrent.atomic.AtomicInteger, opened: java.util.concurrent.atomic.AtomicInteger,
@@ -1020,13 +1020,12 @@ class OracleWalkTest {
                 label to r
             }
             val local = wm.damage.core.windows.files.LocalFilesProvider(tmp.resolve("files-books"), tmp.resolve("files-trash"),
-                decoder = null, mountsFile = tmp.resolve("files-no-mounts"))
-            val base = object : wm.damage.core.windows.files.FilesProvider by local {
-                override fun locations() = roots.map { (label, r) -> wm.damage.core.windows.files.FLocation(label, r.toString(), "mount", 1_000_000, 500_000) }
-                override fun openOnPc(path: String) {
+                opener = { path ->
                     refused += "openOnPc reached the provider ($path)"
                     throw IllegalStateException("the walk's Files rig opens nothing on the PC")
-                }
+                }, decoder = null, mountsFile = tmp.resolve("files-no-mounts"))
+            val base = object : wm.damage.core.windows.files.FilesProvider by local {
+                override fun locations() = roots.map { (label, r) -> wm.damage.core.windows.files.FLocation(label, r.toString(), "mount", 1_000_000, 500_000) }
             }
             return java.lang.reflect.Proxy.newProxyInstance(wm.damage.core.windows.files.FilesProvider::class.java.classLoader,
                 arrayOf(wm.damage.core.windows.files.FilesProvider::class.java)) { proxy, m, args ->

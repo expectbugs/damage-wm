@@ -3,6 +3,7 @@ package wm.damage.core
 import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
+import org.junit.Rule
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -43,6 +44,8 @@ import wm.damage.core.wire.EvenHubMsg
  * whole provider remoted through a real server).
  */
 class FilesTest {
+    /** Stage OP: the "Open on PC" of every real provider here — a test opens nothing on the PC. */
+    @get:Rule val pc = NoPcOpen()
 
     /** Minimal services for the direct-activation checks (the rig's window is
      *  registered in a real shell; these calls only exercise the window). */
@@ -66,11 +69,11 @@ class FilesTest {
     }
 
     /** A deterministic world: one SC root (+ Trash when non-empty). */
-    private class Harness(tmp: Path) {
+    private class Harness(tmp: Path, pc: NoPcOpen) {
         val root: Path = tmp.resolve("sc-root")
         val books: Path = tmp.resolve("books")
         val trash: Path = tmp.resolve("trash")
-        val local = LocalFilesProvider(books, trash, decoder = null,
+        val local = LocalFilesProvider(books, trash, opener = pc, decoder = null,
             mountsFile = tmp.resolve("no-mounts"))
         val provider = object : FilesProvider by local {
             override fun locations(): List<FLocation> =
@@ -87,9 +90,9 @@ class FilesTest {
         }
     }
 
-    private class Rig(tmp: Path) {
+    private class Rig(tmp: Path, pc: NoPcOpen) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val h = Harness(tmp)
+        val h = Harness(tmp, pc)
         val store = Persistence(tmp.resolve("state.json"))
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
         val shell = Shell(FakeText(), transport, store, null, scope)
@@ -119,7 +122,7 @@ class FilesTest {
     fun mainEntryShowsTheLocationsListAndTheSwitcherResumesTheFolder(): Unit = runBlocking {
         // Adam's general rule, 2026-09-04 (HOLDEM.md §3).
         val tmp = Files.createTempDirectory("damage-files-activation")
-        val r = Rig(tmp)
+        val r = Rig(tmp, pc)
         try {
             r.start()
             awaitTrue("locations listed") { r.win.summary().line == "1 locations" }
@@ -145,7 +148,7 @@ class FilesTest {
     @Test
     fun twoTapNavigationAndMenuGrammar(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-files-nav")
-        val r = Rig(tmp)
+        val r = Rig(tmp, pc)
         try {
             r.start()
             awaitTrue("locations listed") { r.win.summary().line == "1 locations" }
@@ -183,7 +186,7 @@ class FilesTest {
     @Test
     fun textViewerScrollAndPersistence(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-files-view")
-        val r = Rig(tmp)
+        val r = Rig(tmp, pc)
         try {
             r.start()
             awaitTrue("locations") { r.win.summary().line == "1 locations" }
@@ -208,7 +211,7 @@ class FilesTest {
 
             // §9.1 + the continuity substrate: a new shell restores the SAME
             // file at the SAME line
-            val r2 = Rig(tmp)
+            val r2 = Rig(tmp, pc)
             dump = { "title='${r2.win.title()}' state=${r2.win.saveState()}" }
             r2.shell.start()
             awaitTrue("viewer restored") { r2.win.title() == "a.txt" }
@@ -224,7 +227,7 @@ class FilesTest {
     @Test
     fun clipboardCopyPasteAndTrashRestore(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-files-ops")
-        val r = Rig(tmp)
+        val r = Rig(tmp, pc)
         dump = { "title='${r.win.title()}' menu=${r.shell.menuIsOpen} summary='${r.win.summary().line}/${r.win.summary().detail}' state=${r.win.saveState()}" }
         try {
             r.start()
@@ -279,7 +282,7 @@ class FilesTest {
     @Test
     fun typedRenameConfirms(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-files-rename")
-        val r = Rig(tmp)
+        val r = Rig(tmp, pc)
         try {
             r.start()
             awaitTrue("locations") { r.win.summary().line == "1 locations" }
@@ -308,7 +311,7 @@ class FilesTest {
     @Test
     fun menuDefersNotifications(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-files-menu-notice")
-        val r = Rig(tmp)
+        val r = Rig(tmp, pc)
         try {
             r.start()
             awaitTrue("locations") { r.win.summary().line == "1 locations" }
@@ -350,7 +353,7 @@ class FilesTest {
         val tmp = Files.createTempDirectory("damage-files-pdfrestore")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val h = Harness(tmp)
+            val h = Harness(tmp, pc)
             val pdf = h.root.resolve("scan.pdf")
             Files.writeString(pdf, "%PDF-1.4 fake")
             val gate = java.util.concurrent.CountDownLatch(1)
@@ -456,7 +459,7 @@ class FilesTest {
         var host: ContentHostServer? = null
         var remote: RemoteFilesProvider? = null
         try {
-            val h = Harness(tmp)
+            val h = Harness(tmp, pc)
             host = ContentHostServer(LocalContent(tmp), port, "tok",
                 win = mapOf("files" to FilesService(h.provider)))
             host.start()
