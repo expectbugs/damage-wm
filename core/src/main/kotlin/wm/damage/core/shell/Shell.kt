@@ -988,7 +988,7 @@ class Shell(
     // ------------------------------------------------------------------ set-up
     fun register(w: DamageWindow) {
         // the sub-record key scheme parses `window.<id>.<subKey>` at the FIRST
-        // dot — a dotted id would let one window's tombstone sweep overwrite
+        // dot — a dotted id would let one window's removal sweep remove
         // another's records (review 2026-09-01 F9). Enforced, not assumed.
         require('.' !in w.id) { "window id '${w.id}' must not contain '.'" }
         require(windows.none { it.id == w.id }) { "window id '${w.id}' already registered" }
@@ -1065,7 +1065,6 @@ class Shell(
         // here (a window's `onRegistered`, the load, a restore) left `running` and `starting` set: every later start
         // read "shell already started" and `post` dropped every ring event as a start's.
         val adopted: Boolean
-        val stampsAtLoad: Map<String, Long>
         val restoredId: String?
         val restoredMode: String?
         try {
@@ -1091,7 +1090,7 @@ class Shell(
         // a leftover surface from this instance's PREVIOUS session (the keeper
         // stops and restarts the same Shell on link edges) must not carry a
         // stale under-capture forward — content can change across the gap
-        // (a sync apply), and the close-restore would blit old pixels
+        // (a record's change), and the close-restore would blit old pixels
         // (review 2026-09-01 R2#19). Drop it; reopening costs one tap.
         if (menu.open) {
             val leftover = closeMenuSurface(restore = false)
@@ -1102,18 +1101,14 @@ class Shell(
         dropKeyboard()                    // the same rule for the keyboard (§4.8), draft handed back
         // reported sub-keys are per SESSION (review 2026-09-01 R2#5): a key
         // restored in session N whose restore THROWS in session N+1 must not
-        // stay "reported" — saveAll would tombstone the real record and sync
-        // the removal fleet-wide, exactly what the guard exists to prevent
+        // stay "reported" — saveAll would remove the real record, exactly what
+        // the guard exists to prevent
         subReported.clear()
         badPlaneSaid.clear()          // a new session re-reports a bad region once
 
-        // restore persisted state (§9.1: survives WM restart) BEFORE the loop
+        // restore persisted state (§9.1: survives WM restart) BEFORE the loop; a session start over a store already
+        // loaded keeps what it holds (Persistence.load)
         persistence.load()
-        // the stamp map AT load — the §19.4 reconciliation baseline: any
-        // syncable key whose stamp advances before the loop's first pass was
-        // applied store-direct and must be LIVE-applied before the first save
-        // can out-stamp it with stale live state (2026-09-01)
-        stampsAtLoad = persistence.stamps()
         stateLoaded = true
         settings = ShellSettings.fromJson(persistence.get("shell.settings"))
         // S1-5 S (§4.2's (1)): once the source has heard Settings, the record's values over the local copy (and the copy
@@ -1126,15 +1121,11 @@ class Shell(
         // session measures by the cache's metric, whether or not its face is uploaded yet
         cachedText?.cacheMetric = settings.cachedText == "on"
         clockWKey = null; statusWKey = null
-        settingsLocallyEdited = false   // live settings now MIRROR the store
-        if (persistence.get("shell.settings") == null) {
-            persistence.putBaseline("shell.settings", settings.toJson())  // R2#16
-        }
         layout = layoutFor(settings)
         refreshStyles()   // every window draws through its per-app transform (Style.kt)
         // §73: the same windows live across sessions and keep what they laid out. A typography or
-        // Cached text change that reached the store while no session ran (a synced record applied
-        // store-direct) is read just above — and nothing told the windows: a book held from the
+        // Cached text change that reached the store while no session ran (the record's, folded just
+        // above) is read just above — and nothing told the windows: a book held from the
         // last session stayed wrapped by the old metric, its long lines cut. Keyed on what a layout
         // depends on: an unconditional call would re-wrap the open book at every link edge.
         val styleKey = styleKeyOf(settings)
@@ -1164,24 +1155,15 @@ class Shell(
                 }
             }
             // keys the window actually HOLDS after restore count as reported
-            // (F2c/d): a later removal may tombstone them, while keys a build
+            // (F2c/d): a later removal may remove them, while keys a build
             // ignores (no sub-record support) or failed to restore stay
             // protected — "didn't load it" is never a removal
             try {
-                // an empty blob is the tombstone, never a held record (see saveAll)
+                // an empty blob is never a held record (see saveAll)
                 subReported.getOrPut(w.id) { HashSet() }
                     .addAll(w.saveSubState().filterValues { it.isNotEmpty() }.keys)
             } catch (e: Exception) {
                 Log.e("shell", "saveSubState of ${w.id} at restore failed", e)
-            }
-            // a window with NO stored record gets a stamp-0 BASELINE of its
-            // defaults (R2#16): persisted for offline restarts, but any real
-            // fleet record beats it — the first value-changing save after
-            // actual use re-stamps for real
-            if (persistence.get("window.${w.id}") == null) {
-                try { persistence.putBaseline("window.${w.id}", w.saveState()) } catch (e: Exception) {
-                    Log.e("shell", "baseline of ${w.id} failed", e)
-                }
             }
         }
         val shellState = persistence.get("shell.state")
@@ -1378,21 +1360,6 @@ class Shell(
             loopJob = scope.launch { loop() }
             loopLaunched = true
             loopStartedThisSession = true
-            // §19.4 post-start reconciliation (2026-09-01): the FIRST loop
-            // message — any syncable record that advanced past the load
-            // baseline (a peer's push racing this start) is live-applied now,
-            // so the first save writes the same value and cannot out-stamp it
-            post(Msg.Run {
-                for ((k, t) in persistence.stamps()) {
-                    if (!Persistence.syncable(k) || t <= (stampsAtLoad[k] ?: 0L)) continue
-                    Log.i("sync", "post-start reconciliation: '$k' advanced during startup — live-applying")
-                    persistence.get(k)?.let { v ->
-                        try { liveApplySync(k, v) } catch (e: Exception) {
-                            Log.e("sync", "reconciliation of '$k' failed", e)
-                        }
-                    }
-                }
-            })
             val gen = tickGen             // P5 item 3: bumped at the start's first lines (a rebuild asked above captured it)
             scheduleMinuteTick(gen)
             scope.launch {
@@ -1543,12 +1510,9 @@ class Shell(
                         try { current?.onDeactivate() } catch (e: Exception) { Log.e("shell", "onDeactivate at shutdown", e) }
                         saveAll(sync = true)      // the last state must be ON DISK before stop() returns
                     } finally {
-                        // P5 part a (review 1b RE-4's sibling): `running` goes false only AFTER the final save. Set
-                        // before it, a synced record that came during the save met `postSync` false, was stored
-                        // directly by the host's applier, and the save then put the live state over it under a fresh
-                        // stamp (pushed back to the peer). Now it is posted behind this message and the drain's
-                        // `dropped` arm stores it after the save. A message another thread posts meanwhile (a tick, a
-                        // probe, a transport event) goes to the drain, which decides it as `post` would have.
+                        // P5 part a (review 1b RE-4's sibling): `running` goes false only AFTER the final save. A
+                        // message another thread posts meanwhile (a tick, a probe, a transport event) goes to the
+                        // drain, which decides it as `post` would have.
                         // R4 item 2 (review 3A-3): on EVERY exit from the steps above. A throw there (an `Error`, an
                         // encode) left `running` true and `done` open: the loop served on with the pushes held and
                         // `stop()` did not return. The throw still reaches the catch below and its fault.
@@ -2008,14 +1972,11 @@ class Shell(
     /** §16.2: the hand-off caller a root-level back returns to (one level).
      *  Set by openWindow, consumed on use, cleared by explicit navigation. */
     private var backTarget: DamageWindow? = null
-    /** Live settings hold a value the stored record did not produce — i.e. a
-     *  local edit happened. Gates every re-encoding put (R2#4). */
-    private var settingsLocallyEdited = false
     /** One visible alarm per save-failure streak (R3s#11). */
     private var saveFailureRaised = false
 
     /** Per window: the sub-record keys its saveSubState has REPORTED this
-     *  session — the only keys the tombstone sweep may remove (F2c/d). */
+     *  session — the only keys the removal sweep may remove (F2c/d). */
     private val subReported = HashMap<String, MutableSet<String>>()
 
     /** Sub-keys already reported as wrongly-empty — one loud line each. */
@@ -2977,8 +2938,13 @@ class Shell(
         if (key != noticeProgsFor) noticeLayout(st, key)
         for (p in noticeProgs) if (p.rec.state == StagedRecord.State.SENT && stageInFlightRec !== p.rec) p.rec.state = StagedRecord.State.WANTED
         val rec = noticeProgs.firstOrNull { it.rec.state == StagedRecord.State.WANTED }?.rec ?: return false
-        // Page staging's holds, every one (fix A2): the atlas's lane, the count's reading, a re-send owed, one unproven
-        // record at a time
+        return stageOwnRecord(rec, st)
+    }
+
+    /** One record of the stage lane's own books ([ownRecs]: the notice's programs, the held lanes' areas) written, after
+     *  Page staging's holds, every one (fix A2): the atlas's lane, the count's reading, a re-send owed, one unproven
+     *  record at a time. */
+    private suspend fun stageOwnRecord(rec: StagedRecord, st: LinkState): Boolean {
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight || st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
@@ -3141,7 +3107,8 @@ class Shell(
         if (spec != null && region != null) stagePagesDropUnder(region, "the held lanes take the stage reserve's lower 16 KiB (his answer 6); " +
             "Reader stages them again when it is next in front")
         val d = spec?.let { comp.laneDisparity(it.rects[0]) } ?: 0
-        lanes.pump(WindowLanes.Env(System.currentTimeMillis(), spec, why, d, if (inForce) region else null, if (inForce) effectsToken(st) else null) { slot ->
+        lanes.pump(WindowLanes.Env(System.currentTimeMillis(), spec, why, d, if (inForce) region else null, if (inForce) effectsToken(st) else null,
+            written = { (l, r) -> comp.laneWritten(l, r) }) { slot ->
             transport.mirror.motionTagIn(Arm.RIGHT, slot)
         })
         lanes.takeRelease()?.let { comp.laneRelease(it) }
@@ -3174,20 +3141,13 @@ class Shell(
         } ?: return false
         if (pagingInFront() || cacheWritesHeld()) return false
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld || !ledgerReadable(st)) return false
-        if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
-        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight || st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
-        if (ledgerBaseOwed(st)) return tryLedgerRead(st)
-        if (stage.count(StagedRecord.State.ACKED) > 0 || ownRecs().any { it.state == StagedRecord.State.ACKED }) return false
-        if (atlasResendMissing > 0L) return false
-        stageSubmit(rec, st)
-        return true
+        return stageOwnRecord(rec, st)
     }
 
     /** Tests: the lanes' chain (open, its (slot, tag)s, its areas' states, strikes off). */
     internal fun lanesForTest(): String = "open ${lanes.open} tags ${lanes.openTags.joinToString { "%d:0x%04x".format(it.first, it.second) }} " +
         "areas ${lanes.records.joinToString { "${it.key.firstLine}:${it.state}" }} off ${lanes.off}"
     internal val lanesOpenForTest: Boolean get() = lanes.open
-    internal val laneStretchesDrawnForTest: Int get() = lanes.stretchesDrawn
 
     private fun scheduleSilentDismiss() {
         val gen = ++silentDismissGen
@@ -7919,9 +7879,9 @@ class Shell(
     /**
      * The one door every settings change goes through. [input] = an input on this device: with a [settingsSource] its
      * changed items go to the record as ops after the field is set (the first flush never waits); false = the record's
-     * own change ([settingsFromRecord]) or the old sync's, which sends nothing back.
+     * own change ([settingsFromRecord]), which sends nothing back. Either way the local copy is written.
      */
-    private fun applySettings(s: ShellSettings, persist: Boolean = true, input: Boolean = true) {
+    private fun applySettings(s: ShellSettings, input: Boolean = true) {
         val old = settings
         val relayout = s.heightMode != settings.heightMode
         // any typography change — global face/scale/style or an app's —
@@ -7954,14 +7914,7 @@ class Shell(
             clockWKey = null; statusWKey = null
             if (s.cachedText == "on") atlasEnable(rederive = false) else atlasDisable("the setting is off")
         }
-        // liveApplySync passes persist=false: the store already holds the
-        // EXACT synced record; putting our clamped re-encoding would re-stamp
-        // it and, across versions with different ladders, ping-pong restyles
-        // forever (review 2026-09-01 F5). The flag carries the same fact to
-        // freshenSyncKey and saveAll (R2#4): only a LOCAL edit may ever
-        // re-encode the record.
-        settingsLocallyEdited = persist
-        if (persist) persistence.put("shell.settings", s.toJson())
+        persistence.put("shell.settings", s.toJson())
         // the Cached text row moves every string's measure (§73), so it re-derives what a
         // typography change does: every wrap, the row pitch, the chrome's cells, a whole repaint
         if (restyle || (recache && cachedText != null)) {
@@ -9571,150 +9524,14 @@ class Shell(
     }
 
     // ------------------------------------------------------------------ sync
-    /**
-     * A sync record from the peer (HANDOFF.md §19.2). Returns false when the
-     * shell is not running — the caller applies it to the store directly. On
-     * the loop: a record the store already HOLDS (the same value, a stamp not
-     * newer by more than the tolerance — HANDOFF §75.1) ends here, before any
-     * work is done for it. Otherwise FRESHEN the key first (last-write-wins
-     * must compare against the state the user sees now, not the last debounced
-     * save), then apply, then live-apply so the change is visible without a
-     * restart.
-     *
-     * The held-record test is the Run's FIRST statement and runs on the loop,
-     * not where the record is read off the wire (0.64 P3, review finding 1):
-     * records for one key are applied in the order they were posted, and a
-     * test made on the reader's thread compares against a store the queued
-     * ones have not reached yet (K = v1; the peer sends v2, then v1 again
-     * inside the tolerance: the second would be dropped against the old v1 and
-     * this side would end on v2).
-     *
-     * What skipping the freshen costs: the freshen also puts live state that
-     * no save has captured yet, and a save tick follows INPUT only, so state
-     * that changed with no ring input (a track change in Music) is not put by
-     * this record any more. It reaches the store and the peer at the next
-     * input-driven save, the next record for the key that is not held, or an
-     * orderly stop. Before this, a handshake's 77 records each ran the
-     * freshen and a whole-store save on the loop, every other handshake.
-     */
-    fun postSync(key: String, value: JsonObject, stamp: Long): Boolean {
-        if (!running) return false
-        // R2 (RE-4): `running` is read before the post, so a record can land behind the stop's Shutdown; the
-        // loop's drain then runs `dropped` — the store-direct apply the caller makes when this returns false.
-        // Inside its own `try`: the loop's `!running` arm calls `dropped` too.
-        post(Msg.Run(dropped = {
-            try {
-                if (persistence.tryApplyRemote(key, value, stamp))
-                    Log.i("sync", "'$key' from the peer met a stopped shell — stored; the next start shows it")
-            } catch (e: Exception) { Log.e("sync", "storing synced '$key' failed", e) }
-        }) {
-            try {
-                if (persistence.holdsSame(key, value, stamp)) return@Run
-                freshenSyncKey(key)
-                if (persistence.tryApplyRemote(key, value, stamp)) liveApplySync(key, value)
-            } catch (e: Exception) {
-                Log.e("sync", "applying synced '$key' failed", e)
-            }
-        })
-        return true
-    }
-
-    /** `window.<id>` → (window, null); `window.<id>.<subKey>` → (window, sub).
-     *  Window ids carry no dots, so the first segment is always the id. */
-    private fun windowForKey(key: String): Pair<DamageWindow, String?>? {
-        if (!key.startsWith("window.")) return null
-        val rest = key.removePrefix("window.")
-        val id = rest.substringBefore('.')
-        val sub = rest.substringAfter('.', "").ifEmpty { null }
-        val w = windows.firstOrNull { it.id == id } ?: return null
-        return w to sub
-    }
-
-    private fun freshenSyncKey(key: String) {
-        // FRESHEN ONLY WHAT THIS DEVICE EVER HELD (review 2026-09-01 F2): a
-        // virgin or unreadable-and-cleared store must not stamp its DEFAULTS over the
-        // fleet's real records — if we never had the key, the peer's record
-        // simply wins. Local edits made this session put the key first, so a
-        // genuinely-used device still freshens against its live state.
-        if (persistence.get(key) == null) return
-        when {
-            // re-encode ONLY after a local edit (R2#4): when live settings came
-            // from the stored record itself (boot restore or a peer apply), a
-            // re-encoding differs only by version shape — putting it would
-            // re-stamp the peer's record on every handshake, the F5 ping-pong
-            // through the freshen door
-            key == "shell.settings" -> if (settingsLocallyEdited) persistence.put(key, settings.toJson())
-            key.startsWith("window.") -> windowForKey(key)?.let { (w, sub) ->
-                try {
-                    if (sub == null) {
-                        persistence.put(key, w.saveState())
-                    } else {
-                        // freshen only what the window HOLDS: an absent item is
-                        // either never-had (the remote record should apply) or
-                        // removed (its tombstone already carries a fresh stamp
-                        // from the removal's save) — LWW decides both correctly
-                        w.saveSubState()[sub]?.let { persistence.put(key, it) }
-                    }
-                } catch (e: Exception) {
-                    Log.e("sync", "freshen of $key failed", e)
-                }
-            }
-        }
-    }
-
-    private fun liveApplySync(key: String, value: JsonObject) {
-        when {
-            key == "shell.settings" -> {
-                Log.i("sync", "settings updated from the peer")
-                applySettings(ShellSettings.fromJson(value), persist = false, input = false)
-            }
-            key.startsWith("window.") -> {
-                val (w, sub) = windowForKey(key) ?: return
-                if (sub == null) {
-                    Log.i("sync", "state of '${w.id}' updated from the peer")
-                    w.restoreStateLive(value)
-                    // per-ITEM last-write-wins on top of the main record
-                    // (R3d#1): an old peer's whole-map record can win the
-                    // MAIN key while this side holds NEWER sub-records — each
-                    // newer sub wins its item back, and restoreSubState's own
-                    // re-seat keeps the open item's screen position honest
-                    val mainStamp = persistence.stamp(key)
-                    for (k2 in persistence.keysWithPrefix("$key.")) {
-                        if (persistence.stamp(k2) > mainStamp) {
-                            persistence.get(k2)?.let { v2 ->
-                                try { w.restoreSubState(k2.removePrefix("$key."), v2) }
-                                catch (e: Exception) { Log.e("sync", "sub re-apply of $k2 failed", e) }
-                            }
-                        }
-                    }
-                } else {
-                    Log.i("sync", "item '$sub' of '${w.id}' updated from the peer")
-                    w.restoreSubState(sub, value)
-                    // the window now HOLDS (or just removed) this item: it
-                    // counts as reported (R3s#4) — without this, a user
-                    // removal made before the next saveAll never tombstones
-                    // and the peer's record resurrects it at the next restart
-                    subReported.getOrPut(w.id) { HashSet() }.add(sub)
-                }
-                // repaint only when the change is on screen; the wheel owns the
-                // screen while open (§4.3) and a parked window paints on focus
-                if ((mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) && current === w && !switcher.open) {
-                    syncLayout()
-                    composeFullSurface()
-                }
-            }
-        }
-    }
-
     /** [sync] = the shutdown form: the write has landed when this returns.
      *  The periodic form encodes on the loop and writes on the store's own
      *  thread (2026-09-05, §32), reporting a failed write back through the
      *  loop so the notice is raised where every other state mutation is. */
     private fun saveAll(sync: Boolean = false) {
-        // settings are NOT re-put here (R2#4): applySettings(persist=true)
-        // already persisted every local edit, and a blind re-encoding of a
-        // peer-applied record would re-stamp it on the next save tick — the
-        // exact echo the F5 fix suppressed at the apply site
+        // settings are NOT re-put here (R2#4): applySettings already wrote
+        // every change, and the stored record keeps any field this build does
+        // not know
         persistence.put("shell.state", buildJsonObject {
             put("current", current?.id ?: "")
             put("mode", mode.name)
@@ -9724,26 +9541,22 @@ class Shell(
         for (w in windows) {
             try {
                 persistence.put("window.${w.id}", w.saveState())
-                // §16.4a sub-records: per-item blobs, individually stamped so
-                // sync converges per ITEM. A stored sub-key the window no
-                // longer holds gets the removal TOMBSTONE (an empty object) —
-                // value-changed, so it re-stamps once and the removal syncs;
-                // re-putting an existing tombstone is value-equal and free.
+                // §16.4a sub-records: per-item blobs. A stored sub-key the
+                // window no longer holds is removed from the store (S1-5 §4.8).
                 // ⚠ Only keys the window ITSELF reported this session may be
-                // tombstoned (review 2026-09-01 F2c/d): a failed restore, or a
+                // removed (review 2026-09-01 F2c/d): a failed restore, or a
                 // build that does not speak sub-records, must never turn
-                // "didn't load it" into a fresh-stamped removal of real data.
-                // an EMPTY blob IS the tombstone: a window that returns one is
-                // reporting a removal it did not mean, and the key is syncable
-                // — refuse it loudly rather than fresh-stamp a deletion of the
-                // peer's real record (review 2026-09-03, the Music mirror)
+                // "didn't load it" into a removal of real data.
+                // An EMPTY blob is not a record (an older build's store holds
+                // it as a removal's mark): a window that returns one is refused
+                // loudly and its stored record kept (review 2026-09-03)
                 val subs = w.saveSubState().filter { (sk, blob) ->
                     // said ONCE per key per session: saveAll runs every couple
                     // of seconds and a standing defect must not become a stream
                     blob.isNotEmpty().also {
                         if (!it && emptySubSaid.add("${w.id}.$sk"))
                             Log.e("shell", "${w.id}.saveSubState() reported '$sk' as an EMPTY " +
-                                "object — that is the removal tombstone, not a record; refused")
+                                "object — that is not a record; refused")
                     }
                 }
                 val prefix = "window.${w.id}."
@@ -9752,7 +9565,7 @@ class Shell(
                 for ((sk, blob) in subs) persistence.put(prefix + sk, blob)
                 for (k in persistence.keysWithPrefix(prefix)) {
                     val sk = k.removePrefix(prefix)
-                    if (sk !in subs && sk in reported) persistence.put(k, JsonObject(emptyMap()))
+                    if (sk !in subs && sk in reported) persistence.remove(k)
                 }
             } catch (e: Exception) {
                 Log.e("shell", "saveState of ${w.id} failed", e)
@@ -9763,7 +9576,7 @@ class Shell(
         } else {
             persistence.saveAsync { landed ->
                 // back onto the loop; a shell already stopped drops it (the
-                // sync shutdown save reports for itself)
+                // synchronous shutdown save reports for itself)
                 if (running) post(Msg.Run(dropped = {}) { noteSaveLanded(landed) })
             }
         }

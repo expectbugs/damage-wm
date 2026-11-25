@@ -7,30 +7,28 @@ phone's Tailscale address (`tailscale status | grep aphone`).**
 
 **As built.** `REPLAN.md` §14 rules the PC the owner of every window's state, with the phone keeping a working copy,
 and PC-direct BLE a manual choice, never automatic: the service never drives by itself (`HANDOFF.md` §79). Reader,
-Torrents, Files, the notices, Feed, Tmux and Music run on a record on the PC with the phone's working copy, and browser
-pages read them, Music's from its second half (the section below; `core/…/app/Windows.kt`, `HANDOFF.md` §80, §84, §89,
-§97.5); every other window syncs as below.
+Torrents, Files, the notices, Feed, Tmux, Music, Games and Settings run on a record on the PC with the phone's working
+copy, and browser pages read them, Music's from its second half (the section below; `core/…/app/Windows.kt`,
+`HANDOFF.md` §80, §84, §89, §97.5); each device's own store keeps only its view.
 
 ## The moving parts
 
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | THE driver — owns the BLE radio and runs the shell; serves the seam :7402 (status probe + explicit dev claims) and the replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | data host: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed · `bastion`, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); the bus alert watcher (the hub read every 10 s when `haUrl` is set), `damage.phone` once a minute, the nightly copy at `backupAt` into `backupDir`, and the reach gate on every listener; the converted windows' record (`record.json` + `oplog.jsonl`) and the web listener :7405; probes the phone's seam every 5 s for its status line and never drives on its own — PC-direct BLE only by hand (`drive=ble` / `drive=auto`, below); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `--transport auto` = the data host; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
+| **beardos `damage` service** | data host: books, tmux, the window channel :7401 (Files · Torrents · Music · Feed · `bastion`, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); the bus alert watcher (the hub read every 10 s when `haUrl` is set), `damage.phone` once a minute, the nightly copy at `backupAt` into `backupDir`, and the reach gate on every listener; the windows' record (`record.json` + `oplog.jsonl`) and the web listener :7405; probes the phone's seam every 5 s for its status line and never drives on its own — PC-direct BLE only by hand (`drive=ble` / `drive=auto`, below); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `--transport auto` = the data host; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
 | **beardos `qbittorrent` service** | the Torrents backend: `qbittorrent-nox` on Adam's own profile (`~/.config/qBittorrent`), Web API `127.0.0.1:8090` | OpenRC `qbittorrent` (Gentoo's script + `/etc/conf.d/qbittorrent`, `default` runlevel, 2026-09-10) |
 
 **Who drives when** (automatic, event-driven, pacing not timeouts): APK up → the phone shell drives — home,
-work, LTE; PC reachability decides how CAPABLE it is (live library, tmux, sync), never who drives, and
+work, LTE; PC reachability decides how CAPABLE it is (live library, tmux, the record), never who drives, and
 gestures and frames never leave the phone. PC unreachable → nothing changes on glass; content degrades to
-the caches, staleness is said (`PC gone/Nm`), sync resumes on reconnect (last-write-wins both ways); the bus
+the caches, staleness is said (`PC gone/Nm`), the working copy catches up on reconnect (the latest input wins); the bus
 alerts say "home unreachable" after the phone's set minutes. APK unreachable → **nothing takes the glasses by
 itself**: the status line says "phone unreachable … PC-direct BLE is manual (drive=ble)". The phone's shelf answers
-from its cache at once while the PC is out of reach. Reboot either machine → both restart themselves. **State
-sync:** settings and every window blob flow between phone and PC whenever both are up — most recent wins, per key;
-the converted windows (Reader's places, bookmarks and rows; Torrents, Files, the notices, Feed, Tmux; Music's queue,
-place, output and rows) are not
-synced but sent to the PC's record as ops, queued on the phone while the PC is out of reach (a converted window's
-keys never sync, `Persistence.syncable`).
+from its cache at once while the PC is out of reach. Reboot either machine → both restart themselves. **State:**
+every window's shared state (the settings; Reader's places, bookmarks and rows; Torrents, Files, the notices, Feed,
+Tmux; Music's queue, place, output and rows; Games' world, table and rows) is the PC's record; the phone sends its
+changes as ops, queued while the PC is out of reach.
 
 ## One-time setup (for a re-pair or a fresh phone; done 2026-08-31)
 
@@ -406,11 +404,7 @@ phone's working copy and queue — pull the phone's journal before, `python3 too
 
 ## What was verified vs what awaits glass
 
-The §13 hardware pass ran 2026-08-31 (`HANDOFF.md` §13); the §19 re-shape is test-pinned (`SyncTest` ×6,
-`SyncToleranceTest` for the 2 s tolerance) and seen live (`sync-host: peer attached to the sync channel`; a
-phone-side `window.tmux` record applied store-direct while the PC shell was in standby). **Still awaiting a
-deliberate glass test:** the sync feel across a driver swap (a book position following the swap). **Games
-(`HOLDEM.md`) needs nothing from ops** — no host, no provider, no channel; its state is the shell's own store
-(`window.games`, `window.games.world`, `window.games.bankroll`, `window.games.table`,
-`window.games.char.<id>`) and syncs like every window not yet on the PC's record. ⚠ Its layouts and card art have never been seen
-on the glasses — only on the simulator at true 1×.
+The §13 hardware pass ran 2026-08-31 (`HANDOFF.md` §13); the §19 re-shape (the phone drives, the PC never claims)
+is test-pinned (`StandbyPolicyTest`). **Games (`HOLDEM.md`) needs nothing from ops** — no host, no provider, no
+channel; its state is on the PC's record (`rec.games.…`: the table, the bankroll, the world, the characters and its
+rows). ⚠ Its layouts and card art have never been seen on the glasses — only on the simulator at true 1×.

@@ -20,7 +20,6 @@ import wm.damage.core.app.Welcome
 import wm.damage.core.content.ContentHostServer
 import wm.damage.core.content.LocalContent
 import wm.damage.core.net.WinService
-import wm.damage.core.sync.SyncPeer
 
 /*
  * Build S1-1, package P2: the rig the `app` lane's tests share — P1's [RecordRig] host (the made-up window `t`), an
@@ -35,7 +34,6 @@ internal class AppLaneRig(
     outboxCap: Int = AppNet.OUTBOX_CAP,
     @Volatile var localSecret: String? = null,
     onLoopback: ((Socket) -> Boolean)? = null,
-    sync: SyncPeer? = null,
     win: Map<String, WinService> = emptyMap(),
     withApp: Boolean = true,
 ) : AutoCloseable {
@@ -44,9 +42,9 @@ internal class AppLaneRig(
 
     init {
         val books = Files.createDirectories(rec.dir.resolve("books"))
-        server = if (onLoopback == null) ContentHostServer(LocalContent(books), 0, TOKEN, sync = sync, win = win,
+        server = if (onLoopback == null) ContentHostServer(LocalContent(books), 0, TOKEN, win = win,
             app = net.takeIf { withApp }, localSecret = { localSecret }, bindAddress = InetAddress.getLoopbackAddress())
-        else ContentHostServer(LocalContent(books), 0, TOKEN, sync = sync, win = win, app = net.takeIf { withApp },
+        else ContentHostServer(LocalContent(books), 0, TOKEN, win = win, app = net.takeIf { withApp },
             localSecret = { localSecret }, onLoopback = onLoopback, bindAddress = InetAddress.getLoopbackAddress())
         server.start()
     }

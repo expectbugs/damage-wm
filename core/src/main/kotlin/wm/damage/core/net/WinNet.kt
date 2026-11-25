@@ -224,7 +224,7 @@ class RemoteWin(
                         // healthy only on a KNOWN-GOOD frame (R3#2 + R4#3):
                         // flipping on ANY frame — the "err" refusal included —
                         // re-created the flap-and-relog cycle on the in-band
-                        // refusal path (the RemoteSync `attached` shape)
+                        // refusal path
                         if (w.t == "wup" || w.t == "wres" || w.t == "wpush") {
                             if (offlineSince != 0L || stateLine.isNotEmpty()) { offlineSince = 0; setState("") }
                         }

@@ -825,7 +825,7 @@ class MusicWindowTest {
     @Test fun windowGrammarAt288() = grammar(288)
 
     @Test
-    fun persistenceRoundTripAndContinuityKeepThePlayerRecordAndTheLevel(): Unit = runBlocking {
+    fun persistenceRoundTripKeepsThePlayerRecordAndTheLevel(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-music-persist")
         val lib = TestLib()
         val r = Rig(tmp, 480, lib)
@@ -840,7 +840,7 @@ class MusicWindowTest {
             r.menuPick("Track info")
             awaitTrue("info") { r.win.title() == "track" && r.win.levelDepth() == 2 }
             val saved = r.win.saveState()
-            val sub = r.win.saveSubState()["player"]!!
+            checkNotNull(r.win.saveSubState()["player"]) { "the player's record is reported" }
             assertEquals("INFO", saved["stack"]!!.jsonArray[1].jsonObject["kind"]?.jsonPrimitive?.contentOrNull)
             assertEquals("3", saved["stack"]!!.jsonArray[1].jsonObject["key"]?.jsonPrimitive?.contentOrNull)
             r.stop()
@@ -852,16 +852,6 @@ class MusicWindowTest {
             awaitTrue("queue restored, staged") { p2.state.queue.size == 4 && p2.state.index == 2 && p2.state.play == PlayState.STOPPED }
             awaitTrue("the summary reads the staged queue") { r2.win.summary().line.contains("queued") }
             r2.stop()
-            // continuity (§16.4c): the records applied LIVE on a third shell converge to the same place
-            val r3 = Rig(Files.createTempDirectory("damage-music-c"), 480, TestLib())
-            r3.shell.start()
-            awaitTrue("third shell up") { r3.shell.isQuiescent() }
-            val stamp = System.currentTimeMillis() + 60_000
-            r3.shell.postSync("window.music", saved, stamp)
-            r3.shell.postSync("window.music.player", sub, stamp)
-            awaitTrue("live records applied") { r3.win.levelDepth() == 2 && (r3.player as SimMusicPlayer).state.queue.size == 4 }
-            assertEquals("track", r3.win.title())
-            r3.stop()
             // S1-4 K: the desktop mirror is gone (the PC plays through its own player on the record)
         } catch (e: Throwable) {
             r.stop(); throw e

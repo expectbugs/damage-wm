@@ -673,27 +673,6 @@ class TmuxWindowTest {
     }
 
     @Test
-    fun aPeerSessionsRecordDropsTheTargetAtAnyDepth() {
-        // R6#3: a live-applied record saying the peer LEFT the session must
-        // drop the target and unsubscribe from EVERY target-holding level —
-        // the three-level gate kept the orphan poll at Session… and
-        // re-stamped level=live over the peer's newer record
-        val (w, p, svc) = build()
-        w.onActivate(svc, wm.damage.core.shell.ActivationSource.SWITCHER)
-        p.pushStatus(session("claude"))
-        (w.view() as WindowView.ListView).onCommit(0)      // open → LIVE
-        (w.view() as WindowView.CanvasView).onTap!!()      // → KEYS
-        (w.view() as WindowView.ListView).onCommit(TmuxConfig.DEFAULT_QUICK_KEYS.size + 3)  // → Session…
-        w.restoreStateLive(kotlinx.serialization.json.buildJsonObject {
-            put("level", kotlinx.serialization.json.JsonPrimitive("sessions"))
-        })
-        assertEquals(null, p.subscribed.last(), "the stale subscription drops (R5#2/R6#3)")
-        val save = w.saveState()
-        assertTrue(save["level"]?.let { it is kotlinx.serialization.json.JsonPrimitive && it.content != "live" } ?: true,
-            "the next save must not re-stamp level=live over the peer's record")
-    }
-
-    @Test
     fun theGrammarWalksSessionsLiveHistoryKeysAndBack() {
         val (w, p, _) = build()
         p.pushStatus(session("claude"), session("spare"))

@@ -5,12 +5,11 @@ operations: `DAILY.md`. The phone halves of C1–C3 (motion programs, local inpu
 are the section "The phone's halves of C1–C3"; C2's guards also appear under "Review hardening".
 
 **The topology** (`HANDOFF.md` §19, §79): **the phone shell drives (radio and shell, while the APK is up); the
-OpenRC `damage` service is the data provider — content + tmux + last-write-wins state sync on the content port, the
-bus alert watcher — and never drives by itself: PC-direct BLE is a manual choice** (`--transport ble`, the
-replica probe `drive=ble`, the PC shell's `Target` row). The PC owns the converted windows' state (Reader, Torrents,
-Files, Feed, Tmux, the notice record) and the phone keeps a working copy (the section "The shared window core");
-Music, Games, Main and Settings still run on the stamped sync, which step S1 replaces (`REPLAN.md` §14, §16.1;
-`CONTRACT.md` §9.7).
+OpenRC `damage` service is the data provider — content, tmux, the windows' lanes and the PC record on the content
+port, the bus alert watcher — and never drives by itself: PC-direct BLE is a manual choice** (`--transport ble`, the
+replica probe `drive=ble`, the PC shell's `Target` row). The PC owns every window's shared state (Reader, Torrents,
+Files, Feed, Tmux, Music, Games, Settings, the notice record) and the phone keeps a working copy (the section "The
+shared window core"); each device's own store holds only its view (`CONTRACT.md` §9.7).
 
 One `:core` library holds the shell, the byte-exact glass simulator, the compositor and every window (Main · Settings
 · Reader · Tmux · Files · Torrents · Music · Games · Feed) on the CFW display contract (modes 3/6/8/9, the 11–15
@@ -109,12 +108,12 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       shared with `Epub.load`), ReaderIndex (the PC's per-book facts on disk),
                                       ReaderDocs (the last two parsed books); EPUB extraction
             wm.damage.core.windows.files    FilesCore, FilesGlasses, FilesPc, FilesScopes, FilesBlobs,
-                                      FilesJobs (the PC's one job slot and its supervisor), SlottedFiles, FilesMigration; the
+                                      FilesJobs (the PC's one job slot and its supervisor), SlottedFiles; the
                                       Local/Remote providers, FilesService, the trash manifest, ListingCache (the
                                       phone's copy of the last listings, §47)
-            wm.damage.core.windows.tmux     TmuxCore, TmuxGlasses, TmuxScopes, TmuxStream, TmuxMigration;
+            wm.damage.core.windows.tmux     TmuxCore, TmuxGlasses, TmuxScopes, TmuxStream;
                                       FlowRender, TermRender, Sgr, the providers, TmuxNet
-            wm.damage.core.windows.torrents TorrentsCore, TorrentsGlasses, TorrentsScopes, TorrentsMigration; QbtClient (Web API
+            wm.damage.core.windows.torrents TorrentsCore, TorrentsGlasses, TorrentsScopes; QbtClient (Web API
                                       2.11), TorrentLeech + Html, providers, TorrentsNet
             wm.damage.core.windows.music    MusicModel (the MusicLibrary/MusicPlayer contracts), Db + MusicDb,
                                       Qdrant, MediaCache + MediaServer, Art, LibraryScan, AdaptivePlaylists,
@@ -129,13 +128,12 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
             wm.damage.core.windows.feed     FeedModel, FeedHttp (+ PacedHttp), FeedXml, Fetchers, Extract,
                                       Strips, FeedStore, FeedEngine (the PC only), FeedProvider, FeedNet,
                                       FeedCore, FeedGlasses (`FeedWindow(…)` the factory), FeedScopes,
-                                      FeedBlobs, FeedAnchor, FeedMigration; ScriptedFeed
+                                      FeedBlobs, FeedAnchor; ScriptedFeed
             wm.damage.core.net        WinNet — the §16.10 window channel (wreq/wres + blob answers + wpush);
                                       Reach + ReachGate — the listeners' reach gate
             wm.damage.core.bastion    the bus alert watcher: HaReader, AlertRule, RuleEval,
                                       AlertStore, BastionWatcher + BastionService + PhonePresence (the PC),
                                       RemoteBastion, AlertDelivery, HomeWatch, BastionRows, PlaceWatch (the phone)
-            wm.damage.core.sync       SyncNet/RemoteSync — LWW state sync (the unconverted windows' keys)
             wm.damage.core.util       Log · Exec (subprocess runner, stderr drained concurrently) · Http
                                       (HttpURLConnection, no timeouts, multipart) · InstanceLock ·
                                       UncaughtRecord · Secrets (constant-time compares) · DayLog (the phone's
@@ -219,7 +217,7 @@ mouse, on a pixel-exact replica.*
   on tap, reverted on double-tap; applying rebuilds the stack. **Host categories** (`Shell.hostCategories`):
   a category a host supplies before its window exists — the phone's "Bastion" (`bastion/BastionRows.kt`); a window
   built later returns the same row ids and wins by name. Shared rows in it go through `Shell.sharedRow`
-  (`ShellSettings`, synced); the phone's own rows live in its preferences, never synced.
+  (`ShellSettings`, on the PC record); the phone's own rows live in its preferences.
 - **Decision 6**: an ORDINARY notification arriving while the wheel, the context menu or the keyboard is open
   waits behind it; an EMERGENCY cancels the surface (the keyboard's draft kept) and shows first.
 - **Long-press defaults off** (`DESIGN.md` §1.2/§1.3): a bare long-press is a no-op everywhere. The
@@ -232,7 +230,7 @@ mouse, on a pixel-exact replica.*
 Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 
 ```
-./gradlew :desktop:run                        # AUTO (§19, §79): data host (content+tmux+sync+the bus watcher) + replica; probes the phone for its status line and never drives by itself — PC-direct BLE by hand with the replica probe drive=ble — stop the service first (exit 4 otherwise)
+./gradlew :desktop:run                        # AUTO (§19, §79): data host (content+tmux+the record+the bus watcher) + replica; probes the phone for its status line and never drives by itself — PC-direct BLE by hand with the replica probe drive=ble — stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--help"   # the usage text; an argument the program does not know is refused (exit 2) and nothing starts; one entry point per line
 ./gradlew :desktop:run --args="--transport sim"   # the simulator in-process (development) — stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual) — stop the service first (exit 4 otherwise)
@@ -248,7 +246,7 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 ./gradlew :desktop:run --args="--games-check" # the Hold'em ecology over hundreds of simulated tournaments (pure in-memory; add `deep` for a longer run)
 ./gradlew :desktop:run --args="--card-render" # the card sheets into design/shots/cards/ at true 1x
 ./gradlew :desktop:run --args="--feed-check [DIR] [live]"  # the feed engine over the captured fixtures; `live` = one paced fetch per source, read-only, temp dir
-./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync + setup page, no stack ever) — stop the service first (exit 4 otherwise)
+./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + the record + setup page, no stack ever) — stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--devices"     # also --approve CODE LEVEL · --deny CODE · --revoke ID — asks the running service on loopback; exit 0 / 1 / 3
 ./gradlew :desktop:test                       # the BlueZ glue over the fake link, the argument parser (CliTest), the config file's safety, SetupServer, the standby policy, the nightly copy, the status cell's fit, the epub check, theme icons, the xkcd PNG through the decoder, Files' thumbnails, the notice timer's render, the terminal library's pin, the motion check
 ```
@@ -313,40 +311,28 @@ the service before any `:desktop:run` dev session, are `DAILY.md`'s.
 
 | configuration | how |
 |---|---|
-| **app + home PC** (the default — §10.1 row 1 as INTENDED, §19) | APK (Target = glasses) DRIVES; the `damage` service is the data host: live library, tmux, state sync, the bus watcher. The PC never claims |
-| app alone | the APK with no PC reachable: its own shell, cached library + cached books, staleness said; sync catches up on reconnect; the bus alerts say "home unreachable" after the phone's set minutes |
+| **app + home PC** (the default — §10.1 row 1 as INTENDED, §19) | APK (Target = glasses) DRIVES; the `damage` service is the data host: live library, tmux, the record, the bus watcher. The PC never claims |
+| app alone | the APK with no PC reachable: its own shell, cached library + cached books, staleness said; the working copy catches up on reconnect; the bus alerts say "home unreachable" after the phone's set minutes |
 | PC-direct BLE (the rare case; manual only, `REPLAN.md` §14.4, `HANDOFF.md` §79) | by hand: the replica probe `drive=ble` on the service (back with `drive=auto`), the PC shell's `Target` row, or `--transport ble` in a dev run. Nothing starts it by itself |
 | PC drives through the phone | `--transport remote` ONLY — the explicit dev override |
 | laptop-direct with the simulator | `:desktop:run --args="--transport sim"` — the development environment |
 | browser replica | `http://<desktop-or-phone>:7403/?token=…` from any machine on the tailnet — the PHONE's is the live view in the default configuration |
 
-## Phone-primary + sync (`HANDOFF.md` §19; replaced at step S1 — `CONTRACT.md` §9.7, `REPLAN.md` §14.4)
+## Phone-primary (`HANDOFF.md` §19)
 
-- **`Persistence` is the sync substrate**: schema v2 with a per-key stamp, re-stamped only on real value change;
-  `tryApplyRemote` applies a different value by strict stamp order; an equal value within 2 s
-  (`STAMP_TOLERANCE_MS`) is the same record: no stamp moves, nothing is saved; legacy stores migrate in place with
-  mtime stamps.
-- **`core/sync/SyncNet.kt`** rides the content port (`{"t":"sync"}` upgrade): the handshake exchanges stamp maps
-  + clocks (skew-normalized), records newer by more than 2 s flow both ways (two copies inside it are left; a
-  different value inside it stays until that key's next edit), then live pushes; a handshake frame's clock is
-  stamped at its write, the receive time taken at its length prefix; the client (`RemoteSync`, in the
-  phone's `startStack`) reconnects keeper-style and re-handshakes every 5 min. `shell.settings` + `window.<id>`
-  sync; `shell.state` (per-device UI) never does, nor do the converted windows' keys — Reader's, Notices', Tmux's,
-  Files', Torrents' and Feed's (`Persistence.syncable` → the registry's `Windows.converted`; the phone applies only
-  syncable inbound keys, an older peer's said once per key per connection): they run on the PC record ("The shared
-  window core").
-- **`Shell.postSync`** applies a record on the loop: a record the store already holds ends at the first statement;
-  otherwise freshen the key from the LIVE window first, then apply, then live-apply. The driving shell's state is newest by construction, so sync flows driver → idle.
+- **`Persistence` is each device's own view store** (cursors, levels, local caches, the shell's copy of its settings):
+  schema v2 `{__v, records{k:{v,t}}}`, `t` written and read by nothing; `load` reads the file once per store (a session
+  start over the same store keeps what memory holds); a file that does not parse is kept as `.bad` and the start
+  begins from defaults; a sub-record its window reported this session and no longer holds is removed, one it did not
+  load never is. Nothing in it travels between devices: shared state is the PC record (S1-5's close).
 - **The seam status probe** (`SeamProbe` / `Ctl t="status"`): a non-claiming "does the APK want the radio?"; an
   old APK answers `busy`, read as YES.
-- **Desktop `auto` = the data host** (`StandbyPolicy`, R6 §5): one process-wide store feeding the sync
-  channel and any stack; it probes the phone's seam every 5 s for the status line ("data host · phone drives",
+- **Desktop `auto` = the data host** (`StandbyPolicy`, R6 §5): one process-wide store shared by any stack; it probes the phone's seam every 5 s for the status line ("data host · phone drives",
   "· the APK chose Target≠glasses", "· phone unreachable 2m · PC-direct BLE is manual (drive=ble)") and nothing else:
   `StandbyPolicy.Action` has no member that starts a stack, so no probe answer can. A manual stack (`drive=ble`, the
   `Target` row) runs until `drive=auto`; a stack found up in `auto` (its stop dropped by a switch in progress) is
   stopped. Every `drive=` use is a `keeper` journal note. There is no automatic claim (why: `HANDOFF.md` §72). Every
-  server retries a busy port every 5 s (`bindOrRetry`). `SyncTest` ×6, `SyncToleranceTest` and `StandbyPolicyTest`
-  pin it.
+  server retries a busy port every 5 s (`bindOrRetry`). `StandbyPolicyTest` pins it.
 
 ## The phone's liveness and the seam heartbeat (`HANDOFF.md` §13)
 
@@ -505,8 +491,8 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
   `window.reader.book.<id>` so that it survives a restart (a place restored without one counts as older than any the
   record holds); a place the record holds as this device's own, equal to the local one, counts as sent; an own
   bookmark is taken from the record when the view holds none for that book. A place is `ReaderAnchor`
-  `@c<offset>.<extractor>~<quote>` over `Epub.load`'s text (`EXTRACTOR = 1`). Reader's keys are off the sync channel;
-  the glasses' row stays local (`window.reader`, unsynced). `ReaderWindow(…)` is the compatibility factory over a
+  `@c<offset>.<extractor>~<quote>` over `Epub.load`'s text (`EXTRACTOR = 1`). The glasses' row stays local
+  (`window.reader`). `ReaderWindow(…)` is the compatibility factory over a
   `MemoryRecord` that tools, `SelfCheck` and tests build. An old `window.reader.conv` key stays in his stores, unread.
 - **The notice record** (`Notices`, `NoticeCore`, `NoticeMirror`): items `rec.notices.<source>:<thread>`, raised
   on the PC only (Torrents' done and error notices among them), read and dismissed from input on any interface, ordered
@@ -516,9 +502,7 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
   recents and Notify rows; Files' clipboard, sort and hidden), with `TorrentsGlasses` / `FilesGlasses` as the glasses'
   presenters and `TorrentsScopes` / `FilesScopes` serving the pages; ops into the torrent client and the filesystem are
   program ops (`Program`: `(device, conn, k)`, never queued, one `program` journal note each). On the glasses Files
-  takes a row this device wrote unless this presenter itself wrote it since it started. Their rows from before the
-  conversion are written once on the PC (`Migrate`: a row only where the record holds none, from the PC store's
-  `window.torrents` / `window.files`, stamped with the blob's time; one `migrate` note).
+  takes a row this device wrote unless this presenter itself wrote it since it started.
 - **The PC's Files** (`FilesPc`, `FilesJobs`, `SlottedFiles`, `LocalFilesProvider`, `web/Uploads.kt`): one job slot
   for every PC caller (the PC's glasses, the phone's glasses through `FilesService`, the pages' program ops), each job
   on its own thread; the busy line names the holder and how long it has made no progress. The supervisor
@@ -536,8 +520,7 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
   `item`, `comments`, `comic`, `num`, `binge` — each may fetch a site — on `feed-reading`; `refresh` and `browse`
   program ops), `FeedBlobs` (`feed.<key>`, only keys a scope handed out, the 4,096 newest), `FeedAnchor` (the glasses'
   wrapped line ↔ block and offset), `FeedGlasses` (the presenter; `FeedWindow(…)` the compatibility factory over a
-  `MemoryRecord`), `FeedMigration` at both PC starts before any presenter reads the record (`Migrate` with offers
-  from sub-keys). The fetch supervisor: `RealFeedHttp.sweep`, from the engine's loop, ends a fetch in flight for 5
+  `MemoryRecord`). The fetch supervisor: `RealFeedHttp.sweep`, from the engine's loop, ends a fetch in flight for 5
   minutes, says so on the source's health and in the log; the next due time tries again. The phone builds
   `RemoteFeedProvider` alone (no engine, no switch); its old `feed/` folder's size is said once in the log.
 - **Tmux** (`core/…/windows/tmux/`): `TmuxCore` (the record `rec.tmux.…`: `alerts`, `mute.<host>/<name>`,
@@ -550,7 +533,7 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
   exec; its init is a `display-message` and a `capture-pane -p -e` block, then the active pane's `%output`, re-init on
   a pane, window or layout change, `%session-renamed` → `end{to}`, `%exit` → `end`; the last viewer's leave closes its
   stdin, its exit waited for on its own thread and said if it lingers), `TmuxGlasses` (the presenter; `TmuxWindow(…)`
-  the compatibility factory), `TmuxMigration`. `LocalTmuxProvider` has `health()`, `sendRaw` (printable runs `-l
+  the compatibility factory). `LocalTmuxProvider` has `health()`, `sendRaw` (printable runs `-l
   --`, the rest `-H`, joined in one tmux process; every argument's final `;` escaped once), the waiting edges sent
   right after the status push that carries them, and ssh `ServerAliveInterval=15 ServerAliveCountMax=4`.
 - **The live seam** (`AppNet.Live`, `AppWire.live`): `sub live/<window>/<src>` checked on the executor at attach
@@ -624,8 +607,7 @@ levels, the comic canvas, the settings; "The shared window core" above) · `Scri
 - **`FeedEngine` runs on the PC only**: `Config.feedEngine` (files under `~/.damage/feed`), serving the phone through
   `FeedService` on the window channel (articles without spans) and the pages through `FeedScopes`. The phone has no
   engine (`CONTRACT.md` §14 (a) row 1).
-- **Reading state is the PC record's** (`rec.feed.…`, above; `FeedMigration` reads the old `window.feed`,
-  `window.feed.src.<id>` and `window.feed.binge.<id>` keys); the local blob keeps the view's own state only. Harness
+- **Reading state is the PC record's** (`rec.feed.…`, above); the local blob keeps the view's own state only. Harness
   accessors: `rootRowId()`, `levelName`, `itemsLoaded()`, `comicFocusLabel()`.
 - **Slashdot**: the story page's rendered thread (`SlashdotRss.parseThread`) plus `POST ajax.pl op=comments_fetch`
   for the ids it lists but does not render (`fetchMissing`) — the one POST in the engine.
@@ -1140,7 +1122,7 @@ the sections cited):
   `Text` too. `holdPushes()` belongs at EVERY `running = false`. The Reader's restore and scan are one job each. Do
   not drop `FlushDone`, do not post a held push outside the lock, do not add a plain `runOnShell` to a listener that
   keeps pushing. Music Mode's visualizer frame tick is keyed (`music.vizframe`). The PC's `auto` never claims
-  ("Phone-primary + sync").
+  ("Phone-primary").
 
 - **The latency build (§40)** — chrome's telemetry cells repaint only when `allowTelemetry` (`Chrome.sync`); a
   notch's first flush is the translation — the lens repaint is posted one message on
@@ -1315,7 +1297,8 @@ the sections cited):
   (`Notifications`: `SILENT_W` + `bodyLines(n, l, silent)`); dynamic text goes through `Draw.dynamic` everywhere
   (`Epub.fold` handles the cp1252 mojibake range, U+2011 and the zero-width formatters at extraction); a window
   with async levels loads a RESTORED level on `back()` (`MusicWindow.ensureLoaded`); `saveSubState()` never
-  reports an EMPTY blob (the §16.4a tombstone — the shell refuses one loudly, once per key per session).
+  reports an EMPTY blob (not a record; an older store holds one as a removal's mark — the shell refuses one loudly,
+  once per key per session).
 - **The page traffic sleeps with the shell** (`CfwTransportBase.pageTrafficWanted`, §42): the 4 s keepalive and
   the 30 s carrier refresh go out only while the shell wants the lease and the glasses do not say they are
   silent (one night of Silent Mode was 8,641 unacked keepalives). The 60 s device-info READ stays: it can put the
@@ -1361,7 +1344,7 @@ Every review's pins were run against the unfixed tree and watched to fail before
   trips through the sim, `Round3Test`;
   `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`, `WheelAndHostSettingsTest`,
   `SeamMirrorTest`, `SeamSessionTest`, `ReplicaServerTest`, `PathTransportTest`, `LongPressTest`;
-  `LensOracleTest`, `Round5Test`–`Round7Test`, `L2ProbeTest`; `SeamLivenessTest`, `HandoverTest`, `SyncTest`,
+  `LensOracleTest`, `Round5Test`–`Round7Test`, `L2ProbeTest`; `SeamLivenessTest`, `HandoverTest`,
   `StyleTest`, `BatteryBrightnessTest`, `EpubChaptersImagesTest`; `TmuxTest`; `SubstrateTest`,
   `ReaderArrangementsTest`, `ReaderPositionTest`, `ReaderCoreTest`, the record's, the lane's, the working copy's and
   the web's tests; `FilesTest`, `FilesTrashTest`, `FilesMoveTest`, `FilesJobsTest`,

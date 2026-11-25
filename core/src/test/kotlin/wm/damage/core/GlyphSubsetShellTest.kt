@@ -1183,7 +1183,7 @@ class GlyphSubsetShellTest {
 
     /**
      * From the review of §73: a typography or Cached text change that reaches the store while no
-     * session runs (a synced record, applied store-direct) is read at the next start — and nothing
+     * session runs (the record's, folded at the start) is read at the next start — and nothing
      * told the windows, which live across sessions and keep what they laid out. The start now
      * re-derives every layout when the settings a layout depends on differ from the last
      * session's. Mutation watched: the keyed call removed (no relayout is recorded).
@@ -1197,7 +1197,7 @@ class GlyphSubsetShellTest {
             val n = r.win.relayouts.size
             r.keeper.stop()
             val on = wm.damage.core.shell.ShellSettings.fromJson(r.store.get("shell.settings")).copy(cachedText = "on").toJson()
-            assertTrue(r.store.tryApplyRemote("shell.settings", on, System.currentTimeMillis() + 1_000), "the synced record went into the store")
+            r.store.put("shell.settings", on)
             r.keeper.start()
             r.until("the next session drives") { r.driving() }
             r.atlasIdle("the next session")
@@ -1231,7 +1231,7 @@ class GlyphSubsetShellTest {
             assertTrue(r.text.metricV2, "a process starts on the contract-2 rule")
             r.keeper.stop()
             val on = wm.damage.core.shell.ShellSettings.fromJson(r.store.get("shell.settings")).copy(cachedText = "on").toJson()
-            assertTrue(r.store.tryApplyRemote("shell.settings", on, System.currentTimeMillis() + 1_000))
+            r.store.put("shell.settings", on)
             val n = r.win.relayouts.size
             r.keeper.start()
             r.until("the next session drives") { r.driving() }

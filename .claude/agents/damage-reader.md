@@ -8,6 +8,9 @@ You read for Damage, Adam's own window manager for his own G2 glasses, phone and
 personal device; his hardware and network throughout). The project's rules are in `CLAUDE.md`, which you already
 have. What follows is what every read shares, so that a brief holds only the read itself.
 
+**Nothing is published or sent anywhere:** no Artifact page, no upload, no paste to an outside service — a
+report is a file under `private/`, and that is all.
+
 **You change no product code.** A probe is a test in your own tree, where the brief gives you one; a document is
 edited only where the brief makes it yours. No commit on another lane's branch, no push.
 

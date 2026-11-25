@@ -1,6 +1,5 @@
 package wm.damage.core
 
-import java.net.ServerSocket
 import java.nio.file.Files
 import org.junit.Rule
 import kotlin.test.Test
@@ -11,15 +10,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import wm.damage.core.content.ContentHostServer
-import wm.damage.core.content.LocalContent
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
 import wm.damage.core.geom.Rect
@@ -30,25 +26,19 @@ import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.shell.ShellServices
 import wm.damage.core.shell.WindowView
-import wm.damage.core.shell.ShellSettings
 import wm.damage.core.sim.GlassFirmwareSim
-import wm.damage.core.sync.RemoteSync
-import wm.damage.core.sync.SyncPeer
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.windows.files.LocalFilesProvider
 import wm.damage.core.wire.EvenHubMsg
 
 /**
  * Regression pins for the 2026-09-01 review round 1: the UTF-8 chunk seam,
- * the §16.2 back-to-caller hand-off, menu-over-menu hygiene, the
- * virgin-device freshen guard, the tombstone everReported guard, and the
- * Files viewer continuity gate (save on shell A → sync → restore on B).
+ * the §16.2 back-to-caller hand-off, menu-over-menu hygiene and the removal
+ * sweep's everReported guard.
  */
 class ReviewRound1Test {
     /** Stage OP: the "Open on PC" of every real provider here — a test opens nothing on the PC. */
     @get:Rule val pc = NoPcOpen()
-
-    private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
     private suspend fun awaitTrue(what: String, ms: Long = 20_000, cond: () -> Boolean) {
         waitUntil(ms, 25, { "did not converge: $what" }) { cond() }
@@ -229,39 +219,15 @@ class ReviewRound1Test {
         }
     }
 
-    // -------------------------------------- Sub#F2: the virgin-freshen guard
+    // --------------------------------- Sub#F2c/d: the removal sweep's reported guard
 
     @Test
-    fun virginStoreDoesNotOutstampThePeer(): Unit = runBlocking {
-        val tmp = Files.createTempDirectory("damage-virgin")
-        val w = MenuWindow("mw")
-        val r = Rig(tmp, w)                                       // EMPTY store
-        try {
-            r.shell.start()
-            awaitTrue("running") { r.shell.isQuiescent() }
-            // a peer's settings arrive: the virgin device must APPLY them, not
-            // freshen its defaults over them with a newer stamp
-            val remote = ShellSettings(depth = 16).toJson()
-            assertTrue(r.shell.postSync("shell.settings", remote, System.currentTimeMillis() - 60_000))
-            awaitTrue("the peer's settings applied despite the older stamp") {
-                r.shell.settings.depth == 16
-            }
-            r.shell.stop()
-        } finally {
-            r.scope.cancel()
-            tmp.toFile().deleteRecursively()
-        }
-    }
-
-    // --------------------------------- Sub#F2c/d: the tombstone reported guard
-
-    @Test
-    fun tombstoneSweepSkipsKeysTheWindowNeverReported(): Unit = runBlocking {
+    fun removalSweepSkipsKeysTheWindowNeverReported(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-tomb")
         try {
-            // a synced sub-record exists for a window whose build reports NO
+            // a stored sub-record exists for a window whose build reports NO
             // sub-state (an older build, or a failed restore): saving must NOT
-            // tombstone it — that would sync a fresh-stamped removal of data
+            // remove it — "did not load it" is never a removal
             val seed = Persistence(tmp.resolve("state.json"))
             seed.put("window.mw.book.x", buildJsonObject { put("off", 42) })
             seed.save()
@@ -275,92 +241,9 @@ class ReviewRound1Test {
             val check = Persistence(tmp.resolve("state.json"))
             check.load()
             assertEquals(42, check.get("window.mw.book.x")?.get("off")?.jsonPrimitive?.intOrNull,
-                "an unreported sub-record was tombstoned")
+                "an unreported sub-record was removed")
             r.scope.cancel()
         } finally {
-            tmp.toFile().deleteRecursively()
-        }
-    }
-
-    // --------------------------------------- Files viewer continuity (D-A gate)
-    //
-    // Build S1-2 Q5 (the spec's §4.1, §4.2 and its Q5 pin "the files keys still sync"): Files is converted — its
-    // clipboard, sort, hidden and Size rows are the PC record's, and its level, cursors, folder and viewer are each
-    // interface's own (`window.files`, unsynced). The test that pinned the viewer crossing the sync channel now pins
-    // the opposite: `window.files` stays on its host while a key that still syncs crosses.
-
-    @Test
-    fun filesViewerPositionStaysOnItsHostTheKeysNoLongerSync(): Unit = runBlocking {
-        val tmp = Files.createTempDirectory("damage-files-continuity")
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val port = freePort()
-        var host: ContentHostServer? = null
-        var client: RemoteSync? = null
-        try {
-            val root = tmp.resolve("root")
-            Files.createDirectories(root)
-            Files.writeString(root.resolve("log.txt"),
-                (1..200).joinToString("\n") { "line $it" } + "\n")
-            val lp = LocalFilesProvider(tmp.resolve("b"), tmp.resolve("t"), opener = pc, decoder = null,
-                mountsFile = tmp.resolve("nm"))
-            val provider = object : wm.damage.core.windows.files.FilesProvider by lp {
-                override fun locations() = listOf(
-                    wm.damage.core.windows.files.FLocation("R", root.toString(), "mount", 1, 1))
-            }
-
-            // shell A: open the file, scroll, stop
-            val storeA = Persistence(tmp.resolve("a.json"))
-            run {
-                val shA = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope,
-                    SimTransport.Timing(instant = true)), storeA, null, scope)
-                val winA = wm.damage.core.windows.files.FilesWindow(FakeText(), provider, scope)
-                shA.register(winA)
-                shA.start()
-                shA.postGesture(EvenHubMsg.EV_CLICK)              // Files
-                awaitTrue("locations") { winA.summary().line == "1 locations" }
-                shA.postGesture(EvenHubMsg.EV_CLICK)              // R
-                awaitTrue("listing") { winA.summary().detail.contains("1 files") }
-                shA.postGesture(EvenHubMsg.EV_CLICK)              // menu on log.txt
-                awaitTrue("menu") { shA.menuIsOpen }
-                shA.postGesture(EvenHubMsg.EV_CLICK)              // Open
-                awaitTrue("viewer") { winA.title() == "log.txt" }
-                // the CONTENT must land before scrolling (R6 flake fix): a
-                // notch against an empty doc clamps to 0 and is lost — under
-                // full-suite load the chunk lags the viewer creation
-                awaitTrue("content loaded") {
-                    ((winA.view() as? WindowView.DocView)?.lineCount?.invoke() ?: 0) > 25
-                }
-                repeat(4) { shA.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
-                awaitTrue("scrolled to 20") {
-                    (winA.saveState()["viewTop"]?.jsonPrimitive?.intOrNull ?: 0) == 20
-                }
-                shA.stop()
-            }
-
-            // sync A → B: a key that still syncs crosses; Files' does not
-            assertTrue(storeA.get("window.files") != null, "shell A saved its Files row")
-            storeA.put("shell.settings", buildJsonObject { put("probe", 1) })
-            val storeB = Persistence(tmp.resolve("b.json"))
-            host = ContentHostServer(LocalContent(tmp), port, "tok", sync = SyncPeer(storeA))
-            host.start()
-            client = RemoteSync("127.0.0.1", port, "tok", scope, SyncPeer(storeB), retryPacingMs = 200)
-            awaitTrue("the synced key reached B") { storeB.get("shell.settings") != null }
-            delay(500)
-            assertEquals(null, storeB.get("window.files"), "window.files crossed the sync channel: Files' keys must not sync")
-
-            // shell B starts on its own Files row (the locations), never A's viewer
-            val shB = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope,
-                SimTransport.Timing(instant = true)), storeB, null, scope)
-            val winB = wm.damage.core.windows.files.FilesWindow(FakeText(), provider, scope)
-            shB.register(winB)
-            shB.start()
-            delay(300)
-            assertTrue(winB.title() != "log.txt", "B shows A's viewer: ${winB.title()}")
-            shB.stop()
-        } finally {
-            client?.close()
-            host?.close()
-            scope.cancel()
             tmp.toFile().deleteRecursively()
         }
     }

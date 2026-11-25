@@ -700,7 +700,7 @@ SHA256: abc</pre>
     }
 
     @Test
-    fun persistenceRoundTripAndContinuityRestoreTheOpenDetailsAndTheRecents(): Unit = runBlocking {
+    fun persistenceRoundTripRestoresTheOpenDetailsAndTheRecents(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-torrents-persist")
         val r = Rig(tmp)
         try {
@@ -722,13 +722,6 @@ SHA256: abc</pre>
             awaitTrue("details restored") { r2.win.title() == "details" && r2.win.levelDepth() == 2 }
             assertTrue(r2.win.saveState()["recents"].toString().contains("gentoo"))
             r2.stop()
-            // continuity (§16.4c): the record applied LIVE on a third shell restores the same place
-            val r3 = Rig(Files.createTempDirectory("damage-torrents-b"))
-            r3.shell.start()
-            awaitTrue("third shell up") { r3.shell.isQuiescent() }
-            r3.shell.postSync("window.torrents", saved, System.currentTimeMillis() + 60_000)
-            awaitTrue("live record applied") { r3.win.saveState()["openHash"]?.jsonPrimitive?.contentOrNull == "aa01" }
-            r3.stop()
         } catch (e: Throwable) {
             r.stop(); throw e
         } finally {

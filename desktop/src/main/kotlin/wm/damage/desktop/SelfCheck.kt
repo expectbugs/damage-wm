@@ -85,6 +85,24 @@ object SelfCheck {
      * one run in ten — 16,963 px at 'scale130-reader-in', with a SECOND LOOK
      * that agreed (review §30).
      */
+    /** S1-5's close: [shell]'s settings through a source over a record in memory, as the phone's go through its
+     *  working copy. Its own function: `script()` is at the JVM's 64 KB method limit. */
+    private fun settingsOverMemory(shell: Shell): wm.damage.core.app.MemoryRecord {
+        val rec = wm.damage.core.app.MemoryRecord(wm.damage.core.shell.SettingsCore.ACTIONS)
+        shell.settingsSource = wm.damage.core.app.LocalWindowSource(wm.damage.core.shell.SettingsCore(), rec)
+        return rec
+    }
+
+    /** [to] set on the settings record as another surface sets it: one `set` per item that differs from the record's
+     *  own settings. True when there was one. */
+    private fun setSettings(rec: wm.damage.core.app.MemoryRecord, to: wm.damage.core.shell.ShellSettings): Boolean =
+        rec.executor.call {
+            val w = wm.damage.core.shell.SettingsCore.WINDOW
+            val drafts = wm.damage.core.shell.SettingsCore.diff(wm.damage.core.shell.SettingsCore.fold(rec.stateOf(w).items), to)
+            for (d in drafts) rec.submit(w, d)
+            drafts.isNotEmpty()
+        }
+
     private suspend fun runOracle(label: String) {
         val sim = oracleSim ?: return
         val shell = oracleShell ?: return
@@ -255,6 +273,7 @@ object SelfCheck {
         val text = wm.damage.core.comp.CachedText(AwtText())
         val persistence = Persistence(tmp.resolve("state.json"))
         val shell = Shell(text, transport, persistence, tmp.resolve("journal.jsonl"), scope)
+        val settingsRecord = settingsOverMemory(shell)
         val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
         shell.register(reader)
         val tmuxScripted = ScriptedTmux()
@@ -573,7 +592,7 @@ object SelfCheck {
         gamesChecks(shell, gamesWin)
         feedChecks(shell, transport, feedWin, feedScripted)
 
-        typeLadderTopEnd(shell, musicWin, musicPlayer) { label -> musicMenu(label) }
+        typeLadderTopEnd(shell, settingsRecord, musicWin, musicPlayer) { label -> musicMenu(label) }
 
         // ---- §41: the texture cache on EVERY plane — its own function: the
         // script method had reached the JVM's 64 KB limit
@@ -781,13 +800,13 @@ object SelfCheck {
      */
     private suspend fun typeLadderTopEnd(
         shell: Shell,
+        settingsRecord: wm.damage.core.app.MemoryRecord,
         musicWin: wm.damage.core.windows.music.MusicGlasses,
         musicPlayer: wm.damage.core.windows.music.SimMusicPlayer,
         musicMenu: suspend (String) -> Unit,
     ) {
             val big = wm.damage.core.shell.ShellSettings(fontScale = 1.3)
-            check("the shell accepts the top of the font ladder",
-                shell.postSync("shell.settings", big.toJson(), System.currentTimeMillis()))
+            check("the record takes the top of the font ladder", setSettings(settingsRecord, big))
             awaitTrue("the 130 % scale applied") { shell.settings.fontScale == 1.3 }
             settle(shell, "scale130-main")
             for (id in listOf("reader", "tmux", "files", "torrents", "music", "games", "settings")) {
@@ -842,20 +861,16 @@ object SelfCheck {
             // up in the oracle below.
             shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             awaitTrue("Music → Main before the face walk") { shell.currentWindowId() == null }
-            check("the shell accepts the tallest face at the top of the ladder",
-                shell.postSync("shell.settings",
-                    wm.damage.core.shell.ShellSettings(fontScale = 1.3, fontFace = "Alegreya").toJson(),
-                    System.currentTimeMillis() + 1))
+            check("the record takes the tallest face at the top of the ladder", setSettings(settingsRecord,
+                wm.damage.core.shell.ShellSettings(fontScale = 1.3, fontFace = "Alegreya")))
             awaitTrue("Alegreya at 130 % applied") { shell.settings.fontFace == "Alegreya" }
             settle(shell, "alegreya130-main")
             // …at a REDUCED height, where the status bar's bottom is not the
             // panel's: at 480 an overflowing chrome line is clipped away by
             // the surface edge and looks fine; at 288 those rows land on real
             // panel nobody damages (review 2026-09-05)
-            check("the shell accepts the tallest face at 130 % and 288",
-                shell.postSync("shell.settings",
-                    wm.damage.core.shell.ShellSettings(fontScale = 1.3, fontFace = "Alegreya", heightMode = 288).toJson(),
-                    System.currentTimeMillis() + 1))
+            check("the record takes the tallest face at 130 % and 288", setSettings(settingsRecord,
+                wm.damage.core.shell.ShellSettings(fontScale = 1.3, fontFace = "Alegreya", heightMode = 288)))
             awaitTrue("288 applied") { shell.layout.safe.h == 288 }
             settle(shell, "alegreya130-288-main")
             for (id in listOf("reader", "music", "games")) {
@@ -868,10 +883,8 @@ object SelfCheck {
                     settle(shell, "alegreya130-288-$id-cancel")
                 }
             }
-            check("back to the full height for the face walk",
-                shell.postSync("shell.settings",
-                    wm.damage.core.shell.ShellSettings(fontScale = 1.3, fontFace = "Alegreya").toJson(),
-                    System.currentTimeMillis() + 2))
+            check("back to the full height for the face walk", setSettings(settingsRecord,
+                wm.damage.core.shell.ShellSettings(fontScale = 1.3, fontFace = "Alegreya")))
             awaitTrue("480 restored") { shell.layout.safe.h == 480 }
             settle(shell, "alegreya130-480-restored")
             for (id in listOf("reader", "torrents", "games")) {
@@ -885,9 +898,7 @@ object SelfCheck {
                 }
             }
             shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("global") }
-            check("the shell returns to the default scale",
-                shell.postSync("shell.settings", wm.damage.core.shell.ShellSettings().toJson(),
-                    System.currentTimeMillis() + 2))
+            check("the shell returns to the default scale", setSettings(settingsRecord, wm.damage.core.shell.ShellSettings()))
             awaitTrue("back to 100 %") { shell.settings.fontScale == 1.0 }
             settle(shell, "scale100-restored")
     }
