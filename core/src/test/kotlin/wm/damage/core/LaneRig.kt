@@ -75,6 +75,8 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
     val noticeClosedByLane = ArrayList<String>()
     private var noticeMayClose = false
     var upExtraNext = 0L
+    /** RIGHT's motion bodies are lost on the way (a dropped notification): only the mirror can tell an instance ended. */
+    var dropBodies = false
 
     // ---- the vector's ops
     val steps0 = ArrayList<List<Pair<String, Any>>>()
@@ -134,7 +136,7 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
             val slot = m[2]?.toInt() ?: -1; val tag = m[3]?.toInt() ?: -1; val outcome = m[4]?.toInt() ?: -1
             bodies += intArrayOf(slot, tag, outcome, (m[6] ?: -1).toInt(), (m[7] ?: -1).toInt())
             if (tag and 0xF000 == NOTICE_TAG && outcome == 1 && !noticeMayClose) noticeClosedByLane += "[$nowMs] notice 0x%04x closed while drawing".format(tag)
-            if (tag and 0xF000 == WindowLanes.TAG) {
+            if (tag and 0xF000 == WindowLanes.TAG && !dropBodies) {
                 val st = sent.lastOrNull { it[0].toInt() == tag }
                 val word = when (outcome) { 0 -> "drew"; 1 -> "closed"
                     2 -> "refused: reason ${m[10]} (${if (st?.get(3) == 1L) "PLAY-AFTER" else "PLAY"}, song at ${heard(nowMs) / 1000} s of ${durMs / 1000} s)"
@@ -250,6 +252,18 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
         // a notice's PLAY replaces the one before it in slot 2 (its own close pass, not a lane's)
         up { noticeMayClose = true; deliver(play); noticeMayClose = false }
     }
+
+    /** A PLAY in slot 3 over the bar (a stand-in for anything that closes the chain on the glasses): its close pass ends
+     *  the lane's instances on both lenses. */
+    fun foreignClose() {
+        val prog = Motion.program(NOTICE_AT4 + 128) { track(Rect(bar.x, bar.y, 64, bar.h), Motion.Backdrop.Level(2)) { fill(4, 4) } }
+        val w = CfwModes.cacheUpdate2(prog.records.map { (o, b) -> CfwModes.CacheWrite2(o, b) }, CfwModes.CACHE2_MAX_RIDERS)
+        up { deliver(w) }
+        up { deliver(Motion.play(prog, 3, 34, 0x1234, 0, IntArray(4))) }
+    }
+
+    /** The tags sent for chains that have ended (every lane tag sent but the open chain's own). */
+    fun endedTagsNow(): Set<Int> = sent.map { it[0].toInt() }.toSet() - lanes.openTags.map { it.second }.toSet()
 
     /** The notice in slot 2 is still drawing on RIGHT. */
     fun noticeDrawing(): Boolean = sim.motionForTest(Arm.RIGHT).slots.getOrNull(2)?.let { it.drawing && it.tag and 0xF000 == NOTICE_TAG } == true

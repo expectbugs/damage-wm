@@ -88,7 +88,9 @@ class MusicLaneShellTest {
         val shell = Shell(ct, t, Persistence(tmp.resolve("state.json")), journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val lib = Lib()
         val player = SimMusicPlayer(lib, clock)
-        val win = MusicWindow(FakeText(), lib, player, scope, clock = clock)
+        /** Music draws with the shell's text, as the hosts hand it (cached glyph runs while Cached text is on — the time
+         *  digits beside the bar go as such, which the transport reads as reaching the panel's edges). */
+        val win = MusicWindow(ct, lib, player, scope, clock = clock)
 
         init {
             shell.register(win)
@@ -156,8 +158,11 @@ class MusicLaneShellTest {
             assertTrue(r.notes("lane").any { "a chain starts" in it }, "said: ${r.notes("lane")}")
             // a seek: the chain starts again from the song's new place (a new tag, the bar written from the truth first)
             val tagBefore = r.laneTagIn(Arm.RIGHT)
+            val chainsBefore = r.notes("lane").count { "a chain starts" in it }
             r.player.seekTo(30_000)
-            r.until("a new chain after the seek") { r.laneTagIn(Arm.RIGHT).let { it != null && it != tagBefore } }
+            // at once — not at the old chain's next PLAY-AFTER, half a stretch on (≈ 12 s here)
+            r.until("a new chain after the seek", maxMs = 3_000) { r.notes("lane").count { "a chain starts" in it } > chainsBefore && r.laneTagIn(Arm.RIGHT).let { it != null && it != tagBefore } }
+            assertTrue(r.notes("lane").any { "its key changed" in it }, "the seek changed the key: ${r.notes("lane").takeLast(4)}")
             r.until("the seek's bar on the panel") { litRun(r.sim.right.panel.copyOf(), bar.x, bar.w, y, 8) >= bar.w * 7 / 10 }
             // a pause ends the chain: nothing of it open, the panel the truth under the bar
             r.player.pause()

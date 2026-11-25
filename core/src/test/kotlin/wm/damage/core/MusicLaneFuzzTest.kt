@@ -89,6 +89,24 @@ class MusicLaneFuzzTest {
         assertTrue(r.lanes.off == null && r.lanes.open, "a session start lifts it: ${r.notes.takeLast(3)}")
     }
 
+    /** The chain ended on the glasses with RIGHT's body lost on the way: only the mirror can tell — the chain starts again
+     *  (and nothing of the ended one stays open). */
+    @Test
+    fun aChainEndedOnTheGlassesWithNoWordStartsAgainFromTheMirror() {
+        val t = Timing.STAGE4
+        val r = LaneRig(5, t.period, t.steps, fixed = true)
+        r.pump(); r.runUntil(r.nowMs + 2 * lenMs(t))
+        val sent = r.sent.size
+        r.dropBodies = true
+        r.foreignClose()
+        r.runUntil(r.nowMs + 200)
+        r.dropBodies = false
+        r.runUntil(r.nowMs + lenMs(t))
+        assertTrue(r.notes.any { "the mirror holds it open no longer" in it }, "the mirror told it: ${r.notes.takeLast(4)}")
+        assertTrue(r.sent.drop(sent).any { it[3] == 0L }, "a new chain's PLAY went: ${r.notes.takeLast(4)}")
+        assertTrue(r.lanes.open && r.laneTagsOpen().isNotEmpty(), "running again")
+    }
+
     /** A PLAY-AFTER that lands after its stretch was due (a stalled link) would show the past: the chain starts again. */
     @Test
     fun aLatePlayAfterRestartsTheChain() {
@@ -161,7 +179,8 @@ class MusicLaneFuzzTest {
             r.runUntil(r.nowMs + 150)
             val drainBy = r.nowMs + 4 * len + 5_000
             while (r.lastUp >= r.nowMs && r.nowMs < drainBy) r.runUntil(r.nowMs + 20)
-            val left = r.laneTagsOpen().filter { it in r.endedTags }
+            val ended = r.endedTagsNow()
+            val left = r.laneTagsOpen().filter { it in ended }
             if (left.isNotEmpty()) fails += "[${r.nowMs}] an ended chain's tags ${left.map { "0x%04x".format(it) }} are open on a lens — ${r.notes.takeLast(4)}; delivered ${r.log.toList().takeLast(10)}"
             r.runUntil(r.nowMs + r.rnd.nextInt(maxOf(200, minOf(len.toInt() * 3, 6_000))))
         }
