@@ -26,13 +26,14 @@ import wm.damage.core.util.Log
  * reads the phone's four lines — the PC's reach as the lane's paced ping judges it (with the waiting changes, the
  * contract match and this APK's build), the glasses' link word, their battery and the ladder's stage — from volatile
  * fields only (no disk, never the shell's loop), and
- *  - sends them to the PC (`health`) when one changed and at every `welcome`: a message lost with its connection is
- *    replaced by the next connection's;
+ *  - sends them to the PC (`health`) when one changed and on every new connection (a `welcome`): until a send on the
+ *    connection that is live now has succeeded, every pass tries again — the copy's lane may still name the connection
+ *    before when the new one's welcome arrives;
  *  - composes them with the PC's description as last heard (its lines `lastKnown` while the PC is out of reach) into
  *    what the surfaces show: the link cell's tag — the first line in alarm with a tag, in the order PC, hub, disk,
  *    copy — and the phone app's sentence, the worst line's, empty while all is well.
  * Nothing is saved and nothing latches: every pass derives every line from its source again; the only kept state is
- * each line's `since` and what was last sent, both replaced by the next pass that differs.
+ * each line's `since` and what was last sent on which connection, both replaced by the next pass that differs.
  */
 class PhoneHealth(
     private val wc: WorkingCopy,
@@ -49,6 +50,8 @@ class PhoneHealth(
     private val everyMs: Long = 15_000,
     /** The lines to the PC on the live connection; false when there is none (the next `welcome` sends them). */
     private val send: (List<HealthLine>) -> Boolean = { lines -> wc.client?.health(lines) == true },
+    /** The live connection, by identity (its `welcome`); null while there is none. */
+    private val connection: () -> Any? = { wc.client?.welcome },
 ) : WorkingCopy.LaneWatcher {
 
     /** The glasses' side as one pass reads it: the shell's status word (null: no stack runs), whether the stack draws
@@ -66,6 +69,8 @@ class PhoneHealth(
     // ---- under [lock] ----
     private val own = LinkedHashMap<String, HealthLine>()
     private var sent: List<HealthLine>? = null
+    /** The connection [sent] went on: a new connection is owed the lines whatever they hold. */
+    private var sentTo: Any? = null
     private var pc: List<HealthLine> = emptyList()
     // ----
 
@@ -90,7 +95,7 @@ class PhoneHealth(
     // ---- the lane's (its reading thread: handed off) ----
 
     override fun welcome() {
-        scope.launch(Dispatchers.IO) { step(welcomed = true) }
+        scope.launch(Dispatchers.IO) { step() }
     }
 
     override fun described(scope: String, desc: JsonObject) {
@@ -106,9 +111,10 @@ class PhoneHealth(
         scope.launch(Dispatchers.IO) { step() }
     }
 
-    /** One pass (any thread): the lines read, sent when one changed or [welcomed], the view composed. */
-    fun step(welcomed: Boolean = false): View {
+    /** One pass (any thread): the lines read, sent when one changed or the connection is new, the view composed. */
+    fun step(): View {
         val client = wc.client
+        val conn = connection()
         val out: List<HealthLine>?
         val v: View
         synchronized(lock) {
@@ -116,8 +122,8 @@ class PhoneHealth(
             val g = read()
             val reach = wc.reach
             val mine = listOf(reachRaw(reach, client), linkRaw(g), batteryRaw(g), stageRaw(g)).map { keep(it, now) }
-            val same = sent?.let { s -> s.size == mine.size && s.zip(mine).all { (a, b) -> a.sameAs(b) } } == true
-            out = mine.takeIf { welcomed || !same }
+            val same = sentTo === conn && sent?.let { s -> s.size == mine.size && s.zip(mine).all { (a, b) -> a.sameAs(b) } } == true
+            out = mine.takeIf { conn != null && !same }
             val theirs = pc.filter { it.id !in HealthCore.PHONE_IDS }.map { l ->
                 if (reach is AppClient.Reach.Up) l else l.copy(state = HealthCore.LAST_KNOWN, reason = "as the PC last said")
             }
@@ -128,7 +134,7 @@ class PhoneHealth(
             }
         }
         // the write outside the lock: a pass never waits on another's socket
-        if (out != null && send(out)) synchronized(lock) { sent = out }
+        if (out != null && send(out)) synchronized(lock) { sent = out; sentTo = conn }
         return v
     }
 

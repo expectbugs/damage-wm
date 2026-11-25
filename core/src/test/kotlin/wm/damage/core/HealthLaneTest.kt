@@ -44,7 +44,8 @@ import wm.damage.core.transport.CfwTransportBase
  * and app lane, the phone's lines go at the welcome and the PC's description comes back as the link cell's tag, and a
  * reconnect sends them again. Without a network: the phone sends on a change and at a welcome only, the tag's order (PC,
  * hub, disk, copy), the battery's strict "less than", nothing latches, and the reach line names HomeWatch's alert so
- * the PC rings no second notice (the second pin, watched failing without it). Made-up lines; temp directories only.
+ * the PC rings no second notice (the second pin, watched failing without it), and a send lost with its connection is
+ * made again (a defect this lane's own reconnect test found). Made-up lines; temp directories only.
  */
 class HealthLaneTest {
     private val dir: Path = Files.createTempDirectory("damage-health-lane")
@@ -148,8 +149,11 @@ class HealthLaneTest {
         @Volatile var now = 1_800_000_000_000L      // 2027-01-15 08:00 UTC
         @Volatile var glasses = PhoneHealth.Glasses("ok", false, 80, CfwTransportBase.Ladder(5, 5, null))
         val sent = CopyOnWriteArrayList<List<HealthLine>>()
+        /** The live connection (a new object = a new connection's welcome; null = none), and whether a send lands. */
+        @Volatile var conn: Any? = Any()
+        @Volatile var ok = true
         val ph = PhoneHealth(wc, { glasses }, "0.85 (85)", scope, clock = { now }, zone = ZoneOffset.UTC, everyMs = 0,
-            send = { sent += it; true })
+            send = { if (ok) sent += it; ok }, connection = { conn })
 
         fun last(id: String): HealthLine = sent.last().single { it.id == id }
     }
@@ -180,8 +184,9 @@ class HealthLaneTest {
         p.glasses = p.glasses.copy(batteryPct = 20)
         p.ph.step()
         assertEquals(HealthBand.NORMAL, p.last(HealthCore.GLASSES_BATTERY).band, "exactly 20 % is not less than 20 %")
-        p.ph.step(welcomed = true)
-        assertEquals(4, p.sent.size, "a welcome sends whatever they hold")
+        p.conn = Any()
+        p.ph.step()
+        assertEquals(4, p.sent.size, "a new connection is sent them whatever they hold")
         p.glasses = p.glasses.copy(word = "no lease")
         p.ph.step()
         assertEquals(HealthBand.ATTENTION, p.last(HealthCore.GLASSES_LINK).band)
@@ -191,6 +196,32 @@ class HealthLaneTest {
         p.glasses = p.glasses.copy(ladder = CfwTransportBase.Ladder(5, 3, "a lens restarted at 14:02"))
         p.ph.step()
         assertEquals(HealthBand.ATTENTION, p.last(HealthCore.GLASSES_STAGE).band, "a hold-back")
+    }
+
+    /** The defect H2's own lane test found (a reconnect on loopback): the new connection's welcome came while the copy's
+     *  lane still named the connection before, the send went nowhere, and the same lines were never sent again. Pinned
+     *  here without a network; watched failing with the connection left out of the comparison. */
+    @Test
+    fun aSendLostWithItsConnectionIsMadeAgainAtTheNextPass() {
+        val p = phone()
+        p.ph.step()
+        assertEquals(1, p.sent.size)
+        p.conn = Any()
+        p.ok = false
+        p.ph.step()
+        assertEquals(1, p.sent.size, "the send went nowhere")
+        p.ok = true
+        p.ph.step()
+        assertEquals(2, p.sent.size, "the next pass sends the same lines again, on the connection live now")
+        p.ph.step()
+        assertEquals(2, p.sent.size, "and then nothing more")
+        p.conn = null
+        p.glasses = p.glasses.copy(batteryPct = 50)
+        p.ph.step()
+        assertEquals(2, p.sent.size, "no connection: nothing is sent")
+        p.conn = Any()
+        p.ph.step()
+        assertEquals(3, p.sent.size, "the next connection gets the change")
     }
 
     @Test
@@ -271,7 +302,9 @@ class HealthLaneTest {
         fun client(s: String) = AppClient("127.0.0.1", rig.port, AppClient.Credential.Token(AppLaneRig.TOKEN), s, wc, scope,
             contracts = mapOf("t" to 1), retryPacingMs = 20, refusedPacingMs = 50, pingEveryMs = 0)
         wc.start { s -> client(s) }
-        eventually("the phone's lines on the PC at the welcome") {
+        // each wait runs a pass per look, as the phone's 15 s pace does
+        eventually("the phone's lines on the PC") {
+            ph.step()
             core.line(HealthCore.REACH).let { it.state == HealthCore.LIVE && it.text.startsWith("answering") }
         }
         assertEquals("ok", core.line(HealthCore.GLASSES_LINK).text)
@@ -279,7 +312,8 @@ class HealthLaneTest {
         eventually("the PC's description back on the phone, as the link cell's tag") { ph.view.tag == HostTag("disk 98%") }
         assertTrue(ph.view.sentence.startsWith("Disk: 1.6 % free of 3.6 TB since"), ph.view.sentence)
         wc.reconnect { s -> client(s) }
-        eventually("the old connection ended, the new one's welcome sent the lines again") {
+        eventually("the old connection ended, the new one was sent the lines again") {
+            ph.step()
             rig.net.connectionLines().size == 1 && core.line(HealthCore.REACH).state == HealthCore.LIVE
         }
     }
