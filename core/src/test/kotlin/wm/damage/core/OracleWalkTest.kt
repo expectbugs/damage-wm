@@ -162,7 +162,10 @@ class OracleWalkTest {
          *  notice's, the window list's, no cache work in flight, no transition), Files' provider idle; three readings in a
          *  row, 10 ms apart (a provider call that returned posts its answer to the loop just after it). A shell at rest for
          *  10 s with a lane still not done is a STALL, and it fails the walk with [laneReport] (K1-2 S4cF, decisions DG: a
-         *  walk that records a stall and goes on cannot find the next one). */
+         *  walk that records a stall and goes on cannot find the next one). C3 DW-2 (decisions DP 7, 8): and the wheel —
+         *  its lane done while the switcher is closed (so a chord binds at the open), the wheel offered while it is open
+         *  (an unbound open binds mid-open, by the return rule, before the walk takes its next step): whether a step meets
+         *  list 2 never depends on how far the block's write had come. */
         suspend fun ready(what: String) {
             val t0 = System.currentTimeMillis()
             var calm = 0
@@ -170,7 +173,8 @@ class OracleWalkTest {
                 val waited = System.currentTimeMillis() - t0
                 val quiet = filesIo.get() == 0 && shell.isQuiescent()
                 val ok = quiet && shell.sampleIdle {
-                    shell.noticeLaneDoneForTest() && shell.windowListLaneDoneForTest() && !shell.cacheWorkInFlight && shell.transitionPhaseForTest() == null
+                    shell.noticeLaneDoneForTest() && shell.windowListLaneDoneForTest() && !shell.cacheWorkInFlight && shell.transitionPhaseForTest() == null &&
+                        (if (shell.switcherIsOpen) shell.wheelBoundForTest().first != null else shell.wheelLaneDoneForTest())
                 } == true
                 if (!ok) calm = 0 else if (++calm >= 3) return
                 if (quiet && waited > 10_000) throw AssertionError("$what: a STALL — the shell at rest for $waited ms with a lane not done: ${laneReport()}")
@@ -186,7 +190,8 @@ class OracleWalkTest {
             val r = shell.onLoop {
                 val b = shell.windowListBinding
                 "notice lane done ${shell.noticeLaneDoneForTest()}, window list lane done ${shell.windowListLaneDoneForTest()}, " +
-                    "wheel lane done ${shell.wheelLaneDoneForTest()}, cache work in flight ${shell.cacheWorkInFlight}, transition ${shell.transitionPhaseForTest()}; " +
+                    "wheel lane done ${shell.wheelLaneDoneForTest()} (switcher open ${shell.switcherIsOpen}, the wheel offered ${shell.wheelBoundForTest().first != null}, " +
+                    "its block ${shell.wheelBlockForTest() != null}), cache work in flight ${shell.cacheWorkInFlight}, transition ${shell.transitionPhaseForTest()}; " +
                     "slot 0 ${shell.slot0ForTest()}, on screen ${surface()}, its row ${shell.focusedRowForTest()}; the window list: staging " +
                     "${b.staging?.let { "${it.rows} rows at ${it.start}..${it.end}" }}, counted ${b.counted}, list ${b.list?.let { "mark ${it.mark} count ${it.count}" }}, " +
                     "records ${b.records.map { it.state }}, stagings ${b.stagings}, refusals ${shell.windowListRefusalsForTest()}; " +
@@ -195,10 +200,11 @@ class OracleWalkTest {
             fun notes(kind: String, n: Int) = journalFile?.takeIf { Files.exists(it) }?.let { f ->
                 Files.readAllLines(f).filter { "\"kind\":\"$kind\"" in it }.takeLast(n).map { DETAIL_FIELD.find(it)?.groupValues?.get(1) ?: it }
             }
-            return "$r; session effects ${st.effects} bind ${st.bind} cache ${st.cacheSize}; liststage notes ${notes("liststage", 6)}; notice notes ${notes("notice", 4)}"
+            return "$r; session effects ${st.effects} bind ${st.bind} cache ${st.cacheSize}; liststage notes ${notes("liststage", 6)}; notice notes ${notes("notice", 4)}; " +
+                "wheel notes ${notes("wheel", 4)}; stage notes ${notes("stage", 3)}"
         }
 
-        /** K1-2 stage 4c: who holds slot 0 ("main", "window" or null), the list it offers when that list's two notch
+        /** K1-2 stage 4c: who holds slot 0 ("main", "window", C3 DW-2's "wheel", or null), the list it offers when that list's two notch
          *  entries are held on RIGHT (null otherwise), and its row — one evaluation on the loop, the entries read under the
          *  model's lock. A holder whose list is not held yet is asked again for up to 5 s (Main's lane has no door that says
          *  it is done). */
@@ -207,7 +213,7 @@ class OracleWalkTest {
             while (true) {
                 val p = shell.sampleIdle {
                     val holder = shell.slot0ForTest()
-                    val (list, row) = when (holder) { "main" -> shell.mainBoundForTest(); "window" -> shell.windowBoundForTest(); else -> null to -1 }
+                    val (list, row) = when (holder) { "main" -> shell.mainBoundForTest(); "window" -> shell.windowBoundForTest(); "wheel" -> shell.wheelBoundForTest(); else -> null to -1 }
                     val held = list != null && synchronized(sim) { sim.bindForTest(Arm.RIGHT).entries.filterNotNull().count { it.list == list.list && !it.tap } == 2 }
                     Pick(surface(), holder, if (held) list else null, row)
                 }
@@ -875,11 +881,15 @@ class OracleWalkTest {
      * glass and truth equal, so the pixels alone cannot see it). Each step decides at one point ([Rig.ready], [Rig.pick])
      * and takes the same draws whatever it decides, so the pinned seed walks the same steps at every run: each height
      * prints its steps and their digest, which two runs compare. Every height must have drawn list-1 notches, and Settings
-     * and Files must both have taken list-1 local events.
+     * and Files must both have taken list-1 local events. C3 DW-2 (decisions DP 7, 8; BK (5)): the wheel too, at every
+     * height — the chord right after the start (unbound, then bound mid-open), a chord every [WHEEL_EVERY] steps, notches
+     * on list 2 (the switcher's cursor adopted), taps and clicks that commit, double taps and long presses that cancel;
+     * each height must have an open bound at the open, a list-2 notch that drew and a commit, and the four a cancel.
      */
     @Test
     fun localEventsOnWindowListsKeepTheOracleAtStage5_K12S4c(): Unit = runBlocking {
         val byWindow = java.util.TreeMap<String, Int>()
+        var wheelCancels = 0
         for (h in ShellSettings.HEIGHTS) {
             val rig = Rig(h, seed = 0x4C_12_5A4CL + h, contract = 2, cached = true, stage5 = true, files = true)
             val tag = "c3 stage 5 window lists h=$h"
@@ -889,12 +899,22 @@ class OracleWalkTest {
                 println("$tag: ${c.l1Local} local event(s) on list 1, ${c.l1Drew} notch(es) drew, ${c.l1Taps} tap(s), ${c.l1Edges} edge(s) " +
                     "(by window ${c.l1ByWindow}); ${c.mainLocal} on Main's list, ${c.mainDrew} drew; $owed transition(s) owed, $whole whole; " +
                     "${rig.shell.divergencesReported} divergence(s) reported; steps digest %08x".format(c.trace.toString().hashCode()))
+                println("$tag: the wheel — ${c.chords} chord(s), ${c.boundAtOpen} open(s) bound at the open, ${c.boundMidOpen} mid-open " +
+                    "(the start's first: ${c.firstMidOpen}), ${c.neverBound} never bound; ${c.l2Local} local event(s) on list 2, ${c.l2Drew} notch(es) drew; " +
+                    "${c.wheelCommits} commit(s), ${c.wheelCancels} cancel(s)")
                 println("$tag steps:${c.trace}")
                 println("$tag: Files' \"Open on PC\" taken ${rig.filesOpened.get()} time(s), counted and not run; provider calls refused ${rig.filesRefused}")
                 // the walk with Files registered starts no process and reads nothing outside its directory ([walkFiles])
                 assertTrue(rig.filesRefused.isEmpty(), "$tag: the walk's Files rig was asked for what it does not run: ${rig.filesRefused}")
                 c.l1ByWindow.forEach { (k, v) -> byWindow.merge(k, v, Int::plus) }
                 assertTrue(c.l1Drew > 0, "$tag: no local notch on list 1 drew (${c.l1Local} fired) — the walk never reached a bound window list")
+                // C3 DW-2 (decisions DP 7): the wheel at this height — bound at an open, notches on list 2 that drew, a commit,
+                // and the unbound open right after the start (the first open, bound mid-open)
+                assertTrue(c.firstMidOpen, "$tag: the chord right after the start bound mid-open (the shell's first close note)")
+                assertTrue(c.boundAtOpen > 0, "$tag: no open bound at the open (${c.chords} chord(s))")
+                assertTrue(c.l2Drew > 0, "$tag: no local notch on list 2 drew (${c.l2Local} fired)")
+                assertTrue(c.wheelCommits > 0, "$tag: the wheel was never committed")
+                wheelCancels += c.wheelCancels
                 assertEquals(0, rig.shell.divergencesReported, "$tag: no divergence")
             } finally {
                 rig.stop()
@@ -902,21 +922,49 @@ class OracleWalkTest {
         }
         println("c3 stage 5 window lists: list-1 local events by window over the four heights $byWindow")
         assertTrue((byWindow["settings"] ?: 0) > 0 && (byWindow["files"] ?: 0) > 0, "list-1 local events in Settings and in Files: $byWindow")
+        assertTrue(wheelCancels > 0, "the wheel cancelled at least once over the four heights")
     }
 
     /** What [windowListWalk] counted, and its steps as one line (two runs of a pinned seed compare it). */
     private class WalkCounts {
         var l1Local = 0; var l1Drew = 0; var l1Taps = 0; var l1Edges = 0; var mainLocal = 0; var mainDrew = 0
+        /** C3 DW-2: the walk's chords (the start's included); local events on list 2 and the notches of them that drew (each
+         *  adopted: the switcher's cursor where the lens's list said); the wheel's commits (a tap on the lens, the phone's
+         *  click) and cancels; and, from the shell's own `wheel` note at each close, the opens bound at the open, bound
+         *  mid-open and never bound, and whether the first open (the start's chord) bound mid-open. */
+        var chords = 0; var l2Local = 0; var l2Drew = 0; var wheelCommits = 0; var wheelCancels = 0
+        var boundAtOpen = 0; var boundMidOpen = 0; var neverBound = 0; var firstMidOpen = false
         val l1ByWindow = java.util.TreeMap<String, Int>()
         val trace = StringBuilder()
     }
 
-    /** K1-2 stage 4c: one walk of [WINDOW_LIST_STEPS] (see [localEventsOnWindowListsKeepTheOracleAtStage5_K12S4c]). */
+    /** C3 DW-2: the chord as the ring delivers it (`ShellSettings.longPress` off, the default): a long press arms it, a
+     *  double tap inside the window opens the switcher. */
+    private fun chord(rig: Rig) {
+        for (g in intArrayOf(EvenHubMsg.EV_RING_LONG_PRESS, EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, EvenHubMsg.EV_DOUBLE_CLICK)) rig.shell.postGesture(g)
+    }
+
+    /** K1-2 stage 4c: one walk of [WINDOW_LIST_STEPS] (see [localEventsOnWindowListsKeepTheOracleAtStage5_K12S4c]). C3 DW-2
+     *  (decisions DP 7): with the wheel — the chord right after the start (unbound: the block is not counted yet; a phone
+     *  notch, then the bind mid-open), a chord every [WHEEL_EVERY] steps, notches and taps on list 2 when it holds slot 0,
+     *  the phone's gestures (a click commits, a double tap or a long press cancels). */
     private suspend fun windowListWalk(rig: Rig, tag: String): WalkCounts {
         val c = WalkCounts()
         rig.shell.start()
-        rig.ready("$tag boot")
+        // the chord right after a start — the wake's case, met on purpose (decisions DP 7)
+        val up0 = System.currentTimeMillis()
+        while (!rig.transport.state.value.effects) {
+            if (System.currentTimeMillis() - up0 > 60_000) throw AssertionError("$tag: no stage-5 session after 60 s")
+            delay(5)
+        }
+        chord(rig)
+        assertTrue(rig.shell.onLoop { rig.shell.switcherIsOpen && rig.shell.wheelBoundForTest().first == null },
+            "$tag: the chord right after the start opens the wheel, not bound (its block is not counted yet)")
+        rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // the spin is the phone's until the bind
+        c.chords++
+        rig.ready("$tag boot (the chord at the start)")
         rig.assertOracle("$tag boot")
+        c.trace.append(" 0:chord@start>${rig.shell.onLoop { rig.surface() }}")
         for (step in 1..WINDOW_LIST_STEPS) {
             // the same four draws at every step whatever it decides: the seed's stream never forks on a reading
             val dLocal = rig.rnd.nextInt(4); val dEntry = rig.rnd.nextInt(1 shl 16); val dBack = rig.rnd.nextInt(3); val dGesture = rig.rnd.nextInt(GESTURES.size)
@@ -930,9 +978,38 @@ class OracleWalkTest {
                 continue
             }
             val p = rig.pick("$tag step $step")
+            // C3 DW-2: the chord every [WHEEL_EVERY] steps, unless the wheel is open already ([Rig.ready] has the wheel's lane
+            // done, so it binds at the open)
+            if (step % WHEEL_EVERY == 0 && "+wheel" !in p.surface) {
+                chord(rig)
+                val where = "$tag step $step (the chord in ${p.surface})"
+                rig.ready(where)
+                rig.assertOracle(where)
+                c.chords++
+                c.trace.append(" $step:chord:${p.surface}>${rig.shell.onLoop { rig.surface() }}")
+                continue
+            }
             val list = p.list
             if (list != null && dLocal != 0) {
-                val e = list.entries[dEntry % list.entries.size]
+                val onWheel = list.list == Shell.WHEEL_LIST
+                // C3 DW-2: on list 2 one draw in three is a tap — the report-only tap the rules number entry 0 (the block
+                // stages none: `LocalRules.tapEntry`), which commits to the window the lens shows
+                val k = dEntry % (list.entries.size + if (onWheel) 1 else 0)
+                if (onWheel && k == list.entries.size) {
+                    val now = System.currentTimeMillis()
+                    for (arm in Arm.entries) rig.sim.conformanceInput(arm, wm.damage.core.wire.CfwModes.DEV_RING, wm.damage.core.wire.CfwModes.EV_TAP.toLong(), 0, now)
+                    rig.transport.ringStockForTest(wm.damage.core.local.BoundList.stockEvent(wm.damage.core.wire.CfwModes.EV_TAP)!!)
+                    delay(rig.shell.onLoop { rig.shell.localQForTest() } + 20)
+                    val where = "$tag step $step (a tap on list 2 in ${p.surface} at row ${p.row})"
+                    rig.ready(where)
+                    rig.assertOracle(where)
+                    val after = rig.shell.onLoop { rig.surface() }
+                    c.l2Local++
+                    if ("+wheel" !in after) c.wheelCommits++
+                    c.trace.append(" $step:L2:${p.surface}:tap@${p.row}>$after")
+                    continue
+                }
+                val e = list.entries[k]
                 val before = rig.sim.bindForTest(Arm.RIGHT).seq
                 val now = System.currentTimeMillis()
                 for (arm in Arm.entries) rig.sim.conformanceInput(arm, wm.damage.core.wire.CfwModes.DEV_RING, e.eventId.toLong(), 0, now)
@@ -946,9 +1023,16 @@ class OracleWalkTest {
                 val where = "$tag step $step (local $dir on list ${list.list} in ${p.surface} from row ${p.row})"
                 rig.ready(where)
                 rig.assertOracle(where)
-                val rowAfter = rig.shell.onLoop { rig.shell.focusedRowForTest() }
+                // list 2's row is the switcher's cursor; the others', the view in front's
+                val rowAfter = rig.shell.onLoop { if (onWheel) rig.shell.wheelBoundForTest().second else rig.shell.focusedRowForTest() }
                 c.trace.append(" $step:L${list.list}:${p.surface}:$dir@${p.row}>$rowAfter${if (fired) "" else "!"}")
-                if (list.list == wm.damage.core.shell.WindowListCheck.LIST) {
+                if (onWheel) {
+                    c.l2Local++
+                    if (fired && !e.isTap && f is wm.damage.core.local.BoundList.Fire.Drew) {
+                        c.l2Drew++
+                        assertEquals(f.cursor, rowAfter, "$where: the switcher's cursor after a notch that drew on the lens (the report adopted)")
+                    }
+                } else if (list.list == wm.damage.core.shell.WindowListCheck.LIST) {
                     c.l1Local++
                     c.l1ByWindow.merge(p.surface, 1, Int::plus)
                     if (fired && e.isTap) c.l1Taps++
@@ -970,7 +1054,16 @@ class OracleWalkTest {
             rig.ready(where)
             rig.assertOracle(where)
             c.trace.append(" $step:${p.surface}:${EvenHubMsg.eventName(g)}")
+            // C3 DW-2: under the wheel the phone's click commits, its double tap or long press cancels
+            if ("+wheel" in p.surface && "+wheel" !in rig.shell.onLoop { rig.surface() }) { if (g == EvenHubMsg.EV_CLICK) c.wheelCommits++ else c.wheelCancels++ }
         }
+        // the shell's own reading of each open, said at its close (`Shell.wheelOfferPoll`)
+        val closes = rig.journalFile?.takeIf { Files.exists(it) }?.let { f -> Files.readAllLines(f).filter { "\"kind\":\"wheel\"" in it }
+            .mapNotNull { DETAIL_FIELD.find(it)?.groupValues?.get(1) }.filter { it.startsWith("closed — ") } }.orEmpty()
+        c.boundAtOpen = closes.count { it.startsWith("closed — bound at the open") }
+        c.boundMidOpen = closes.count { "mid-open (at the open:" in it }
+        c.neverBound = closes.count { it.startsWith("closed — never bound") }
+        c.firstMidOpen = closes.firstOrNull()?.contains("mid-open (at the open:") == true
         return c
     }
 
@@ -984,6 +1077,8 @@ class OracleWalkTest {
         /** K1-2 stage 4c: the window-list walk's steps per height, and how often it opens a window whose list binds. */
         const val WINDOW_LIST_STEPS = 120
         const val WINDOW_LIST_HANDOFF_EVERY = 11
+        /** C3 DW-2: how often the window-list walk fires the chord (the wheel's open) when the wheel is not open already. */
+        const val WHEEL_EVERY = 9
         /** K1-2 stage 4c: the windows the window-list walk opens, in rotation (Settings at its categories or a category). */
         val WINDOW_LIST_HANDOFFS: List<Pair<String, String?>> = listOf(
             "settings" to null, "files" to null, "settings" to "cat:Global", "surfaces" to null, "files" to null, "settings" to "cat:Files",
