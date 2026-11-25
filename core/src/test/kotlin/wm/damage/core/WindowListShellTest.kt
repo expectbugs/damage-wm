@@ -52,8 +52,10 @@ class WindowListShellTest {
     /** A window in Main's list (its own view a list of [n] rows, each row drawn as marks of its own, when [list]). */
     private class Win(id: String, name: String, @Volatile var n: Int = 0, val list: Boolean = false) : DamageWindow(id, name, IconKind.FILES) {
         @Volatile var heavy = false
-        /** K1-2 stage 4a: rows 10 to n − 11 drawn as noise across their whole rect — rows never on screen with the cursor near
-         *  the top, so the phone's own frame stays light while the strip compresses poorly: refused for its space. */
+        /** K1-2 stage 4a: rows 10 to 19 drawn as noise in runs of two pixels across their whole rect (the strip's run-length
+         *  form then costs about a byte per two pixels; a run of one pixel everywhere is a strip row the segment padding
+         *  cannot pad — see the stage's report) — rows never on screen with the cursor near the top, so the phone's own frame
+         *  stays light while the strip passes the space below the wheel's block: refused for its space. */
         @Volatile var ink = false
         /** Its own rows in its Settings category (beside the shell's style rows), each an On/Off row of a real-looking name. */
         @Volatile var appRows = 0
@@ -72,8 +74,8 @@ class WindowListShellTest {
         override fun view(): WindowView = WindowView.ListView(model, { n },
             { g, i, r, _ ->
                 val k0 = order?.getOrNull(i) ?: i
-                if (ink && i in 10 until n - 10) for (y in r.y until r.y + r.h) for (x in r.x until r.x + r.w)
-                    g[x, y] = (((k0 * 73856093) xor (x * 19349663) xor (y * 83492791)) ushr 5 and 15) * 17
+                if (ink && i in 10 until 20) for (y in r.y until r.y + r.h) for (x in r.x until r.x + r.w)
+                    g[x, y] = (((k0 * 73856093) xor ((x shr 1) * 19349663) xor (y * 83492791)) ushr 5 and 15) * 17
                 else for (k in 0..(k0 % 5)) g.fillRect(r.x + 12 + k * 22 + (k0 * 7) % 40, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
             { g, r, i -> g.fillRect(r.x + 4, r.y + 4, 8 + (i * 13) % 200, r.h - 8, 255) }, {})
         override fun summary() = if (heavy) Summary("M@W#".repeat(24), detail = "detail of $name", more = true) else Summary("summary of $name", detail = "detail")
@@ -112,6 +114,7 @@ class WindowListShellTest {
 
         suspend fun until(what: String, maxMs: Long = 60_000, cond: () -> Boolean) =
             waitUntil(maxMs, 5, { "$what — liststage ${notes("liststage").takeLast(4)}; mainstage ${notes("mainstage").takeLast(2)}; " +
+                "errors ${(notes("pump-error") + notes("error")).takeLast(2)}; " +
                 "local ${notes("local").takeLast(3)}; ${shell.quiescenceReport()}" }, cond)
 
         suspend fun settle(what: String) = until("$what: settled") { shell.isQuiescent() }
@@ -809,7 +812,7 @@ class WindowListShellTest {
     }
 
     /** Pin 6's content half (the K1-2 spec §6; decisions AF.6, AL.1, DE): a window list refused for its space (40 rows at
-     *  352, twenty of them off screen drawn as noise: a strip the space below the wheel's block cannot hold) stays unbound with one note through
+     *  352, ten of them off screen drawn as noise: a strip the space below the wheel's block cannot hold) stays unbound with one note through
      *  composes and a phone-drawn notch that change nothing it draws, and is tried again — painted and refused once more,
      *  with no second note — when the rows on screen draw otherwise. Without: never tried again until its rows, layout,
      *  planes or space change. (A list refused for its row count is never tried again on a content change:
