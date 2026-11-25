@@ -3,7 +3,7 @@
 // DOM stand-in. The pins: every row of `desc/settings` is drawn as its type's control and a change sends the op its
 // row names (Settings' item, an app's whole style with its field changed — a second change carrying the first —, a
 // tier's whole list, a number, a window's own item in that window); a value shows at once and holds until the
-// description shows it; a refused one goes back and is said; a row below the device's level is dim and says why; a
+// description shows it; a refused one goes back and is said, an unsent one goes back; a row below the device's level is dim and says why; a
 // search narrows the rows; a refused description is said; the Games card shows its summary and links nowhere.
 
 import { test, afterEach } from 'node:test';
@@ -102,6 +102,24 @@ test('a refused change goes back to the description\'s value and is said', async
   ws.frame({ t: 'ans', stream: q.stream, n: q.n, answer: { a: 'refused', code: 'level', reason: 'needs level control on this device' } });
   assert.equal(chosen(p, 'set:settings:quietHours'), 'off');
   assert.match(p.said().at(-1), /Quiet hours: needs level control on this device/);
+});
+
+// S1-5 F (the page review's finding 1): a change made while the PC is out of reach is not sent; the control the
+// browser already changed is drawn again from the description — the first change of the outage says why, and a later
+// one, said no more, goes back the same
+test('a change not sent (the PC out of reach) goes back to the description\'s value, and the first says why', async () => {
+  const { p, ws } = await page();
+  ws.close();
+  const sel = byKey(p, 'set:settings:quietHours');
+  change(sel, '22-07');
+  assert.equal(ops(ws).length, 0, 'nothing sent');
+  assert.notEqual(byKey(p, 'set:settings:quietHours'), sel, 'the box is drawn again');
+  assert.equal(chosen(p, 'set:settings:quietHours'), 'off', 'from the description');
+  assert.match(p.said().at(-1), /Not sent: .*act again when the PC answers/);
+  const range = byKey(p, 'set:settings:brightness');
+  change(range, 70);
+  assert.notEqual(byKey(p, 'set:settings:brightness'), range, 'a later change in the same outage is drawn again too');
+  assert.equal(byKey(p, 'set:settings:brightness').getAttribute('value'), '40');
 });
 
 test('a row below the device\'s level is dim and says why; a search narrows the rows', async () => {
