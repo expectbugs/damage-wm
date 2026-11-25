@@ -14,10 +14,11 @@ silent, or where you are about to rely on a number, a byte layout or a rule's ex
 source. Do not read a spec, a decisions file or a report whole because it exists — your context is paid for again at
 every turn you take.
 
-**Where:** only your own worktree and scratch, named in the brief. Never the fork (`~/damage-cfw`,
-`private/wt/cfw-*`) or its reports and reviews; never `~/.damage/`, `/home/user/van`, or anything in
-`/home/user/G2CC` beyond reading a fact the brief names. No device, phone, glasses or running service is contacted;
-nothing is flashed; no sound is played and no player process is started, listed or signalled.
+**Where:** only your own worktree and scratch, named in the brief. Never the fork (`~/damage-cfw`, `private/wt/cfw-*`)
+or its reports and reviews; never `~/.damage/`, `/home/user/van`, or anything in `/home/user/G2CC` beyond reading a
+fact the brief names. No device, phone, glasses or running service is contacted; nothing is flashed; no sound is
+played and no player process is started, listed or signalled. Nothing is published or sent anywhere: no Artifact page,
+no upload, no paste to an outside service — a report is a file under `private/`, and that is all.
 
 **Runs:** `cat /proc/self/cgroup` must print `0::/claude-work`; say `oom_kill` at the start and the end. A JVM runs
 only through the lock: `private/tools/gate TREE OUT TAG steps…` for a chain (it holds the lock, the memory limit and
@@ -25,6 +26,10 @@ the bounds, and writes `OUT/TAG-summary.txt` — one line a step, every failing 
 `private/tools/jvm light|heavy <command>` for a single run. A variant with a guard off goes through
 `private/tools/capped`, one at a time; ended by a limit, a bound or a signal it "ran away" — never "caught". End your
 own jobs by pid, never `pkill -f`. Never run the `desktop` binary without a tool flag. No agents.
+A test or a check never reaches a program of his or his desktop: a rig that drives a real provider or runner
+through taps it does not script one by one (a walk, a fuzz) forwards only a named list of calls and stubs every call
+that starts a process, opens a window or leaves the rig's own directory (2026-11-25: a walk's "Open on PC" opened a
+file-manager window on his screen).
 
 **Waiting costs him.** Each time you wake, your whole context is paid for again. Start a chain as ONE background job
 and END YOUR TURN; act when its completion notice arrives. Never end a turn on a status line ("waiting", "queued") —
