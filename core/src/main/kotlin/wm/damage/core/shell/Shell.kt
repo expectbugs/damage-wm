@@ -3082,11 +3082,14 @@ class Shell(
             else -> null
         }
         if (why != null) return null to why
-        val spec = try { w.lanes(layout.content) } catch (e: wm.damage.core.geom.LintError) { laneSay("${w.id}'s lanes are refused: ${e.message}"); null }
+        // the window's area: its content, or in its exclusive mode the safe rect it paints whole (stage S: Music Mode's strip
+        // sits in the status band's rows)
+        val area = if (mode == Mode.EXCLUSIVE) layout.safe else layout.content
+        val spec = try { w.lanes(area) } catch (e: wm.damage.core.geom.LintError) { laneSay("${w.id}'s lanes are refused: ${e.message}"); null }
             ?: return null to "${w.id} wants no lanes now"
         for (r in spec.rects) {
-            if (!layout.content.contains(r) || r != r.alignOut() || !comp.laneInOnePlane(r)) {
-                laneSay("${w.id}'s lane $r is refused: it must lie on the damage grid, inside the content and inside one plane")
+            if (!area.contains(r) || r != r.alignOut() || !comp.laneInOnePlane(r)) {
+                laneSay("${w.id}'s lane $r is refused: it must lie on the damage grid, inside the window's area and at one disparity")
                 return null to "a lane off the grid"
             }
         }

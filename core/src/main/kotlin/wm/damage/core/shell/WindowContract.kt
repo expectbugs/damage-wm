@@ -141,7 +141,8 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
 
     /**
      * Music's motion update, stage L (`WindowLanes.kt`): the held lanes this window wants the glasses to animate now —
-     * rects inside [content] it keeps painting as today while the glasses draw them on their own clock — or null. Called
+     * rects inside [content] (the safe rect in the window's exclusive mode) it keeps painting as today while the glasses
+     * draw them on their own clock, each at one disparity — or null. Called
      * on the loop at each pump while this window is in front (WINDOW mode focused, or exclusive), no overlay, list or
      * transition over it, and [ShellServices.lanesInForce]. Only Music implements it in this update.
      */

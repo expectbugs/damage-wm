@@ -462,6 +462,12 @@ class MusicLaneShellTest {
             r.scopeMode()
             r.until("Scope's chain open") { r.laneTagIn(Arm.RIGHT) != null && r.held()?.second?.h == 64 }
             val strip = r.held()!!.second
+            // ruling 8: while the chain is open the window paints the strip once a second, with the time line — not at the
+            // visualizer's rate (8 a second); no lyrics here, so the content composes about twice in 2 s
+            val composes0 = r.onLoop { r.shell.contentComposesForTest() }
+            delay(2_000)
+            val composes = r.onLoop { r.shell.contentComposesForTest() } - composes0
+            assertTrue(composes <= 5, "the content composed $composes times in 2 s while Scope's chain was open")
             val tagBefore = r.laneTagIn(Arm.RIGHT); val starts0 = r.starts()
             r.onLoop { r.player.seekTo(20_000) }
             r.until("a new chain after the seek", maxMs = 3_000) { r.starts() > starts0 && r.laneTagIn(Arm.RIGHT).let { it != null && it != tagBefore } }

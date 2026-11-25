@@ -506,11 +506,14 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         return false
     }
 
-    /** The disparity of the plane region holding [r] (0 outside every region): a held lane's per-lens rects. */
-    fun laneDisparity(r: Rect): Int = disparityAt(r)
+    /** The disparity of the plane regions holding [r] (0 outside every region): a held lane's per-lens rects. Stage S: a
+     *  lane may span regions at one disparity (Music Mode's strip lies across the content and the status band, both at the
+     *  Global depth) — its pieces' disparity, which [laneInOnePlane] has found to be one. */
+    fun laneDisparity(r: Rect): Int = disparityAt(splitByPlanes(r).first())
 
-    /** Whether [r] lies wholly inside one plane region or inside none (a lane across two planes has no one pair of rects). */
-    fun laneInOnePlane(r: Rect): Boolean = splitByPlanes(r).size == 1
+    /** Whether every piece of [r] lies at one disparity — inside regions of one plane, or inside none (a lane across two
+     *  disparities has no one pair of rects). */
+    fun laneInOnePlane(r: Rect): Boolean = splitByPlanes(r).map { disparityAt(it) }.distinct().size == 1
 
     private fun assembleFlushOnce(rectBudget: Int, endFrame: Boolean): Assembled? {
         compressCache.clear()          // `composed` may have changed since the last assemble
