@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
@@ -32,6 +33,7 @@ import no.nordicsemi.android.ble.ktx.suspend
 import no.nordicsemi.android.ble.observer.ConnectionObserver
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.CfwTransportBase
+import wm.damage.core.transport.PairFind
 import wm.damage.core.util.Log
 
 /**
@@ -44,7 +46,9 @@ import wm.damage.core.util.Log
  *   scan — FILTERED on the remembered pair (address and advertised name)
  *     whenever a pair is remembered, because Android suspends unfiltered
  *     scans while the screen is off (a pocket-time link loss would otherwise
- *     wait for the screen); unfiltered by name only for a pair never seen
+ *     wait for the screen); unfiltered by name only for a pair never seen.
+ *     A remembered lens the scan has not seen and Android lists as connected
+ *     does not advertise: it is taken by its address ([PairFind], stage BL)
  *   → connect RIGHT then LEFT (retry(10, 500), no autoConnect — the session
  *     keeper owns reconnects)
  *   → per arm in initialize(): MTU 512 requested and the negotiated value
@@ -433,40 +437,57 @@ class BleTransport(
                 catch (e: Exception) { Log.w("ble", "$arm disconnect: ${e.message}") }
             }
         }
-        val (left, right) = scanForPair()
+        val found = scanForPair()
+        val left = found.left
+        val right = found.right
         Log.i("ble", "connecting R=${right.address} then L=${left.address}")
-        // RIGHT first, then LEFT — the CFW reference's order (control + events
-        // ride RIGHT; bulk pixels go LEFT)
-        for ((arm, dev) in listOf(Arm.RIGHT to right, Arm.LEFT to left)) {
-            val m = managers.getValue(arm)
-            m.negotiatedMtu = -1
-            m.initFailure = null
-            updateState { it.copy(detail = "connecting ${arm.name}") }
-            m.connect(dev).retry(CONNECT_RETRIES, CONNECT_RETRY_MS).useAutoConnect(false).suspend()
-            m.initFailure?.let { throw IllegalStateException(it) }
-            if (m.negotiatedMtu < 0) {
-                // the request reported nothing: the manager's own value decides
-                // (23 until negotiated — a loud refusal, never an assumption)
-                m.negotiatedMtu = m.currentMtu
-                Log.w("ble", "$arm MTU request gave no callback — manager reports ${m.negotiatedMtu}")
+        // stage BL: the arm whose connect or check failed — a lens taken by its
+        // address that does not answer gets the hand recovery's words
+        var step: Arm? = null
+        try {
+            // RIGHT first, then LEFT — the CFW reference's order (control + events
+            // ride RIGHT; bulk pixels go LEFT)
+            for ((arm, dev) in listOf(Arm.RIGHT to right, Arm.LEFT to left)) {
+                step = arm
+                val m = managers.getValue(arm)
+                m.negotiatedMtu = -1
+                m.initFailure = null
+                updateState { it.copy(detail = "connecting ${arm.name}" + heldWords(arm, found.via(arm))) }
+                m.connect(dev).retry(CONNECT_RETRIES, CONNECT_RETRY_MS).useAutoConnect(false).suspend()
+                m.initFailure?.let { throw IllegalStateException(it) }
+                if (m.negotiatedMtu < 0) {
+                    // the request reported nothing: the manager's own value decides
+                    // (23 until negotiated — a loud refusal, never an assumption)
+                    m.negotiatedMtu = m.currentMtu
+                    Log.w("ble", "$arm MTU request gave no callback — manager reports ${m.negotiatedMtu}")
+                }
+                if (m.negotiatedMtu < MIN_MTU) {
+                    throw IllegalStateException("$arm MTU ${m.negotiatedMtu} < $MIN_MTU: a 242 B AA packet would not fit")
+                }
+                m.linkUp = true
+                // a drop in the gap between the connect resolving and the mark
+                // would be reported as "not in use" and lost: look once, loudly
+                if (!m.isConnected) {
+                    m.linkUp = false
+                    throw IllegalStateException("$arm dropped right after connecting")
+                }
             }
-            if (m.negotiatedMtu < MIN_MTU) {
-                throw IllegalStateException("$arm MTU ${m.negotiatedMtu} < $MIN_MTU: a 242 B AA packet would not fit")
-            }
-            m.linkUp = true
-            // a drop in the gap between the connect resolving and the mark
-            // would be reported as "not in use" and lost: look once, loudly
-            if (!m.isConnected) {
+            // a drop of the first arm while the second was connecting is reported
+            // before `running` is set (the observer ignores it then): look once
+            for ((arm, m) in managers) if (!m.isConnected) {
+                step = arm
                 m.linkUp = false
-                throw IllegalStateException("$arm dropped right after connecting")
+                throw IllegalStateException("$arm dropped while the pair was being connected")
             }
+        } catch (e: Exception) {
+            val a = step
+            if (e !is CancellationException && a != null && found.via(a) == PairFind.Via.HELD && heldFailed.add(a)) {
+                Log.w("ble", "${a.name.first()} was taken by its address and did not connect (${e.message}): it is held " +
+                    "by the phone and does not answer — turn Bluetooth off and on (the app keeps trying meanwhile)")
+            }
+            throw e
         }
-        // a drop of the first arm while the second was connecting is reported
-        // before `running` is set (the observer ignores it then): look once
-        for ((arm, m) in managers) if (!m.isConnected) {
-            m.linkUp = false
-            throw IllegalStateException("$arm dropped while the pair was being connected")
-        }
+        heldFailed.clear()
         remember(Remembered(left.address, scanNames[Arm.LEFT], right.address, scanNames[Arm.RIGHT]))
         updateState { it.copy(detail = "") }
         Log.i("ble", "both arms connected")
@@ -504,14 +525,52 @@ class BleTransport(
         managers.getValue(arm).writePacket(packet)
     }
 
+    /** Stage BL: the lenses taken by their address whose connect then failed —
+     *  words in the status detail only (the hand recovery), until a connect
+     *  completes or the scan sees that lens advertise. */
+    private val heldFailed = java.util.concurrent.ConcurrentHashMap.newKeySet<Arm>()
+
+    /** What the scan settled on: each lens's device and where it came from. */
+    private class Found(val left: BluetoothDevice, val right: BluetoothDevice, val decision: PairFind.Decision.Connect) {
+        fun via(arm: Arm) = if (arm == Arm.LEFT) decision.left else decision.right
+    }
+
+    /** One ask's answer for one remembered lens (stage BL). */
+    private class Held(val device: BluetoothDevice, val listed: Boolean, val state: Int, val bond: Int, val ownState: Int) {
+        val held get() = listed || state == BluetoothProfile.STATE_CONNECTED
+        val ours get() = ownState != BluetoothProfile.STATE_DISCONNECTED
+    }
+
+    private fun stateName(s: Int) = when (s) {
+        BluetoothProfile.STATE_DISCONNECTED -> "disconnected"; BluetoothProfile.STATE_CONNECTING -> "connecting"
+        BluetoothProfile.STATE_CONNECTED -> "connected"; BluetoothProfile.STATE_DISCONNECTING -> "disconnecting"
+        else -> "state $s"
+    }
+
+    private fun lensLine(arm: Arm, h: Held, seen: Boolean): String =
+        "${arm.name.first()} ${h.device.address}: ${if (seen) "seen" else "not seen"} by the scan, " +
+            "${if (h.held) "held" else "not held"} by Android (GATT list ${if (h.listed) "yes" else "no"}, state ${stateName(h.state)})" +
+            (if (h.ours) ", this app's own ${arm.name} link ${stateName(h.ownState)}" else "") + ", " +
+            when (h.bond) { BluetoothDevice.BOND_BONDED -> "bonded"; BluetoothDevice.BOND_BONDING -> "bonding"; else -> "not bonded" }
+
+    /** The status detail's words for a lens taken by its address. */
+    private fun heldWords(arm: Arm, via: PairFind.Via): String = when {
+        via != PairFind.Via.HELD -> ""
+        arm in heldFailed -> " (held by the phone: by its address) — it did not answer last time: turn Bluetooth off and on"
+        else -> " (held by the phone: by its address)"
+    }
+
     /** Find both lenses: by advertised name — "Even G2_XX_L_YYYY" / "_R_"
      *  (G2CC G2Constants: the pair advertises as two devices) — or by a
      *  remembered address when the advertisement carries no name. No timeout:
-     *  scanning continues until both arms are seen; the phone-side recovery
-     *  for a pair that stays invisible is toggling Bluetooth (REMINDER.md). */
-    private suspend fun scanForPair(): Pair<BluetoothDevice, BluetoothDevice> {
-        val bt = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-            ?: throw IllegalStateException("no bluetooth adapter")
+     *  scanning continues until both arms are found. Stage BL: with a pair
+     *  remembered, Android is asked on a pacing tick which lenses it holds; a
+     *  lens it holds does not advertise and is taken by its address
+     *  ([PairFind.decide]). The phone-side recovery for a pair that stays
+     *  invisible is toggling Bluetooth (REMINDER.md). */
+    private suspend fun scanForPair(): Found {
+        val bm = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val bt = bm.adapter ?: throw IllegalStateException("no bluetooth adapter")
         if (!bt.isEnabled) throw IllegalStateException("bluetooth is off")
         val scanner = bt.bluetoothLeScanner ?: throw IllegalStateException("no LE scanner")
         val known = remembered()
@@ -528,8 +587,11 @@ class BleTransport(
             }
             for (n in listOfNotNull(known.leftName, known.rightName)) filters += ScanFilter.Builder().setDeviceName(n).build()
         }
-        updateState { it.copy(detail = if (filters.isEmpty()) "scanning for the pair (first time: needs the screen on)" else "scanning for the remembered pair") }
-        val done = CompletableDeferred<Pair<BluetoothDevice, BluetoothDevice>>()
+        // stage BL: a lens taken by its address that did not answer — the hand recovery, named while it holds
+        val failedWords = heldFailed.sortedBy { it.ordinal }.joinToString(" and ") { it.name }
+            .let { if (it.isEmpty()) "" else " — $it is held by the phone and did not answer: turn Bluetooth off and on" }
+        updateState { it.copy(detail = (if (filters.isEmpty()) "scanning for the pair (first time: needs the screen on)" else "scanning for the remembered pair") + failedWords) }
+        val done = CompletableDeferred<Found>()
         // Bluetooth turning OFF mid-scan does NOT reliably reach onScanFailed
         // — the scan just goes quiet and the await would park forever (G2CC's
         // "scanning forever" class, their ConnectionService BT-state receiver).
@@ -547,9 +609,36 @@ class BleTransport(
             }
         }
         context.registerReceiver(offReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        // what this scan has seen and what Android holds, per lens (index = Arm.ordinal):
+        // read and written only under `lock` — the scan's callback and the asker both decide
+        val lock = Any()
         var left: BluetoothDevice? = null
         var right: BluetoothDevice? = null
+        val heldAsks = IntArray(2)
+        val heldOurs = BooleanArray(2)
+        val heldDev = arrayOfNulls<BluetoothDevice>(2)
         scanNames.clear()
+        /** Under [lock]: the decision on this snapshot ([PairFind.decide]); a connect completes the wait. */
+        fun decideLocked() {
+            if (done.isCompleted) return
+            val d = PairFind.decide(
+                PairFind.Lens(cachedL != null, left != null, heldAsks[0], heldOurs[0]),
+                PairFind.Lens(cachedR != null, right != null, heldAsks[1], heldOurs[1]))
+            if (d !is PairFind.Decision.Connect) return
+            val l = if (d.left == PairFind.Via.SCAN) left else heldDev[0]
+            val r = if (d.right == PairFind.Via.SCAN) right else heldDev[1]
+            if (l == null || r == null) { Log.e("ble", "pair decision $d without a device (L ${l != null}, R ${r != null}) — still waiting"); return }
+            for (arm in Arm.entries) {
+                if ((if (arm == Arm.LEFT) d.left else d.right) != PairFind.Via.HELD) continue
+                val i = arm.ordinal
+                Log.i("ble", "${arm.name.first()} taken by its remembered address ${heldDev[i]?.address}: Android has listed it " +
+                    "as connected on ${heldAsks[i]} asks in a row (every ${HELD_ASK_MS / 1000} s) and the scan has not seen it — " +
+                    "a lens that is connected does not advertise")
+                // a lens taken by its address keeps the name remembered for it (the scan's name filter)
+                (if (arm == Arm.LEFT) known.leftName else known.rightName)?.let { scanNames[arm] = it }
+            }
+            done.complete(Found(l, r, d))
+        }
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 // the ADVERTISED name: device.name needs BLUETOOTH_CONNECT and a
@@ -558,11 +647,11 @@ class BleTransport(
                 val addr = result.device.address
                 val isLeft = (name.startsWith(NAME_PREFIX) && LEFT_INFIX in name) || addr.equals(cachedL, true)
                 val isRight = (name.startsWith(NAME_PREFIX) && RIGHT_INFIX in name) || addr.equals(cachedR, true)
-                if (isLeft && left == null) { left = result.device; if (name.isNotEmpty()) scanNames[Arm.LEFT] = name; Log.i("ble", "found L '$name' $addr") }
-                if (isRight && right == null) { right = result.device; if (name.isNotEmpty()) scanNames[Arm.RIGHT] = name; Log.i("ble", "found R '$name' $addr") }
-                val l = left
-                val r = right
-                if (l != null && r != null && !done.isCompleted) done.complete(l to r)
+                synchronized(lock) {
+                    if (isLeft && left == null) { left = result.device; if (name.isNotEmpty()) scanNames[Arm.LEFT] = name; Log.i("ble", "found L '$name' $addr"); heldFailed.remove(Arm.LEFT) }
+                    if (isRight && right == null) { right = result.device; if (name.isNotEmpty()) scanNames[Arm.RIGHT] = name; Log.i("ble", "found R '$name' $addr"); heldFailed.remove(Arm.RIGHT) }
+                    decideLocked()
+                }
             }
 
             override fun onScanFailed(errorCode: Int) {
@@ -593,10 +682,51 @@ class BleTransport(
                 }
             }
         }
+        // Stage BL: with a pair remembered, ask Android on a pacing tick what it
+        // holds — a lens with a link up does not advertise, and the scan would
+        // wait for it without end (2026-11-25 15:02). Each lens's line is said
+        // once per change; an ask that cannot be made is said once per kind and
+        // decides nothing. Pacing between asks, not a bound: the wait stays endless.
+        val asker = if (cachedL == null || cachedR == null) null else scope.launch {
+            val said = arrayOfNulls<String>(2)
+            val failSaid = HashSet<String>()
+            while (isActive && !done.isCompleted) {
+                delay(HELD_ASK_MS)
+                if (done.isCompleted) break
+                val asked = try {
+                    val listed = bm.getConnectedDevices(BluetoothProfile.GATT)
+                    listOf(cachedL, cachedR).mapIndexed { i, addr ->
+                        val dev = bt.getRemoteDevice(addr)
+                        Held(dev, listed.any { it.address.equals(addr, true) }, bm.getConnectionState(dev, BluetoothProfile.GATT),
+                            dev.bondState, managers.getValue(Arm.entries[i]).connectionState)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (failSaid.add(e.javaClass.name)) Log.w("ble", "could not ask Android which lenses it holds " +
+                        "(${e.javaClass.simpleName}: ${e.message}) — this decides nothing; the scan waits as before")
+                    null
+                }
+                synchronized(lock) {
+                    for (arm in Arm.entries) {
+                        val i = arm.ordinal
+                        val h = asked?.get(i)
+                        heldAsks[i] = if (h != null && h.held) heldAsks[i] + 1 else 0
+                        heldOurs[i] = h != null && h.ours
+                        if (h == null) continue
+                        heldDev[i] = h.device
+                        val line = lensLine(arm, h, seen = (if (arm == Arm.LEFT) left else right) != null)
+                        if (line != said[i]) { said[i] = line; Log.i("ble", line) }
+                    }
+                    decideLocked()
+                }
+            }
+        }
         try {
             return done.await()
         } finally {
             pacer.cancel()
+            asker?.cancel()
             try { context.unregisterReceiver(offReceiver) } catch (e: Exception) { Log.w("ble", "state receiver: ${e.message}") }
             try { scanner.stopScan(cb) } catch (e: Exception) { Log.w("ble", "stopScan: ${e.message}") }
         }
@@ -629,5 +759,13 @@ class BleTransport(
          *  point where Android silently downgrades a long scan, and far under
          *  the 5-starts-per-30-s throttle. */
         const val SCAN_REISSUE_MS = 20L * 60 * 1000
+
+        /** Stage BL: the pacing of the asks while the scan waits with a pair
+         *  remembered. After a rebuild the scan found each lens in 0.2–1.4 s
+         *  (his log, 2026-11-24 and 11-25), so a lens about to advertise is
+         *  normally seen before the first ask; with [PairFind.HELD_ASKS] asks in
+         *  a row a held lens is taken about 10 s into the scan, where it waited
+         *  for a hand toggle before. An ask is two binder calls, nothing on air. */
+        const val HELD_ASK_MS = 5_000L
     }
 }
