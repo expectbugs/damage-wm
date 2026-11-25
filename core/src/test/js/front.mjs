@@ -263,7 +263,7 @@ export function realScenes(book) {
     'real-health-worst': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm a' },
       { click: '.hl-summary a' }, { fetch: '/__wait?ms=500' }, { place: 'main' }] },
     'real-health-away-again': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
-      { wait: '.hview dl.facts' }, { fetch: '/__cut' }, { wait: '[data-key="diag:again"].dim' }, { scroll: ['main', 6000] },
+      { wait: '.hview dl.facts' }, { fetch: '/__cut' }, { wait: '[data-key="diag:again"].dim' }, { focus: '[data-key="diag:again"]' },
       { click: '[data-key="diag:again"]' }, { wait: '.toast' }, { wait: '.hview dl.facts' }] },
     'real-home-well': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__ctl?health-well' }, { wait: '.home-health.band-normal' }] },
     'real-home-alarm': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.home-health.band-alarm' }] },
