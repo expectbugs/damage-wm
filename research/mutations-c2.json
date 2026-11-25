@@ -11251,10 +11251,10 @@
    "*MusicLaneShellTest"
   ],
   "expect": [
-   "(no pin holds: with the release's write removed, the menu over Now Playing still closes the chain and shows the window's own bar as it settles — measured MM-LF, theMenuOverNowPlayingEndsTheChainAndTheBarIsWrittenFromTheTruth passed under it; the lead rules where it is pinned or whether it goes)"
+   "aStallAtASeekIsClosedOnBothLensesByTheReleasesWrite"
   ],
-  "note": "spec §4.1 cancel: a released lane is written from the truth, whose write meets the owners so the transport CLOSEs them — without it a chain ended by the menu over Now Playing leaves the chain's start picture (the shadow under its owners) on the panel, or its instances open, until the window next repaints",
-  "from": "MML-L, MM-LF"
+  "note": "spec §4.1 cancel: a released lane is written from the truth, whose write meets the owners so the transport CLOSEs them — the one write that ends a chain whose bar has not moved a pixel since it started (a seek's or a resume's rebuffer on a stream, a pause right after a chain starts): without it the instance draws the bar on past the place that stands (the focused read, measured: 1.5 s into the stall the chain open on both lenses, RIGHT's bar 20 px past belief)",
+  "from": "MML-L, MM-LF, MM-L-FR, MM-LF3"
  },
  {
   "id": "MML-end-release",
@@ -12140,5 +12140,23 @@
   ],
   "note": "C3 DW-1b-2 (decisions DF finding 2): no place reserved for the block — the window's list staged first is laid out where the block goes and yields to it",
   "from": "DW-1b-2"
+ },
+ {
+  "id": "MML-held-grown",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "fun heldRects(left: Boolean): List<Rect> = if (left) deferL + laneGrownL else deferR + laneGrownR",
+    "fun heldRects(left: Boolean): List<Rect> = if (left) deferL else deferR"
+   ]
+  ],
+  "tests": [
+   "*CompositorEndsTest"
+  ],
+  "expect": [
+   "aHeldLanesGrownCellsAreAmongTheHeldRects"
+  ],
+  "note": "the agreement check's skip names a held lane's grown cells (a delta held whole across the lane: its pixels in belief, never sent) as it names the bound list's deferral with its growth — without them a frame that grows a lane reads as a divergence: a keyframe and a 'belief and mirror disagree' notice",
+  "from": "MM-L-FR, MM-LF3"
  }
 ]
