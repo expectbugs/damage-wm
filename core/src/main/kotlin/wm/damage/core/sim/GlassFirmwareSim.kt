@@ -1627,6 +1627,11 @@ class GlassFirmwareSim() : LensPanels {
     @Synchronized
     override fun motionOpen(): Boolean = left.motion.anyOpen || right.motion.anyOpen
 
+    /** Stage L (`shell/WindowLanes.kt`): the tag open in [slot] on [arm]'s lens, or null ([motionOpenIn]'s first). */
+    @Synchronized
+    override fun motionTagIn(arm: Arm, slot: Int): Int? = motionOpenIn(arm, slot)?.first
+    override val modelsMotion: Boolean get() = true
+
     /** The END CRC RIGHT's model wrote for (slot, tag, ordinal) this session, or null. */
     @Synchronized
     fun motionEndCrc(slot: Int, tag: Int, ordinal: Int): Long? = endCrcs[Triple(slot, tag, ordinal)]
