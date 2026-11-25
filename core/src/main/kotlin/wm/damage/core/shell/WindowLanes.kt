@@ -34,8 +34,9 @@ import wm.damage.core.wire.CfwModes
  * bound list, Silent Mode, a lease lapse, a keyframe, a session start, RIGHT's closed or refused body, the mirror no
  * longer holding the chain open, a PLAY-AFTER that landed late — the chain is dropped and the lanes' cells are released
  * ([takeRelease] → `Compositor.laneRelease`): written from the truth in the next frame, whose write meets the lane, so
- * the transport CLOSEs whatever of it the mirror still holds. A chain starts again at the next pump the window is in
- * front with its lanes wanted. **Fallback:** [REFUSALS_MAX] refusals in a session (RIGHT's, or a PLAY the mirror never
+ * the transport CLOSEs whatever of it the mirror still holds. That frame holds no slot: no chain starts in the pump that
+ * ended one, nor while a frame the budget cut leaves those cells for a later one ([Env.written]) — the spec's cancel
+ * order (§4.1); the next chain starts at the first pump after, the window in front with its lanes wanted. **Fallback:** [REFUSALS_MAX] refusals in a session (RIGHT's, or a PLAY the mirror never
  * held open) → off for the session, said once; the window paints its own frames as below stage 5.
  *
  * Loop-confined (the shell's), and free of the shell: every input is an argument ([Env], the transport's events), so
@@ -79,9 +80,11 @@ class WindowLanes(private val say: (String) -> Unit) {
 
     /** One pump's view: [spec] null = no lanes wanted now ([why] says why, for the journal); [region] the slice
      *  (`CfwModes.musicRegion`, null where the session has none); [fx] the EFFECTS gate's token (null: not in force);
-     *  [tagIn] the mirror's tag in a slot on RIGHT (`LensPanels.motionTagIn`), read once a slot a pump. */
+     *  [written] whether a released area's cells have all been written since (`Compositor.laneWritten`: the frame that
+     *  carried them was assembled); [tagIn] the mirror's tag in a slot on RIGHT (`LensPanels.motionTagIn`), read once a
+     *  slot a pump. */
     class Env(val nowMs: Long, val spec: LaneSpec?, val why: String?, val d: Int, val region: IntRange?, val fx: Motion.Effects?,
-              val tagIn: (Int) -> Int?)
+              val written: (Pair<Rect, Rect>) -> Boolean, val tagIn: (Int) -> Int?)
 
     private class Stretch(val n: Int, val slot: Int, val tag: Int, val area: Int, val stepOneMs: Long, val after: Boolean, val cost: Long) {
         var flush: Long? = null
@@ -107,6 +110,9 @@ class WindowLanes(private val say: (String) -> Unit) {
     private var send: ByteArray? = null
     private var sendFor: Stretch? = null
     private val release = ArrayList<Pair<Rect, Rect>>()
+    /** Released areas handed to the compositor ([takeRelease]) whose cells no frame has written yet: no chain starts while
+     *  one is here, so the frames that write them hold nothing (the first review's finding 1). */
+    private val unwritten = ArrayList<Pair<Rect, Rect>>()
     private val offSaid = HashSet<String>()
 
     /** Why the lanes are off for this session (null: not off). */
@@ -123,7 +129,8 @@ class WindowLanes(private val say: (String) -> Unit) {
 
     /** The per-lens rects the compositor holds while a chain is open; empty otherwise. */
     val hold: List<Pair<Rect, Rect>> get() = chain?.areas ?: emptyList()
-    /** The slots a flush leaves open for the lanes' owners (`FlushRequest.held`). */
+    /** The slots a flush leaves open for the lanes' owners (`FlushRequest.held`): only while a chain is open, which is
+     *  never in the pump whose frame writes an ended chain's cells ([start]). */
     val heldSlots: Set<Int> get() = if (chain != null) HELD else emptySet()
     /** The areas' records, for the stage lane's and the ledger's books. */
     val records: List<StagedRecord> get() = areas.filterNotNull()
@@ -135,7 +142,7 @@ class WindowLanes(private val say: (String) -> Unit) {
     fun wanted(): StagedRecord? = areas.firstOrNull { it?.state == StagedRecord.State.WANTED }
 
     /** The lanes' cells to release before this pump's frame (consumed). */
-    fun takeRelease(): List<Pair<Rect, Rect>>? = if (release.isEmpty()) null else release.toList().also { release.clear() }
+    fun takeRelease(): List<Pair<Rect, Rect>>? = if (release.isEmpty()) null else release.toList().also { unwritten += it; release.clear() }
 
     /** The PLAY or PLAY-AFTER to submit alone after this pump's frame (consumed); [sent] or [notSent] follows. */
     fun takeSend(): ByteArray? = send.also { send = null }
@@ -147,6 +154,7 @@ class WindowLanes(private val say: (String) -> Unit) {
     // ------------------------------------------------------------------------------------------------- the pump
     fun pump(env: Env) {
         wakeAt = null
+        unwritten.removeAll { env.written(it) }
         // a message made in an earlier pump and never taken (that pump ended before its send step) is stale: planned for
         // a place that has passed
         if (send != null) { send = null; sendFor = null; end("its message did not go in the pump that made it", true) }
@@ -191,6 +199,13 @@ class WindowLanes(private val say: (String) -> Unit) {
 
     private fun start(env: Env, spec: LaneSpec) {
         if (sendFor != null) return
+        // the cancel order (spec §4.1; the first review's finding 1): an ended chain's cells are written by a frame that
+        // holds no slot, so the transport CLOSEs every instance of it the mirror still holds there — the one waiting in
+        // slot 1 too, which the next chain's PLAY (slot 0, the new rect) would not reach. Not in the pump that ended a
+        // chain (its frame comes next: asked back at once), nor while a later frame is to write the cells (its
+        // completion pumps again)
+        if (release.isNotEmpty()) { wakeAt = env.nowMs; return }
+        if (unwritten.isNotEmpty()) return
         val stepOne = env.nowMs + SEND_MS
         val stepMs = spec.period * 1000.0 / 1024.0
         val (area, plan) = place(env, spec, stepOne, stepMs, chainArea = null) ?: return
@@ -318,6 +333,7 @@ class WindowLanes(private val say: (String) -> Unit) {
 
     /** A keyframe went: it closed every instance on both lenses (§5.6) — the chain's landed stretches are gone. */
     fun keyframed() {
+        unwritten.clear()                                      // it wrote every cell, and closed every instance
         val c = chain ?: return
         if (c.stretches.any { it.flush != null }) end("a keyframe closed every instance", false)
     }

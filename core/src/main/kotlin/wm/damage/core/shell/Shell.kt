@@ -3141,7 +3141,8 @@ class Shell(
         if (spec != null && region != null) stagePagesDropUnder(region, "the held lanes take the stage reserve's lower 16 KiB (his answer 6); " +
             "Reader stages them again when it is next in front")
         val d = spec?.let { comp.laneDisparity(it.rects[0]) } ?: 0
-        lanes.pump(WindowLanes.Env(System.currentTimeMillis(), spec, why, d, if (inForce) region else null, if (inForce) effectsToken(st) else null) { slot ->
+        lanes.pump(WindowLanes.Env(System.currentTimeMillis(), spec, why, d, if (inForce) region else null, if (inForce) effectsToken(st) else null,
+            written = { (l, r) -> comp.laneWritten(l, r) }) { slot ->
             transport.mirror.motionTagIn(Arm.RIGHT, slot)
         })
         lanes.takeRelease()?.let { comp.laneRelease(it) }

@@ -1862,8 +1862,10 @@ class MusicGlasses(
      *  that moves it by more than [SEEK_SLACK_MS] plans them again. */
     private var laneZero = Long.MIN_VALUE
     private var laneGen = 0
-    /** The time text's once-a-second repaint ([scheduleTimeTick]), by generation. */
+    /** The time text's once-a-second repaint ([scheduleTimeTick]), by generation; [timeRunGen] is [timeGen] while a run is
+     *  live (a stop, a level on top, a pause or the window leaving the front end it). */
     private var timeGen = 0
+    private var timeRunGen = -1
 
     /** Held lanes run on this session: the bar is a continuous fill the glasses grow, the elapsed time its own repaint
      *  each second. Otherwise everything as below stage 5. */
@@ -1881,7 +1883,12 @@ class MusicGlasses(
         maxOf(tx.measure(durS.replace(Regex("[0-9]"), "0"), fSmall), tx.measure(durS.replace(Regex("[0-9]"), "8"), fSmall))
 
     override fun lanes(content: Rect): LaneSpec? {
-        if (!lanesOn() || st.play != PlayState.PLAYING || st.backend == Backend.SPOTIFY) return null
+        if (!lanesOn() || st.play != PlayState.PLAYING) return null
+        // the time text's run, which ends itself where nothing restarts it (a level pushed over Now Playing and popped, a
+        // wake, an app start before the lanes were in force): this hook is asked at every pump while Music is in front with
+        // the lanes in force (the first review's finding 2)
+        if (timeRunGen != timeGen) scheduleTimeTick()
+        if (st.backend == Backend.SPOTIFY) return null
         val t = st.track ?: return null
         val dur = st.durMs.takeIf { it > 0 } ?: t.durMs.toLong()
         if (dur <= 0) return null
@@ -1905,11 +1912,13 @@ class MusicGlasses(
     /**
      * With held lanes, the time text repaints once a second, each repaint asked [TIME_LEAD_MS] before the song's next
      * whole second so its flush lands as the second turns — paced on the loop by a generation (a stop, a pause, the
-     * window leaving the front end the run), never a wait on a send.
+     * window leaving the front end the run), never a wait on a send. Started by a play-state change, an activation, Music
+     * Mode's entry or exit, and [lanes] at any pump that finds none live.
      */
     private fun scheduleTimeTick() {
         val gen = ++timeGen
         if (!lanesOn() || st.play != PlayState.PLAYING || !(exclusive || (active && top.kind == Kind.NOWPLAYING))) return
+        timeRunGen = gen
         val wait = (1000L - Math.floorMod(shownPos(), 1000L)).coerceIn(10L, 1000L)
         bg.launch {
             delay(wait)
