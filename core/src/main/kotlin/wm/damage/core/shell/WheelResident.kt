@@ -43,10 +43,9 @@ class WheelResident {
     /** The cell painted once more after the atlas took what its paint drew (§73's rule, as Page staging's: once). */
     var paintedAgain: CellKey? = null
 
-    /** The block placed this session (its layout, its pictures as last built), [regionEnd] the end of the region it is the
-     *  first tenant of; null while none is. */
+    /** The block placed this session (its layout, its pictures as last built) as the first tenant from Main's region's end;
+     *  null while none is. */
     var block: Wheel.Block? = null
-    var regionEnd = 0
     /** The whole block's write (one record, in pieces). */
     var record: StagedRecord? = null
     /** Each record's bytes as last sent (by [Wheel.Block.Part.name]); a record lost on its way is not here, so it goes again. */
@@ -81,6 +80,12 @@ class WheelResident {
         if (!keepCells) { painted.clear(); paintedAgain = null }
         return out
     }
+
+    /** The faces live on the glasses changed (`Shell.atlasLive`; V1-DW1a F2): a cell's live paint may now differ, so every
+     *  cell is painted again and the block built anew from the new paints — on a placed block compared part by part, only a
+     *  part whose bytes differ written in place; unplaced, its size measured again and a refusal for the old paints tried
+     *  once more. */
+    fun liveChanged() { painted.clear(); paintedAgain = null; wantFor = null; sized = null; refusedFor = null }
 
     companion object {
         /** Decisions BQ (4): the block may take up to 20 KiB of Main's region; past it the block is not placed (the wheel
