@@ -17,6 +17,7 @@ js/notices.mjs
 js/proto.mjs
 js/reader-model.mjs
 js/record.mjs
+js/rows.mjs
 js/stream.mjs
 js/term-render.mjs
 js/terminal.mjs

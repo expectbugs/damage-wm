@@ -1,11 +1,15 @@
 package wm.damage.core.app
 
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import wm.damage.core.shell.SettingsCore
 import wm.damage.core.windows.reader.ReaderCore
 import wm.damage.core.windows.reader.ReaderDocs
 
@@ -27,6 +31,11 @@ import wm.damage.core.windows.reader.ReaderDocs
  * Build S1-2, package Q2 (the spec's §2.2, §2.5): `desc/main` carries one card per converted window — Reader's from
  * here, every other window's from the card its host builder handed the lane (`AppNet.serve`, [cards]), in the window
  * registry's order — each with its summary from that window's core.
+ *
+ * Build S1-5, stage W (the lean spec's §6 row W, §5 "The page"): `desc/settings`, every setting in one description —
+ * Settings' own rows ([SettingsCore.describe]: Global, Animations by tier, Bastion, each app's style rows) with each
+ * converted window's own rows (its registry entry's `rows` hook) first in that app's category, as the glasses' Settings
+ * lists an app's own rows before its style rows. Described again when a change touches an item one of its rows reads.
  */
 class PcScopes(
     private val host: AppHost,
@@ -63,11 +72,14 @@ class PcScopes(
         scope == READER -> AppNet.Gate(ReaderCore.WINDOW, minLevel(ReaderCore.WINDOW)).also { reader.libraryChanged() }
         scope == READER || scope.startsWith(LEVEL) -> AppNet.Gate(ReaderCore.WINDOW, minLevel(ReaderCore.WINDOW))
         scope == DIAG && diag != null -> AppNet.Gate(null, Levels.FULL)
+        scope == SETTINGS -> AppNet.Gate(SettingsCore.WINDOW, Levels.VIEW)
         else -> null
     }
 
     override fun follows(scope: String, c: Change?): Boolean = when {
         c == null -> scope == MAIN || scope == READER || (scope.startsWith(LEVEL) && partOf(scope) == null)
+        // a Settings item, or the item of a window's row (a Games hand or a Reader place moves none)
+        scope == SETTINGS -> c.effect.items.keys.any { it.startsWith(Record.prefix(SettingsCore.WINDOW)) || it in rowKeys }
         // the summary names the book read most recently and its place
         else -> scope == MAIN && c.effect.items.keys.any { it.startsWith(Record.prefix(ReaderCore.WINDOW)) }
     }
@@ -78,6 +90,7 @@ class PcScopes(
         return when {
             scope == MAIN -> main(st)
             scope == READER -> reader.describe(st)
+            scope == SETTINGS -> settings()
             scope.startsWith(LEVEL) -> partOf(scope)?.let { (book, n) -> docs.part(book, n)?.let { d ->
                 JsonObject(d + ("book" to JsonPrimitive(book)))
             } } ?: reader.level(st, scope.removePrefix(LEVEL))
@@ -88,6 +101,34 @@ class PcScopes(
     private fun state(): WindowState {
         val (_, _, e) = host.read(ReaderCore.WINDOW)
         return WindowState(ReaderCore.WINDOW, e.items)
+    }
+
+    private fun stateOf(window: String) = WindowState(window, host.read(window).third.items)
+
+    /** The record items the windows' rows read (each row's id is its item's name). */
+    private val rowKeys: Set<String> by lazy {
+        Windows.ALL.flatMapTo(HashSet()) { e ->
+            e.rows?.invoke(WindowState(e.id, emptyMap()))?.map { Record.key(e.id, (it.jsonObject["id"] as JsonPrimitive).content) }.orEmpty()
+        }
+    }
+
+    /** `desc/settings`: [SettingsCore.describe] with each window's rows, tagged with their window and item, first in its
+     *  app's category. A device's own row (`scope: device`: Torrents' Poll, Feed's Images) is kept by each device, never
+     *  on the record, and is left out. */
+    private fun settings(): JsonObject {
+        val own = SettingsCore.describe(stateOf(SettingsCore.WINDOW))
+        val rows = LinkedHashMap<String, List<JsonObject>>()
+        for (e in Windows.ALL) {
+            val hook = e.rows ?: continue
+            rows[e.title] = hook(stateOf(e.id)).map { it.jsonObject }.filter { (it["scope"] as? JsonPrimitive)?.content != "device" }
+                .map { r -> JsonObject(r + mapOf("window" to JsonPrimitive(e.id), "item" to (r["item"] ?: r.getValue("id")))) }
+        }
+        val cats = own.getValue("categories").jsonArray.map { c ->
+            val o = c.jsonObject
+            val mine = rows.remove((o["name"] as JsonPrimitive).content) ?: return@map o
+            JsonObject(o + ("rows" to JsonArray(mine + o.getValue("rows").jsonArray)))
+        } + rows.map { (name, rs) -> buildJsonObject { put("name", name); put("rows", JsonArray(rs)) } }
+        return JsonObject(own + ("categories" to JsonArray(cats)))
     }
 
     /** The record's place and the versions, for the diagnosis. */
@@ -139,6 +180,8 @@ class PcScopes(
         const val MAIN = "desc/main"
         const val READER = "desc/reader"
         const val DIAG = "diag"
+        /** S1-5 W: every setting (the Settings page). */
+        const val SETTINGS = "desc/settings"
         /** A Reader level: `reader/` + the level's address. */
         const val LEVEL = "reader/"
         /** The PC log's lines the diagnosis carries. */

@@ -7,6 +7,7 @@
 
 import { atLeast } from './proto.mjs';
 import { enc } from './address.mjs';
+import * as R from './rows.mjs';
 
 export const W = 'torrents';
 export const DESC = 'desc/torrents';
@@ -317,16 +318,10 @@ export function recentDraft(q, rec) {
 }
 
 /** A row's value: the record's when it holds one, else the description's. */
-export function rowValue(row, rec) {
-  const v = rec && rec.value(W, row.id);
-  return v === undefined ? row.value : v;
-}
+export const rowValue = (row, rec) => R.rowValue(W, row, rec);
 
 /** The `set` op of a row (L1 C1: the latest input wins). */
-export const setDraft = (row, value) => ({ window: W, action: 'set', targets: [row.id], result: value });
-
-/** A choice row's options as [id, label]. */
-export const optionsOf = (row) => (row.options || []).map((o) => (o && typeof o === 'object' ? [o.id, o.label ?? String(o.id)] : [o, String(o)]));
+export const setDraft = (row, value) => R.setDraft(W, row, value);
 
 // ---- the tracker's listings, a page at a time (spec §2.2; TORRENTS.md §3.1) ----
 

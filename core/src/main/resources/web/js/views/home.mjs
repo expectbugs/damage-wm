@@ -2,6 +2,9 @@
 // Build S1-1, package P7 (INTERFACES.md W-01): home — Main's cards from Main's description (`desc/main`: the
 // converted windows only, one card in S1-1, Reader), each with its summary, progress and availability; a card the
 // device's level does not reach is dim and says why.
+// Build S1-5, stage W: a window with no page in the browser (Games, whose card says `page: false`: Hold'em in the
+// browser is later, when he asks — decisions Part A answer 1) shows its summary and where it is played, and links
+// nowhere.
 
 import { h, icon, bar, keepFocus } from '../dom.mjs';
 
@@ -23,18 +26,22 @@ export function homeView(ctx) {
     const why = ctx.levelWhy(c.min);
     const s = c.summary || {};
     const state = c.availability === 'live' ? null : c.availability === 'loading' ? 'reading the shelf…' : `unavailable: ${c.reason || ''}`;
-    const open = h('a', { href: `/w/${c.window}`, class: 'card' + (why ? ' dim' : ''), 'data-key': `card:${c.window}`, focus: true, 'data-why': why,
-      'aria-disabled': why ? 'true' : null, on: { click: (e) => {
-        e.preventDefault();
-        if (why) ctx.say(why, { from: c.name });
-        else ctx.go({ window: c.window });
-      } } },
+    const page = c.page !== false && ctx.hasView(c.window);
+    const inside = [
       h('span', { class: 'card-head' }, icon(c.icon), h('span', { class: 'card-name', text: c.name })),
       h('span', { class: 'card-line', text: s.line || '' }),
       // S1-2 Q4w: a summary's second line (Torrents' counts, shared with Main's row on the glasses)
       s.detail ? h('span', { class: 'card-state', text: s.detail }) : null,
       typeof s.progress === 'number' ? bar(s.progress) : null,
-      state ? h('span', { class: 'card-state', text: state }) : null);
+      state ? h('span', { class: 'card-state', text: state }) : null,
+      page ? null : h('span', { class: 'card-state', text: 'on the glasses' })];
+    if (!page) return h('div', { class: 'card-wrap' }, h('div', { class: 'card shown' + (why ? ' dim' : ''), 'data-key': `card:${c.window}`, 'data-why': why }, inside));
+    const open = h('a', { href: `/w/${c.window}`, class: 'card' + (why ? ' dim' : ''), 'data-key': `card:${c.window}`, focus: true, 'data-why': why,
+      'aria-disabled': why ? 'true' : null, on: { click: (e) => {
+        e.preventDefault();
+        if (why) ctx.say(why, { from: c.name });
+        else ctx.go({ window: c.window });
+      } } }, inside);
     const cont = s.book && !why ? h('a', { href: `/w/${c.window}/book:${s.book}`, class: 'card-more', 'data-key': `more:${c.window}`, focus: true,
       on: { click: (e) => {
         e.preventDefault();

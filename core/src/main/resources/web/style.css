@@ -221,6 +221,17 @@ body.away .toast.notice .act { opacity: .45; }
 .log { font-family: var(--mono-font); font-size: .8rem; white-space: pre-wrap; background: var(--card); padding: .6rem; border-radius: .4rem; max-height: 60vh; overflow: auto; }
 .looks { border: 1px solid var(--line); border-radius: .5rem; margin: 0 0 var(--gap); padding: .5rem var(--pad); }
 .choice { display: inline-flex; gap: .3rem; align-items: center; margin: .2rem 1rem .2rem 0; }
+/* S1-5 W: every setting as a form — a category per box, a long option list wraps, a select never wider than its row */
+.set-search { width: 100%; max-width: 28rem; padding: .4rem .6rem; margin: 0 0 var(--gap); font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: .4rem; }
+.set-cat { border: 1px solid var(--line); border-radius: .5rem; margin: 0 0 var(--gap); padding: .2rem var(--pad) .4rem; }
+.set-cat h2 { font-size: 1rem; margin: .5rem 0 .2rem; }
+.set-cat .trow > span:first-child { min-width: 11rem; }
+.set-cat select { max-width: 100%; }
+.set-many { display: flex; flex-wrap: wrap; gap: 0 .2rem; }
+.set-range { display: inline-flex; gap: .5rem; align-items: center; }
+.set-here { margin-top: calc(var(--gap) * 1.5); }
+.card.shown { cursor: default; }
+body.away .page.settings .set-cats { opacity: .55; filter: grayscale(1); }
 
 /* ---- S1-2 Q4w: Torrents ---- */
 .thead { display: flex; flex-direction: column; gap: .4rem; margin-bottom: .6rem; }

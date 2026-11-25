@@ -269,3 +269,20 @@ test('at a phone\'s width a card per transfer; a long press selects, the actions
   byKey(p, `row:${ts[1].id}`).fire('click');
   assert.match(main(p).textContent, /2 selected/, 'then a tap toggles');
 });
+
+// S1-5 W (found in the sweep of the pages' row copies): a row's answer drew the section again through a name its
+// function did not hold (`redraw`, local to the section's own function), so a refused change ended in a ReferenceError
+// and the box kept the refused value; an unsent change the same
+test('a settings row the PC refuses is drawn again from the record and said', async () => {
+  const { p, ws } = await page();
+  const box = byKey(p, 'set:notify.done');
+  box.checked = false;
+  box.fire('change', { target: box });
+  const op = queuedOps(ws).at(-1);
+  assert.deepEqual([op.window, op.action, op.targets, op.result], ['torrents', 'set', ['notify.done'], false]);
+  ws.frame({ t: 'ans', stream: op.stream, n: op.n, answer: { a: 'refused', code: 'level', reason: 'needs level control on this device' } });
+  assert.match(p.said().at(-1), /Notify · done: needs level control on this device/);
+  const again = byKey(p, 'set:notify.done');
+  assert.notEqual(again, box, 'drawn again');
+  assert.notEqual(again.getAttribute('checked'), null, 'from the record: still on');
+});

@@ -63,6 +63,10 @@ import wm.damage.core.windows.torrents.TorrentsScopes
  * starts it again on the same port and directory (a deploy under an open page). Words: `deny-browser` (a waiting page
  * denied), `mark` (the PC's time, before an act whose input time the change lines show), `miss` (a trash row's file
  * taken out of the trash).
+ * S1-5 W: Games' card as `Main.gamesParts` serves it, and a scratch shell (`FakeText` over the simulator, no device)
+ * whose settings go through this record as the PC's own shells' do (`Main.kt`'s `settingsSource`, device `look-shell`).
+ * Word `settings`: the record's Quiet hours item (value, writer), the PC's fold of it (what its notices read) and the
+ * scratch shell's own settings — the Settings page's change read back on both.
  */
 fun main(args: Array<String>) {
     val work = Path.of(args.firstOrNull() ?: error("usage: LookServer WORK_DIR (a directory of the stage's own)"))
@@ -161,6 +165,17 @@ fun main(args: Array<String>) {
     val filesPc = wm.damage.core.windows.files.FilesPc(host, look.files, look.books.toString(), uploads, ::lookThumb)
     filesPc.serveOn(net)
     if (!again) look.trashTwo(filesPc.slotted)
+    // S1-5 W: Games' card (its summary, no page), and the scratch shell over this record's Settings
+    val gamesW = wm.damage.core.windows.games.GamesCore.WINDOW
+    val games = wm.damage.core.windows.games.GamesCore()
+    net.serve(gamesW, card = { games.card(wm.damage.core.app.WindowState(gamesW, host.read(gamesW).third.items)) })
+    val shellScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val scratch = wm.damage.core.shell.Shell(FakeText(), wm.damage.core.transport.SimTransport(wm.damage.core.sim.GlassFirmwareSim(), shellScope,
+        wm.damage.core.transport.SimTransport.Timing(instant = true)),
+        wm.damage.core.shell.Persistence(Files.createDirectories(root.resolve("shell")).resolve("state.json")), null, shellScope)
+    scratch.settingsSource = wm.damage.core.app.LocalWindowSource(wm.damage.core.shell.SettingsCore(),
+        HostBackend(host, "look-shell", wm.damage.core.app.OpQueue.newStream()))
+    kotlinx.coroutines.runBlocking { scratch.start() }
     println("LOOK again=$again")
     val server = WebServer(System.getenv("LOOK_PORT")?.toInt() ?: 0, ReachGate(Side.PC), Access(Access.LOOPBACK_NAMES + listOfNotNull(System.getenv("LOOK_NAME")), ownBrowserFull = System.getenv("LOOK_OWN") == "1"), devices, net, Bundle.fromResources(),
         BlobSources(mapOf(ReaderBlobs.PREFIX to ReaderBlobs(reader, docs), wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs,
@@ -175,7 +190,8 @@ fun main(args: Array<String>) {
         // L1 R2 B1: a place's writer and input time, so the look reads what the record took, not the page
         val places = c.effect.items.filterKeys { it.startsWith("rec.reader.place.") }.map { (k, i) -> "${k.removePrefix("rec.reader.")} by ${i.by} at ${i.at}" } +
             // S1-3 stage M: Feed's and Tmux's record writes with their writer and input time (a read list by its size)
-            c.effect.items.filterKeys { it.startsWith("rec.feed.") || it.startsWith("rec.tmux.") }.map { (k, i) ->
+            // (S1-5 W: and Settings')
+            c.effect.items.filterKeys { it.startsWith("rec.feed.") || it.startsWith("rec.tmux.") || it.startsWith("rec.settings.") }.map { (k, i) ->
                 val v = (i.value as? JsonArray)?.let { "${it.size} id(s)" } ?: i.value.toString().take(120)
                 "${k.removePrefix("rec.")}=$v by ${i.by} at ${i.at}" }
         println("LOOK change ${c.seq}: ${c.effect.items.keys.sorted()}" +
@@ -269,6 +285,11 @@ fun main(args: Array<String>) {
                 Thread.sleep(300); "files: ${filesPc.jobs.current()}" }
             "files" -> "files: ${filesPc.jobs.current()} · drop holds ${Files.list(look.drop).use { it.map { f -> f.fileName.toString() }.toList() }}" +
                 " · trash ${look.files.trashList().map { it.name }}"
+            "settings" -> {
+                val i = host.read(wm.damage.core.shell.SettingsCore.WINDOW).third.items["rec.settings.quietHours"]
+                "settings: record quietHours=${i?.value} by ${i?.by} · the PC's fold ${wm.damage.core.shell.SettingsCore.onHost(host).quietHours}" +
+                    " · the scratch shell ${scratch.settings.quietHours} (from the record ${scratch.settingsFromRecordCount}×)"
+            }
             else -> "no such word: $word"
         }
         println("LOOK notice $said")

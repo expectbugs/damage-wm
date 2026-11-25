@@ -233,6 +233,12 @@ export function realScenes(book) {
     // L1: the two pages no scene showed — Diagnosis, and Settings with a look picked (it stays on this browser)
     'real-diag': { path: '/w/diag', steps: [{ wait: '.diag dl.facts' }, reach] },
     'real-settings': { path: '/w/settings', steps: [{ wait: '.settings .looks' }, reach, { click: '.looks:last-of-type .choice:last-child input' }] },
+    // S1-5 W: every setting as a form; Quiet hours changed through the page's own select, then read back in the record,
+    // the PC's fold and the scratch shell (LookServer's word `settings` prints all three)
+    'real-settings-quiet': { path: '/w/settings', steps: [{ wait: '.set-cat select[data-key="set:settings:quietHours"]' }, reach,
+      { fetch: '/__ctl?settings' }, { pick: ['select[data-key="set:settings:quietHours"]', '22-07'] }, { fetch: '/__wait?ms=1500' },
+      { wait: 'select[data-key="set:settings:quietHours"] option[value="22-07"][selected]' }, { fetch: '/__ctl?settings' }] },
+    'real-settings-search': { path: '/w/settings', steps: [{ wait: '.set-cat' }, reach, { type: '.set-search', text: 'notify' }, { wait: '.set-cat' }] },
     // the approval of the waiting made-up page, from the devices page
     'real-approve': { path: '/w/devices', steps: [{ wait: '.devices li.row-item .pcode' },
       { click: 'li.row-item:has(.pcode) .row-acts button' }, { wait: '.devices ul.rows li:nth-child(2) .row-name' }, reach] },
