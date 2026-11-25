@@ -23,7 +23,12 @@ no upload, no paste to an outside service — a report is a file under `private/
 **Runs:** `cat /proc/self/cgroup` must print `0::/claude-work`; say `oom_kill` at the start and the end. A JVM runs
 only through the lock: `private/tools/gate TREE OUT TAG steps…` for a chain (it holds the lock, the memory limit and
 the bounds, and writes `OUT/TAG-summary.txt` — one line a step, every failing test, `RESULT green|red`),
-`private/tools/jvm light|heavy <command>` for a single run. A variant with a guard off goes through
+`private/tools/jvm light|heavy <command>` for a single run. Every gradle line you write yourself carries, in the
+command, `GRADLE_OPTS=-Dorg.gradle.daemon=false`, `MALLOC_ARENA_MAX=4`,
+`ORG_GRADLE_PROJECT_kotlin.compiler.execution.strategy=in-process` and `ulimit -v 12582912` (the gate sets all
+four): a run without them leaves a build process and a compiler process idle with 3 GiB of the capped group for
+hours (2026-11-25), and a chain's own output is never named `TAG-*.log` in the gate's OUT directory (the gate's
+summary counts each such file as a step; `run-TAG.out`). A variant with a guard off goes through
 `private/tools/capped`, one at a time; ended by a limit, a bound or a signal it "ran away" — never "caught". End your
 own jobs by pid, never `pkill -f`. Never run the `desktop` binary without a tool flag. No agents.
 A test or a check never reaches a program of his or his desktop: a rig that drives a real provider or runner
