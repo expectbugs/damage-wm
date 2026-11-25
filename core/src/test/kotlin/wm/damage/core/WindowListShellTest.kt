@@ -1420,7 +1420,11 @@ class WindowListShellTest {
             assertEquals(stagings + 1, r.onLoop { r.shell.mainBinding.stagings }, "one staging of Main, after the run")
             assertEquals(p.second, r.onLoop { r.shell.mainBinding.staging?.rows }, "laid out from the rows painted under the run")
             r.assertOracle("Main after the run")
-            mainTo(r, 1)
+            val row0 = r.onLoop { r.shell.mainBoundForTest().second }
+            assertTrue(row0 + 1 < p.second, "Main's cursor ($row0) has a row below it")
+            val at2 = r.right.size
+            mainTo(r, row0 + 1)
+            assertTrue(r.since(at2).any { ss -> ss.any { r.isSub(it, 26, 3) } }, "the notch played on the glasses and was COMMITted (local)")
             r.assertOracle("a notch on Main after the run")
         } finally { r.shell.transitionHoldInHalfForTest = false; r.close() }
     }
