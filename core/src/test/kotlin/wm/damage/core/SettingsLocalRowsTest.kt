@@ -51,18 +51,18 @@ class SettingsLocalRowsTest {
         var st = ShellSettings()
         var stage5 = true
         fun w() = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { true }, effectsInForce = { stage5 })
-        assertEquals(listOf("Scroll" to "Depth", "Select" to "Depth", "Close / Back" to "Depth", "Lock Screen" to "Fade", "Popups" to "Unfurl"),
-            w().rowsForTest("Animations"))
+        assertEquals(listOf("Scroll" to "Depth", "Select" to "Depth", "Close / Back" to "Depth", "Lock Screen" to "Fade", "Popups" to "Unfurl",
+            "Switcher" to "Drum (default)"), w().rowsForTest("Animations"))
         st = st.copy(scrollEffect = "none", popupUnfurl = false, popupFade = true, popupSlide = true)
             .withTier(wm.damage.core.motion.Transitions.Tier.SELECT, effects = listOf("depth", "warp", "fall"))
             .withTier(wm.damage.core.motion.Transitions.Tier.LOCK, effects = emptyList())
-        assertEquals(listOf("Scroll" to "None", "Select" to "3 on", "Close / Back" to "Depth", "Lock Screen" to "None", "Popups" to "2 on"),
-            w().rowsForTest("Animations"))
+        assertEquals(listOf("Scroll" to "None", "Select" to "3 on", "Close / Back" to "Depth", "Lock Screen" to "None", "Popups" to "2 on",
+            "Switcher" to "Drum (default)"), w().rowsForTest("Animations"))
         st = ShellSettings()
         val win = w()
         fun list() = win.view() as wm.damage.core.shell.WindowView.ListView
         assertTrue(win.open("cat:Animations"))
-        assertEquals(Triple("animations", 2, 5), Triple(win.title(), win.levelDepth(), list().rowCount()))
+        assertEquals(Triple("animations", 2, 6), Triple(win.title(), win.levelDepth(), list().rowCount()))
         list().model.cursor = 2; list().onCommit(2)                                   // Close / Back
         assertEquals(Triple("animations · close / back", 3, 3), Triple(win.title(), win.levelDepth(), win.listLevel()))
         assertEquals(0 to 10, list().model.cursor to list().rowCount(), "the cursor at rest on the sub menu's first of ten rows")

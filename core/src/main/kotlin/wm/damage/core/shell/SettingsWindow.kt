@@ -237,14 +237,25 @@ class SettingsWindow(
 
     /** C3 AS (his word, 2026-11-21: "a sub menu for each tier, rather than dozens of options in one enormous list"): the
      *  `Animations` page — one row per tier shown at this stage, in `MOTION.md` §7's order, its value what is set inside,
-     *  a tap opening the tier's rows. No row is global: every row belongs to a tier. A row added to a tier's list
-     *  ([scrollEntries], [transitionTiers], [popupEntries]) is in that tier's sub menu; there is no second list. */
+     *  a tap opening the tier's rows. A row added to a tier's list ([scrollEntries], [transitionTiers], [popupEntries]) is
+     *  in that tier's sub menu; there is no second list. The one row of no tier is [switcherEntry] (his words of 11-21:
+     *  "Global options (if any) can ride the main animations settings page"). */
     private val scrollTier = Entry("Scroll", {
         (wm.damage.core.motion.ScrollEffect.byId(get().scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT).word
     }, null, sub = scrollEntries)
     private val popupTier = Entry("Popups", {
         checked(listOfNotNull("Unfurl".takeIf { get().popupUnfurl }, "Fade".takeIf { get().popupFade }, "Slide".takeIf { get().popupSlide }))
     }, null, sub = popupEntries)
+
+    /** C3 DW-1b-2 (the DW spec §6; decisions BD O4, DA (d) 4): `Switcher` · Drum · None, on the main page after the tiers
+     *  (the switcher is no tier); shown at ladder stage 5 only, as the transition tiers' rows. Its length and frames are the
+     *  Scroll tier's. */
+    private val switcherEntry = Entry("Switcher", {
+        get().switcher.let { ShellSettings.switcherWord(it) + if (it == ShellSettings().switcher) " (default)" else "" }
+    }, { s, d ->
+        val ws = ShellSettings.SWITCHERS
+        s.copy(switcher = ws[(ws.indexOf(s.switcher).coerceAtLeast(0) + d).coerceIn(0, ws.size - 1)])
+    })
 
     /** The name a row is drawn with: inside a tier's sub menu (the title already names the tier) its [Entry.name] less the
      *  tier row's name, or that name without its plural "s" (Popups' "Popup"), and the separator after it — "Select ·
@@ -297,7 +308,8 @@ class SettingsWindow(
     private fun cats(): List<Cat> {
         val out = ArrayList<Cat>()
         out.add(Cat("Global", (if (bindBuild()) entries else entries.filter { it.name !in BIND_ROWS }) + host().map(::hostEntry)))
-        if (bindBuild()) out.add(Cat("Animations", listOf(scrollTier) + (if (effectsInForce()) transitionTiers else emptyList()) + popupTier))
+        if (bindBuild()) out.add(Cat("Animations", listOf(scrollTier) + (if (effectsInForce()) transitionTiers else emptyList()) + popupTier +
+            (if (effectsInForce()) listOf(switcherEntry) else emptyList())))
         for ((app, rows) in apps()) out.add(Cat(app, rows.map(::hostEntry)))
         return out
     }
@@ -505,8 +517,8 @@ class SettingsWindow(
             "${settingsIn(c.entries)} settings · tap to open", FontSpec(Face.SYSTEM, 14), Level.DIM)
     }
 
-    /** The settings a list holds, a tier's row counting the rows of its sub menu (C3 AS): `Animations` says 36 at stage 5
-     *  as it did when it was one list. */
+    /** The settings a list holds, a tier's row counting the rows of its sub menu (C3 AS): `Animations` says 37 at stage 5
+     *  (the 36 of its tiers, as when it was one list, and `Switcher`, C3 DW-1b-2). */
     private fun settingsIn(es: List<Entry>): Int = es.sumOf { it.sub?.size ?: 1 }
 
     private fun drawRight(g: Gray8, xRight: Int, y: Int, s: String, f: FontSpec, lv: Int) {

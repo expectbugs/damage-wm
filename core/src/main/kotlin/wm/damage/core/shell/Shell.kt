@@ -6971,7 +6971,7 @@ class Shell(
      */
     private fun wheelNotOffered(st: LinkState): String? {
         if (!st.effects) return "below stage 5 (EFFECTS is not in force)"
-        if (st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || mainList.mainBindRegion(st).last + 1 >= st.cacheSize) return "no 256 KiB session with a region of Main's own"
+        WheelResident.sessionRefusal(st.cacheSize, mainList.mainBindRegion(st).last + 1)?.let { return it }
         mainList.mainBindBlocked(st, front = false)?.let { return it }
         val b = wheel.block ?: return "the block is not placed${wheel.notPlacedSaid?.let { " (${it.removePrefix("not placed — ")})" } ?: " yet"}"
         wm.damage.core.motion.Wheel.refusal(b.geo, switcher.entryCount)?.let { return it }
@@ -7004,8 +7004,21 @@ class Shell(
     }
 
     /** THE BLOCK'S BASE (decisions CK A10: K1-2 stage 3's window list is laid out from here down): the lowest byte of Main's
-     *  region the wheel's block holds this session, else — no block placed — the region's end. */
-    private fun wheelBase(st: LinkState): Int = wheel.block?.base ?: (mainList.mainBindRegion(st).last + 1)
+     *  region the wheel's block holds this session, else the place reserved for it (C3 DW-1b-2, decisions DF finding 2:
+     *  [WheelResident.reserved]), else the region's end. */
+    private fun wheelBase(st: LinkState): Int = wheel.baseIn(mainList.mainBindRegion(st).last + 1)
+
+    /** C3 DW-1b-2 (decisions DF finding 2, amending CK A3's order of lanes): a window's list in front whose lane has its
+     *  staging still to lay out, write or count — the wheel's block waits behind it, its place reserved above it. Not
+     *  under an open switcher (the window list's lane writes nothing then, decisions DA (c) 4, and the wheel's lane writes
+     *  what the offer needs, CK A5), nor for a list refused for space, a list covered or adjusting, or no list in front. */
+    private fun windowListFirst(): Boolean {
+        if (switcher.open || !windowList.inFront()) return false
+        val b = windowList.mainBind
+        val ms = b.staging
+        if (ms == null) return windowList.mainBindRefusedFor == null
+        return !(b.counted && windowList.stagedFront() != null)
+    }
 
     /** The disparity the wheel would open with next — [switcherMargin]'s; behind the shell's clock Main's, which its wake
      *  brings; on an exclusive screen (where the chord never arms) its window's, which the double tap returns to (V1-DW1a F3). */
@@ -7024,7 +7037,7 @@ class Shell(
      *  layout and geometry the wheel would open at, the cells' keys, the item table's order, the motion, the region's end;
      *  [key] all of them. */
     private class WheelWant(val regs: List<DamageWindow?>, val lay: Layout, val g: wm.damage.core.motion.Wheel.Geo, val keys: List<WheelResident.CellKey>,
-                            val order: IntArray, val motion: MainStaging.ScrollMotion, val regionEnd: Int) {
+                            val order: IntArray, val motion: WheelMotion, val regionEnd: Int) {
         val face: String get() = "${g.w} x ${g.hC} + ${g.hN}"
         val key: WheelKey get() = WheelKey(keys, order.toList(), g.toString(), motion, regionEnd)
         /** C3 DW-1b-1 (CK A4, A5): the same want with the cells' keys [k] — an open keeps a cell painted for an older key. */
@@ -7033,7 +7046,12 @@ class Shell(
 
     /** What a block is built for ([WheelWant.key]): its cells' keys, its item table's order, its programs' geometry and
      *  motion, the region's end. The offer reads the order and the programs' part ([wheelNotOffered]). */
-    private data class WheelKey(val cells: List<WheelResident.CellKey>, val order: List<Int>, val g: String, val motion: MainStaging.ScrollMotion, val regionEnd: Int)
+    private data class WheelKey(val cells: List<WheelResident.CellKey>, val order: List<Int>, val g: String, val motion: WheelMotion, val regionEnd: Int)
+
+    /** The wheel's programs' timing: the Scroll tier's length and frames, and `Switcher` = None ([none]: the one-step
+     *  programs) — C3 DW-1b-2: a change to or from None is a change of the programs' key, so the offer fails until they are
+     *  rewritten ([wheelNotOffered]) and the lane rewrites them in place ([pumpWheel]). */
+    private data class WheelMotion(val scroll: MainStaging.ScrollMotion, val none: Boolean)
 
     private fun wheelWant(st: LinkState): WheelWant {
         val regs = listOf<DamageWindow?>(null) + windows
@@ -7047,7 +7065,7 @@ class Shell(
     /** The layout, geometry and motion the wheel would open with now (its programs' key, [WheelKey]). */
     private fun wheelLayout(): Layout = if (mode == Mode.SILENT) effectiveLayout() else layout
     private fun wheelGeo(st: LinkState) = wm.damage.core.motion.Wheel.geo(switcher, wheelLayout(), wheelOpenD(st))
-    private fun wheelMotion() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames)
+    private fun wheelMotion() = WheelMotion(MainStaging.ScrollMotion(settings.scrollLength, settings.frames), settings.switcher == "none")
 
     /** Each pump, after Main's poll: the block's records against the registry, the count, and Main's staging against the
      *  block's bytes (Main wins, decisions BD); then the offer (DW-1b-1). */
@@ -7135,7 +7153,7 @@ class Shell(
         // of [WheelResident.sent], so the comparison runs again)
         if (wheel.wantFor == w.key && b === wheel.want && wheel.sent.size == b.cells.size + 3) return false
         // kept current in place (§3.4): the block for the keys now on the placed block's offsets, record by record
-        val want = if (wheel.wantFor == w.key) wheel.want else try { b.rebuilt(w.g, cells, w.order, fx, w.motion) }
+        val want = if (wheel.wantFor == w.key) wheel.want else try { b.rebuilt(w.g, cells, w.order, fx, w.motion.scroll, w.motion.none) }
             catch (e: wm.damage.core.geom.LintError) { wheelDrop("it cannot be kept current: ${e.message}", keepCells = true); return true }
         wheel.wantFor = w.key; wheel.want = want
         if (want == null) {
@@ -7156,7 +7174,7 @@ class Shell(
         stageRecount()
         val what = when {
             part.name == wm.damage.core.motion.Wheel.Block.ITEMS -> "the item table (${want.n} of ${cells.size} entries: ${w.order.joinToString(" ") { w.keys[it].name }})"
-            part.name == wm.damage.core.motion.Wheel.Block.PROGRAMS -> "the programs (P ${want.period} T ${want.t} at ${w.g.panel} d ${w.g.d})"
+            part.name == wm.damage.core.motion.Wheel.Block.PROGRAMS -> "the programs (P ${want.period} T ${want.t}${if (want.none) ", Switcher None" else ""} at ${w.g.panel} d ${w.g.d})"
             part.name.startsWith("cell ") -> "the ${part.name} (${w.keys[part.name.removePrefix("cell ").toInt()]})"
             else -> "the ${part.name}"
         }
@@ -7184,14 +7202,19 @@ class Shell(
      *  Main's staging (said, and tried again when the want or Main's staging changes). */
     private suspend fun wheelPlace(st: LinkState, w: WheelWant, cells: List<wm.damage.core.motion.Wheel.Cell>, fx: wm.damage.core.motion.Motion.Effects): Boolean {
         val size = wheel.sized?.takeIf { it.first == w.key }?.second ?: try {
-            wm.damage.core.motion.Wheel.block(0, w.g, cells, fx, w.motion, order = w.order).size.also { wheel.sized = w.key to it }
+            wm.damage.core.motion.Wheel.block(0, w.g, cells, fx, w.motion.scroll, w.motion.none, w.order).size.also { wheel.sized = w.key to it }
         } catch (e: wm.damage.core.geom.LintError) { wheelNotPlaced("${e.message}", w.key); return false }
         val ms = mainList.mainBind.staging
         WheelResident.refusal(w.regionEnd, size, ms?.end)?.let { why ->
             // past the cap: not tried again until the want changes; met by Main: tried again as Main's staging changes
+            wheel.reserved = null
             wheelNotPlaced(why, if (size > WheelResident.CAP) w.key else null)
             return false
         }
+        // C3 DW-1b-2 (decisions DF finding 2): the block's place reserved by its size; a window's list in front still to be
+        // staged goes first, laid out under that place ([wheelBase]), and the block's write follows its count
+        wheel.reserved = size
+        if (windowListFirst()) return false
         val base = WheelResident.baseFor(w.regionEnd, size)
         // K1-2 stage 3 (decisions BD O5, CV): a window's list staged where the block goes yields — its staging drops (its
         // entries are CLEARed in the flush that follows, before any write of the block's: the idle step never runs in a
@@ -7200,7 +7223,7 @@ class Shell(
             windowList.mainBindDrop("the wheel's block goes at $base..${w.regionEnd}, over its records at ${l.start}..${l.end}: the list yields, and is staged again below the block")
             return true
         }
-        val b = wm.damage.core.motion.Wheel.block(base, w.g, cells, fx, w.motion, order = w.order)
+        val b = wm.damage.core.motion.Wheel.block(base, w.g, cells, fx, w.motion.scroll, w.motion.none, w.order)
         val parts = b.parts()
         val writes = parts.flatMap { it.writes }
         val rec = StagedRecord(WheelStageKey(wheel, wheel.serial++, "block"), Gray8(1, 1), concat(writes)).also { it.off = base }

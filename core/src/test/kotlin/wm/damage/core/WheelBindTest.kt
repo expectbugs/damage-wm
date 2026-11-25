@@ -815,4 +815,103 @@ class WheelBindTest {
             r.until("list 1 staged after the close") { r.notes("liststage").count { it.startsWith("staged") } > staged0 }
         } finally { r.close() }
     }
+
+    // ------------------------------------------------------------------------------------------------------- DW-1b-2
+    /**
+     * C3 DW-1b-2 (the DW spec §6; decisions DA (d) 4): `Switcher` = None enters the programs' key. Set in the same loop turn
+     * as the chord, the open is not offered until None's programs are written and counted, the lane rewrites the
+     * programs in place during the unbound open (CK A5) — nothing else of the block, at the same base — and the wheel binds
+     * mid-open with None's one-step programs; a notch is drawn by the glasses in one step and committed.
+     */
+    @Test
+    fun switcherNoneHoldsTheOfferUntilTheProgramsAreRewrittenInPlace_DW1b2(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up(); r.open("w0"); r.open("w1")
+            val b0 = assertNotNull(r.block(), "the block placed")
+            assertTrue(!b0.none, "Drum by default")
+            val from = r.images.size
+            val notes0 = r.notes("wheel").size
+            r.onLoop { r.shell.updateSettings { it.copy(switcher = "none") }; r.chord() }
+            r.until("the wheel open") { r.shell.switcherIsOpen }
+            r.bound("bound under None")
+            val e = assertNotNull(r.list().entryFor(CfwModes.EV_UPROLL))
+            assertEquals(1, e.program!!.T, "the bound program is None's one step")
+            val b1 = assertNotNull(r.block())
+            assertTrue(b1.none && b1.base == b0.base, "the block rebuilt for None in place (base ${b0.base} -> ${b1.base}, none ${b1.none})")
+            val writes = r.cacheWrites(from).filter { (off, _) -> off >= b1.base && off < b1.end }
+            assertTrue(writes.isNotEmpty() && writes.all { (off, _) -> off >= b1.progOff },
+                "only the programs' slot written for None: ${writes.map { it.first }} (programs at ${b1.progOff})")
+            notch(r, CfwModes.EV_UPROLL, "a notch under None")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("closed") { !r.shell.switcherIsOpen }
+            r.until("the open's note") { r.notes("wheel").drop(notes0).any { it.startsWith("closed") } }
+            val note = r.notes("wheel").drop(notes0).first { it.startsWith("closed") }
+            assertTrue("mid-open (at the open: " in note, "the open was not offered until None's programs were written: $note")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 DW-1b-2 (decisions DF finding 2, amending CK A3's order): at a session start with a window's list in front
+     * (Settings), the list goes first — the wheel's block's place reserved by its size, the list laid out under it, staged,
+     * counted and bound — and the block's write follows: list 1 is bound before the block's last write goes, and the list
+     * never yields to the block.
+     */
+    @Test
+    fun aSessionStartWithAWindowsListInFrontBindsTheListBeforeTheBlocksWrite_DW1b2(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up(); r.open("w0"); r.open("w1"); r.open("settings")
+            r.until("Settings bound") { r.onLoop { r.shell.slot0ForTest() == "window" } && r.entriesOn(Arm.RIGHT, 1).size == 3 }
+            r.done("Settings")
+            val clears = r.shell.stageClears
+            val from = r.images.size
+            val yields0 = r.notes("liststage").count { "the list yields" in it }
+            r.shell.stop()
+            r.shell.start()
+            r.until("a new session") { r.shell.stageClears > clears && r.t.state.value.effects }
+            r.until("Settings bound again and the block placed") {
+                r.onLoop { r.shell.slot0ForTest() == "window" && r.shell.wheelBlockForTest() != null } && r.entriesOn(Arm.RIGHT, 1).size == 3 }
+            r.done("the new session")
+            val b = assertNotNull(r.block())
+            val imgs = r.images.toList().drop(from).filter { it.first == Arm.LEFT }
+            val lastWrite = imgs.indexOfLast { (_, img) -> (img[0].toInt() and 0x7F) in setOf(19, 25) && ShipVectors.cacheWrites(img).any { (off, _) -> off >= b.base && off < b.end } }
+            val firstSet = imgs.indexOfFirst { (_, img) -> r.subs(img).any { r.isSetOf(it, 1) } }
+            assertTrue(lastWrite >= 0 && firstSet >= 0 && firstSet < lastWrite,
+                "list 1 bound (its first SET, image $firstSet) before the block's last write (image $lastWrite)")
+            assertEquals(yields0, r.notes("liststage").count { "the list yields" in it }, "the list never yields to the block: ${r.notes("liststage").takeLast(3)}")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 DW-1b-2 (decisions DJ item 5): a session rebuild reached with NO pump between the link's end and the next start —
+     * the link drops with the wheel bound (a pump returns at its first gate while the transport says `started` false, so
+     * no poll clears the offer) and the keeper stops and starts the shell (this rig has no keeper: its two calls). The new
+     * session's start reads the front with the switcher still open: nothing of list 2 — no SET, no LIST — goes before the
+     * block is written again, and once it is counted the wheel binds again.
+     */
+    @Test
+    fun aLinkThatDropsWithTheWheelBoundStartsWithNothingOfList2BeforeTheBlock_DW1b2(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up(); r.open("w0"); r.open("w1")
+            r.chord(); r.bound("the open")
+            val clears = r.shell.stageClears
+            val from = r.images.size
+            r.t.endLink("a test: the link drops with the wheel bound")
+            r.shell.stop()
+            r.shell.start()
+            r.until("a new session") { r.shell.stageClears > clears && r.t.state.value.effects }
+            assertTrue(r.shell.switcherIsOpen, "the switcher stays open across the session's end")
+            r.bound("bound again in the new session")
+            val b = assertNotNull(r.block())
+            val imgs = r.images.toList().drop(from).filter { it.first == Arm.LEFT }
+            val firstWrite = imgs.indexOfFirst { (_, img) -> (img[0].toInt() and 0x7F) in setOf(19, 25) && ShipVectors.cacheWrites(img).any { (off, _) -> off >= b.base && off < b.end } }
+            val firstSet = imgs.indexOfFirst { (_, img) -> r.subs(img).any { r.isSetOf(it, 2) } }
+            val firstList = imgs.indexOfFirst { (_, img) -> r.subs(img).any { r.isListOf(it, 2) } }
+            assertTrue(firstWrite >= 0 && firstSet > firstWrite && firstList > firstWrite,
+                "nothing of list 2 before the block is written again (the block's first write: image $firstWrite; list 2's first SET $firstSet, first LIST $firstList)")
+            notch(r, CfwModes.EV_UPROLL, "a notch in the new session")
+        } finally { r.close() }
+    }
 }
