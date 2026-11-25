@@ -26,6 +26,8 @@ import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.TransportEvent
+import wm.damage.core.transport.bind
+import wm.damage.core.transport.effects
 import wm.damage.core.wire.EvenHubMsg
 import wm.damage.core.windows.games.GamesWindow
 
