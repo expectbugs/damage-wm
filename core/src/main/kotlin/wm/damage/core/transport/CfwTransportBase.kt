@@ -2800,16 +2800,33 @@ abstract class CfwTransportBase(
      * seconds until the new session's acquire. Refused, with a log line, when
      * no session is started or one is still being set up (a start in
      * progress rolls itself back on its own link end).
+     *
+     * Stage BW (Adam's word, 2026-11-25; `BL-decisions.md` Part D): on a transport whose radio link can be kept
+     * ([linkKeepable]) the link is NOT ended — the mark [LinkState.linkKept] is set before `started` goes false,
+     * the session is cleared the same way (`onLinkDown` needs no physical disconnect), the keeper leaves the
+     * transport running, and the next `start()` adopts both arms if they are still up. Nothing the start relies
+     * on is reset only by a link end (`BL-V-w-read.md` §3): the glasses' Damage state goes at release points, and
+     * the start re-does the rest. [endLink] = true is the watchdog's (a link that has gone quiet is suspect).
      */
-    override suspend fun restartSession(reason: String): Boolean {
+    override suspend fun restartSession(reason: String): Boolean = restartSession(reason, endLink = false)
+
+    private suspend fun restartSession(reason: String, endLink: Boolean): Boolean {
         if (!started || startInProgress) {
             Log.w(name, "session restart refused ($reason): ${if (startInProgress) "a start is in progress" else "no session is started"}")
             return false
         }
-        Log.w(name, "session restart: $reason — ending the link so the keeper rebuilds the session")
-        emitNote("restart", reason)
+        val keep = !endLink && linkKeepable()
         running = false
         started = false
+        if (keep) {
+            Log.w(name, "session restart: $reason — $LINK_KEPT_WORDS; the keeper rebuilds the session over it")
+            emitNote("restart", "$reason — $LINK_KEPT_WORDS")
+            updateState { it.copy(linkKept = true) }      // before `onLinkDown` publishes `started` false: the keeper reads both
+            onLinkDown("restart: $reason — $LINK_KEPT_WORDS", linkKept = true)
+            return true
+        }
+        Log.w(name, "session restart: $reason — ending the link so the keeper rebuilds the session")
+        emitNote("restart", reason)
         withContext(NonCancellable) {
             try {
                 disconnectLink()
@@ -2820,6 +2837,31 @@ abstract class CfwTransportBase(
         onLinkDown("restart: $reason")
         return true
     }
+
+    /** Stage BW: the fallback (his word on reader w's proposal, `BL-decisions.md` Parts B and D), the watchdog's
+     *  shape (`HANDOFF.md` §40.5): a count of re-asks on the gate's own pacing tick, never a clock. On a start that
+     *  ADOPTED a kept link, a gate already re-asked [KEPT_LINK_REASKS] times ([reasks]) with no answer at this tick
+     *  fails the start: [silent] is completed with the words (the gate's select ends on it), they are logged, and
+     *  the words reach the journal through the keeper's "start failed" note. The rollback ends the link and the
+     *  next start connects afresh. On a link connected afresh it never fires: null, the gate re-asks as before. */
+    private fun keptLinkGiveUp(adopted: Boolean, gate: String, reasks: Int, silent: CompletableDeferred<String>): String? {
+        if (!adopted || reasks < KEPT_LINK_REASKS) return null
+        val words = "the kept link did not answer the start: the $gate went unanswered after $reasks re-asks " +
+            "(${CAPABILITY_REASK_MS / 1000} s apart) — the start fails, the link is ended and the next start connects afresh"
+        Log.w(name, words)
+        silent.complete(words)
+        return words
+    }
+
+    /** Stage BW: whether this transport's radio link can be kept through a deliberate restart — both arms up
+     *  right now. False (the default) ends the link at every restart, as before: BlueZ's PC-direct path and every
+     *  test transport. */
+    protected open fun linkKeepable(): Boolean = false
+
+    /** Stage BW: at a start after a kept restart, take the kept link as it is: null = adopted (both arms
+     *  demonstrably up), else the words why not — the start then connects afresh ([connectLink], which ends
+     *  what is left of the old link first). Asks nothing of the glasses. */
+    protected open suspend fun adoptLink(): String? = "this transport does not keep its link"
 
     protected fun emitNote(kind: String, detail: String) {
         if (!_events.tryEmit(TransportEvent.Note(kind, detail))) Log.w(name, "note dropped (buffer full): $kind: $detail")
@@ -2905,15 +2947,31 @@ abstract class CfwTransportBase(
             leaseWanted = true
         }
         leaseCarryDecided = false
+        // stage BW: the mark is read once and cleared in the same step, before anything below can fail — a failed
+        // start's rollback then ends the link as it always has, and the next start connects afresh
+        val kept = synchronized(stateLock) { _state.value.linkKept.also { if (it) _state.value = _state.value.copy(linkKept = false) } }
         updateState { it.copy(leaseCarried = false, leaseCarry = "") }
+        // stage BW: this start runs over a link it did not connect — its first gates give up after
+        // [KEPT_LINK_REASKS] unanswered re-asks ([keptLinkGiveUp]); a link connected afresh re-asks as before
+        var adopted = false
+        val keptLinkSilent = CompletableDeferred<String>()
         try {
-            connectLink()
+            if (kept) {
+                updateState { it.copy(detail = "adopting the kept link") }
+                val refused = adoptLink()
+                if (refused == null) adopted = true
+                else {
+                    Log.w(name, "the kept link was not adopted ($refused) — connecting afresh")
+                    emitNote("keeper", "the kept link was not adopted ($refused) — connecting afresh")
+                }
+            }
+            if (!adopted) connectLink()
             // `running` only once a link exists (round 8): the maintenance
             // loops would otherwise queue keepalives and renewals into a link
             // still being scanned for, each a loud fault and a stale pending
             running = true
             updateState { it.copy(connected = true) }
-            _events.emit(TransportEvent.Link(true, "$name link up"))
+            _events.emit(TransportEvent.Link(true, if (adopted) "$name link up (the link kept from the last session, adopted: no scan, no connect)" else "$name link up"))
 
             if (!workersLaunched) {
                 workersLaunched = true
@@ -2944,9 +3002,12 @@ abstract class CfwTransportBase(
                 // sent all day (its `COLD_INIT` re-launch), graded C on the
                 // CFW — the answer to a second one is a second ack.
                 val reask = scope.launch {
+                    var n = 0
                     while (true) {
                         delay(CAPABILITY_REASK_MS)
                         if (!awaitingPrelude) break
+                        if (keptLinkGiveUp(adopted, "connect prelude", n, keptLinkSilent) != null) break
+                        n++
                         Log.i(name, "connect prelude unacked after ${CAPABILITY_REASK_MS} ms — sending again")
                         // the SAME deferred the select waits on, not a throwaway: attempt 1's
                         // write can succeed and be eaten, and every attempt after it fail on a
@@ -2961,6 +3022,7 @@ abstract class CfwTransportBase(
                     kotlinx.coroutines.selects.select<String> {
                         preludeChannel.onReceive { it }
                         writeFailed.onAwait { reason -> SWEPT + "prelude not written: $reason" }
+                        keptLinkSilent.onAwait { SWEPT + it }
                     }
                 } finally {
                     reask.cancel()
@@ -2990,9 +3052,12 @@ abstract class CfwTransportBase(
                 // 250 ms poll is the precedent): the gate never gives up on
                 // its own, it just repeats the question.
                 val reask = scope.launch {
+                    var n = 0
                     while (true) {
                         delay(CAPABILITY_REASK_MS)
                         if (!awaitingCapability) break
+                        if (keptLinkGiveUp(adopted, "capability READ", n, keptLinkSilent) != null) break
+                        n++
                         Log.i(name, "capability query unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
                         controlQueue.trySend(CtlWork.Settings(epoch, SettingsMsg.settingsQuery(0), queryFailed))
                     }
@@ -3003,6 +3068,7 @@ abstract class CfwTransportBase(
                     kotlinx.coroutines.selects.select<String> {
                         capabilityChannel.onReceive { it }
                         queryFailed.onAwait { reason -> SWEPT + "capability query not written: $reason" }
+                        keptLinkSilent.onAwait { SWEPT + it }
                     }
                 } finally {
                     reask.cancel()
@@ -3122,9 +3188,16 @@ abstract class CfwTransportBase(
             // rides every send: whichever ack arrives first completes it, and
             // the sweep fails it on a session end, so the loop always ends.
             val createReask = scope.launch {
+                var n = 0
                 while (true) {
                     delay(CAPABILITY_REASK_MS)
                     if (createAck.isCompleted) break
+                    val silent = keptLinkGiveUp(adopted, "carrier CREATE", n, keptLinkSilent)
+                    if (silent != null) {
+                        createAck.completeExceptionally(LintError("carrier CREATE ended early — $silent"))
+                        break
+                    }
+                    n++
                     Log.i(name, "carrier CREATE unacked after ${CAPABILITY_REASK_MS} ms — sending again")
                     controlQueue.trySend(CtlWork.Hub(epoch, EvenHubMsg.carrierCreate(0), createAck))
                 }
@@ -3508,7 +3581,7 @@ abstract class CfwTransportBase(
         if (watchdogProbed && quietTicks >= WATCHDOG_QUIET_TICKS + WATCHDOG_PROBE_TICKS) {
             quietTicks = 0; watchdogProbed = false
             emitNote("watchdog", "no response for ${quietMs / 1000} s, probe unanswered — rebuilding the session")
-            restartSession("no response from the glasses for ${quietMs / 1000} s (watchdog)")
+            restartSession("no response from the glasses for ${quietMs / 1000} s (watchdog)", endLink = true)   // stage BW: a quiet link is suspect — ended
         }
     }
 
@@ -3657,7 +3730,8 @@ abstract class CfwTransportBase(
         // P5 item 16: under the mirror's monitor, after the epoch moved (this stop's first line) — see writePacket
         if (teeMirror) synchronized(mirrorSim) { mirrorSim.linkReset() }
         sayStaleTees("at the stop")
-        updateState { it.copy(started = false, leaseHeld = false, connected = false, carrierUp = false, detail = "") }
+        // stage BW: a stop in the gap after a kept restart ended the kept link just above — the mark goes with it
+        updateState { it.copy(started = false, leaseHeld = false, connected = false, carrierUp = false, detail = "", linkKept = false) }
         if (!_events.tryEmit(TransportEvent.Link(false, "$name stopped")))
             Log.e(name, "Link(false) after stop DROPPED (buffer full)")
         }
@@ -3760,8 +3834,9 @@ abstract class CfwTransportBase(
     /** Subclasses call this when the physical link ends out from under a
      *  session (BLE disconnect): sweeps so nothing waits on acks that will
      *  never come, and surfaces the loss (round 3 D1). */
-    protected fun onLinkDown(reason: String) {
-        Log.e(name, "link down: $reason")
+    protected fun onLinkDown(reason: String, linkKept: Boolean = false) {
+        // stage BW: a deliberate restart that kept the radio link clears the session the same way, and says so
+        if (linkKept) Log.w(name, "session ended for a rebuild: $reason") else Log.e(name, "link down: $reason")
         // the session is over: clear the latches like stop() does, or the
         // maintenance loops keep writing into a link that is gone and the next
         // start() is refused as "already started" (round 4 D2). The lease
@@ -4696,6 +4771,12 @@ abstract class CfwTransportBase(
          *  can eat a settings READ sent while it settles a previous session's
          *  context. Pacing, not a timeout — the gate never exits on time. */
         private const val CAPABILITY_REASK_MS = 2_000L
+        /** Stage BW: on an adopted link, a start gate re-asked this many times with no answer fails the start
+         *  ([keptLinkGiveUp]): the give-up comes on the next tick, (this + 1) × [CAPABILITY_REASK_MS] after the
+         *  gate's first send — 6 s. */
+        const val KEPT_LINK_REASKS = 2
+        /** Stage BW: the words the restart note, the log and the keeper's status carry for a kept link. */
+        const val LINK_KEPT_WORDS = "the link is kept"
         /** Package G: a service this router has no branch for, journaled frame by frame while the state says Silent Mode. */
         private const val SID_UNREAD_0D = 0x0d
         /** R3 (review 2, 2A-2): asks of one cache-count reading before it ends unanswered — the first and

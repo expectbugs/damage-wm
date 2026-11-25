@@ -399,7 +399,7 @@ class RestModeTest {
             // the rebuild is asked for once, and the second ask is a note (the P4 review's finding 9)
             r.shell.services.runOnShell { r.shell.devProbe("rest", "off"); r.shell.devProbe("rest", "off") }
             r.until("the wake rebuilds the session") { r.keeper.attempts == 2 && r.driving() }
-            assertEquals(listOf("probe rest=off"), r.notes("restart"), "the rebuild the probe asked for, by its own reason")
+            assertEquals(listOf("probe rest=off — the link is kept"), r.notes("restart"), "the rebuild the probe asked for, by its own reason")
             r.until("the glasses saw a second connect") { r.sim.preludeAcks == 2 }
             r.until("awake in the new session") { !r.shell.glassesAsleep && !r.shell.resting }
             r.until("the lease is back") { r.leaseHeld() }
@@ -523,7 +523,7 @@ class RestModeTest {
             r.sim.setSilent(false)                           // the push OFF is the wake
             r.until("the push OFF rebuilds the session") { r.keeper.attempts == 2 && r.driving() && !r.shell.glassesAsleep }
             // R2 (RH-1): the paced check would rebuild too (the transport's flag is false after the push): the reason says which
-            r.until("the wake was the push OFF's: ${r.notes("restart")}") { r.notes("restart") == listOf("the firmware's Silent Mode is off") }
+            r.until("the wake was the push OFF's: ${r.notes("restart")}") { r.notes("restart") == listOf("the firmware's Silent Mode is off — the link is kept") }
             r.until("the lease is back") { r.leaseHeld() }
             r.settle("after the wake"); r.assertGlassMatchesBelief("after the wake")
             r.keeper.stop()

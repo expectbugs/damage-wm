@@ -5515,9 +5515,9 @@ class Shell(
      *  (measured on glass 2026-09-05 22:04, `HANDOFF.md` §37.0). The shell
      *  keeps composing and stops SENDING, drops the lease so stock owns the
      *  display and the temples, tells the phone once — and the WAKE is a
-     *  session REBUILD (`Transport.restartSession`: the link ends, the keeper
-     *  stops this shell and starts it again from the prelude up — G2CC's
-     *  reconnect-and-relayout path), never a keyframe. The new start reads the
+     *  session REBUILD (`Transport.restartSession`: the session ends — the phone's
+     *  radio link is kept since stage BW — the keeper stops this shell and starts
+     *  it again from the prelude up, G2CC's relayout path), never a keyframe. The new start reads the
      *  glasses' state before its first frame ([startLocked]).
      *
      *  0.64: a REST is the same sleep under the shell's own reason — frames stop, the lease is
@@ -7342,8 +7342,8 @@ class Shell(
         }
     }
 
-    /** The one way out of the sleep (§37.0): the transport ends its link and
-     *  reports it, the keeper stops this shell (state saved) and starts it
+    /** The one way out of the sleep (§37.0): the transport ends the session (keeping its radio link where it can,
+     *  stage BW) and reports it, the keeper stops this shell (state saved) and starts it
      *  again, and the new start adopts the glasses' state — asleep or
      *  painting — from the session's READ. A transport that cannot (nothing
      *  started, or a seam whose far end did not take it) leaves a loud status

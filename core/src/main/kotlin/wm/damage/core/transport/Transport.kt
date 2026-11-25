@@ -148,9 +148,12 @@ interface Transport {
     fun queryWear(): Boolean = false
 
     /**
-     * End the running session ON PURPOSE and report the link as down, so the
-     * session keeper rebuilds everything from the connect up — prelude,
-     * capability READ, carrier CREATE, lease, warmup, the shell's keyframe.
+     * End the running session ON PURPOSE and report it as ended, so the
+     * session keeper rebuilds it — prelude, capability READ, carrier CREATE,
+     * lease, warmup, the shell's keyframe. Stage BW (Adam's word, 2026-11-25):
+     * a transport whose radio link can be kept ([LinkState.linkKept]) keeps
+     * it and the next start rebuilds the session over it; the others end the
+     * link and the next start connects afresh.
      * G2CC's recovery path (its response-gap watchdog reconnected and the
      * fresh session rebuilt the layout), adopted 2026-09-05 (`HANDOFF.md`
      * §37.0): leaving the firmware's Silent Mode ends the EvenHub session,
@@ -408,6 +411,10 @@ sealed class TransportEvent {
 data class LinkState(
     val connected: Boolean = false,
     val started: Boolean = false,
+    /** Stage BW: the last session was ended by a deliberate restart that kept the radio link up, and the next
+     *  `start()` adopts it if both arms are still up (else it connects afresh). Set before `started` goes false;
+     *  cleared by the next `start()` and by `stop()`. The keeper reads it to leave the transport running. */
+    val linkKept: Boolean = false,
     val leaseHeld: Boolean = false,
     val inFlight: Int = 0,
     val window: Int = 3,

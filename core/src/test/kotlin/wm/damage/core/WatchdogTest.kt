@@ -71,6 +71,11 @@ class WatchdogTest {
             rig.until("the second session drives") { rig.driving() && rig.sim.preludeAcks >= 2 }
             delay(300)
             assertEquals(2, rig.keeper.attempts, "one rebuild per silence, not a loop")
+            // stage BW: a link gone quiet is suspect — the watchdog's restart ends it (the wake's keeps it) and the
+            // rebuilt session connects afresh
+            assertTrue(rig.transport.disconnects >= 1, "the watchdog's restart ended the link (and the keeper's stop again): ${rig.transport.disconnects}")
+            assertEquals(2, rig.transport.connects, "and the next start connected afresh")
+            assertTrue(rig.notes.none { it.kind == "restart" && "the link is kept" in it.detail }, "${rig.notes}")
             rig.keeper.stop()
         } finally {
             scope.cancel()

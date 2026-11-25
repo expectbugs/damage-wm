@@ -184,11 +184,13 @@ class PathTransport(
         // winner emits from here on is missed (round 1, d6)
         forward = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             launch(start = CoroutineStart.UNDISPATCHED) { winner.transport.events.collect { emit(it) } }
-            launch(start = CoroutineStart.UNDISPATCHED) { winner.transport.state.collect { st -> updateState { st } } }
+            // stage BW: never forwarded as kept — this layer's `start()` refuses while a path is active, so a keeper over
+            // it must stop it (which ends the path's link, as before) and the next start picks a path afresh
+            launch(start = CoroutineStart.UNDISPATCHED) { winner.transport.state.collect { st -> updateState { st.copy(linkKept = false) } } }
         }
         proxy.attach(winner.transport.mirror)
         val st = winner.transport.state.value
-        updateState { st }
+        updateState { st.copy(linkKept = false) }
         // the winner's start-time events happened before anyone listened here
         emit(TransportEvent.Link(true, "${winner.name} link up (via auto)"))
         if (st.leaseHeld) emit(TransportEvent.Lease(true, "lease held (${winner.name})"))

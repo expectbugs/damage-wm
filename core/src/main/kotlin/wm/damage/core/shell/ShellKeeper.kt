@@ -132,6 +132,13 @@ class ShellKeeper(
         lock.withLock {
             state = State.STOPPED
             stopShell("stop")
+            // stage BW: stopped in the gap after a restart that kept the link, the shell is already stopped (its stop
+            // does nothing more), so the transport is stopped here — the kept link ends, as a stop always ended it
+            if (transport.state.value.linkKept) {
+                withContext(NonCancellable) {
+                    try { transport.stop() } catch (e: Exception) { Log.w("keeper", "stop: the kept link: ${e.message}") }
+                }
+            }
         }
         status("stopped")
     }
@@ -179,7 +186,8 @@ class ShellKeeper(
             attempts++
             state = State.STARTING
             lastLinkEnd = null            // this attempt's end, not an earlier one's
-            status(if (attempts == 1) "starting" else "reconnecting (attempt $attempts)")
+            status(if (attempts == 1) "starting" else if (transport.state.value.linkKept) "rebuilding the session over the kept link (attempt $attempts)"
+                else "reconnecting (attempt $attempts)")
             val ok = lock.withLock {
                 try {
                     shell.start()
@@ -213,10 +221,13 @@ class ShellKeeper(
                 // decision, with the reason the event carried (the watcher
                 // usually has it already; one yield lets it catch up)
                 if (lastLinkEnd == null) yield()
-                status("link ended: ${lastLinkEnd ?: "(no reason reported yet)"}")
+                // stage BW: ONE read — a restart that kept the radio link leaves the transport running (the yield
+                // form, no `transport.stop()`, so nothing ends the link) and the next start adopts it
+                val kept = transport.state.value.linkKept
+                status("${if (kept) "session ended" else "link ended"}: ${lastLinkEnd ?: "(no reason reported yet)"}")
                 lock.withLock {
                     state = State.WAITING
-                    stopShell("stop after link end")
+                    stopShell("stop after link end", stopTransport = !kept)
                 }
             }
             if (capabilityRefused) continue

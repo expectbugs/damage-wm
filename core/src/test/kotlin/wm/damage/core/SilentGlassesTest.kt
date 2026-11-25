@@ -142,6 +142,8 @@ class SilentGlassesTest {
             assertTrue(rig.leaseHeld(), "the session holds the lease")
             assertFalse(rig.shell.glassesAsleep)
             assertEquals(1, rig.sim.preludeAcks)
+            assertEquals(1, rig.transport.connects, "the first start connects")
+            val createsAwake = rig.sim.createsSeen
             val flushesAwake = rig.flushes()
 
             rig.sim.setSilent(true)                         // the both-temple press, pushed
@@ -171,7 +173,17 @@ class SilentGlassesTest {
 
             rig.sim.setSilent(false)                        // the both-temple press again
             rig.until("the push OFF rebuilds the session") { rig.keeper.attempts == 2 && rig.driving() }
-            rig.until("the glasses saw a second connect and CREATE") { rig.sim.preludeAcks == 2 && !rig.sim.carrierLost }
+            rig.until("the glasses saw a second prelude and CREATE") { rig.sim.preludeAcks == 2 && !rig.sim.carrierLost }
+            // stage BW (Adam's word, 2026-11-25), the pin: the wake rebuilds the session over the link it has — nothing
+            // ends it and nothing connects; the session's own start runs whole over it (one CREATE, answered once)
+            assertEquals(0, rig.transport.disconnects, "the wake kept the link: no disconnect")
+            assertEquals(1, rig.transport.connects, "the wake kept the link: no second connect")
+            assertEquals(createsAwake + 1, rig.sim.createsSeen, "one CREATE for the rebuilt session, answered at once")
+            assertFalse(rig.transport.state.value.linkKept, "the start that adopted the link cleared the mark")
+            assertTrue(synchronized(rig.statuses) { rig.statuses.toList() }.let { s ->
+                s.any { it.startsWith("session ended: ") } &&       // the reason follows when the watcher has it (the keeper's own rule)
+                    s.contains("rebuilding the session over the kept link (attempt 2)") && s.none { "reconnecting" in it } },
+                "the keeper says the link is kept: ${synchronized(rig.statuses) { rig.statuses.toList() }}")
             rig.until("awake in the new session") { !rig.shell.glassesAsleep }
             rig.until("the lease is back") { rig.leaseHeld() }
             rig.settle("the keyframe after the rebuild")
@@ -180,7 +192,7 @@ class SilentGlassesTest {
             assertEquals(listOf(true, false), synchronized(rig.silentEvents) { rig.silentEvents.toList() })
             // R2 (RH-1): the wake is the push OFF's — the paced check would rebuild too (the transport's flag is false
             // after the push), so the reason is what says which one woke it
-            assertEquals(listOf("the firmware's Silent Mode is off"),
+            assertEquals(listOf("the firmware's Silent Mode is off — the link is kept"),
                 synchronized(rig.notes) { rig.notes.filter { it.kind == "restart" }.map { it.detail } }, "the restart is a journaled fact, and the push OFF's")
             rig.assertGlassMatchesBelief("after the rebuild")
             delay(300)
@@ -220,7 +232,7 @@ class SilentGlassesTest {
             rig.until("a rebuild follows") { rig.keeper.attempts >= 2 }
             // R2 (RH-1): the single unattended way back from this sleep is the paced check — said by the reason
             rig.until("the rebuild was the paced check's") {
-                synchronized(rig.notes) { rig.notes.any { it.kind == "restart" && it.detail.endsWith("(pacing)") } } }
+                synchronized(rig.notes) { rig.notes.any { it.kind == "restart" && it.detail.endsWith("(pacing) — the link is kept") } } }
             rig.until("a rebuilt session paints and is awake") { rig.driving() && !rig.shell.glassesAsleep && !rig.sim.carrierLost }
             rig.until("the lease is back") { rig.leaseHeld() }
             rig.settle("the keyframe after the rebuild")

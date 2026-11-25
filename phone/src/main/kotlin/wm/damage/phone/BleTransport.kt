@@ -113,7 +113,9 @@ class BleTransport(
         @Volatile var negotiatedMtu = -1
         @Volatile var initFailure: String? = null
 
-        /** Stage BLF: the PHY (tx to rx) the read at this connect's initialize answered; null until it does. */
+        /** Stage BLF: the PHY (tx to rx) this connection last reported — the read at its initialize, and (stage BW)
+         *  the answer to a PHY request on it, so a link kept through a restart reads the PHY it is on; null until
+         *  the read answers. */
         @Volatile var phyAtConnect: Pair<Int, Int>? = null
 
         init {
@@ -149,6 +151,7 @@ class BleTransport(
         fun requestPhy(mask: Int, label: String) {
             setPreferredPhy(mask, mask, PhyRequest.PHY_OPTION_NO_PREFERRED)
                 .with(PhyCallback { _, tx, rx ->
+                    phyAtConnect = tx to rx          // stage BW: the link's PHY now, for the 2M skip on a kept link
                     notePhy(arm, tx, rx)
                     emitNote("link", "$arm PHY after the $label request: ${phyName(tx)}/${phyName(rx)}")
                 })
@@ -387,7 +390,8 @@ class BleTransport(
             if (!m.linkUp) { skipped.add(arm.name); continue }
             // stage BLF: a link already on 2M both ways (a link the phone held from the session before) is not asked —
             // the request would change nothing and the arm's queue would wait on the radio to answer a no-change
-            // request. The read is the one at this connect's initialize, not one just before this line.
+            // request. The PHY is the one this connection last reported (its initialize's read, or — stage BW, a link
+            // kept through a restart — the answer to the last session's request), not one read just before this line.
             val p = m.phyAtConnect
             if (p != null && p.first == PhyCallback.PHY_LE_2M && p.second == PhyCallback.PHY_LE_2M) { onTwoM.add(arm.name); continue }
             m.requestPhy(PhyRequest.PHY_LE_2M_MASK, "link")
@@ -431,6 +435,37 @@ class BleTransport(
         ConnectionObserver.REASON_CANCELLED -> "cancelled"
         ConnectionObserver.REASON_TIMEOUT -> "supervision timeout"
         else -> "reason $reason"
+    }
+
+    /** Stage BW: a deliberate restart keeps the link when both arms are up right now. */
+    override fun linkKeepable(): Boolean = managers.values.all { it.linkUp && it.isConnected }
+
+    /** Stage BW: adopt the link kept through the restart — both arms demonstrably up (the session's mark, the
+     *  platform's connection and the write and notify characteristics), else the words why not and today's
+     *  [connectLink] runs (it ends what is left first). The link's properties are not asked for again where they
+     *  are in force: the paced priority re-ask's test once per arm (asked only where the arm's last interval is
+     *  above the configured priority's bound), and the 2M request is skipped by [onDamageBuild]'s own rule on a
+     *  link that reads 2M. Nothing is reset that describes the live connection (MTU, intervals, PHY); the re-ask
+     *  count is the session's and starts again. */
+    override suspend fun adoptLink(): String? {
+        val down = managers.entries.filter { (_, m) -> !(m.linkUp && m.isConnected && m.write != null && m.notify != null) }
+            .map { (arm, m) -> "${arm.name.first()}: " + when {
+                !m.linkUp -> "its link ended in the gap"
+                !m.isConnected -> "not connected"
+                else -> "its characteristics are gone" } }
+        if (down.isNotEmpty()) return down.joinToString("; ")
+        reasks.set(0)
+        val asked = ArrayList<String>()
+        for ((arm, m) in managers) {
+            val iv = intervalUnitsByArm[arm] ?: continue          // no update reported on this link: nothing says it is slow
+            if (iv * 1.25 <= maxIntervalMs()) continue
+            asked.add("${arm.name.first()} at %.2f ms".format(iv * 1.25))
+            m.requestPriority(arm, "kept link")
+        }
+        Log.i("ble", "kept link: R+L adopted — no scan, no connect; " +
+            (if (asked.isEmpty()) "priority in force on both arms, not asked" else "$priorityName asked again on ${asked.joinToString(", ")}"))
+        if (asked.isNotEmpty()) emitNote("link", "kept link: $priorityName asked again on ${asked.joinToString(", ")} (above ${maxIntervalMs().toInt()} ms)")
+        return null
     }
 
     override suspend fun connectLink() {
