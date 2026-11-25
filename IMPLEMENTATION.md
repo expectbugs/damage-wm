@@ -444,7 +444,7 @@ lead's decisions; `CONTRACT.md` §7, §11.2; `BASTION.md` F13). Rules and the co
 
 ## The shared window core, the PC record and the web listener (builds S1-1 and S1-2, as L1 left them, and S1-3; `HANDOFF.md` §80, §84, §89)
 
-The PC owns the converted windows' state (Reader, Torrents' and Files' own rows, Feed's and Tmux's, the notice record); the phone keeps a
+The PC owns every window's state (`core/…/app/Windows.kt`'s `ALL`, the notice record among them); the phone keeps a
 working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12). Ops and keys: `DAILY.md`.
 
 - **The record** (`core/…/app/`, both PC host builders): `record.json` (`{v, epoch, items, covered}`; items

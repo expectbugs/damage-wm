@@ -150,9 +150,9 @@ how (its "Review hardening" lists the load-bearing mechanisms); `README.md` the 
 
 **Topology (`REPLAN.md` §14; `CONTRACT.md` §2): the PC is the system** — it owns every window's state and every
 interface connects to it; the phone keeps a working copy, draws the glasses and carries on when the PC is out of
-reach; **PC-direct BLE is a manual choice, never automatic.** Until step S1 has put every window on the PC's record
-(`REPLAN.md` §15, §16; progress: `REMINDER.md`; as built: `IMPLEMENTATION.md`) the **phone APK drives** (radio and
-shell) and the OpenRC `damage` service on beardos holds the converted windows' state and serves the content, never
+reach; **PC-direct BLE is a manual choice, never automatic.** Every window is on the PC's record (step S1:
+`REPLAN.md` §15, §16; what is deployed: `REMINDER.md`; as built: `IMPLEMENTATION.md`): the **phone APK drives** (radio
+and shell) and the OpenRC `damage` service on beardos holds every window's state and serves the content, never
 driving the glasses by itself: PC-direct BLE only by hand (the replica probe `drive=ble`, back with `drive=auto`; the
 PC shell's `Target` row; `--transport ble`; `--transport remote` is the dev override). Detect the CFW by the
 `EVENCFW/` string and the DamageCaps field, never the version. `WINDOWS.md` is the conversion checklist; `POPOVER.md`
