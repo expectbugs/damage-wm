@@ -111,19 +111,22 @@ class MusicLaneFuzzTest {
         val figures = StringBuilder()
         for (t in Timing.entries) {
             var stretches = 0; var seams = 0; var restarts = 0; var strikesOff = 0; var events = 0
+            val why = HashMap<String, Int>()
             for (seed in 1..n.toLong()) {
                 val f = walk(seed * 7919 + t.ordinal, t)
                 fails += f.fails.map { "${t.name} seed $seed: $it" }
                 stretches += f.stretches; seams += f.seams; restarts += f.restarts; strikesOff += f.off; events += f.events
+                for (w in f.strikes) why.merge(if ("reason" in w) w else w.replace(Regex("[0-9]+"), "N"), 1, Int::plus)
             }
             figures.append("${t.name} (P ${t.period}, T ${t.steps}): $n sequences, $events events, $stretches stretches drawn, $seams seams checked whole, " +
-                "$restarts chain ends, $strikesOff sequences off for strikes\n")
+                "$restarts chain ends, $strikesOff sequences off for strikes\n" + why.entries.sortedByDescending { it.value }.joinToString("") { "    strike ×${it.value}: ${it.key}\n" })
         }
         println("MusicLaneFuzzTest (modeled, the firmware model on a virtual clock):\n$figures")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }
 
-    private class Walk(val fails: List<String>, val stretches: Int, val seams: Int, val restarts: Int, val off: Int, val events: Int)
+    private class Walk(val fails: List<String>, val stretches: Int, val seams: Int, val restarts: Int, val off: Int, val events: Int,
+                       val strikes: List<String>)
 
     private fun walk(seed: Long, t: Timing): Walk {
         val r = LaneRig(seed, t.period, t.steps)
@@ -169,6 +172,7 @@ class MusicLaneFuzzTest {
         val drew = r.bodies.filter { it[1] and 0xF000 == WindowLanes.TAG && it[2] == 0 }
         for (b in drew) if (b[3] + b[4] != t.steps) fails += "tag 0x%04x drew %d + folded %d, not T %d".format(b[1], b[3], b[4], t.steps)
         fails += r.noticeClosedByLane
-        return Walk(fails, r.lanes.stretchesDrawn, drew.size, r.notes.count { "the chain ends" in it }, if (r.lanes.off != null) 1 else 0, events)
+        val strikes = r.notes.filter { "a strike" in it }.map { it.substringAfter("this session): ").take(90) }
+        return Walk(fails, r.lanes.stretchesDrawn, drew.size, r.notes.count { "the chain ends" in it }, if (r.lanes.off != null) 1 else 0, events, strikes)
     }
 }

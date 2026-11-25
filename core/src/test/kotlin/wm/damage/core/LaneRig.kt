@@ -109,6 +109,13 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
         }
         rec("tick" to tick(), "lease" to "acquire", "cachesize" to 256, "flags" to FLAGS, "page" to true, "msg" to hex(KEYFRAME))
         drain()
+        renewLease()
+    }
+
+    /** The transport renews the lease every 45 s against the firmware's 87.9-s expiry (`CLAUDE.md`); a renewal of a live
+     *  lease keeps the cache. (A recorded vector is seconds long: it never reaches one.) */
+    private fun renewLease() {
+        at(nowMs + 45_000) { val g = linkGen; up { if (g == linkGen) for (a in Arm.entries) sim.conformanceLease(a, true, tick()) }; renewLease() }
     }
 
     /** Both lenses take [msg] now (the recorded form: one tick, both lenses). */
@@ -128,7 +135,10 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
             bodies += intArrayOf(slot, tag, outcome, (m[6] ?: -1).toInt(), (m[7] ?: -1).toInt())
             if (tag and 0xF000 == NOTICE_TAG && outcome == 1 && !noticeMayClose) noticeClosedByLane += "[$nowMs] notice 0x%04x closed while drawing".format(tag)
             if (tag and 0xF000 == WindowLanes.TAG) {
-                val word = when (outcome) { 0 -> "drew"; 1 -> "closed"; 2 -> "refused: reason ${m[10]}"; else -> "outcome $outcome" }
+                val st = sent.lastOrNull { it[0].toInt() == tag }
+                val word = when (outcome) { 0 -> "drew"; 1 -> "closed"
+                    2 -> "refused: reason ${m[10]} (${if (st?.get(3) == 1L) "PLAY-AFTER" else "PLAY"}, song at ${heard(nowMs) / 1000} s of ${durMs / 1000} s)"
+                    else -> "outcome $outcome" }
                 val drawn = m[6]; val folded = m[7]; val us = m[9]
                 at(nowMs + downLat()) { lanes.notify(tag, word, drawn, folded, us); pump() }
             }
