@@ -6459,11 +6459,15 @@ class Shell(
     internal fun noticeProgramsForTest(): List<String> = noticeProgs.map { "${it.style} ${it.lines} ${it.rec.state}" }
     /** 0.83 integration, tests (on the loop): each notice program's cache offset, its bytes as written, its state. */
     internal fun noticeProgramRecordsForTest(): List<Triple<Int, ByteArray, String>> = noticeProgs.map { Triple(it.rec.off, it.rec.encoded.copyOf(), it.rec.state.name) }
-    /** Tests: the notice lane has nothing left to write this session — no programs here (no region, no engine), or every
-     *  one laid out for the box as it is and counted. A rig's start waits on it: its writes and their count readings
-     *  are the start's work. */
+    /** Tests: the notice lane has nothing left to write this session — no programs here (no region, no engine), the slice
+     *  Page staging's (the coordinator's ruling (a): a window that stages pages in front, or its strips in the slice — the
+     *  lane yields by design until it is back; K1-2 S4cF), or every one laid out for the box as it is and counted. A rig's
+     *  start waits on it: its writes and their count readings are the start's work. */
     internal fun noticeLaneDoneForTest(): Boolean {
-        val key = noticeLayoutKey(transport.state.value) ?: return true
+        val st = transport.state.value
+        val key = noticeLayoutKey(st) ?: return true
+        val region = CfwModes.noticeRegion(st.cacheSize, st.bind) ?: return true
+        if (pagingInFront() || sliceHeld(region)) return true
         return key == noticeProgsFor && noticeProgs.all { it.rec.state == StagedRecord.State.PROVEN }
     }
     /** K1-2 stage 4cF, tests (on the loop): the notice lane's state and each of [pumpNoticeStage]'s gates in its order, the

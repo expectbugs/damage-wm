@@ -161,8 +161,8 @@ class OracleWalkTest {
         /** K1-2 stage 4c: the window-list walk's decision point — settled, the lanes that write into the cache done (the
          *  notice's, the window list's, no cache work in flight, no transition), Files' provider idle; three readings in a
          *  row, 10 ms apart (a provider call that returned posts its answer to the loop just after it). A shell at rest for
-         *  10 s with a lane still not done is a STALL: said in [stalls] with [laneReport], and the walk decides there (more
-         *  than ten in one height fail it). */
+         *  10 s with a lane still not done is a STALL, and it fails the walk with [laneReport] (K1-2 S4cF, decisions DG: a
+         *  walk that records a stall and goes on cannot find the next one). */
         suspend fun ready(what: String) {
             val t0 = System.currentTimeMillis()
             var calm = 0
@@ -173,18 +173,11 @@ class OracleWalkTest {
                     shell.noticeLaneDoneForTest() && shell.windowListLaneDoneForTest() && !shell.cacheWorkInFlight && shell.transitionPhaseForTest() == null
                 } == true
                 if (!ok) calm = 0 else if (++calm >= 3) return
-                if (quiet && waited > 10_000) {
-                    stalls += "$what, at rest after $waited ms: ${laneReport()}"
-                    if (stalls.size > 10) throw AssertionError("$what: more than ten stalls in one height —\n${stalls.joinToString("\n")}")
-                    return
-                }
+                if (quiet && waited > 10_000) throw AssertionError("$what: a STALL — the shell at rest for $waited ms with a lane not done: ${laneReport()}")
                 if (waited > 60_000) throw AssertionError("$what: the shell never came to rest — files io ${filesIo.get()}; ${laneReport()}; ${shell.quiescenceReport()}\n${busyThreads()}")
                 delay(10)
             }
         }
-
-        /** K1-2 stage 4c: the decision points the walk took with a lane not done ([ready]). */
-        val stalls = ArrayList<String>()
 
         /** K1-2 stage 4c: each lane condition [ready] reads, the window list's binding, the session, and the journal's last
          *  `liststage` notes — one evaluation on the loop. Diagnostic only. */
@@ -897,7 +890,6 @@ class OracleWalkTest {
                     "(by window ${c.l1ByWindow}); ${c.mainLocal} on Main's list, ${c.mainDrew} drew; $owed transition(s) owed, $whole whole; " +
                     "${rig.shell.divergencesReported} divergence(s) reported; steps digest %08x".format(c.trace.toString().hashCode()))
                 println("$tag steps:${c.trace}")
-                println("$tag: ${rig.stalls.size} stall(s)${rig.stalls.joinToString("") { "\n  $it" }}")
                 println("$tag: Files' \"Open on PC\" taken ${rig.filesOpened.get()} time(s), counted and not run; provider calls refused ${rig.filesRefused}")
                 // the walk with Files registered starts no process and reads nothing outside its directory ([walkFiles])
                 assertTrue(rig.filesRefused.isEmpty(), "$tag: the walk's Files rig was asked for what it does not run: ${rig.filesRefused}")
