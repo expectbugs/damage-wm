@@ -52,8 +52,8 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   window's list); DW-1b's first stage (the wheel bound as a third list); stage L of Music's motion update (the
   progress bar and timer played by the glasses — his seven answers of 11-24). **Specified and ruled, not
   started:** the rest of K1-2's stage 4 and stage 5; DW-1b's second stage; S1-5's close and page (his five
-  answers: `REPLAN.md` §17.3 item 10); the health view's phone half and page (`REPLAN.md` §17.4; three questions
-  are with him: the wait before a notice, the free-disk limits, the tag's place); the rest of Music's motion update.
+  answers: `REPLAN.md` §17.3 item 10); the health view's phone half and page (`REPLAN.md` §17.4; his three answers
+  of 11-25: a notice after 5 minutes, disk alarm under 2 % free and attention under 5 %, the tag in the link cell); the rest of Music's motion update.
 - **Owed before more is built on them:** the APK's `release` variant tried with him there (the phone runs the
   mirror's loops 70–93 times slower than the PC — the debug build is suspected, not measured); a sweep of the whole
   mutation list (`research/mutations-c2.json`, 590 rows) on the current tree, machine time only (the last whole
