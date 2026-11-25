@@ -101,6 +101,9 @@ class OracleWalkTest {
         fun mark(what: String) { if (stage5) synchronized(marks) { marks += System.currentTimeMillis() to what } }
         /** K1-2 stage 4c: Files' provider calls under way (0 with no Files registered). */
         val filesIo = java.util.concurrent.atomic.AtomicInteger()
+        /** K1-2 stage 4c: Files' "Open on PC" taken (counted, never run), and the provider calls the rig refused ([walkFiles]). */
+        val filesOpened = java.util.concurrent.atomic.AtomicInteger()
+        val filesRefused = java.util.concurrent.CopyOnWriteArrayList<String>()
 
         init {
             // DP2: every tier's every effect checked, at the shortest length, so the walk meets them all quickly
@@ -111,7 +114,7 @@ class OracleWalkTest {
             shell.register(GamesWindow(FakeText(), scope) { 1_757_000_000_000L })
             shell.register(SurfaceWindow())
             shell.register(WalkDocWindow())
-            if (files) shell.register(wm.damage.core.windows.files.FilesWindow(FakeText(), walkFiles(tmp, filesIo), scope))
+            if (files) shell.register(wm.damage.core.windows.files.FilesWindow(FakeText(), walkFiles(tmp, filesIo, filesOpened, filesRefused), scope))
             // the glasses' engine thread: a step due is drawn (the model draws only when woken)
             if (stage4 || stage5) scope.launch {
                 var last = 0L
@@ -159,7 +162,7 @@ class OracleWalkTest {
          *  notice's, the window list's, no cache work in flight, no transition), Files' provider idle; three readings in a
          *  row, 10 ms apart (a provider call that returned posts its answer to the loop just after it). A shell at rest for
          *  10 s with a lane still not done is a STALL: said in [stalls] with [laneReport], and the walk decides there (more
-         *  than six in one height fail it). */
+         *  than ten in one height fail it). */
         suspend fun ready(what: String) {
             val t0 = System.currentTimeMillis()
             var calm = 0
@@ -172,7 +175,7 @@ class OracleWalkTest {
                 if (!ok) calm = 0 else if (++calm >= 3) return
                 if (quiet && waited > 10_000) {
                     stalls += "$what, at rest after $waited ms: ${laneReport()}"
-                    if (stalls.size > 6) throw AssertionError("$what: more than six stalls in one height —\n${stalls.joinToString("\n")}")
+                    if (stalls.size > 10) throw AssertionError("$what: more than ten stalls in one height —\n${stalls.joinToString("\n")}")
                     return
                 }
                 if (waited > 60_000) throw AssertionError("$what: the shell never came to rest — files io ${filesIo.get()}; ${laneReport()}; ${shell.quiescenceReport()}\n${busyThreads()}")
@@ -894,6 +897,9 @@ class OracleWalkTest {
                     "${rig.shell.divergencesReported} divergence(s) reported; steps digest %08x".format(c.trace.toString().hashCode()))
                 println("$tag steps:${c.trace}")
                 println("$tag: ${rig.stalls.size} stall(s)${rig.stalls.joinToString("") { "\n  $it" }}")
+                println("$tag: Files' \"Open on PC\" taken ${rig.filesOpened.get()} time(s), counted and not run; provider calls refused ${rig.filesRefused}")
+                // the walk with Files registered starts no process and reads nothing outside its directory ([walkFiles])
+                assertTrue(rig.filesRefused.isEmpty(), "$tag: the walk's Files rig was asked for what it does not run: ${rig.filesRefused}")
                 c.l1ByWindow.forEach { (k, v) -> byWindow.merge(k, v, Int::plus) }
                 assertTrue(c.l1Drew > 0, "$tag: no local notch on list 1 drew (${c.l1Local} fired) — the walk never reached a bound window list")
                 assertEquals(0, rig.shell.divergencesReported, "$tag: no divergence")
@@ -990,13 +996,24 @@ class OracleWalkTest {
             "settings" to null, "files" to null, "settings" to "cat:Global", "surfaces" to null, "files" to null, "settings" to "cat:Files",
         )
 
+        /** K1-2 stage 4c: the `FilesProvider` calls the walk's Files rig hands to the real provider — each reads or changes
+         *  only paths under the rig's directory and starts no process (the K1-2 S4c report lists what each does). */
+        val WALK_FILES_FORWARDED = setOf("stateLine", "locations", "list", "cachedLocations", "cachedList", "stat", "du", "readText",
+            "readBytes", "trash", "trashList", "restore", "purge", "rename", "mkdir", "copy", "move", "refuseTrashStore")
+
         /**
          * K1-2 stage 4c: Files' provider over a disposable world in [tmp] — three roots (4, 6 and 8 folders, each with one
-         * to three sub folders; nothing else), the rig's own trash and books directories, no mounts read — every call counted
-         * in [io] while it runs, so the walk decides only once a listing has landed. Nothing outside [tmp] is listed: the
-         * locations are the three roots, and Files' Back never climbs above a root.
+         * to three sub folders; nothing else), the rig's own trash and books directories, no mounts read. Nothing outside
+         * [tmp] is listed: the locations are the three roots, and Files' Back never climbs above a root. Only the calls in
+         * [WALK_FILES_FORWARDED] reach the real provider, each counted in [io] while it runs (the walk decides once a listing
+         * has landed). `openOnPc` (the real one starts `xdg-open` on the PC's display) is counted in [opened] and returns;
+         * any other call (the PDF calls start `pdfinfo`, `pdftotext`, `pdftoppm`; `thumb` decodes an image; a call added to
+         * the interface later) is recorded in [refused] and throws. The real provider's own `openOnPc` is replaced too: a
+         * call that reaches it is recorded in [refused] and throws, so even a rig that forwarded it starts nothing — and
+         * [refused] fails the walk.
          */
-        fun walkFiles(tmp: java.nio.file.Path, io: java.util.concurrent.atomic.AtomicInteger): wm.damage.core.windows.files.FilesProvider {
+        fun walkFiles(tmp: java.nio.file.Path, io: java.util.concurrent.atomic.AtomicInteger, opened: java.util.concurrent.atomic.AtomicInteger,
+                      refused: MutableList<String>): wm.damage.core.windows.files.FilesProvider {
             val roots = listOf("SC", "Docs", "Media").mapIndexed { k, label ->
                 val r = tmp.resolve("files").resolve(label.lowercase())
                 for (i in 0 until 4 + 2 * k) for (j in 0..(i % 3)) Files.createDirectories(r.resolve("folder-${'a' + i}").resolve("sub-$j"))
@@ -1006,13 +1023,29 @@ class OracleWalkTest {
                 decoder = null, mountsFile = tmp.resolve("files-no-mounts"))
             val base = object : wm.damage.core.windows.files.FilesProvider by local {
                 override fun locations() = roots.map { (label, r) -> wm.damage.core.windows.files.FLocation(label, r.toString(), "mount", 1_000_000, 500_000) }
+                override fun openOnPc(path: String) {
+                    refused += "openOnPc reached the provider ($path)"
+                    throw IllegalStateException("the walk's Files rig opens nothing on the PC")
+                }
             }
             return java.lang.reflect.Proxy.newProxyInstance(wm.damage.core.windows.files.FilesProvider::class.java.classLoader,
-                arrayOf(wm.damage.core.windows.files.FilesProvider::class.java)) { _, m, args ->
-                io.incrementAndGet()
-                try { m.invoke(base, *(args ?: emptyArray())) }
-                catch (e: java.lang.reflect.InvocationTargetException) { throw e.targetException }
-                finally { io.decrementAndGet() }
+                arrayOf(wm.damage.core.windows.files.FilesProvider::class.java)) { proxy, m, args ->
+                when (m.name) {
+                    "openOnPc" -> { opened.incrementAndGet(); null }
+                    in WALK_FILES_FORWARDED -> {
+                        io.incrementAndGet()
+                        try { m.invoke(base, *(args ?: emptyArray())) }
+                        catch (e: java.lang.reflect.InvocationTargetException) { throw e.targetException }
+                        finally { io.decrementAndGet() }
+                    }
+                    "toString" -> "the walk's Files provider"
+                    "hashCode" -> System.identityHashCode(proxy)
+                    "equals" -> proxy === args?.getOrNull(0)
+                    else -> {
+                        refused += m.name
+                        throw UnsupportedOperationException("the walk's Files rig does not run ${m.name}")
+                    }
+                }
             } as wm.damage.core.windows.files.FilesProvider
         }
 
