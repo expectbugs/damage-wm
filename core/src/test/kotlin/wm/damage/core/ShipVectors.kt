@@ -574,7 +574,8 @@ internal object ShipVectors {
      *    down and a notch up.
      *  - MAIN_OVER: started on Settings (list 1 staged with no staging of Main's); Main's staging grown over list 1's records
      *    in the session (the rig's text drawn as noise, Main's rows made heavy one at a time, each staged whole by a Depth
-     *    change — `WindowListShellTest`'s pin 5); the act: Settings again, staged from Main's end, and a notch.
+     *    change — `WindowListShellTest`'s pin 5), list 1 dropped (Main wins), then Main one row lighter again; the act:
+     *    Settings again, staged from Main's end, and a notch.
      */
     enum class ListForm { NOTCHES, ADJUST, KEPT, SELECT_LEVEL, COUNT, APP_EFFECT, MAIN_OVER }
 
@@ -1442,7 +1443,19 @@ internal object ShipVectors {
                     check(main.end > ms1.start) { "${spec.name}: Main's staging (to ${main.end}) does not reach list 1's records (from ${ms1.start})" }
                     check(r.notes("liststage").any { it.startsWith("dropped — Main's staging at") && "(Main wins)" in it }) { "${spec.name}: list 1 not dropped: ${r.notes("liststage").takeLast(3)}" }
                     words += "Main grown over list 1: $k heavy row(s), Main at ${main.start}..${main.end}, list 1 was at ${ms1.start}..${ms1.end}"
-                    mainEnd = main.end
+                    // then one row lighter, staged whole again (the pin's other branch): the first capture found list 1 refused
+                    // from the grown Main's end (12,032 B of space against the 13,744 B Settings' list takes), so the act's
+                    // staging from Main's end needs a Main as large as the one before the overlap
+                    k--; r.rows[k].s = light[k]
+                    val n1 = mainStaged()
+                    depth = if (depth == 8) 4 else 8
+                    r.shell.updateSettings { it.copy(depth = depth) }
+                    r.until("${spec.name}: Main staged whole again one row lighter", 60_000) { mainStaged() > n1 &&
+                        r.onLoop { r.shell.mainBinding.staging != null && r.shell.mainBinding.counted } }
+                    lanesDone("Main one row lighter")
+                    val lighter = r.onLoop { r.shell.mainBinding.staging }!!
+                    words += "then one row lighter: Main at ${lighter.start}..${lighter.end}"
+                    mainEnd = lighter.end
                 }
             }
             idle(r, spec.name)
