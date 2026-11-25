@@ -54,26 +54,32 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   sync removed** (S1-5 stage C: every window's state is the PC's record, so the stamped store's sync, its stamps
   and tolerance, the four migrations that have run and `restoreStateLive` are gone — code and tests 1,640 lines
   smaller; the deploy rule: the PC is restarted onto this only when he is about to install the APK that goes with
-  it); **Music's progress bar played by the glasses** (stage L of Music's motion update, at stage 5: on `main` WITH
-  two defects its first review found — a still copy of the other view's bar for about 16 s after leaving Music
-  Mode, modeled, and the elapsed time no longer ticking each second after a level is pushed and popped — both cured
-  on the integration branch, not yet on `main`; its two new program shapes are vector inputs the fork has not
-  filled). **On the integration branch, waiting for the next whole battery:** S1-5's Settings page (stage W: every
-  window's rows as a form in the browser; Music's own rows not yet on it), K1-2 stage 4c (the oracle walk enters
-  windows whose list the glasses hold), the fixes of Music's stage L. **In work, on branches:** K1-2 stage 4a (a
-  list's paint under a transition; a list too long to bind is no longer painted first; a live list whose rows all
-  change is staged anew once per view, not every 2 s) and 4b (the fuzz drives a window's list); DW-1b's first
-  stage (the wheel bound as a third list); the "Open on PC" opener as a required argument of the real Files and
-  Torrents providers (2026-11-25: a new test walk opened a file-manager window on his desktop; no test can after
-  this); the walk's stalls explained. **Specified and ruled, not started:** the rest of K1-2's stage 4 (the
-  `FIRMWARE.md` sentences, the capture, the fork's fill, the comparison) and stage 5; DW-1b's second stage; S1-5's
-  review (the page is read: one defect, an unsent change shown as made; the Kotlin is next), its fix stage and the
-  upgrade check on a copy of his PC data; the health view's phone half and page (`REPLAN.md` §17.4; his three
-  answers of 11-25: a notice after 5 minutes, disk alarm under 2 % free and attention under 5 %, the tag in the
-  link cell); Music's second review pass, then Scope and the lyric wipe.
+  it); **Music's progress bar played by the glasses** (stage L of Music's motion update, at stage 5; the
+  two defects its first review found are cured — a still copy of the other view's bar after leaving Music Mode, the
+  elapsed time not ticking each second after a level is pushed and popped; its second review's findings are in
+  work; its two new program shapes are vector inputs the fork has not filled); **the Settings page** (S1-5 stage W
+  and the fix stage: every window's rows as a form in the browser, Music's record-backed rows among them; a change
+  the page could not send is drawn again from what it last heard; the lyric offset and each device's own rows —
+  Torrents' Poll, Feed's Images — are set on the glasses only); **the oracle walk enters windows whose list the
+  glasses hold** (K1-2 stage 4c). **On the integration branch, waiting for the next whole battery:** K1-2 stage 4a
+  (a list's rows are painted while a transition plays and written after it; a list too long to bind is no longer
+  painted first; a live list whose rows all change is staged anew once per view, not every 2 s), 4b (the sequence
+  fuzz drives a window's list; no product defect found) and 4e (`FIRMWARE.md`'s sentences for a window's list);
+  DW-1b's first stage (the wheel bound as a third list); the "Open on PC" opener as a required argument of the real
+  Files and Torrents providers (2026-11-25: a new test walk opened a file-manager window on his desktop; no test
+  can after this); the walk's stalls explained (two gaps in the test's doors; a stall now fails the walk); the
+  health page (R-b H3); the tests' temp folders kept under the build directory (the runs had left about ten
+  thousand folders in `/tmp`); a pong's ping answered before its number is written (a test's race; in use, rarely a
+  reconnect). **In work, on branches:** DW-1b's second stage (the `Switcher` row, the checks, the report's reading);
+  the health view's lane and phone half (R-b H2); Music's second fix stage; a small list stage (a fault in the
+  strip's padding for a row made of one-pixel runs; Main's own list under a transition). **Specified and ruled, not
+  started:** the rest of K1-2's stage 4 (the capture, the fork's fill, the comparison) and stage 5; DW-2 and DW-3;
+  R-b's review and fix stage (`REPLAN.md` §17.4; his three answers of 11-25: a notice after 5 minutes, disk alarm
+  under 2 % free and attention under 5 %, the tag in the link cell); the upgrade check on a copy of his PC data;
+  Music's focused read, then Scope and the lyric wipe.
 - **Owed before more is built on them:** the APK's `release` variant tried with him there (the phone runs the
   mirror's loops 70–93 times slower than the PC — the debug build is suspected, not measured); a sweep of the whole
-  mutation list (`research/mutations-c2.json`, 618 rows) on the current tree, machine time only (the last whole
+  mutation list (`research/mutations-c2.json`, 624 rows) on the current tree, machine time only (the last whole
   sweep: 0.77's tree, §92.11). The reading of Crush, Flip and Matrix is closed (two general passes and one focused
   read each; no defect open): only an instrument or the glass reopens it.
 - **Owed on glass from his earlier looks:** his answer to §97.1's question (in very fast scrolling, are the lenses
@@ -97,13 +103,13 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   while rows travel 32; Warp, Flip and Explode centred on the larger height; a notice arriving within about 2 s
   after a fast burst can still double-move Main.
 - **No browser of his is approved yet;** he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
-- **The counts** (simulator; the last full battery, on `main` `9701ea4b`, 2026-11-25): the whole core suite
-  2,153 / 0 (fewer tests than before: the sync's tests went with it), desktop 75 / 0; the conformance vectors'
+- **The counts** (simulator; the last full battery, on `main` `6ed73da0`, 2026-11-25): the whole core suite
+  2,161 / 0, desktop 75 / 0; the conformance vectors'
   classes 260 / 0 (247 files filled by the fork, 0 disagreements; Music's two new inputs named unfilled); the
   sequence fuzz at its three timings 58 / 0 each; the walk twice; `--selfcheck` twice, `--games-check`,
   `--feed-check`, `--music-check` and `--epub-check ~/books` pass; `--motion-check` and `--local-check` ALL HOLD;
-  the snapshot 99 + 98 scenes, 0 px outside the mask; the phone build and its wiring check; node 200; lint 0; the
-  mutation list 618 rows, every row applies (not swept whole since 0.77's tree).
+  the snapshot 99 + 98 scenes, 0 px outside the mask; the phone build and its wiring check; node 210; lint 0; the
+  mutation list 624 rows, every row applies (not swept whole since 0.77's tree).
 
 ## Open from the documents' audit (2026-11-23)
 

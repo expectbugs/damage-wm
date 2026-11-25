@@ -67,7 +67,7 @@ import wm.damage.core.wire.CfwModes
  * K1-2 stage 2 (the K1-2 spec §2.1; decisions BC O3): a window's list stages the same strip in the other [form]
  * ([ListForm.STRIP_WINDOWS], [assembleWindow]): the strip and its two pan slots alone, laid out down from the wheel block's
  * base, every pan drawing the strip as source windows at pitch +rowH and the entering row's ROW form in the band — no band
- * forms, no item table, no press, no wrap record. Nothing in the shell stages one yet (stage 3 binds a window's list).
+ * forms, no item table, no press, no wrap record. The shell stages one for the window's list in front at stage 5 (glasses list 1).
  */
 class MainStaging private constructor(
     val layout: Layout,
@@ -498,7 +498,7 @@ class MainStaging private constructor(
                     val lk = if (newStrip.any { it.first == k }) lv else c.levels.copyOfRange(k * segPx, (k + 1) * segPx)
                     val r = stripRow[k]
                     lens[k] = maxOf(segSlack(rleSize(lk, 0, lk.size)), if (room && r >= 0 && r < changed.size && changed[r]) roomFor(seenMax[r]) else 0)
-                    tail.write(rlePadded(lk, 0, lk.size, lens[k])!!)
+                    tail.write(padded(lk, 0, lk.size, lens[k], "strip row $k"))
                 }
                 return tail
             }
@@ -537,7 +537,7 @@ class MainStaging private constructor(
                         val lk = if (wRows.any { it.first == k }) lv else wp.levels.copyOfRange(k * segPx, (k + 1) * segPx)
                         val r = wrapRow[k]
                         lens[k] = maxOf(segSlack(rleSize(lk, 0, lk.size)), if (room && r < changed.size && changed[r]) roomFor(seenMax[r]) else 0)
-                        tail.write(rlePadded(lk, 0, lk.size, lens[k])!!)
+                        tail.write(padded(lk, 0, lk.size, lens[k], "wrap row $k"))
                     }
                     return tail
                 }
@@ -940,7 +940,7 @@ class MainStaging private constructor(
                 val wEnc = ByteArray(4 + wLen.sum())
                 put16(wEnc, 0, rowW); put16(wEnc, 2, wg.h)
                 var wo = 4
-                for (j in wrapRow.indices) { wOff[j] = wo; rlePadded(wlv, j * segPx, (j + 1) * segPx, wLen[j])!!.copyInto(wEnc, wo); wo += wLen[j] }
+                for (j in wrapRow.indices) { wOff[j] = wo; padded(wlv, j * segPx, (j + 1) * segPx, wLen[j], "wrap row $j").copyInto(wEnc, wo); wo += wLen[j] }
                 val wSlot = (wEnc.size + (if (wrapFit == WRAP_TIGHT) 0 else wEnc.size / STRIP_EXTRA_DIV) + 3) and 3.inv()
                 Picture("wrap", wg, wlv, wEnc, next(wSlot), wSlot, wOff, wLen)
             }
@@ -1070,7 +1070,7 @@ class MainStaging private constructor(
             var o = 4
             for (s in 0 until stripRows) {
                 segOff[s] = o
-                rlePadded(slv, s * segPx, (s + 1) * segPx, segLen[s])!!.copyInto(stripEnc, o)
+                padded(slv, s * segPx, (s + 1) * segPx, segLen[s], "strip row $s").copyInto(stripEnc, o)
                 o += segLen[s]
             }
             val stripSlot = (stripEnc.size + stripEnc.size / STRIP_EXTRA_DIV + 3) and 3.inv()
@@ -1295,6 +1295,14 @@ class MainStaging private constructor(
             }
             return if (d == 0 && o == size) out else null
         }
+
+        /** [rlePadded] where its segment was sized from these runs (never shorter than them): null there means the runs
+         *  cannot give the bytes — a row of one-pixel runs has none to split — and that is a [LintError] naming [what], so
+         *  the staging is refused (a re-stage: dropped) through the path that exists, never a fault in the pump (K1-2 stage
+         *  4i; decisions DK 3). */
+        internal fun padded(levels: ByteArray, from: Int, to: Int, size: Int, what: String): ByteArray =
+            rlePadded(levels, from, to, size) ?: throw LintError("$what cannot be padded to its segment of $size B (its runs take " +
+                "${rleSize(levels, from, to)} B and padding splits runs: a run of one pixel has none to give)")
 
         private fun put16(b: ByteArray, at: Int, v: Int) { b[at] = (v and 0xFF).toByte(); b[at + 1] = ((v shr 8) and 0xFF).toByte() }
 

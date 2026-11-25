@@ -238,6 +238,8 @@ class SettingsCore(private val apps: List<Pair<String, String>> = APPS) : Window
             out += Row("popupUnfurl", "Popup · Unfurl", anim("Popups"), "glasses", ON_OFF)
             out += Row("popupFade", "Popup · Fade", anim("Popups"), "glasses", ON_OFF)
             out += Row("popupSlide", "Popup · Slide", anim("Popups"), "glasses", ON_OFF)
+            // C3 DW-1b-2 (decisions DA (d) 4): the main `Animations` page's own row — the switcher is no tier
+            out += Row("switcher", "Switcher", "Animations", "glasses", ShellSettings.SWITCHERS.map { p(it) to ShellSettings.switcherWord(it) })
             // the bus watcher's two shared rows (`bastion/BastionRows.kt`)
             out += Row("notifyAlerts", "Notify · alerts", "Bastion", "shared", ON_OFF)
             out += Row("notifyCleared", "Notify · cleared", "Bastion", "shared", ON_OFF)

@@ -79,7 +79,7 @@ class HealthPartsTest {
         assertEquals(Triple(HealthBand.ALARM, "1.9 % free of 3.6 TB", "disk 98%"), Triple(low.band, low.text, low.tag))
         assertNull(at(1.99).alert, "no alert of its own: the notice rule serves it")
         assertNull(at(4.0).tag, "a tag only in alarm")
-        assertEquals("disk 100%", at(0.0).tag)
+        assertEquals("disk 99%", at(0.0).tag, "R-b H2: two digits at most (the link cell's measured vocabulary)")
         assertTrue(DISK_ALARM_FREE_PCT < DISK_ATTENTION_FREE_PCT)
         assertFailsWith<IOException> { HealthParts.disk(0, 0) }
         // the real reader over a temp folder, and over one that is not there

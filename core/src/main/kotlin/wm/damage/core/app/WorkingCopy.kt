@@ -197,10 +197,29 @@ class WorkingCopy(
 
     // ---- the wire (AppClient's reading thread: hand off) ----
 
-    /** L1 C2: every subscription takes a snapshot, so none names a cursor. */
-    override fun subs(w: Welcome): List<AppClient.Sub> = listOf(AppClient.Sub(AppWire.RECORD, null))
+    /** L1 C2: every subscription takes a snapshot, so none names a cursor. R-b H2: the PC's health record too, while a
+     *  [laneWatcher] reads it. */
+    override fun subs(w: Welcome): List<AppClient.Sub> = listOfNotNull(AppClient.Sub(AppWire.RECORD, null),
+        laneWatcher?.let { AppClient.Sub(HealthCore.SCOPE, null) })
 
-    override fun welcome(w: Welcome) = executor.execute("welcome") { onWelcome(w) }
+    /** R-b H2: told what the lane hands this copy beside the record — the phone's health view (`PhoneHealth`). Called
+     *  on the lane's reading thread: hand off, never block. */
+    interface LaneWatcher {
+        fun welcome() {}
+        fun described(scope: String, desc: JsonObject) {}
+        fun reach(r: AppClient.Reach) {}
+    }
+
+    @Volatile var laneWatcher: LaneWatcher? = null
+
+    override fun welcome(w: Welcome) {
+        executor.execute("welcome") { onWelcome(w) }
+        laneWatcher?.welcome()
+    }
+
+    override fun described(scope: String, desc: JsonObject) {
+        laneWatcher?.described(scope, desc)
+    }
 
     override fun snap(s: Snap) {
         if (s.scope != AppWire.RECORD) return
@@ -214,6 +233,7 @@ class WorkingCopy(
 
     override fun reach(r: AppClient.Reach) {
         reach = r
+        laneWatcher?.reach(r)
     }
 
     override fun contracts(s: Contracts.State) = pump()
