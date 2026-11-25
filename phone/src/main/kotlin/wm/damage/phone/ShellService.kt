@@ -115,7 +115,6 @@ class ShellService : Service() {
     private var musicSource: wm.damage.core.app.LocalWindowSource? = null
     private var musicGlasses: wm.damage.core.windows.music.MusicGlasses? = null
     private var remoteIcons: RemoteIcons? = null
-    private var remoteSync: wm.damage.core.sync.RemoteSync? = null
     /** Build W, package D: the bus watcher's phone side, per stack. [remoteBastion] is read by the Acknowledge
      *  button's intent on the main thread ([onStartCommand]), hence volatile. */
     @Volatile private var remoteBastion: RemoteBastion? = null
@@ -430,11 +429,7 @@ class ShellService : Service() {
         // content scaling moved INTO the style transforms (Style.kt, 2026-08-31)
         val text = wm.damage.core.comp.CachedText(AndroidText(this))   // §40: the texture-cache recorder
         val persistence = Persistence(dataDir.resolve("state.json"))
-        // LOAD BEFORE ANY SYNC WRITER EXISTS (review 2026-09-01 F1): a sync
-        // record applied to an unloaded store saves a map holding ONLY that
-        // record, replacing state.json and discarding everything local —
-        // including shell.state, which never syncs back. The shell's own
-        // load() later merges harmlessly (strictly-newer in-memory wins).
+        // loaded before anything reads or writes it; the shell's own load() at each session start keeps what it holds
         persistence.load()
         val sh = Shell(text, t, persistence, dataDir.resolve("journal.jsonl"), scope)
         sh.loopClock = AndroidLoopClock         // build W, package G (E4): the `slow` note's clocks
@@ -480,15 +475,6 @@ class ShellService : Service() {
             sh.settingsSource = src
         }
         sh.register(reader)
-        // State sync (HANDOFF.md §19.2): the PC pushes/receives stamped state
-        // records over the content port, most-recent wins. Records reach the
-        // live shell (freshen → LWW → live-apply) or, when it is not running,
-        // the store directly.
-        remoteSync = wm.damage.core.sync.RemoteSync(prefs.host, prefs.contentPort, prefs.token, scope,
-            wm.damage.core.sync.SyncPeer(persistence, applier = { k, v, t ->
-                val liveShell = shell
-                if (liveShell == null || !liveShell.postSync(k, v, t)) persistence.tryApplyRemote(k, v, t)
-            }))
         // Tmux (TMUX.md): the provider lives on the content host — same
         // host/port/token as the library, so the sessions just appear (§3.1)
         val tp = RemoteTmuxProvider(prefs.host, prefs.contentPort, prefs.token, scope)
@@ -837,8 +823,6 @@ class ShellService : Service() {
         filesProvider = null
         try { remoteIcons?.close() } catch (e: Exception) { Log.w("service", "icons close: ${e.message}") }
         remoteIcons = null
-        try { remoteSync?.close() } catch (e: Exception) { Log.w("service", "sync close: ${e.message}") }
-        remoteSync = null
         // build W: taken out first, so an Acknowledge tap from here on answers "Damage is restarting"
         val rb = remoteBastion
         remoteBastion = null

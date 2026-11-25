@@ -9,6 +9,9 @@ and interface work on a personal device). A builder's context is paid for again 
 were reading 300 to 450 thousand tokens of specs, rulings and reports before writing a line. The pack replaces that
 reading. You build nothing and decide nothing.
 
+**Nothing is published or sent anywhere:** no Artifact page, no upload, no paste to an outside service — a
+report is a file under `private/`, and that is all.
+
 **What a pack is** — one file, `private/packs/<stage>.md`, at most about 300 lines:
 1. **The stage in five lines:** what is built, what is not, what it stands on.
 2. **What binds, quoted:** every ruling, rule and contract sentence the stage must obey, in its own words, each with

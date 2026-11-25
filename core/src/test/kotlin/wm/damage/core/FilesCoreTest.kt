@@ -26,7 +26,6 @@ import wm.damage.core.app.OpId
 import wm.damage.core.app.Peer
 import wm.damage.core.app.Record
 import wm.damage.core.app.Windows
-import wm.damage.core.shell.Persistence
 import wm.damage.core.windows.files.FilesCore
 import wm.damage.core.windows.files.FilesJobs
 import wm.damage.core.windows.files.FilesPc
@@ -172,11 +171,5 @@ class FilesCoreTest {
         pc.slotted.copy(c, dest)
         Thread.sleep(200)
         assertEquals(FilesCore.clipJson("copy", c), clip())
-    }
-
-    @Test
-    fun filesKeysLeaveTheSyncChannel() {
-        assertFalse(Persistence.syncable("window.files"), "Files is converted: its local row never syncs")
-        assertTrue(Persistence.syncable("shell.settings"), "the shell's settings record still syncs (until S1-5's close)")   // S1-5 S converted Settings
     }
 }

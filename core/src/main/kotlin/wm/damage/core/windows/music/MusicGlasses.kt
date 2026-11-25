@@ -1716,7 +1716,7 @@ class MusicGlasses(
     /** Everything the layout is derived from besides the safe rect: the
      *  surfaces that are on, the visualizer choice, and the lyric line box
      *  (which moves with the font). Keyed rather than cleared by hand — a
-     *  live-synced Settings record changes any of them while Music Mode is
+     *  Settings change from the record changes any of them while Music Mode is
      *  ON, and a stale layout then paints lyric lines past the rect it
      *  reports as damaged (review 2026-09-02). */
     private var mmLayoutKey: Any? = null
@@ -2231,20 +2231,12 @@ class MusicGlasses(
         needsReload = top.kind in listOf(Kind.PLAYLIST, Kind.RESULTS, Kind.YT, Kind.RECENT, Kind.LYRICS)
     }
 
-    override fun restoreStateLive(state: JsonObject) {
-        restoreState(state)
-        if (active) { needsReload = false; reloadTop() }
-    }
-
     /**
-     * The player's synced record (§6.2): `window.music.player`.
+     * The player's local record (§6.2): `window.music.player`.
      *
-     * An EMPTY record is never reported. The shell reads an absent sub-key as
-     * "removed" and an empty blob as the removal TOMBSTONE (§16.4a), and the
-     * desktop MIRROR holds exactly that empty record until the phone's first
-     * push arrives — publishing it fresh-stamped a removal of the phone's real
-     * queue into a SYNCABLE key (review 2026-09-03). Nothing to report is not
-     * the same as a removal.
+     * An EMPTY record is never reported: the shell refuses an empty blob as a
+     * sub-record (an older store holds one as a removal's mark), and nothing
+     * to report is not the same as a removal (review 2026-09-03).
      */
     override fun saveSubState(): Map<String, JsonObject> {
         val rec = player.persist()

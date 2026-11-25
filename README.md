@@ -17,8 +17,8 @@ instead of one per region is the whole thesis: the round-trip cost is per messag
 
 **Built and in daily use since 2026-08-31** (on the author's glasses since first light, 2026-08-30):
 - **The phone APK** drives the glasses: the radio and the shell.
-  **The PC service** (OpenRC, headless) owns the converted windows' state, serves the content, tmux, the state sync
-  and the window channel, and watches the bus's alerts; it never drives the glasses by itself — PC-direct BlueZ is a
+  **The PC service** (OpenRC, headless) owns every window's state, serves the content, tmux and the window channel,
+  and watches the bus's alerts; it never drives the glasses by itself — PC-direct BlueZ is a
   manual choice (`HANDOFF.md` §79). How it runs: [`IMPLEMENTATION.md`](IMPLEMENTATION.md); operations: `DAILY.md`;
   the state today: [`REMINDER.md`](REMINDER.md).
 - **Nine windows:** Main, Settings, Reader, Tmux, Files, Torrents, Music (with Music Mode), Games (Texas

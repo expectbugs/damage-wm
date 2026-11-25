@@ -22,11 +22,11 @@ PUSH slice, a second endpoint (:7404) for media bytes, per-height layouts and th
 §4.9) · `GamesWindow` (`HOLDEM.md`: no host at all, pure Kotlin; a `CanvasView` table at four heights; its own
 stereo planes via `contentPlanes`; a kit under `windows/games/kit/` that names no card game; the persisted
 record is an ACTION LOG the engine replays) · `FeedGlasses` (`FEED.md`: ONE engine, on the PC — `CONTRACT.md`
-§14 (a) row 1, `HANDOFF.md` §89.1; the Reader grammar over nine levels; synced reading state with a union rule for
-read marks; an endless archive Document; strips on demand from `view()`).
+§14 (a) row 1, `HANDOFF.md` §89.1; the Reader grammar over nine levels; reading state on the PC record with a union
+rule for read marks; an endless archive Document; strips on demand from `view()`).
 
-**Step S1** (`REPLAN.md` §14, `CONTRACT.md` §11): the PC owns every window's state, each window splits into a core and
-a glasses presenter, and the sync these sections rely on is replaced (`CONTRACT.md` §2, §9.7); `CONTRACT.md` §11.3
+**Step S1** (`REPLAN.md` §14, `CONTRACT.md` §11): the PC owns every window's state and each window splits into a core
+and a glasses presenter; each device's own store keeps only its view (`CONTRACT.md` §2, §9.7); `CONTRACT.md` §11.3
 maps the contract below row by row, and the sections below describe it as built. Which windows are converted:
 `REPLAN.md` §16.1 and `REMINDER.md`. A window built after the re-plan's steps is described once for every interface
 (`CONTRACT.md` §3, §12).
@@ -41,9 +41,9 @@ maps the contract below row by row, and the sections below describe it as built.
   product edit), a base rendered twice from the parent commit with the shelf's listing hash AND its command, then
   `tools/snapdiff.py` in both arrangements (`DIR/phone/` renders the window over a working copy). A clock-relative age
   in a scene is a declared live cell with its own selftest case.
-- **The migration:** one PC-only pass of the old rows, written where the record holds none, with no ledger and no
-  phone half (`core/…/app/Migrate.kt`; why: `HANDOFF.md` §84.3); the window's keys leave the sync channel by the
-  window registry (`Windows.converted`) with the phone's inbound filter.
+- **The migration:** one PC-only pass of the old rows, written where the record holds none, at the PC's clock, with no
+  ledger and no phone half (`core/…/app/Migrate.kt`; why: `HANDOFF.md` §84.3); removed at the first touch after it has
+  run on his PC.
 - **The defect classes the reviews found** (§80.6): a write no input made (a relayout, a reload, a page load), a loss
   told to no one, what clears a standing offer (`Go there`), a number used twice in one stream (two tabs). The
   continuity test of §3 step 6 becomes the arrangements test (`ReaderArrangementsTest`).
@@ -55,10 +55,10 @@ maps the contract below row by row, and the sections below describe it as built.
 ## 1. The bar every window meets
 
 - 🔴 **100 % cross-device continuity** (Adam, 2026-09-01: *"an always-active session that can be continued
-  seamlessly from every device connected to DamageWM"*): the replica for the same session on any screen, LWW
-  sync for separate shells. The window's part: per-item state in sub-records (`window.<id>.<item>`), content
-  continuable (cache-on-open), the continuity test (§3 step 6) passing. (As built; from S1 one copy on the PC,
-  each interface with its own focus — `REPLAN.md` §14.1 R3–R4, `CONTRACT.md` §2.)
+  seamlessly from every device connected to DamageWM"*): the replica for the same session on any screen; for
+  separate shells one copy of every window's shared state on the PC, each interface with its own focus (`REPLAN.md`
+  §14.1 R3–R4, `CONTRACT.md` §2). The window's part: its shared state on its record items, content continuable
+  (cache-on-open), the continuity test (§3 step 6) passing.
 - **The input grammar is not negotiable** (`DESIGN.md` §1): tap descends, double-tap backs, scroll moves focus,
   long-press is a no-op by default. No per-window gestures. Actions are a LEVEL, not a region (§4.6).
 - **NO TRUNCATION, worded honestly** (§2.4 r3): content wraps/scrolls; rows and titles are handles, elided only
@@ -104,9 +104,9 @@ layout object whose lines never change pixels — with it the shell stages the n
 (SHORT — §4.1) · `summary()` (cheap; `more`/`progress` flags) · `icon` (an `IconKind`; theme icon first, the
 drawn kind as fallback and release path) · `dirty` · `needs` (HOST/PHONE_APIS/BLE; a per-BACKEND `needs` is
 still unbuilt — Music declares per host) · `preferredHeight` (global-default pattern) · `appSettings()`
-(STABLE instances) · `saveState()/restoreState()` (mode included, §9.1) · `restoreStateLive()` (a live-synced
-main record — override when the boot restore assumes an activation follow-up) · `saveSubState()/
-restoreSubState()` (per-item records, §16.4; empty object = removal tombstone) · `styleTransform`/`styledText()`
+(STABLE instances) · `saveState()/restoreState()` (mode included, §9.1) · `saveSubState()/
+restoreSubState()` (per-item records in the device's store, §16.4; one no longer reported is removed; an empty
+object is an older store's removal mark) · `styleTransform`/`styledText()`
 (route EVERY measure/draw through it) · `back()` / `levelDepth()` · `onTypedText(line)` (confirm-staged) ·
 `open(target)` (§16.1: opaque per-window target, false = loud) · `contentPlanes(content)` (stereo regions
 inside the content area, up to `Shell.MAX_WINDOW_PLANES` = 4, validated and capped by the shell; empty = the
@@ -145,8 +145,8 @@ phone; backends in preference order with a switch policy if adaptive).
    state before we move on"*) — against ContentKit + the shared kit. Async work computes off-loop and mutates
    through `runOnShell` only.
 6. **Tests**, all four kinds: a **Scripted provider** (the `ScriptedTmux` precedent); core tests incl. a
-   **persistence round-trip** (switch away/back → byte-identical frame, §9.1) and the **continuity test** (save
-   on shell A → sync → restore on shell B → identical position/frame, §16.4c); a **selfcheck scene**; a
+   **persistence round-trip** (switch away/back → byte-identical frame, §9.1) and the **continuity test** (an op
+   on shell A's copy → the PC record → shell B's copy → identical position/frame, §16.4c); a **selfcheck scene**; a
    **snapshot scene** (and look at the render).
 7. **Register everywhere**: desktop `Main.kt` (a host-side provider goes into BOTH the auto/standby stack and
    `--host-only`'s service map), phone `ShellService.kt`, SelfCheck, Snapshot.
@@ -159,8 +159,8 @@ phone; backends in preference order with a switch policy if adaptive).
 
 A conversion consumes these; it does not build them:
 
-1. **The state substrate** (§16.4): per-item sub-records with reported-guarded tombstones, stamp-0 baselines,
-   merge-load + post-start reconciliation; the continuity-test harness (`SubstrateTest`/`FilesTest` shapes).
+1. **The state substrate** (§16.4): per-item sub-records with reported-guarded removal, in each device's own store;
+   the continuity-test harness (`SubstrateTest`/`FilesTest` shapes).
 2. **The generic window channel** (§16.10): `{"t":"win","win":"<id>"}` on the content port, `WinService`
    host-side, `RemoteWin` client (id-correlated, blob lane, keeper reconnect, `stateLine`), push frames
    (`WinService.Push` → `RemoteWin(onPush)`, the `wpush` frame). Still unbuilt: summaries-over-channel, a
@@ -208,8 +208,8 @@ backlog: the curated font-library expansion (§16.6; B612 never a default).
   requester's callback (the keyboard commit closes and restores, then `onCommit`).
 - **A RESTORED level below the top that never loads** (`HANDOFF.md` §25 #7) — `restoreState` reloads the TOP
   only; load on the way back (`MusicWindow.ensureLoaded`).
-- **`saveSubState()` returning an EMPTY blob** (§25 #8) — an empty object IS the §16.4a removal TOMBSTONE and the
-  sub-keys sync, so it fresh-stamps a deletion of the PEER's record. Report nothing.
+- **`saveSubState()` returning an EMPTY blob** (§25 #8) — an empty object is not a record (an older store holds one
+  as a removal's mark); the shell refuses it loudly and keeps the stored record. Report nothing.
 - **A surface whose WRAP width differs from its DRAW bound** (§25 #3) — the 200 px silent notice box wrapped to
   the 248 px window box: an unmarked cut on glass, and undamaged ink a later keyframe reveals.
 - **Dynamic text drawn without `Draw.dynamic`** (§25 #5–6) — a glyph the face lacks is silent tofu. Sanitise at
