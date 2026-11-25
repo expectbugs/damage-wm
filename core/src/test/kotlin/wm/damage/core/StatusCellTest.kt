@@ -223,18 +223,17 @@ class StatusCellTest {
 
     /** P7 item 1 (OS-1): Global `Notify · Damage` is the WM's own events (`DESIGN.md` §4.5); an app's
      *  notice is gated by its own rows in its own Settings category, so with the row off a notice that
-     *  names its app still goes up. The WM's own courtesy notice stays filtered, and an `appId` on an
-     *  SMS-kind notice does not get it past `Notify · SMS` (the test sits inside the `DAMAGE` arm). */
+     *  names its app still goes up. The WM's own courtesy notice stays filtered (S1-5 S removed the hidden
+     *  `Notify · SMS` gate, which no row set). */
     @Test
     fun anAppsOwnNoticeIsShownWithNotifyDamageOffAndTheWmsOwnIsNot(): Unit = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val r = Rig(scope, ShellSettings(notifyDamage = false, notifySms = false))
+        val r = Rig(scope, ShellSettings(notifyDamage = false))
         try {
             r.shell.start(); r.settle("start")
             r.shell.services.notifyInternal("link", "x")
-            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · T", "t", "hello", "12:00", appId = "tmux"))
-            r.settle("the WM's own notice and an SMS-kind notice with an appId")
-            assertEquals(null, r.shell.notifications.current, "Notify · Damage off filters the WM's own notice; Notify · SMS off filters SMS")
+            r.settle("the WM's own notice")
+            assertEquals(null, r.shell.notifications.current, "Notify · Damage off filters the WM's own notice")
             assertEquals(0, r.shell.notifications.queueDepth, "nothing queued behind")
             r.shell.services.notifyInternal("tmux", "s wants input", appId = "tmux", thread = "h/s")
             waitUntil(10_000, 10, { "the app's own notice is up (is ${r.shell.notifications.current})" }) {
@@ -318,7 +317,7 @@ class StatusCellTest {
         val r = Rig(scope, ShellSettings(notifyDamage = false), unwritable = true)
         try {
             r.shell.start(); r.settle("start")
-            r.shell.updateSettings { it.copy(notifySms = !it.notifySms) }   // a settings change: its save follows two seconds later
+            r.shell.updateSettings { it.copy(keyboardLayout = if (it.keyboardLayout == "abc") "qwerty" else "abc") }   // a settings change: its save follows two seconds later
             r.noticeUp("state", "state save FAILED")
             assertEquals(1, r.rings.get(), "the phone heard the failed save once")
             r.shell.stop()
@@ -338,7 +337,7 @@ class StatusCellTest {
             r.shell.stop()                                           // the Shutdown save fails: the latch is set
             assertEquals(null, r.shell.notifications.current, "nothing said in the session that ended")
             r.shell.start(); r.settle("the same instance, started again")
-            r.shell.updateSettings { it.copy(notifySms = !it.notifySms) }   // one save in the new session
+            r.shell.updateSettings { it.copy(keyboardLayout = if (it.keyboardLayout == "abc") "qwerty" else "abc") }   // one save in the new session
             r.noticeUp("state", "state save FAILED")
             r.shell.stop()
         } finally { r.close(); scope.cancel() }

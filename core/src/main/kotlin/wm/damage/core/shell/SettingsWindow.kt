@@ -114,9 +114,6 @@ class SettingsWindow(
         Entry("Presence", { if (get().presence == 0) "away at rest" else "dim at rest" }, { s, d ->
             s.copy(presence = (s.presence + d).coerceIn(0, 1))
         }),
-        Entry("Head tracking", { if (get().headTracking) "on" else "off (default)" }, { s, d ->
-            s.copy(headTracking = d > 0)
-        }),
         // §1.2 revised 2026-08-30: off = bare long-press is a no-op and the
         // §1.3 chord opens the switcher; switcher = the direct open
         Entry("Long-press", {
@@ -138,14 +135,8 @@ class SettingsWindow(
         Entry("Local input", { localInput().ifEmpty { "no session" } }, null, tap = {
             if (localInput().startsWith("held back")) localRearm()
         }),
-        Entry("Battery alert", { get().batteryAlert.name.lowercase() }, { s, d ->
-            s.copy(batteryAlert = ShellSettings.BatteryAlert.entries[
-                (s.batteryAlert.ordinal + d).mod(ShellSettings.BatteryAlert.entries.size)])
-        }),
-        Entry("Profiler", { if (get().profiler) "on" else "off" }, { s, d -> s.copy(profiler = d > 0) }),
-        Entry("Diag overlay", { if (get().diagOverlay) "on (bring-up)" else "off" }, { s, d ->
-            s.copy(diagOverlay = d > 0)
-        }),
+        // S1-5 S (his word, 2026-11-23): `Head tracking`, `Profiler` and `Diag overlay` are removed (no reader); `Battery
+        // alert` has no row until its pulse exists.
         // Notification toggles live in each APP's category (Adam, 2026-09-01 —
         // `WINDOWS.md` §1); Global keeps only the WM's own events
         Entry("Notify · Damage", { onOff(get().notifyDamage) }, { s, d -> s.copy(notifyDamage = d > 0) }),
