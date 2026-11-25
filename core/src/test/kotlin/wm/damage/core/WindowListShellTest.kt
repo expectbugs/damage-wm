@@ -65,6 +65,9 @@ class WindowListShellTest {
         override val preferredHeight: Int? get() = height
         @Volatile var order: IntArray? = null
         @Volatile var noisy = false
+        /** Decisions CY: its title (a window's 4-second notice is its title). */
+        @Volatile var notice = ""
+        override fun title(): String = notice
         override fun view(): WindowView = WindowView.ListView(model, { n },
             { g, i, r, _ ->
                 val k0 = order?.getOrNull(i) ?: i
@@ -77,7 +80,8 @@ class WindowListShellTest {
     }
 
     private class Rig(val stage: Int = 5, features: Int = 0xdff, nRows: Int = 4, text: wm.damage.core.text.TextRasterizer = FakeText(),
-                      startOn: String? = null, val extra: List<Win> = emptyList(), names: List<String>? = null) {
+                      startOn: String? = null, val extra: List<Win> = emptyList(), names: List<String>? = null,
+                      tweak: (ShellSettings) -> ShellSettings = { it }) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-windowlist")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
@@ -85,7 +89,7 @@ class WindowListShellTest {
             Files.writeString(it, wm.damage.core.transport.LadderRecord(stage = stage, sessionKib = 256).encode()) })
         val journal = tmp.resolve("journal.jsonl")
         val persistence = Persistence(tmp.resolve("state.json")).also { p ->
-            p.put("shell.settings", ShellSettings().copy(heightMode = 352, cachedText = "on", taps = Taps.REPORT).toJson())
+            p.put("shell.settings", tweak(ShellSettings().copy(heightMode = 352, cachedText = "on", taps = Taps.REPORT)).toJson())
             if (startOn != null) p.put("shell.state", JsonObject(mapOf("mode" to kotlinx.serialization.json.JsonPrimitive("WINDOW"),
                 "current" to kotlinx.serialization.json.JsonPrimitive(startOn))))
         }
@@ -868,6 +872,99 @@ class WindowListShellTest {
             val ms2 = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
             assertTrue(ms2 !== ms && ms2.layout == r.onLoop { r.shell.layout }, "a new staging for Main's new layout")
             assertEquals(n0 + 1, r.onLoop { r.shell.mainBinding.stagings }, "one staging on the way back")
+        } finally { r.close() }
+    }
+
+    // ------------------------------------------------------------------ K1-2 stage 3b: the first review of 3a (decisions CY)
+
+    /** Finding A: a window's title is no part of its list's key — a notice in the title, and its end, drop nothing: the list
+     *  stays bound with the same staging and mark. Without: unbound, dropped and staged again at each title change. */
+    @Test
+    fun aTitleNoticeKeepsTheListBound_K12S3b(): Unit = runBlocking {
+        val win = Win("lw", "Listy", n = 12, list = true)
+        val r = Rig(extra = listOf(win))
+        try {
+            r.up()
+            r.open("lw")
+            r.windowBound("Listy")
+            val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            val mark = r.list().mark
+            val n0 = r.onLoop { r.shell.windowListBinding.stagings }
+            for (t in listOf("moved 3 files", "")) {
+                win.notice = t
+                r.onLoop { r.shell.services.requestRender(win) }
+                delay(500); r.done("the title '$t'")
+                assertEquals("window", r.onLoop { r.shell.slot0ForTest() }, "bound under the title '$t'")
+            }
+            r.windowBound("still bound")
+            assertTrue(r.onLoop { r.shell.windowListBinding.staging } === ms && r.list().mark == mark, "the same staging and mark")
+            assertEquals(n0, r.onLoop { r.shell.windowListBinding.stagings }, "no staging")
+            assertTrue(r.notes("liststage").none { it.startsWith("dropped") }, "${r.notes("liststage")}")
+            notch(r, CfwModes.EV_UPROLL, "a notch after the notice")
+        } finally { r.close() }
+    }
+
+    /** Finding A's other side: a different list under the same key — every row on screen drawing otherwise (Files' sibling
+     *  folder of one size) — is a new staging with a new mark, not a re-stage of each row 5 s apart. */
+    @Test
+    fun everyRowOnScreenChangedIsANewStaging_K12S3b(): Unit = runBlocking {
+        val win = Win("lw", "Listy", n = 12, list = true)
+        val r = Rig(extra = listOf(win))
+        try {
+            r.up()
+            r.open("lw")
+            r.windowBound("Listy")
+            val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            val mark = r.list().mark
+            win.order = IntArray(12) { it + 3 }
+            r.onLoop { r.shell.services.requestRender(win) }
+            r.until("a new staging", 10_000) { r.onLoop { r.shell.windowListBinding.staging.let { it != null && it !== ms } } }
+            r.windowBound("the other list")
+            assertTrue(r.list().mark != mark, "a new mark")
+            assertTrue(r.notes("liststage").any { it.startsWith("dropped — every row on screen draws otherwise") }, "${r.notes("liststage")}")
+            assertTrue(r.notes("liststage").none { "re-staged" in it }, "no row re-staged: ${r.notes("liststage")}")
+            notch(r, CfwModes.EV_UPROLL, "a notch on the new staging")
+        } finally { r.close() }
+    }
+
+    /** Finding B: a notice over a bound window list inside the wait of an adopted notch cuts nothing — the held cells wait
+     *  for the motion's end and the shell sends no CLOSE of its own, as over Main (AW.3). `Scroll length` 600 ms, so the
+     *  notice comes up inside the motion. Without: a CLOSE ahead of the notice's frame, the motion cut short. */
+    @Test
+    fun aNoticeOverABoundWindowListInsideTheWaitCutsNothing_K12S3b(): Unit = runBlocking {
+        val r = Rig(tweak = { it.copy(scrollLength = 600, frames = 0) })
+        try {
+            r.up()
+            r.open("settings")
+            r.windowBound("Settings")
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("adopted") { r.row() == 1 }
+            assertTrue(r.onLoop { r.shell.comp.deferring }, "the held cells wait for the motion's end")
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("TEST · a", "t", "a notice over the window list", "12:00"))
+            r.until("the notice up") { r.onLoop { r.shell.notificationsUpForTest() } }
+            assertTrue(r.onLoop { r.shell.comp.deferring }, "the held cells still wait under a notice")
+            r.settle("the motion's end")
+            assertTrue(r.notes("local").none { "adopted motion closed ahead of its frame" in it }, "the shell cut nothing: ${r.notes("local").takeLast(3)}")
+            r.assertOracle("after the notice")
+        } finally { r.close() }
+    }
+
+    /** Finding C: a slot-0 body whose report was not heard, once a window's list has been staged, is credited to no list —
+     *  never to Main's measured window (pin 14's class through the lost-report door). Without: its step joins Main's window
+     *  and raises Main's period. */
+    @Test
+    fun aSlot0BodyWithNoReportHeardMovesNoPeriod_K12S3b(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up()
+            r.open("settings")
+            r.windowBound("Settings")
+            val (mw0, p0, t) = r.onLoop { Triple(r.shell.stepWindowsForTest().first, r.shell.periodInForceForTest(), r.shell.mainBinding.staging!!.t) }
+            r.onLoop { r.shell.localBodyForTest(wm.damage.core.transport.TransportEvent.LocalBody(MainStaging.SLOT, 0x7ABC,
+                wm.damage.core.wire.DamageMsg.OUTCOME_DREW, null, drawn = t.toLong(), folded = 0L, endCrc = 1L, stepUs = 60_000L)) }
+            r.done("the body read")
+            assertEquals(mw0, r.onLoop { r.shell.stepWindowsForTest().first }, "Main's measured window unchanged")
+            assertEquals(p0, r.onLoop { r.shell.periodInForceForTest() }, "Main's period unchanged")
         } finally { r.close() }
     }
 }
