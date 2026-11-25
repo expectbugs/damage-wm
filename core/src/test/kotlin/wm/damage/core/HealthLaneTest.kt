@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -45,7 +46,7 @@ import wm.damage.core.transport.CfwTransportBase
  * reconnect sends them again. Without a network: the phone sends on a change and at a welcome only, the tag's order (PC,
  * hub, disk, copy), the battery's strict "less than", nothing latches, and the reach line names HomeWatch's alert so
  * the PC rings no second notice (the second pin, watched failing without it), and a send lost with its connection is
- * made again (a defect this lane's own reconnect test found). Made-up lines; temp directories only.
+ * made again at the next pass. Made-up lines; temp directories only.
  */
 class HealthLaneTest {
     private val dir: Path = Files.createTempDirectory("damage-health-lane")
@@ -198,9 +199,9 @@ class HealthLaneTest {
         assertEquals(HealthBand.ATTENTION, p.last(HealthCore.GLASSES_STAGE).band, "a hold-back")
     }
 
-    /** The defect H2's own lane test found (a reconnect on loopback): the new connection's welcome came while the copy's
-     *  lane still named the connection before, the send went nowhere, and the same lines were never sent again. Pinned
-     *  here without a network; watched failing with the connection left out of the comparison. */
+    /** A send lost on a new connection (its welcome came while the copy's lane still named the connection before, a
+     *  race seen by reading, not observed) is made again at the next pass. Watched failing with the connection left out
+     *  of the comparison. */
     @Test
     fun aSendLostWithItsConnectionIsMadeAgainAtTheNextPass() {
         val p = phone()
@@ -311,10 +312,19 @@ class HealthLaneTest {
         core.set(HealthCore.DISK, Reading("1.6 % free of 3.6 TB", HealthBand.ALARM, "shown only", tag = "disk 98%"))
         eventually("the PC's description back on the phone, as the link cell's tag") { ph.view.tag == HostTag("disk 98%") }
         assertTrue(ph.view.sentence.startsWith("Disk: 1.6 % free of 3.6 TB since"), ph.view.sentence)
+        // each wait decides on ONE evaluation (`waitUntil`): the first form of this test read a moment before the old
+        // connection's end (its lines still live) and then once more after it, and failed on the second reading
+        val old = assertNotNull(wc.client?.welcome).conn
         wc.reconnect { s -> client(s) }
-        eventually("the old connection ended, the new one was sent the lines again") {
-            ph.step()
-            rig.net.connectionLines().size == 1 && core.line(HealthCore.REACH).state == HealthCore.LIVE
+        runBlocking {
+            waitUntil(10_000, 20, { "the old connection's end and the new welcome: ${rig.net.connectionLines()}" }) {
+                val now = wc.client?.welcome?.conn
+                now != null && now != old && rig.net.connectionLines().none { "connection $old " in it }
+            }
+            waitUntil(10_000, 20, { "the new connection sent the lines again: ${core.line(HealthCore.REACH)}" }) {
+                ph.step()
+                core.line(HealthCore.REACH).state == HealthCore.LIVE
+            }
         }
     }
 }
