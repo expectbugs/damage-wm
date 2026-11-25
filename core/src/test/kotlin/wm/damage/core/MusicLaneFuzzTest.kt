@@ -159,6 +159,19 @@ class MusicLaneFuzzTest {
         }
     }
 
+    /** A chain dropped by a reset that is not a session start (another writer touched the cache, no keyframe after it)
+     *  releases its cells as every other end does, so the cells the hold grew with them are written (finding 4). */
+    @Test
+    fun aResetReleasesTheOpenChainsCells() {
+        val t = Timing.STAGE4
+        val r = LaneRig(6, t.period, t.steps, fixed = true)
+        r.pump(); r.runUntil(r.nowMs + 2 * lenMs(t))
+        val areas = r.lanes.hold
+        assertTrue(r.lanes.open && areas.isNotEmpty(), "a chain open: ${r.notes.takeLast(3)}")
+        r.lanes.reset("another writer touched the cache")
+        assertEquals(areas, r.lanes.takeRelease(), "the dropped chain's cells are released")
+    }
+
     // ------------------------------------------------------------------------------------------------- the walk
     @Test
     fun theCancelEnvelopeAtThreeTimings() {

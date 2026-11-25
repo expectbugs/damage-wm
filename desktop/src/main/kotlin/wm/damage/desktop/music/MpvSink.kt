@@ -118,7 +118,7 @@ class MpvSink(
 
     override fun pause() {
         paused = true
-        posMs = positionMs(); posSeenNs = null
+        posSeenNs = null                  // a resume ages the place from the next time-pos, not from the sample before the pause
         live()?.command("set_property", "pause", true) { warnIfRefused("pause", it) }
     }
 

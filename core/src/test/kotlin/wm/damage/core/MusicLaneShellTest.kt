@@ -241,11 +241,11 @@ class MusicLaneShellTest {
         } finally { r.stop() }
     }
 
-    /** A chain ended by the menu opening over Now Playing (item 7 of the same rulings: real use depends on the release):
-     *  the frame that carries the menu writes the lane's cells from the truth and CLOSEs the chain's instances — as the
-     *  menu settles nothing of the chain is open on RIGHT, and the bar beside the menu is the window's own, moved on from
-     *  the chain's start. The tap comes just after a time-text repaint landed, so no repaint of the window writes the bar
-     *  before the check. */
+    /** A chain ended by the menu opening over Now Playing: as the menu settles nothing of the chain is open on RIGHT, and
+     *  the bar beside the menu is the window's own, moved on from the chain's start — not the start picture the shadow
+     *  held under the chain. The tap comes just after a time-text repaint landed. Measured (MM-LF): this holds with the
+     *  release's write removed too (row `MML-release-cells` not caught) — something else in that path writes the bar;
+     *  it is the menu path's outcome, not a pin of the release. */
     @Test
     fun theMenuOverNowPlayingEndsTheChainAndTheBarIsWrittenFromTheTruth(): Unit = runBlocking {
         val r = Rig(stage = 5)

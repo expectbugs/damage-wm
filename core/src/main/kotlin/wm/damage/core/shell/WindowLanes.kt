@@ -92,7 +92,6 @@ class WindowLanes(private val say: (String) -> Unit) {
         var landedMs: Long? = null
         var startMs: Long? = null
         var seen = false
-        var drew = false
     }
 
     private class Chain(val key: Any, val areas: List<Pair<Rect, Rect>>, val period: Int, val steps: Int, val d: Int) {
@@ -113,7 +112,6 @@ class WindowLanes(private val say: (String) -> Unit) {
     /** Released areas handed to the compositor ([takeRelease]) whose cells no frame has written yet: no chain starts while
      *  one is here, so the frames that write them hold nothing (the first review's finding 1). */
     private val unwritten = ArrayList<Pair<Rect, Rect>>()
-    private val offSaid = HashSet<String>()
 
     /** Why the lanes are off for this session (null: not off). */
     var off: String? = null
@@ -121,10 +119,8 @@ class WindowLanes(private val say: (String) -> Unit) {
     /** When the next stretch is due to be sent (phone clock), or null. */
     var wakeAt: Long? = null
         private set
-    /** Seams and stretches seen this session (the fuzz's and the journal's figures). */
+    /** Stretches RIGHT said drew their last step, this session (the fuzz's figures). */
     var stretchesDrawn = 0
-        private set
-    var stepsFolded = 0L
         private set
 
     /** The per-lens rects the compositor holds while a chain is open; empty otherwise. */
@@ -323,9 +319,7 @@ class WindowLanes(private val say: (String) -> Unit) {
             s == null -> return                                // an ended chain's last word
             outcome == "closed" -> end("stretch ${s.n} was closed on the glasses while drawing (another PLAY met it, a keyframe, a release)", true)
             outcome == "drew" -> {
-                s.drew = true
                 stretchesDrawn++
-                stepsFolded += folded ?: 0
                 say("stretch ${s.n} (tag 0x%04x) drew its last step: drawn %s, folded %s, a step %s µs".format(tag, drawn ?: "-", folded ?: "-", stepUs ?: "-"))
             }
         }
@@ -339,12 +333,15 @@ class WindowLanes(private val say: (String) -> Unit) {
     }
 
     /** A session start (a fresh lease frees the cache and ends every instance), or a cache another writer touched: every
-     *  record goes again, the chain is gone, the count starts over. */
+     *  record goes again, the chain is gone, the count starts over. Its cells are released as at every end (the first
+     *  review's finding 4): what the hold grew with them is written, and where no lease ended its instances (another
+     *  writer, no keyframe after it) the frame that writes them CLOSEs them. */
     fun reset(why: String) {
         if (chain != null) say("the chain is dropped — $why")
-        chain = null; send = null; sendFor = null; release.clear(); wakeAt = null
+        chain?.let { release += it.areas }
+        chain = null; send = null; sendFor = null; wakeAt = null
         for (i in areas.indices) areas[i] = null
-        strikes = 0; off = null; offSaid.clear()
+        strikes = 0; off = null
     }
 
     /** The slice goes back to Page staging (Reader in front), or a range write met it: the records leave the books. */
@@ -369,7 +366,7 @@ class WindowLanes(private val say: (String) -> Unit) {
         say("a strike ($strikes of $REFUSALS_MAX this session): $why")
         if (strikes >= REFUSALS_MAX && off == null) {
             off = why
-            if (offSaid.add(why)) say("off for this session after $strikes strikes — the window's own frames until the next session (the last: $why)")
+            say("off for this session after $strikes strikes — the window's own frames until the next session (the last: $why)")
         }
     }
 
