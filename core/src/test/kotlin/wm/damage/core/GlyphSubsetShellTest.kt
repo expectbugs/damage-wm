@@ -837,6 +837,72 @@ class GlyphSubsetShellTest {
         } finally { r.close() }
     }
 
+    /**
+     * K1-2 stage 4d (decisions CW): the faces one atlas message extends go out in an order of the faces alone. Two shells
+     * draw the same two faces the same way; then each atlas's face map is put back as one that walks its faces in one
+     * order in the first shell and in the other order in the second — what a hash map's order is on another build (a
+     * `FontSpec`'s hash starts from its `Face` enum's identity hash), forced here — and both faces gain a character in
+     * one notch: the extension's message is byte-identical in the two, and so is the content on both lenses once the
+     * new characters draw from the cache. Mutation watched: the extension loop of `Shell.atlasGrow` over the map's own
+     * order (the key removed) — the records and the table patches go out in each map's order and the messages differ.
+     */
+    @Test
+    fun theFacesOneAtlasMessageExtendsGoInTheFacesOwnOrder_K12S4d(): Unit = runBlocking {
+        val second = FontSpec(Face.READER, 24)              // NoisyText's glyphs differ by size: the two faces' records differ
+        val byFace = compareBy<FontSpec>({ it.face.ordinal }, { it.sizePx }, { it.bold }, { it.italic }, { it.raw })
+        val messages = ArrayList<List<String>>()
+        val content = ArrayList<List<Gray8>>()
+        var c: wm.damage.core.geom.Rect? = null
+        for (pass in 0..1) {
+            val r = rig(2)
+            try {
+                r.win.extra = second
+                val n = warm(r)
+                val a = r.text.atlas!!
+                assertTrue(r.onLoop { a.has(r.font) && a.has(second) }, "both faces are resident: ${r.onLoop { a.specs() }}")
+                val walk = if (pass == 0) byFace else byFace.reversed()
+                r.onLoop { walkFacesIn(a, walk) }
+                val two = r.onLoop { a.specs().filter { it == r.font || it == second } }
+                assertEquals(listOf(r.font, second).sortedWith(walk), two, "pass $pass: the map walks the two faces in the order forced on it")
+                assertFalse(r.onLoop { a.entry(r.font)!!.packs('Q') || a.entry(second)!!.packs('Z') }, "neither face holds its new character yet")
+                val queued = r.shell.atlasExtensionsQueued
+                r.win.suffix = "abQ"; r.win.extraText = "xyZ"
+                r.notch("both faces draw a new character")
+                r.until("both faces gain theirs") { r.onLoop { a.entry(r.font)?.packs('Q') == true && a.entry(second)?.packs('Z') == true } }
+                r.atlasIdle("after both extensions")
+                assertEquals(queued + 2, r.shell.atlasExtensionsQueued, "pass $pass: two faces extended")
+                val atlas = r.spy.all().filter { it.label == "ATLAS" }
+                assertEquals(n + 1, atlas.size, "pass $pass: ONE atlas message extends both faces")
+                messages += atlas[n].ops.map { op -> when (op) {
+                    is DisplayOp.CacheWrite2 -> op.payload.joinToString("") { "%02x".format(it) }
+                    is DisplayOp.CacheWrite -> op.payload.joinToString("") { "%02x".format(it) }
+                    else -> op.toString()
+                } }
+                r.notch("the new characters draw from the cache")
+                assertTrue(r.spy.drawsCarrying('Q') >= 1 && r.spy.drawsCarrying('Z') >= 1, "pass $pass: Q and Z ship in cached draws")
+                r.assertGlassMatchesBelief("pass $pass, after the extensions")
+                content += listOf(r.lens(true), r.lens(false))
+                assertTrue(c == null || c == r.shell.layout.content, "the same content region in both shells")
+                c = r.shell.layout.content
+            } finally { r.close() }
+        }
+        assertEquals(messages[0], messages[1], "the extension's message is the same whichever order the face map walks")
+        val region = c!!
+        for (left in 0..1) {
+            var diffs = 0
+            for (y in region.y until region.bottom) for (x in region.x until region.right) if (content[0][left][x, y] != content[1][left][x, y]) diffs++
+            assertEquals(0, diffs, "${if (left == 0) "L" else "R"}: the content differs between the two orders")
+        }
+    }
+
+    /** The atlas's face map put back as a concurrent map that walks its faces in [order] (test only, on the loop): a
+     *  hash map's walk is the order of its keys' hashes, and a `FontSpec`'s starts from the identity hash of its `Face`. */
+    private fun walkFacesIn(a: wm.damage.core.comp.GlyphAtlas, order: Comparator<FontSpec>) {
+        val f = wm.damage.core.comp.GlyphAtlas::class.java.getDeclaredField("entries").also { it.isAccessible = true }
+        @Suppress("UNCHECKED_CAST") val now = f.get(a) as Map<FontSpec, Any>
+        f.set(a, java.util.concurrent.ConcurrentSkipListMap<FontSpec, Any>(order).also { it.putAll(now) })
+    }
+
     /** A host-drawn character whose ink runs past its advance (an `f`, most of an italic face) used
      *  to cost its whole rect: the run after it had its box blacked in the base, the overhang went
      *  with it, the proof failed and the row shipped as pixels. The first columns of that run are

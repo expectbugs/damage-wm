@@ -4020,6 +4020,15 @@ class Shell(
      *  (a frame number only: nothing to clear at any boundary, the next frame looks again). */
     private var atlasInUseLookedAt = -1L
 
+    /** K1-2 stage 4d (decisions CW): the order of the faces one atlas message extends — face, size, bold, italic, raw:
+     *  the faces alone. Why: `GlyphAtlas.specs()` is a hash map's keys and a `FontSpec`'s hash starts from its `Face`
+     *  enum's identity hash, which differs between builds — the same session sent its table patches (and, with new
+     *  glyphs, placed each face's records) in another order on another build, and a recorded act could not hold its
+     *  bytes. The other walks whose order reaches the wire take it too: the repack's kept faces ([atlasEvictFor], ties
+     *  in use) and Matrix's face ([rainFace], ties in its count). */
+    private val atlasFaceOrder: Comparator<FontSpec> =
+        compareBy<FontSpec>({ it.face.ordinal }, { it.sizePx }, { it.bold }, { it.italic }, { it.raw })
+
     /** Add every font seen since the last look — the ones drawn on plane 0
      *  first, since only those can ship as draws and the cache is 64 KiB —
      *  and queue the bytes they need. */
@@ -4076,7 +4085,7 @@ class Shell(
         // where there had been none). A face nobody is drawing waits, and says so once.
         var extended = 0
         val extendedNames = ArrayList<String>()
-        for (spec in a.specs()) {
+        for (spec in a.specs().sortedWith(atlasFaceOrder)) {
             if (a.pendingExt(spec) != null) continue
             val want = a.missing(spec, ct.codesFor(spec))
             if (want.isEmpty) continue
@@ -4217,7 +4226,7 @@ class Shell(
             if (atlasSaid.add("$spec|paced")) journal.note("atlas", "repack for $spec deferred — one ran ${(now - lastAtlasRepackMs) / 1000} s ago")
             return false
         }
-        val residents = a.specs()
+        val residents = a.specs().sortedWith(atlasFaceOrder)       // the kept faces' ties in use are packed in this order
         val stale = residents.filter { clock - ct.lastUseOf(it) > ATLAS_RECENT_FRAMES }.sortedBy { ct.lastUseOf(it) }
         if (stale.isEmpty()) {
             if (atlasSaid.add("$spec|none-stale")) journal.note("atlas", "nothing to evict for $spec — every resident face was drawn in the last $ATLAS_RECENT_FRAMES frames")
@@ -4238,7 +4247,9 @@ class Shell(
         atlasRetryAtFrame = -1L
         atlasSaid.clear(); atlasExtRefusedSaid.clear()      // a repacked atlas: every refusal is a new one
         val keep = residents.filter { it !in evict }.sortedByDescending { ct.usageOf(it) }
-        val keepImages = a.imageKeys().filter { clock - ct.imageLastUse(it) <= ATLAS_RECENT_FRAMES }.sortedByDescending { ct.imageUsage(it) }
+        // an icon's key is its bitmap (identity hash): ties in use are packed in the order the layout being replaced held them
+        val keepImages = a.imageKeys().filter { clock - ct.imageLastUse(it) <= ATLAS_RECENT_FRAMES }
+            .sortedWith(compareByDescending<Any> { ct.imageUsage(it) }.thenBy { a.image(it)?.offset ?: Int.MAX_VALUE })
         val droppedIcons = a.imageKeys().size - keepImages.size
         // off the glasses first: pixels everywhere until the new content is acked
         atlasLive(emptySet(), emptySet(), "repacking — ${evict.size} font(s) not drawn in $ATLAS_RECENT_FRAMES frames ($freed B) and $droppedIcons icon(s) evicted for $spec")
@@ -8770,11 +8781,12 @@ class Shell(
     /** Tests only: the share of the step budget an Encode or Matrix half may take, in percent (the rule's: 80). */
     @Volatile internal var transitionShareForTest = wm.damage.core.motion.Transitions.SHARE_MAX_PERCENT
 
-    /** Matrix's face: of the faces the glasses hold, the one that packs the most of A–Z a–z 0–9 (the DM spec §3). */
+    /** Matrix's face: of the faces the glasses hold, the one that packs the most of A–Z a–z 0–9 (the DM spec §3); a tie
+     *  goes to the first in [atlasFaceOrder]. */
     private fun rainFace(): wm.damage.core.motion.CellLists.Face? {
         val ct = cachedText ?: return null
         val a = atlas ?: return null
-        return ct.live.filter { a.isAcked(it) }.mapNotNull { s -> a.entry(s)?.let { s to it } }
+        return ct.live.sortedWith(atlasFaceOrder).filter { a.isAcked(it) }.mapNotNull { s -> a.entry(s)?.let { s to it } }
             .maxByOrNull { (_, e) -> wm.damage.core.motion.CellLists.ALNUM.count { e.packs(it.toChar()) } }
             ?.let { (s, e) -> wm.damage.core.motion.CellLists.face(s, e) }?.takeIf { it.alphabet.isNotEmpty() }
     }
