@@ -450,7 +450,7 @@ class WindowListShellTest {
             r.until("a transition in hand") { r.onLoop { r.shell.transitionPhaseForTest() } != null }
             val runFrom = r.right.size
             r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
-            val runTo = r.right.size
+            val runTo = runEnd(r, at)                                       // K1-2 stage 4a: the run's end as the wire has it
             assertTrue((3..5).all { e -> r.since(at).take(runTo - at).any { ss -> ss.any { r.isClearOf(it, e) } } }, "the CLEARs of 3–5 by the run's end")
             fun words(ss: List<ByteArray>) = ss.filter { (it[0].toInt() and 0x7F) in setOf(26, 27) }.joinToString(" ") { "${it[0].toInt() and 0x7F}/${it[1]}:" + it.drop(2).take(6).joinToString(",") { b -> "${b.toInt() and 0xFF}" } }
             assertTrue(r.right.toList().subList(runFrom, runTo).none { img -> r.subs(img).any { r.isSetOf(it, 1) } }, "no SET of list 1 in the run: " +
@@ -1120,6 +1120,23 @@ class WindowListShellTest {
         } finally { r.shell.transitionHoldInHalfForTest = false; r.close() }
     }
 
+    /** The run's end on the wire, as RIGHT took it: the index (from [from]) of the flush of CLOSEs alone naming the out half's
+     *  slot (2) the phone sends at the run's end (RIGHT's in-half body; both slots at the deadline) — after the act's out
+     *  PLAY — or null before it has come. What follows the run is
+     *  sent after it (one image lane, call order), so a cut there does not race the post-run pumps as a read of
+     *  `right.size` after the loop's end does (a staging painted under the run is laid out and written within a turn). */
+    private fun runEndOnWire(r: Rig, from: Int): Int? {
+        val imgs = r.right.toList()
+        val out = (from until imgs.size).firstOrNull { i -> r.subs(imgs[i]).any { r.isSub(it, 26, CfwModes.MOTION_PLAY) && it[2].toInt() == 2 } } ?: return null
+        return (out + 1 until imgs.size).firstOrNull { i -> r.subs(imgs[i]).let { ss -> ss.isNotEmpty() && ss.all { r.isSub(it, 26, CfwModes.MOTION_CLOSE) } && ss.any { it[2].toInt() == 2 } } }
+    }
+
+    /** The run's end on the wire, waited for (it follows the loop's end by a send). */
+    private suspend fun runEnd(r: Rig, from: Int): Int {
+        r.until("the run's CLOSE of slot 2 on RIGHT") { runEndOnWire(r, from) != null }
+        return runEndOnWire(r, from)!!
+    }
+
     /** The cache spans (byte offsets, end exclusive) a mode-19 or mode-25 image writes; empty for any other image. */
     private fun writtenSpans(img: ByteArray): List<IntRange> {
         val list = when (img[0].toInt() and 0x7F) {
@@ -1204,7 +1221,7 @@ class WindowListShellTest {
             assertEquals(emptyList(), arrivingList1(r, at, r.right.size, oldMark), "nothing of the arriving list 1 while the run is held")
             r.shell.transitionHoldInHalfForTest = false; r.shell.postIdleTick()
             r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
-            val runTo = r.right.size
+            val runTo = runEnd(r, at)
             r.done("Global"); r.windowBound("Global, after the run")
             val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
             assertEquals(stagings + 1, r.onLoop { r.shell.windowListBinding.stagings }, "one staging, of Global")
@@ -1248,7 +1265,7 @@ class WindowListShellTest {
             r.until("the notch applied as today") { r.onLoop { r.shell.focusedRowForTest() } == row0 + 1 }
             assertTrue(synchronized(r.sim) { Arm.entries.all { r.sim.motionForTest(it).slots[3] != null } }, "the in half's slot was not emptied under the notch")
             r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
-            val runTo = r.right.size
+            val runTo = runEnd(r, at)
             assertEquals(applied, r.notes("applied").size, "no report of the notch: ${r.notes("applied").drop(applied)}")
             assertEquals(emptyList(), arrivingList1(r, at, runTo, oldMark), "no SET of list 1 and no LIST of a new staging in the run")
             r.done("Global"); r.windowBound("Global, after the run")
