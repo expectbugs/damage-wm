@@ -10517,8 +10517,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "!pumpStagePiece(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)",
-    "!pumpStagePiece(st) && !pumpWheel(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWindowList(st)) pumpStage(st)"
+    "!pumpStagePiece(st) && !mainList.pumpLane(st) &&\n                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)",
+    "!pumpStagePiece(st) && !pumpWheel(st) && !mainList.pumpLane(st) &&\n                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWindowList(st)) pumpStage(st)"
    ]
   ],
   "tests": [
@@ -10836,8 +10836,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (transition != null) return windowList.mainBindPaintUnderRun(st)",
-    "        // (mutant) the whole lane under a run"
+    "        return windowList.pumpLane(st)\n",
+    "        return windowList.pumpMainBind(st)      // (mutant) the whole lane under a run\n"
    ]
   ],
   "tests": [
@@ -10848,7 +10848,7 @@
    "aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a",
    "theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
   ],
-  "note": "pin 11 / spec §5.3 (K1-2 stage 4a re-points it at the lift): the window list's whole lane runs under a transition — the new level laid out, written and SET inside the run",
+  "note": "pin 11 / spec §5.3 (K1-2 stage 4a re-points it at the lift): the window list's whole lane runs under a transition — the new level laid out, written and SET inside the run (K1-2 stage 4i: re-pointed at pumpLane)",
   "from": "K12S3a"
  },
  {
@@ -11848,8 +11848,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (transition != null) return windowList.mainBindPaintUnderRun(st)",
-    "        if (transition != null) return false"
+    "        return windowList.pumpLane(st)\n",
+    "        return if (transition != null) false else windowList.pumpMainBind(st)\n"
    ]
   ],
   "tests": [
@@ -11860,7 +11860,7 @@
    "theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a",
    "aNotchInTheInHalfOfASelectIntoANewLevelGoesAsToday_K12S4a"
   ],
-  "note": "K1-2 stage 4a (decisions DA (c) 3; the K1-2 spec §5.3, §6): nothing of the window list's lane under a transition — the arriving list's rows are first painted after the run, so its first write waits a paint turn per row",
+  "note": "K1-2 stage 4a (decisions DA (c) 3; the K1-2 spec §5.3, §6): nothing of the window list's lane under a transition — the arriving list's rows are first painted after the run, so its first write waits a paint turn per row (K1-2 stage 4i: re-pointed at pumpLane)",
   "from": "K12S4a"
  },
  {
@@ -12393,5 +12393,77 @@
   ],
   "note": "the ask does not carry this app's own link state into the decision",
   "from": "BLF"
+ },
+ {
+  "id": "K12S4i-main-lane-under-run",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "!settlePreview() && !pumpStagePiece(st) && !mainList.pumpLane(st) &&",
+    "!settlePreview() && !pumpStagePiece(st) && !mainList.pumpMainBind(st) &&"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i"
+  ],
+  "expect": [
+   "mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i"
+  ],
+  "note": "K1-2 stage 4i (decisions DK 2; 4a's finding 2): Main's lane outside the one rule under a transition — Main arriving with no staging (a session started inside a window, then Back) is laid out, written, counted and SET inside the run (reproduced: eight records, the count, LIST and three SETs of list 0, all accepted, with the run held)",
+  "from": "K12S4i"
+ },
+ {
+  "id": "K12S4i-strip-pad-fault",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "padded(slv, s * segPx, (s + 1) * segPx, segLen[s], \"strip row $s\").copyInto(stripEnc, o)",
+    "rlePadded(slv, s * segPx, (s + 1) * segPx, segLen[s])!!.copyInto(stripEnc, o)"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aStripRowThatCannotBePaddedIsRefusedWithItsNote_K12S4i"
+  ],
+  "expect": [
+   "aStripRowThatCannotBePaddedIsRefusedWithItsNote_K12S4i"
+  ],
+  "note": "K1-2 stage 4i (decisions DK 3; 4a's finding 3): a strip row of one-pixel runs cannot be padded — without the LintError a NullPointerException in the pump at every layout (a fault notice each time), the list painted whole between them",
+  "from": "K12S4i"
+ },
+ {
+  "id": "K12S4i-restage-pad-fault",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "tail.write(padded(lk, 0, lk.size, lens[k], \"strip row $k\"))",
+    "tail.write(rlePadded(lk, 0, lk.size, lens[k])!!)"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aRowThatTurnsToOnePixelNoiseIsDroppedAndRefusedWithItsNote_K12S4i"
+  ],
+  "expect": [
+   "aRowThatTurnsToOnePixelNoiseIsDroppedAndRefusedWithItsNote_K12S4i"
+  ],
+  "note": "K1-2 stage 4i (item 2's class): a row re-staged into one-pixel runs — the strip's tail laid out again cannot be padded; without the LintError a NullPointerException in the pump at every turn (the row stays marked), with it the staging is dropped and the next refused at its layout",
+  "from": "K12S4i"
+ },
+ {
+  "id": "K12S4i-main-no-paint-under-run",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        !mainBind.counted -> mainBindPaintUnderRun(st)\n",
+    "        !mainBind.counted -> this === windowList && mainBindPaintUnderRun(st)\n"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i"
+  ],
+  "expect": [
+   "mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i"
+  ],
+  "note": "K1-2 stage 4i (decisions DK 2): nothing of Main's lane under a transition when it has no staging — its rows are first painted after the run, so its first write waits a paint turn per row",
+  "from": "K12S4i"
  }
 ]
