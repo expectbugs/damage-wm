@@ -6197,7 +6197,20 @@ class Shell(
     private class WindowFront(val w: DamageWindow, val v: WindowView.ListView, val id: WindowListView)
 
     /** The window's list in front, or null (Main, the clock, an exclusive screen, any view that is not a list of 2+ rows). */
+    /** K12S4I-MEASURE (temporary, item 3): windowFront's evaluations and their time; the pumps they fell in. */
+    @Volatile internal var frontCallsForTest = 0L
+    @Volatile internal var frontNsForTest = 0L
+    @Volatile internal var frontPumpsForTest = 0L
+    @Volatile internal var frontMaxPerPumpForTest = 0L
+    @Volatile internal var frontAtPumpForTest = 0L
+    @Volatile internal var frontMaxNsPerPumpForTest = 0L
+    @Volatile internal var frontNsAtPumpForTest = 0L
     private fun windowFront(): WindowFront? {
+        val t0 = System.nanoTime()
+        try { return windowFront0() } finally { frontNsForTest += System.nanoTime() - t0; frontCallsForTest++ }
+    }
+    internal fun windowFrontForTest(): Any? = windowFront0()
+    private fun windowFront0(): WindowFront? {
         if (mode != Mode.WINDOW) return null
         val w = current ?: return null
         val v = w.view() as? WindowView.ListView ?: return null
@@ -6426,6 +6439,9 @@ class Shell(
     /** K1-2 stage 4a, tests (on the loop): the window list's paint in hand — rows painted, rows in all, rows painted under a
      *  transition — or null. */
     internal fun windowListPaintForTest(): Triple<Int, Int, Int>? = windowList.mainBindPaint?.let { Triple(it.next, it.n, it.underRun) }
+    /** K1-2 stage 4i, tests (on the loop): Main's paint in hand, as [windowListPaintForTest]; Main's region on this session. */
+    internal fun mainPaintForTest(): Triple<Int, Int, Int>? = mainList.mainBindPaint?.let { Triple(it.next, it.n, it.underRun) }
+    internal fun mainRegionForTest(): IntRange = mainList.mainBindRegion(transport.state.value)
     /** K1-2 stage 3b, tests (on the loop): the window list's refused stagings this process. */
     internal fun windowListRefusalsForTest(): Int = windowList.mainBindRefusals
     /** Tests (on the loop): a 114 body read as the transport hands one (the review's finding C pin: a body whose report was
@@ -8686,6 +8702,9 @@ class Shell(
     }
 
     private suspend fun pump() {
+        frontPumpsForTest++                              // K12S4I-MEASURE (temporary)
+        (frontCallsForTest - frontAtPumpForTest).let { if (it > frontMaxPerPumpForTest) frontMaxPerPumpForTest = it }; frontAtPumpForTest = frontCallsForTest
+        (frontNsForTest - frontNsAtPumpForTest).let { if (it > frontMaxNsPerPumpForTest) frontMaxNsPerPumpForTest = it }; frontNsAtPumpForTest = frontNsForTest
         // C3 X4T item 4: the first pump after a glyph hold's period is the one that lets its writes go
         if (glyphHoldPumpOwed && System.currentTimeMillis() >= glyphHoldUntilMs) glyphHoldPumpOwed = false
         val yieldReserve = reserveYield                 // P5 item 5: decided by this message's idle tick only
