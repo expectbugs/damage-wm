@@ -69,6 +69,10 @@ class WorkingCopy(
     /** The windows the live connection shares (its `welcome`'s contracts against this build's). Written on the
      *  executor, read by [shares] from the shell loop (L1 A-N9). */
     @Volatile private var shared: Set<String> = emptySet()
+    /** S1-5 G: the windows this copy holds the PC's state of — had in a snapshot, or holding items in the saved copy.
+     *  A copy saved by a build without a window has none of it until a snapshot shares it (S1-4's R1.5 class: its
+     *  cursor does not say so). Written on the executor before the views are told. */
+    @Volatile private var heardOf: Set<String> = emptySet()
     private var saving = false
     private var dirty = false
     private var saveFailures = 0
@@ -142,9 +146,11 @@ class WorkingCopy(
             // L1 C4: a 0.67 copy's `colls` (always empty) is not read
             val e = Effect(RecordJson.items(o["items"] as? JsonObject ?: JsonObject(emptyMap())))
             base.putAll(group(e))
+            heardOf = base.keys.toSet()
             cursor = AppWire.cursorOf(o)          // L1 C1: a 0.67 copy's `unheard` losses are not read
         } catch (e: Exception) {
             base.clear()
+            heardOf = emptySet()
             cursor = null
             val kept = copyFile.resolveSibling("${copyFile.fileName}.bad-${clock()}")
             val moved = try { Files.move(copyFile, kept); "kept as ${kept.fileName}" } catch (m: Exception) { "not kept (${m.message})" }
@@ -187,6 +193,8 @@ class WorkingCopy(
     /** S1-2 Q3: true when the live connection shares [window] (its last `welcome`); on the executor. */
     fun shares(window: String): Boolean = window in shared
 
+    override fun heard(window: String): Boolean = window in heardOf
+
     // ---- the wire (AppClient's reading thread: hand off) ----
 
     /** L1 C2: every subscription takes a snapshot, so none names a cursor. */
@@ -227,6 +235,7 @@ class WorkingCopy(
             base[w] = parts[w] ?: Entries.EMPTY
             touched += w
         }
+        heardOf = heardOf + touched
         cursor = Cursor(s.epoch, s.seq)
         // a snapshot sent after an answer holds that op
         for (st in settled) {
@@ -247,6 +256,7 @@ class WorkingCopy(
             base[w] = Entries(b.items + part.items)
             touched += w
         }
+        if (!heardOf.containsAll(touched)) heardOf = heardOf + touched
         cursor = Cursor(c.epoch, c.seq)
         settle(touched)
         refresh(touched)

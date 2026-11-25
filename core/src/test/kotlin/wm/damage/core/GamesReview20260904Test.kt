@@ -20,6 +20,11 @@ import wm.damage.core.shell.Shell
 import wm.damage.core.shell.ShellServices
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.SimTransport
+import wm.damage.core.app.Draft
+import wm.damage.core.app.LocalWindowSource
+import wm.damage.core.app.MemoryRecord
+import wm.damage.core.windows.games.GamesCore
+import wm.damage.core.windows.games.GamesGlasses
 import wm.damage.core.windows.games.GamesWindow
 import wm.damage.core.windows.games.holdem.HoldemRules
 import wm.damage.core.windows.games.holdem.HoldemTable
@@ -52,23 +57,25 @@ class GamesReview20260904Test {
     // ================================================================ #1
     @Test
     fun registrationDoesNotMintAWorldBeforeTheRestoreLands() {
-        // `onRegistered` runs BEFORE any sub-record arrives. Populating there
-        // minted 35 characters against a fresh clock seed; the restore then
-        // overwrote the ids it had and left the rest behind as strangers with
-        // full bankrolls — free money on every start.
+        // Populating at registration minted 35 characters against a fresh clock seed; the restore then overwrote the
+        // ids it had and left the rest behind as strangers with full bankrolls — free money on every start. S1-5 G: the
+        // world is the record's, read at registration; registration mints nothing, activation seeds what is missing.
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val w = GamesWindow(FakeText(), scope, worldSeed = 1L)   /* S1-1 fix round 2, ruling 1.9: a scripted scene pins its seed */
+            val core = GamesCore()
+            val rec = MemoryRecord(GamesCore.ACTIONS)
+            val src = LocalWindowSource(core, rec)
+            src.act(Draft(GamesCore.A_PLAY, listOf(GamesCore.WORLD), Roster(worldSeed = 4242, gameNo = 7, born = 3).toJson()))
+            src.act(Draft(GamesCore.A_PLAY, listOf("char.c0"), Roster.birth(4242, 0).toJson()))
+            rec.executor.call { }                                       // both writes applied
+            val w = GamesGlasses(FakeText(), scope, core, src, worldSeed = 1L)   /* S1-1 fix round 2, ruling 1.9: a scripted scene pins its seed */
             w.onRegistered(Svc)
-            assertEquals(0, w.roster.characters.size,
-                "registration must not populate the roster — the restore has not run yet")
-            assertEquals(0L, w.roster.worldSeed, "and must not mint a world seed")
-            // the restore lands, THEN activation seeds whatever is still missing
-            w.restoreSubState("world", Roster(worldSeed = 4242, gameNo = 7, born = 3).toJson())
-            w.restoreSubState("char.c0", Roster.birth(4242, 0).toJson())
+            assertEquals(1, w.roster.characters.size, "registration reads the record's characters and mints none")
+            assertEquals(4242L, w.roster.worldSeed, "and reads its world seed")
             w.onActivate(Svc, ActivationSource.RESTORE)
-            assertEquals(4242L, w.roster.worldSeed, "the restored world seed must survive activation")
+            assertEquals(4242L, w.roster.worldSeed, "the record's world seed must survive activation")
             assertTrue(w.roster.get("c0") != null)
+            assertTrue(w.roster.characters.size > 1, "activation seeds the rest")
         } finally {
             scope.cancel()
         }

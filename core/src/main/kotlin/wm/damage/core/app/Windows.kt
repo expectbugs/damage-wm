@@ -60,6 +60,10 @@ object Windows {
         Entry(wm.damage.core.windows.music.MusicCore.WINDOW, "Music", 1, wm.damage.core.windows.music.MusicCore.ACTIONS,
             wm.damage.core.windows.music.MusicCore::levelOf, Levels.VIEW, program = wm.damage.core.windows.music.MusicCore.PROGRAM,
             rule = wm.damage.core.windows.music.MusicCore.RULE),
+        // S1-5 G: Games (C§12): its world (the table in play, the bankroll, the world and every character) and its rows,
+        // written by the one engine host at its settle points; no program actions, no rule
+        Entry(wm.damage.core.windows.games.GamesCore.WINDOW, "Games", 1, wm.damage.core.windows.games.GamesCore.ACTIONS,
+            wm.damage.core.windows.games.GamesCore::levelOf, Levels.VIEW),
     )
 
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }

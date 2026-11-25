@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
@@ -307,6 +308,34 @@ class WorkingCopyTest {
         pc.back()
         waitUntil(10_000, 5, { "sent at the welcome" }) { pc.item("b")?.value == j("two") && again.queue.waiting == 0 }
         assertEquals("phone", pc.item("b")!!.by)
+    }
+
+    /** S1-5 G: a window is heard from the first snapshot that shares it, never before (a copy saved by a build without
+     *  the window holds none of it, S1-4's R1.5 class); its source tells its listeners then, though no item moved (an
+     *  empty window); a restart whose saved copy holds the window's items hears it before any snapshot. */
+    @Test
+    fun aWindowIsHeardFromItsFirstSnapshot_andFromASavedCopyThatHoldsIt(): Unit = runBlocking {
+        val pc = keep(Pc())
+        pc.cut()
+        val first = phone(pc)
+        val heard = Heard()
+        val src = source(first, heard)
+        assertFalse(src.heard(), "no snapshot yet")
+        assertFalse(first.heard("t"))
+        pc.back()
+        synced(first, pc)
+        waitUntil(10_000, 5, { "heard" }) { src.heard() }
+        assertTrue(first.heard("t"))
+        assertTrue(heard.changes.isNotEmpty() && heard.changes.all { it.isEmpty() }, "told, with no item moved: ${heard.changes}")
+        pc.write("desk", "d1", 1, "a", "one")
+        synced(first, pc)
+        cut(pc, first)
+        first.close()
+        first.executor.shutdown()
+
+        val again = phone(pc)
+        waitUntil(10_000, 5, { "loaded" }) { again.client != null }
+        assertTrue(again.heard("t"), "the saved copy holds its items: heard before any snapshot")
     }
 
     /** Pin (WC, 2026-11-20): a clean close lands the copy's pending save before it returns. The snapshot's save waits

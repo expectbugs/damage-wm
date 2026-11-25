@@ -98,7 +98,7 @@ class TorrentsCoreTest {
     fun theRegistryLineTakesTheKeysOffTheSyncChannel_andNamesTheProgramActionsAndLevels() {
         assertFalse(Persistence.syncable("window.torrents"), "Torrents' blob is the glasses' local row now")
         // the merge with Q5: Files is converted too (FilesCoreTest pins `window.files` off the channel); Music is not
-        assertTrue(Persistence.syncable("window.games"), "an unconverted window still syncs")   // S1-4 K converted Music
+        assertTrue(Persistence.syncable("window.settings"), "an unconverted window still syncs")   // S1-5 G converted Games
         assertEquals(1, Windows.VERSIONS["torrents"], "contract version 1 (S1-2 R0 §2)")
         for (a in listOf("start", "stop", "recheck", "delete", "deleteFiles", "add", "addStopped", "openOnPc"))
             assertTrue(Windows.isProgram("torrents", a), "$a goes into an outside program")

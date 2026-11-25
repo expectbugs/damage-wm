@@ -871,6 +871,18 @@ private fun tmuxParts(appNet: wm.damage.core.app.AppNet, appHost: wm.damage.core
     return scopes
 }
 
+/**
+ * Build S1-5 G: Games' PC-served part, made at a PROCESS START by both host builders after its migration: Main's card,
+ * read from the PC record (Games has no page and no program ops; its one engine host is the glasses' presenter).
+ */
+private fun gamesParts(appNet: wm.damage.core.app.AppNet, appHost: wm.damage.core.app.AppHost): wm.damage.core.windows.games.GamesCore {
+    val core = wm.damage.core.windows.games.GamesCore()
+    val w = wm.damage.core.windows.games.GamesCore.WINDOW
+    appNet.serve(w, card = { core.card(wm.damage.core.app.WindowState(w, appHost.read(w).third.items)) })
+    Log.i("damage", "Games' core on the PC record ($w): its card on the lane")
+    return core
+}
+
 /** Build S1-1 P7: the glasses' faces for the web's glass theme, each resolved by fontconfig once (as `AwtText` resolves
  *  them); a face that is not installed is said once and answered 404. */
 private fun webFonts(): wm.damage.core.web.FontSource {
@@ -1055,6 +1067,9 @@ private suspend fun hostOnly(cfg: Config) {
         wm.damage.core.windows.music.MusicMigration.onHost(appHost, store) { }
         musicParts(cfg, appNet, appHost, lib, noticeCore) { line -> Log.i("music", line) }
     }
+    // build S1-5 (G): Games' state from before its conversion, then its card on Main (host-only has no presenter)
+    wm.damage.core.windows.games.GamesMigration.onHost(appHost, store) { }
+    gamesParts(appNet, appHost)
     Runtime.getRuntime().addShutdownHook(Thread({ endMusic(musicParts, appHost) }, "damage-music-end"))
 
     // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
@@ -1147,6 +1162,9 @@ class DesktopStack(
      *  null in tools, which build no Music window. */
     private val musicPc: Triple<wm.damage.core.windows.music.MusicPlayer, wm.damage.core.windows.music.MusicCore,
         wm.damage.core.app.WindowSource>? = null,
+    /** Build S1-5 G: Games' core and the source on the PC record its presenter reads (device `local`); null in tools,
+     *  which build Games the way it was built before (`GamesWindow`, a record in memory). */
+    private val gamesCore: Pair<wm.damage.core.windows.games.GamesCore, wm.damage.core.app.WindowSource>? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -1174,6 +1192,8 @@ class DesktopStack(
      *  Declared before `init`, which sets them. */
     private var filesGlasses: wm.damage.core.windows.files.FilesGlasses? = null
     private var filesSource: wm.damage.core.app.LocalWindowSource? = null
+    /** S1-5 G: this stack's Games presenter (it leaves its source at the stop). Declared before `init`, which sets it. */
+    private var gamesWindow: wm.damage.core.windows.games.GamesGlasses? = null
 
     init {
         val dataDir = Path.of(cfg.dataDir)
@@ -1216,9 +1236,9 @@ class DesktopStack(
         music?.let { lib -> musicPc?.let { (player, core, source) ->
             musicWindow = wm.damage.core.windows.music.MusicGlasses(text, lib, player, scope, core, source).also(shell::register)
         } }
-        // Games (HOLDEM.md): pure Kotlin, no host — the first window in this
-        // system that needs nothing outside itself
-        shell.register(wm.damage.core.windows.games.GamesWindow(text, scope))
+        // Games (HOLDEM.md): pure Kotlin, no provider; S1-5 G: its world on the PC record
+        gamesWindow = (gamesCore?.let { (core, source) -> wm.damage.core.windows.games.GamesGlasses(text, scope, core, source) }
+            ?: wm.damage.core.windows.games.GamesWindow(text, scope)).also(shell::register)
         // Feed (FEED.md): the PC's engine, read directly
         feed?.let { p ->
             feedWindow = (feedCore?.let { (core, source) -> wm.damage.core.windows.feed.FeedGlasses(text, p, scope, core, source) }
@@ -1276,6 +1296,7 @@ class DesktopStack(
                 filesSource?.close()
                 musicWindow?.detach()
                 feedWindow?.detach()
+                gamesWindow?.detach()      // S1-5 G: the source outlives the stack
             } finally {
                 // and the stack's own resources go the same way (R3-K3): its
                 // coroutines, and the BlueZ handler on the process-wide bus
@@ -1462,6 +1483,12 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         wm.damage.core.windows.music.MusicMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
         musicParts(cfg, appNet, appHost, lib, noticeCore) { line -> Journal.appendNote(journalFile, "music", line) }
     }
+    // build S1-5 (G): Games' world and rows from before its conversion (a `migrate` note), before any presenter reads
+    // them; then its card on Main, and the source every stack's glasses presenter reads (device `local`)
+    wm.damage.core.windows.games.GamesMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    val gamesCore = gamesParts(appNet, appHost)
+    val gamesSource = wm.damage.core.app.LocalWindowSource(gamesCore,
+        wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
 
     // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
     // Files on the PC record: the one job slot every PC caller meets (every stack's glasses, the phone's glasses
@@ -1556,7 +1583,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary, feed = feedEngine,
         reader = readerCore to readerSource, notices = noticeMirror, torrentsCore = torrentsScopes.core to torrentsSource,
         feedCore = feedScopes.core to feedSource, tmuxCore = tmuxScopes.core to tmuxSource,
-        musicPc = musicParts?.let { Triple(it.player, it.core, it.source) }) }
+        musicPc = musicParts?.let { Triple(it.player, it.core, it.source) }, gamesCore = gamesCore to gamesSource) }
 
     if (mode != "auto") {
         val first = build(mode)

@@ -104,6 +104,10 @@ interface WindowSource {
 
     /** This device's clock, as its ops are stamped with it (L1 C1: a presenter that keeps an input's time reads it). */
     fun now(): Long = System.currentTimeMillis()
+
+    /** S1-5 G: false while the state shown is not yet the PC's for this window (a working copy that has not had it in
+     *  a snapshot); the first state after it is heard is told to the listeners even when no item moved. */
+    fun heard(): Boolean = true
 }
 
 /** What a [LocalWindowSource] sits on: the PC's record or the phone's working copy. Every call is made on [executor]. */
@@ -125,4 +129,8 @@ interface RecordBackend {
 
     /** The clock this backend stamps a draft with when the draft carries no input time ([Draft.at]). */
     fun now(): Long = System.currentTimeMillis()
+
+    /** S1-5 G: true once this backend holds the PC's state of [window]; the PC's own record and a record in memory
+     *  always do. Any thread. */
+    fun heard(window: String): Boolean = true
 }

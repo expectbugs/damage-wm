@@ -4,16 +4,21 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
+import wm.damage.core.app.Draft
+import wm.damage.core.app.LocalWindowSource
+import wm.damage.core.app.MemoryRecord
+import wm.damage.core.app.Record
+import wm.damage.core.app.SourceListener
+import wm.damage.core.app.WindowSource
+import wm.damage.core.app.WindowState
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
@@ -51,6 +56,17 @@ import wm.damage.core.windows.games.roster.Character
 import wm.damage.core.windows.games.roster.Mood
 import wm.damage.core.windows.games.roster.Roster
 
+typealias GamesWindow = GamesGlasses
+
+/** The compatibility factory (build S1-5 G, the Feed/Tmux/Music precedent): Games over a record of its own in memory —
+ *  the test sites, `--selfcheck`, `--games-check` and the snapshot's first arrangement build it this way; the hosts build
+ *  the presenter over the PC's record or the phone's working copy. */
+fun GamesWindow(text: TextRasterizer, bg: CoroutineScope, worldSeed: Long? = null,
+                clock: () -> Long = { System.currentTimeMillis() }): GamesGlasses {
+    val core = GamesCore()
+    return GamesGlasses(text, bg, core, LocalWindowSource(core, MemoryRecord(GamesCore.ACTIONS)), worldSeed, clock)
+}
+
 /**
  * GAMES — `HOLDEM.md`. One window with games inside it (verdict 1), the shared
  * bankroll and the standings; Hold'em is the first and only game built, and
@@ -71,16 +87,25 @@ import wm.damage.core.windows.games.roster.Roster
  * background economy runs in the gaps between his own decisions, off-loop, and
  * stops the moment he leaves. That is what makes verdict 30's "no
  * notifications by default" correct rather than a shortcut.
+ *
+ * Build S1-5 G (the lean spec's §4.4): the world lives in the PC record through [source] (`GamesCore`'s items), read
+ * into these objects at the start and whenever the record moves in a way this presenter did not write, and written
+ * back at the settle points only (his action, a deal, a hand settled, a tournament's start and end, a refill, a
+ * cash-out, a background tournament) — never on a tick. Over the phone's working copy nothing of the world is minted
+ * or written until the copy has heard Games from the PC ([WindowSource.heard]): a world minted over his migrated one
+ * would reset his bankroll and roster.
  */
-class GamesWindow(
+class GamesGlasses(
     private val text: TextRasterizer,
     private val bg: CoroutineScope,
+    val core: GamesCore,
+    private val source: WindowSource,
     /** A new world's seed: null (every host) takes it from [clock]; a harness's scripted scene pins it (S1-1 fix round
      *  1, ruling 1.9: `CLAUDE.md`'s "a scripted scene pins its seed"). Never a trailing parameter: [clock] is. */
     private val worldSeed: Long? = null,
     /** Injected so a harness can drive the pacer without wall-clock waits. */
     private val clock: () -> Long = { System.currentTimeMillis() },
-) : DamageWindow("games", "Games", IconKind.GAMES) {
+) : DamageWindow(GamesCore.WINDOW, "Games", IconKind.GAMES) {
 
     private val tx = styledText(text)
     private val view = HoldemView(tx)
@@ -137,15 +162,31 @@ class GamesWindow(
      *  come off the table the moment the hand settles (§10.2). */
     private var cashOutPending = false
 
-    // ---- settings (all window-owned; §14) -----------------------------------
-    private var confirmPolicy = ActionLevel.Confirm.ALL
-    private var paceMs = 600L
-    private var dealAnim = true
-    private var archetypes = false
-    private var notifyBust = false
-    private var notifyWin = false
-    private var notifyReturn = false
-    private var heightPref: Int? = null
+    // ---- settings (§14; build S1-5 G: record items, `GamesCore.ROWS`) --------
+    /** The rows as last set here or read from the record (absent = the row's default). */
+    private val rowValues = HashMap<String, JsonElement>()
+    private fun row(id: String): JsonElement = GamesCore.ROW.getValue(id).valueOf(rowValues[id])
+    private val confirmPolicy: ActionLevel.Confirm get() =
+        GamesCore.text(row(GamesCore.CONFIRM))?.let { n -> ActionLevel.Confirm.entries.firstOrNull { it.name == n } } ?: ActionLevel.Confirm.ALL
+    private val paceMs: Long get() = GamesCore.long(row(GamesCore.PACE)) ?: 600L
+    private val dealAnim: Boolean get() = GamesCore.bool(row(GamesCore.DEAL)) ?: true
+    private val archetypes: Boolean get() = GamesCore.bool(row(GamesCore.ARCHETYPES)) ?: false
+    private val notifyBust: Boolean get() = GamesCore.bool(row(GamesCore.NOTIFY_BUST)) ?: false
+    private val notifyWin: Boolean get() = GamesCore.bool(row(GamesCore.NOTIFY_WIN)) ?: false
+    private val notifyReturn: Boolean get() = GamesCore.bool(row(GamesCore.NOTIFY_RETURN)) ?: false
+    private val heightPref: Int? get() = GamesCore.int(row(GamesCore.SIZE))?.takeIf { it in ShellSettings.HEIGHTS }
+
+    // ---- the record (build S1-5 G) -------------------------------------------
+    /** Per item, what this presenter last wrote or read (JsonNull = removed): what the next settle point compares. */
+    private val held = HashMap<String, JsonElement>()
+    /** Per item, the values written here and not yet seen back from the source, oldest first: an echo of one of them
+     *  (an older write's change can arrive after a newer write) is never read as the record moving. */
+    private val inflight = HashMap<String, ArrayDeque<JsonElement>>()
+    /** The record's items have been read into the objects (once the source has heard Games). */
+    private var loaded = false
+    private val recordListener = object : SourceListener {
+        override fun changed(state: WindowState, keys: Set<String>) = onShell { fromRecord(state, keys) }
+    }
 
     private var notice: String? = null
     private var noticeUntil = 0L
@@ -251,17 +292,21 @@ class GamesWindow(
 
     // ================================================================ lifecycle
     override fun onRegistered(ctx: ShellServices) {
-        // 🔴 NO world seeding here. `onRegistered` runs BEFORE the sub-records
-        // arrive, so populating would mint 35 characters against a fresh clock
-        // seed; the restore then overwrites the ids it has and leaves the rest
-        // behind as strangers with full bankrolls — free money on every start.
+        // 🔴 NO world seeding here: a world is minted only at an activation whose source has heard Games (S1-5 G),
+        // never against a record that has not arrived — 35 characters against a fresh clock seed, then the record's
+        // own landing beside them, is free money on every start. The record is read here when it is in.
         services = ctx
+        source.addListener(recordListener)
+        if (source.heard()) loadRecord(source.state())
     }
 
     override fun onActivate(ctx: ShellServices, from: ActivationSource) {
         services = ctx
         active = true
-        seedWorld()
+        if (source.heard()) {
+            loadRecord(source.state())
+            seedWorld()
+        }
         // Adam's rule, 2026-09-04 (HOLDEM.md §3, verdict 35): "Going to Games
         // from the switcher should auto-resume… Going to Games from Main
         // should present the Games List."
@@ -300,7 +345,141 @@ class GamesWindow(
         }
         me()
         roster.ensurePopulation()
+        persist()
     }
+
+    // ================================================================ the record (build S1-5 G)
+    /** True until the source has heard Games: the world is neither minted nor written, and the window says so. */
+    private val waiting: Boolean get() = !source.heard()
+
+    /** The record's items into the objects, once: at the registration or at the first change after the source heard
+     *  Games. Later moves come through [fromRecord]. */
+    private fun loadRecord(state: WindowState) {
+        if (loaded) return
+        loaded = true
+        val p = Record.prefix(GamesCore.WINDOW)
+        for ((k, i) in state.items) {
+            val name = k.removePrefix(p)
+            val v = if (i.gone) JsonNull else i.value
+            held[name] = v
+            readItem(name, v)
+        }
+        reconcileLevel()
+        charCache = null
+        bankCache = null
+    }
+
+    /** The record moved (on the loop): every item this presenter did not write is read into the objects; a table that
+     *  arrives void the decision in flight and is pumped once the level is reconciled (review §28 #1). */
+    private fun fromRecord(state: WindowState, keys: Set<String>) {
+        if (!source.heard()) return
+        if (!loaded) {
+            loadRecord(state)
+            if (active) { seedWorld(); if (level == Level_.TABLE) pump() }
+            services?.requestRender(this)
+            return
+        }
+        val p = Record.prefix(GamesCore.WINDOW)
+        var moved = false
+        var tableMoved = false
+        for (k in keys) {
+            val name = k.removePrefix(p)
+            val v = state.items[k]?.let { if (it.gone) JsonNull else it.value } ?: JsonNull
+            if (echo(name, v)) continue
+            held[name] = v
+            readItem(name, v)
+            moved = true
+            if (name == GamesCore.TABLE) tableMoved = true
+        }
+        if (!moved) return
+        reconcileLevel()
+        charCache = null
+        bankCache = null
+        if (tableMoved && active && level == Level_.TABLE) pump()
+        services?.requestRender(this)
+    }
+
+    /** True when [v] is this presenter's own write of [name] coming back (it and every older write still in flight are
+     *  taken off the list), or what it already holds. */
+    private fun echo(name: String, v: JsonElement): Boolean {
+        val q = inflight[name]
+        val i = q?.indexOf(v) ?: -1
+        if (q != null && i >= 0) {
+            repeat(i + 1) { q.removeFirst() }
+            if (q.isEmpty()) inflight.remove(name)
+            return true
+        }
+        return held[name] == v
+    }
+
+    /** One item's value into the objects ([JsonNull]: removed). */
+    private fun readItem(name: String, v: JsonElement) {
+        val o = v as? JsonObject
+        when {
+            name == GamesCore.BANKROLL -> o?.let(bankroll::load)
+            name == GamesCore.WORLD -> o?.let(roster::loadWorld)
+            name.startsWith(GamesCore.CHAR) ->
+                if (o == null) roster.remove(name.removePrefix(GamesCore.CHAR)) else Character.load(o)?.let { roster.put(it) }
+            name == GamesCore.TABLE -> {
+                cancelPacer()
+                val tour = o?.let(GamesCore::tournamentOf)
+                if (o != null && tour == null) setNotice("the saved table would not replay — it was dropped")
+                table = tour?.table
+                mySeat = tour?.mySeat ?: 0
+                myStake = tour?.myStake ?: 0
+                myCashedOut = tour?.myCashedOut ?: 0
+                myFee = tour?.myFee ?: 0
+                castStake.clear()
+                tour?.castStake?.let { castStake.putAll(it) }
+                bgOwed = tour?.bgOwed ?: 0
+                cashOutPending = tour?.cashOutPending ?: false
+                if (tour == null) cast.clear()
+                lastSettledHand = -1
+            }
+            name in GamesCore.ROW -> if (v is JsonNull) rowValues.remove(name) else rowValues[name] = v
+        }
+    }
+
+    /** The world's items as the objects hold them now. */
+    private fun worldItems(): Map<String, JsonElement> {
+        val out = LinkedHashMap<String, JsonElement>()
+        out[GamesCore.BANKROLL] = bankroll.toJson()
+        out[GamesCore.WORLD] = roster.toJson()
+        for (c in roster.characters) out[GamesCore.CHAR + c.id] = c.toJson()
+        table?.let { t ->
+            out[GamesCore.TABLE] = GamesCore.tableJson(GamesCore.Tournament(t, mySeat, myStake, myCashedOut, myFee,
+                HashMap(castStake), bgOwed, cashOutPending))
+        }
+        return out
+    }
+
+    /** A settle point (the spec's §3): every world item that differs from what was last written or read is written,
+     *  and an item the world no longer holds is removed. Nothing until the source has heard Games. */
+    private fun persist() {
+        if (waiting || !loaded) return
+        val now = worldItems()
+        for ((name, v) in now) if (held[name] != v) write(GamesCore.A_PLAY, name, v)
+        for (name in held.keys.toList()) {
+            if (name in now || name in GamesCore.ROW || held[name] is JsonNull) continue
+            write(GamesCore.A_DROP, name, JsonNull)
+        }
+    }
+
+    /** The row [id] set here: the field first, the op after (C§2.3: the first flush never waits). */
+    private fun setRow(id: String, v: JsonElement) {
+        rowValues[id] = v
+        charCache = null
+        write(GamesCore.A_SET, id, v)
+    }
+
+    private fun write(action: String, name: String, v: JsonElement) {
+        held[name] = v
+        inflight.getOrPut(name) { ArrayDeque() }.addLast(v)
+        source.act(Draft(action, listOf(name), v))
+    }
+
+    /** The presenter leaves its source (a stack's stop; the source outlives it on the PC). */
+    fun detach() = source.removeListener(recordListener)
 
     // ================================================================ contract
     override fun view(): WindowView = when (level) {
@@ -329,7 +508,7 @@ class GamesWindow(
         // readable; repeating it in the 400 px title cell only truncates it
         if (n != null && clock() < noticeUntil && level != Level_.TABLE) return n
         return when (level) {
-            Level_.GAMES -> "games"
+            Level_.GAMES -> if (waiting) WAITING else "games"
             Level_.TABLES -> "hold'em"
             Level_.TABLE -> table?.let { "hold'em · ${it.spec.label.lowercase()}" } ?: "hold'em"
             Level_.STANDINGS -> "standings"
@@ -340,18 +519,9 @@ class GamesWindow(
     }
 
     override fun summary(): Summary {
-        // cheap and side-effect-free (WINDOWS.md §1): cached state only
-        val t = table
-        if (t != null) {
-            val v = t.view()
-            val left = v.activeSeats.size
-            val mine = v.seats.getOrNull(mySeat)?.stack ?: 0
-            return Summary("Hold'em · $left left · ${Money.fmt(mine)}",
-                detail = "${t.spec.label} · hand ${v.handNo + 1}", more = true)
-        }
-        return Summary("${Money.fmt(bankroll.cash)} · W${bankroll.tournamentsWon} · L${bankroll.loserCount}",
-            detail = if (bankroll.broke(HoldemRules.cheapestSeat())) "broke — refill in Bankroll"
-            else "no tournament running")
+        // cheap and side-effect-free (WINDOWS.md §1): cached state only; S1-5 G: the card's function (one description)
+        if (waiting) return Summary(WAITING, detail = "until the phone has the PC's record")
+        return GamesCore.summaryOf(bankroll, table, mySeat)
     }
 
     override fun levelDepth(): Int = when (level) {
@@ -465,6 +635,8 @@ class GamesWindow(
     }
 
     private fun commitGames(i: Int) {
+        // S1-5 G: nothing of the world is shown or played before the record has it
+        if (waiting && gamesRows().getOrNull(i) != GRow.SettingsRow) { setNotice(WAITING); return }
         when (gamesRows().getOrNull(i)) {
             GRow.Holdem -> {
                 if (table != null) { level = Level_.TABLE; inspect = -1; pump() }
@@ -647,6 +819,7 @@ class GamesWindow(
         level = Level_.TABLE
         Log.i("games", "sat down at ${spec.label} for ${Money.fmt(entry)} " +
             "(+${Money.fmt(fee)} fee) against ${seated.size}")
+        persist()
         pump()
     }
 
@@ -789,7 +962,7 @@ class GamesWindow(
                 if (table !== t || !active || level != Level_.TABLE) return@onShell
                 if (revealing) {
                     revealed = (revealed + 1).coerceAtMost(t.view().board.size)
-                    services?.requestRender(this@GamesWindow)
+                    services?.requestRender(this@GamesGlasses)
                     pump()
                     return@onShell
                 }
@@ -801,7 +974,7 @@ class GamesWindow(
                 if (!applyDecision(t, seat!!, decision)) return@onShell
                 revealed = revealed.coerceAtMost(t.view().board.size)
                 if (!dealAnim) revealed = t.view().board.size
-                services?.requestRender(this@GamesWindow)
+                services?.requestRender(this@GamesGlasses)
                 pump()
             }
         }
@@ -882,6 +1055,7 @@ class GamesWindow(
         syncMe()
         charCache = null
         bankCache = null
+        persist()
         // verdict 30: OFF by default, and in Games' own Settings category
         if (notifyBust) {
             for ((seat, c) in cast) {
@@ -915,6 +1089,7 @@ class GamesWindow(
         if (!running) { cashOutPending = false; finishTournament(t, HashMap(cast), mySeat); return }
         if (!stillIn || !t.inPlay(mySeat)) { playOutWithoutMe(t); return }
         maybeBackground()
+        persist()
         services?.requestRender(this)
         pump()
     }
@@ -1034,6 +1209,7 @@ class GamesWindow(
         syncMe()
         charCache = null
         bankCache = null
+        persist()
         setNotice(if (winner == seat) "you win ${Money.fmt(prize)}" else "you finished ${ordinal(myPlace)}")
         offerRefillIfBroke()
         services?.requestRender(this)
@@ -1107,6 +1283,7 @@ class GamesWindow(
         } ?: return
         Log.i("games", "background: ${s.spec.label}, ${s.hands} hands, ${s.winner} won " +
             "${Money.fmt(s.prize)}")
+        persist()
         if (notifyReturn) {
             for (c in roster.characters) {
                 if (c.state == Character.State.PLAYING && c.id in before) {
@@ -1250,6 +1427,7 @@ class GamesWindow(
         acting = null
         revealed = revealed.coerceAtMost(t.view().board.size)
         if (!dealAnim) revealed = t.view().board.size
+        persist()
         services?.requestRender(this)
         pump()
     }
@@ -1309,6 +1487,7 @@ class GamesWindow(
         }
         cashOutPending = true
         acting = null
+        persist()
         setNotice("folded — cashing out when the hand ends")
         services?.requestRender(this)
         pump()
@@ -1327,6 +1506,7 @@ class GamesWindow(
         bankCache = null
         playOutWithoutMe(t)
         syncMe()
+        persist()
         // last, so it survives the settlement's own outcome line: what he
         // asked for is what the panel should say
         setNotice("cashed out ${Money.fmt(chips)}")
@@ -1509,6 +1689,7 @@ class GamesWindow(
         bankroll.refill()
         syncMe()
         bankCache = null
+        persist()
         setNotice(if (over > 0) "set back to ${Money.fmt(Bankroll.BASE)} · Loser Count ${bankroll.loserCount}"
         else "refilled · Loser Count ${bankroll.loserCount}")
         services?.requestRender(this)
@@ -1543,34 +1724,19 @@ class GamesWindow(
     }
 
     // ================================================================ settings
+    /** The rows from the one description (`GamesCore.ROWS`): its words and options, set through [setRow]. Built once
+     *  (Settings matches staged rows by identity). */
     private val settingsRows: List<HostSetting> by lazy {
-        listOf(
-            HostSetting("Confirm", ActionLevel.Confirm.LABELS,
-                { confirmPolicy.label }, { confirmPolicy = ActionLevel.Confirm.byLabel(it) }),
-            HostSetting("Bot pace", PACES.keys.toList(),
-                { PACES.entries.firstOrNull { e -> e.value == paceMs }?.key ?: "600 ms" },
-                { paceMs = PACES[it] ?: 600L }),
-            HostSetting("Deal animation", listOf("on", "off"),
-                { if (dealAnim) "on" else "off" }, { dealAnim = it == "on" }),
-            HostSetting("Archetype labels", listOf("off", "on"),
-                { if (archetypes) "on" else "off" }, { archetypes = it == "on"; charCache = null }),
-            // 🔴 every notification default OFF (verdict 30): the state does
-            // not change while he is away from the game, so there is nothing
-            // to tell him. In GAMES' own category, never Global.
-            HostSetting("Notify · bot busted", listOf("off", "on"),
-                { if (notifyBust) "on" else "off" }, { notifyBust = it == "on" }),
-            HostSetting("Notify · tournament won", listOf("off", "on"),
-                { if (notifyWin) "on" else "off" }, { notifyWin = it == "on" }),
-            HostSetting("Notify · character returned", listOf("off", "on"),
-                { if (notifyReturn) "on" else "off" }, { notifyReturn = it == "on" }),
-            HostSetting("Size", listOf("global") + ShellSettings.HEIGHTS.map { "$it" },
-                { heightPref?.toString() ?: "global" }, { heightPref = it.toIntOrNull() }),
-        )
+        GamesCore.ROWS.map { r ->
+            HostSetting(r.label, r.options.map { it.second }, { r.labelOf(rowValues[r.id]) },
+                { l -> r.options.firstOrNull { it.second == l }?.let { setRow(r.id, it.first) } })
+        }
     }
 
     override fun appSettings(): List<HostSetting> = settingsRows
 
     // ================================================================ persistence
+    /** The view only (S1-5 G): the world and the rows are the record's. */
     override fun saveState(): JsonObject = buildJsonObject {
         put("level", level.name)
         put("gamesCursor", gamesModel.cursor)
@@ -1579,23 +1745,8 @@ class GamesWindow(
         put("charTop", charDoc.topLine)
         put("bankTop", bankDoc.topLine)
         openChar?.let { put("openChar", it) }
-        put("mySeat", mySeat)
-        put("myStake", myStake)
-        put("myCashedOut", myCashedOut)
-        put("myFee", myFee)
-        putJsonObject("castStake") { for ((k, v) in castStake) put(k.toString(), v) }
         put("revealed", revealed)
         put("unlimitedStake", unlimitedStake)
-        put("bgOwed", bgOwed)
-        put("cashOutPending", cashOutPending)
-        put("confirm", confirmPolicy.name)
-        put("paceMs", paceMs)
-        put("dealAnim", dealAnim)
-        put("archetypes", archetypes)
-        put("notifyBust", notifyBust)
-        put("notifyWin", notifyWin)
-        put("notifyReturn", notifyReturn)
-        heightPref?.let { put("height", it) }
     }
 
     override fun restoreState(state: JsonObject) {
@@ -1607,37 +1758,12 @@ class GamesWindow(
         charDoc.topLine = state["charTop"]?.jsonPrimitive?.intOrNull ?: 0
         bankDoc.topLine = state["bankTop"]?.jsonPrimitive?.intOrNull ?: 0
         openChar = state["openChar"]?.jsonPrimitive?.contentOrNull
-        mySeat = (state["mySeat"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
-        myStake = state["myStake"]?.jsonPrimitive?.intOrNull ?: 0
-        myCashedOut = (state["myCashedOut"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
-        myFee = (state["myFee"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
-        castStake.clear()
-        // tolerant on purpose: one malformed entry here must not take the
-        // whole main record down with it (the shell drops a record whose
-        // restore throws, and this one carries the level, the seat and every
-        // Settings value)
-        (state["castStake"] as? JsonObject)?.forEach { (k, v) ->
-            val seat = k.toIntOrNull() ?: return@forEach
-            castStake[seat] = (v as? JsonPrimitive)?.intOrNull ?: 0
-        }
         revealed = (state["revealed"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
         unlimitedStake = (state["unlimitedStake"]?.jsonPrimitive?.intOrNull ?: 1_000).coerceAtLeast(1)
-        bgOwed = (state["bgOwed"]?.jsonPrimitive?.intOrNull ?: 0).coerceIn(0, 8)
-        cashOutPending = state["cashOutPending"]?.jsonPrimitive?.booleanOrNull ?: false
-        confirmPolicy = state["confirm"]?.jsonPrimitive?.contentOrNull
-            ?.let { n -> ActionLevel.Confirm.entries.firstOrNull { it.name == n } } ?: ActionLevel.Confirm.ALL
-        paceMs = state["paceMs"]?.jsonPrimitive?.longOrNull?.takeIf { it in PACES.values } ?: 600L
-        dealAnim = state["dealAnim"]?.jsonPrimitive?.booleanOrNull ?: true
-        archetypes = state["archetypes"]?.jsonPrimitive?.booleanOrNull ?: false
-        notifyBust = state["notifyBust"]?.jsonPrimitive?.booleanOrNull ?: false
-        notifyWin = state["notifyWin"]?.jsonPrimitive?.booleanOrNull ?: false
-        notifyReturn = state["notifyReturn"]?.jsonPrimitive?.booleanOrNull ?: false
-        heightPref = state["height"]?.jsonPrimitive?.intOrNull?.takeIf { it in ShellSettings.HEIGHTS }
-        // a level that needs a table has none until the sub-record lands; the
-        // reconciliation below runs after every sub-restore. A decision in
-        // flight when the shell stopped never gets its `runOnShell` back, and
-        // a latched `thinking` would leave the table frozen for good: a
-        // restore is a new session, and `cancelPacer` clears both.
+        // a level that needs a table has none until the record has it (the reconciliation runs again after every
+        // read of the record). A decision in flight when the shell stopped never gets its `runOnShell` back, and a
+        // latched `thinking` would leave the table frozen for good: a restore is a new session, and `cancelPacer`
+        // clears both.
         cancelPacer()
         acting = null
         skipping = false
@@ -1668,57 +1794,6 @@ class GamesWindow(
         }
     }
 
-    override fun restoreStateLive(state: JsonObject) {
-        restoreState(state)
-        if (active && level == Level_.TABLE) pump()
-        services?.requestRender(this)
-    }
-
-    /**
-     * §11.1's records. Per-item sub-records because two drivers touching
-     * DIFFERENT items must not clobber each other under last-write-wins — and
-     * a roster of 35 characters in one blob would do exactly that.
-     *
-     * ⚠ Never report an EMPTY object: an empty blob IS the §16.4a removal
-     * TOMBSTONE and would fresh-stamp a deletion of the peer's real record
-     * (the §25 #8 trap).
-     */
-    override fun saveSubState(): Map<String, JsonObject> {
-        val out = LinkedHashMap<String, JsonObject>()
-        out["bankroll"] = bankroll.toJson()
-        out["world"] = roster.toJson()
-        table?.let { out["table"] = it.toJson() }
-        for (c in roster.characters) out["char.${c.id}"] = c.toJson()
-        return out
-    }
-
-    override fun restoreSubState(subKey: String, state: JsonObject) {
-        // a table arriving from a peer REPLACES the one a decision may be in
-        // flight for: that decision is void, and the new table needs its own
-        // pump once the level is reconciled (review §28 #1)
-        if (subKey == "table") cancelPacer()
-        if (state.isEmpty()) {
-            // the removal tombstone
-            when {
-                subKey == "table" -> { table = null; cast.clear() }
-                subKey.startsWith("char.") -> roster.remove(subKey.removePrefix("char."))
-            }
-            reconcileLevel()
-            return
-        }
-        when {
-            subKey == "bankroll" -> bankroll.load(state)
-            subKey == "world" -> roster.loadWorld(state)
-            subKey == "table" -> {
-                table = HoldemTable.load(state)
-                if (table == null) setNotice("the saved table would not replay — it was dropped")
-            }
-            subKey.startsWith("char.") -> Character.load(state)?.let { roster.put(it) }
-        }
-        reconcileLevel()
-        if (subKey == "table" && active && level == Level_.TABLE) pump()
-    }
-
     /** §16.1: `char:<id>` opens a character; `table` opens the live table. */
     override fun open(target: String): Boolean = when {
         target == "table" && table != null -> { level = Level_.TABLE; pump(); true }
@@ -1742,6 +1817,9 @@ class GamesWindow(
         /** Adam's own character id (verdict 25: he is a roster character). */
         const val ME = "you"
 
+        /** What the window says until its source has heard Games (S1-5 G). */
+        const val WAITING = "Games waits for the PC's copy"
+
         /** §7.5's ratio in practice: one background tournament every N hands
          *  of Adam's, which over a 60–120-hand sit-and-go lands in the 2–3
          *  band verdict 26 asks for. */
@@ -1754,9 +1832,5 @@ class GamesWindow(
          *  300 ms does not become 100. */
         const val REVEAL_MIN_MS = 80L
 
-        val PACES = linkedMapOf(
-            "instant" to 0L, "300 ms" to 300L, "600 ms" to 600L,
-            "1 s" to 1_000L, "1.5 s" to 1_500L,
-        )
     }
 }
