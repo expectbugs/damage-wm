@@ -48,8 +48,15 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                     *  as it is, +1 with it reversed), so a lens whose pitch and entries disagree shows it (the probe shows the
                     *  row index; the truth's [probeLevel]). Plain lists only: a ring fire reads kind 2 at the virtual row,
                     *  which a static ruler cannot hold across the harness's re-stagings (Main's strip does: its margins). */
-                   val pitchProbe: Boolean = false) {
+                   val pitchProbe: Boolean = false,
+                   /** K1-2 stage 4b: glasses list 1 beside Main — a window's own bound list (list 1, slot 0, entries 3–5, its
+                    *  tap entry report-only, pitch the row height for every effect; `FIRMWARE.md` §6.7, the K1-2 spec §7). Only on
+                    *  a stage-5 build ([ring]; decisions BC O2); every list-1 choice is drawn from [l1Rnd], so a sequence without
+                    *  it draws exactly what it drew before. */
+                   val list1: Boolean = false) {
     val rnd = java.util.Random(seed)
+    /** K1-2 stage 4b: list 1's own draws (its window's rows, the lane's delay, a ring staging, a Select's level). */
+    val l1Rnd = java.util.Random(seed * 31 + 17)
     val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = if (ring) 0xDFF else 0x5FF; it.clockIsOsTick = true }
     /** The flags each start arms: stage 4's, and EFFECTS at stage 5 (a ring list needs it, `FIRMWARE.md` §7.8). */
     private val armed = ARMED or (if (ring) DamageMsg.FLAG_EFFECTS else 0)
@@ -163,6 +170,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         put(notice.bytes)
         cacheWrites += write19(notice.at, notice.bytes)
         noticeCap4 = at4; at4 += (notice.captureBytes + 3) / 4 + 1          // the capture's room, written by each PLAY
+        // K1-2 stage 4b: list 1's two item tables (a new staging takes the other one), after everything else so that a
+        // sequence without list 1 lays out byte for byte as before
+        if (list1) { table1At[0] = put(ByteArray(2 * IDS)); table1At[1] = put(ByteArray(2 * IDS)) }
     }
 
     // ------------------------------------------------------------------------------------------- build K1-4a: the notice
@@ -215,15 +225,238 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     private fun sp() = if (scrollAlt) scroll2 else scroll
 
+    // ------------------------------------------------------------------------------------------- K1-2 stage 4b: list 1
+    /** The window in front has its own list ([ids1], [row1]): shown in the band, bound as list 1 when its staging is held
+     *  and counted ([l1Bound]), uncovered and no transition runs. False: a window without a list, a cover as before. */
+    var win1 = false
+    /** The window list's staging is held and counted: it is bound whenever its window is in front, uncovered, no run. */
+    var l1Bound = false
+    /** A transition's run (the K1-2 spec §5.3, modeled): the band shows the run's frames ([MODAL]), nothing is bound, a
+     *  notch is applied as today to the arriving view; the arriving list is bound at its end when its staging is held. */
+    var trans = false
+    private var transGen = 0
+    var ids1 = IntArray(0)
+    var row1 = 0
+    /** The window (a view's identity) in front or last in front, and the one whose staging is held (−1 none). */
+    var win1Key = -1
+    var staged1Key = -1
+    private var keySeq = 0
+    private var staged1Ids = IntArray(0)
+    private var mark1Base = 100
+    val table1At = IntArray(2)
+    private var table1Slot = 0
+    /** List 1's effect form: its scroll entries play [scroll2] (an effect change re-makes the programs alone, decisions CV). */
+    var l1Alt = false
+    /** The staging is a ring list (LIST-RING: its paint wraps, `MainStaging.ringFits`); drawn per staging on a ring build. */
+    var ring1 = false
+    var bound1: BoundList? = null
+    /** When the window list's lane may bind a new staging (its rows painted, written and read; drawn per staging). */
+    private var ready1At = Long.MAX_VALUE
+    /** Probability that a tap acted on list 1 is a Select into a new level (a transition leaving list 1). */
+    var actSelects = 0.0
+    /** Gesture → the number of times it moved list 1's row ((8) per list). */
+    val moves1 = HashMap<Int, Int>()
+    /** Per event class of list 1: how many times this sequence reached it (the stage's counted reach, not failures). */
+    val l1Reach = java.util.TreeMap<String, Int>()
+    fun reach(k: String) { l1Reach[k] = (l1Reach[k] ?: 0) + 1 }
+    private var lastL1FireAt = Long.MIN_VALUE / 2
+
+    /** The row of the surface the shell hands the rules: the window list's while its window is in front (covered or not —
+     *  decisions AF.2: a withdrawn list's row stays current), Main's otherwise (as before). */
+    fun rowNow(): Int = if (window && win1) row1 else row
+    fun idsNow(): IntArray = if (window && win1) ids1 else ids
+    /** The window list is what the band shows (its window in front, uncovered, no run). */
+    fun l1Shows() = window && win1 && !covered && !trans
+    /** A notch applied as today moves the window list's row: its window in front, uncovered (a run's arriving view too). */
+    private fun l1View() = window && win1 && !covered
+    private fun bandLevel(): Int = when { l1Shows() -> level(ids1[row1]); covered || window || trans -> MODAL; else -> level(ids[row]) }
+
+    fun boundFor1(ids: IntArray, mark: Int, at4: Int): BoundList {
+        val items = IntArray(ids.size) { recs[ids[it]] }
+        val p = listOf(CfwModes.BindParam(CfwModes.KIND_ITEM, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0))
+        val sc = if (l1Alt) scroll2 else scroll
+        // the window form (K1-2 S2 §7, 3a): entries 3–5, slot 0, pitch the row height for every effect, no press
+        return BoundList(1, 0, ids.size, BAND.h, mark and 0xFF, at4, items, listOf(
+            BoundList.Entry(3, CfwModes.EV_UPROLL, +1, period, sc.at, p, sc),
+            BoundList.Entry(4, CfwModes.EV_DOWNROLL, -1, period, sc.at, p, sc),
+            BoundList.Entry(5, CfwModes.EV_TAP, 0, period, CfwModes.PROG_NONE, p, null)), ring = ring1)
+    }
+
+    /** The lane's time from a new view to its binding (rows painted, written, the count read back — modeled: 100–700 ms). */
+    private fun laneDelay(): Long = 100L + l1Rnd.nextInt(600)
+
+    /** A new staging of the window list's view ([ids1]): its item table into the other slot at [writeAt], a new mark, a
+     *  ring staging drawn on a ring build; bound by the lane from [readyAt]. */
+    private fun stage1New(writeAt: Long, readyAt: Long) {
+        table1Slot = 1 - table1Slot
+        staged1Ids = ids1.copyOf()
+        val tbl = write19(table1At[table1Slot], itemTable(staged1Ids))
+        if (writeAt <= now) sendDown(tbl) else at(writeAt) { sendDown(tbl) }
+        mark1Base++
+        ring1 = ring && staged1Ids.size >= 2 && l1Rnd.nextBoolean()
+        if (ring1) reach("a ring list 1 staged")
+        bound1 = boundFor1(staged1Ids, mark1Base, table1At[table1Slot])
+        staged1Key = win1Key
+        l1Bound = false
+        ready1At = readyAt
+        at(readyAt) { pumpSoon() }
+    }
+
+    /** A new window's view (another app, or a new level): 2–8 distinct rows, the cursor on its first. */
+    private fun newView1(writeAt: Long, readyAt: Long) {
+        win1Key = ++keySeq
+        val pool = (0 until IDS).toMutableList()
+        java.util.Collections.shuffle(pool, l1Rnd)
+        ids1 = pool.take(2 + l1Rnd.nextInt(7)).toIntArray()
+        row1 = 0
+        stage1New(writeAt, readyAt)
+    }
+
+    /** What is in front changed in the rules' terms (a message is a front's own only while that front stands). */
+    private fun frontChanged() { frontGen++; noteFrontInBurst() }
+
+    /** Slot 0 changing lists (pin 13's shape): the leaving list's local still drawing on RIGHT. */
+    private fun slot0Changes() {
+        val i = sim.motionForTest(Arm.RIGHT).slots[0]
+        if (i != null && i.local && i.drawing) reach("slot 0 changed lists with a local of the leaving list drawing on RIGHT")
+    }
+
+    /** The window list's lane (`pumpWindowList`, modeled): it binds a held staging of the view in front when it is ready,
+     *  uncovered and no transition runs. */
+    private fun lane1() {
+        if (!list1 || !window || !win1 || covered || trans || l1Bound || staged1Key != win1Key || now < ready1At) return
+        l1Bound = true
+        frontChanged(); slot0Changes()
+        rules.front(bound1, row1)
+        reach("the lane bound a new staging of list 1")
+    }
+
+    /** A window with its own list comes in front of Main: the same window again (its staging kept: no LIST, decisions CX
+     *  "kept across Main") or another one (a new staging, bound by the lane); with a transition's run when [run] > 0. */
+    fun openWindowList(same: Boolean, run: Long) {
+        if (window || covered || trans) return
+        val inst = sim.motionForTest(Arm.RIGHT).slots[0]
+        if (inst != null && inst.drawing && inst.local && inst.tag in commitsSent) { emit(listOf(CfwModes.motionClose(0)), emptyList()); windowCuts++ }
+        window = true; win1 = true
+        val kept = same && staged1Key >= 0 && staged1Key == win1Key && l1Bound
+        if (!kept) { newView1(now + run, now + run + laneDelay()); reach("window change: Main → list 1, a new staging") }
+        else reach("window change: Main → list 1, its staging kept")
+        frontChanged()
+        if (run > 0) { startRun(run); reach("transition Main → list 1"); rules.front(null, rowNow()) }
+        else if (kept) { slot0Changes(); rules.front(bound1, row1) }
+        else rules.front(null, rowNow())
+        pumpSoon()
+    }
+
+    private fun startRun(run: Long) {
+        trans = true
+        val g = ++transGen
+        at(now + run) { if (trans && transGen == g) endRun() }
+    }
+
+    /** The run's end: the arriving front is bound when its staging is held (Main's always), else the lane binds it later. */
+    private fun endRun() {
+        trans = false
+        frontChanged()
+        if (!covered && !window) { slot0Changes(); rules.front(bound, row) }
+        else if (!covered && window && win1 && l1Bound && staged1Key == win1Key) { slot0Changes(); rules.front(bound1, row1) }
+        pumpSoon()
+    }
+
+    /** A Select from bound list 1 into a new level (the K1-2 spec §5.3, decisions DA (c) 1 (i)): the list leaves the front
+     *  for the run (its CLEARs on the out half), the new level is its arriving view, staged after the run. */
+    private fun selectFrom1() {
+        val run = 200L + l1Rnd.nextInt(600)
+        frontChanged()
+        startRun(run)
+        newView1(now + run, now + run + laneDelay())
+        rules.front(null, rowNow())
+        reach("transition leaving list 1: a Select into a new level")
+        pumpSoon()
+    }
+
+    /** List 1's view changes its count (a row added or removed): a new staging, a new mark — in place with the cursor's
+     *  shift (P9's form; with no burst open, the list in front) or withdrawn at once and staged again by the lane. */
+    fun count1(): Boolean {
+        if (!list1 || !window || !win1 || trans || staged1Key != win1Key) return false
+        val add = ids1.size < 8 && (ids1.size <= 2 || l1Rnd.nextBoolean())
+        val oldId = ids1[row1]
+        val newIds = if (add) intArrayOf((0 until IDS).first { it !in ids1 }) + ids1
+            else if (row1 < ids1.size - 1 && l1Rnd.nextBoolean()) ids1.copyOfRange(0, ids1.size - 1) else ids1.copyOfRange(1, ids1.size)
+        val newRow = newIds.indexOf(oldId).let { if (it < 0) 0 else it }
+        val inPlace = rules.front?.list == 1 && !rules.burstOpen && l1Rnd.nextBoolean()
+        if (inPlace) {
+            val shift = newRow - row1
+            ids1 = newIds; row1 = newRow
+            stage1New(now, now)
+            l1Bound = true
+            rules.front(bound1, row1, shift)
+            reach("count change of bound list 1: in place (a new mark, the cursor's shift)")
+        } else {
+            val wasFront = rules.front?.list == 1
+            ids1 = newIds; row1 = newRow
+            if (wasFront) { frontChanged(); rules.front(null, rowNow()) }
+            stage1New(now, now + laneDelay())
+            reach(if (wasFront) "count change of bound list 1: withdrawn, staged again by the lane" else "count change of unbound list 1: staged again")
+        }
+        pumpSoon()
+        return true
+    }
+
+    /** An effect change (decisions CV): the window list keeps its staging and its programs are made again — SETs alone,
+     *  with no burst open and the list in front (`Shell`'s pans switch); elsewhere the new form goes at its next binding. */
+    fun effect1(): Boolean {
+        if (!list1 || rules.burstOpen || bound1 == null) return false
+        l1Alt = !l1Alt
+        val p = if (l1Alt) scroll2 else scroll
+        sendDown(write19(p.at, p.bytes))
+        val b = bound1!!
+        bound1 = boundFor1(staged1Ids, b.mark, b.items4)
+        if (rules.front?.list == 1) { rules.front(bound1, row1); reach("effect change of bound list 1: SETs alone, the staging kept") }
+        else reach("effect change with list 1 not in front")
+        pumpSoon()
+        return true
+    }
+
+    /** List 1 withdrawn while its window stays (the wheel's block meets it, a row form changes): unbound at once, staged
+     *  again below by the lane (a new place, a new mark). */
+    fun withdraw1(): Boolean {
+        if (rules.front?.list != 1) return false
+        frontChanged()
+        rules.front(null, rowNow())
+        stage1New(now, now + laneDelay())
+        reach("withdrawal of bound list 1")
+        pumpSoon()
+        return true
+    }
+
+    /** One list-1 event of the random driver, drawn from [r] (the sequence's list-1 stream). Returns its name. */
+    fun list1Event(r: java.util.Random): String {
+        val y = r.nextInt(100)
+        return when {
+            y < 25 -> { val same = r.nextBoolean(); val run = if (r.nextInt(10) < 4) 200L + r.nextInt(500) else 0L
+                if (!window && !covered && !trans) { openWindowList(same, run); "open a window list (${if (same) "same" else "another"}, run $run)" } else "open a window list (not now)" }
+            y < 40 -> { val run = if (r.nextBoolean()) 200L + r.nextInt(500) else 0L; if (window && win1) { back(run); "back from list 1 (run $run)" } else { back(); "back" } }
+            y < 55 -> if (count1()) "count change of list 1" else "count change (not now)"
+            y < 65 -> if (effect1()) "effect change" else "effect change (not now)"
+            y < 75 -> if (withdraw1()) "withdraw list 1" else "withdraw (not now)"
+            y < 85 -> if (window && restage()) { reach("Main's covered re-make under ${if (win1) "list 1" else "a window"}"); "Main's covered re-make" } else "Main's re-make (not now)"
+            else -> { if (covered) { uncover(); "uncover" } else { val f = rules.front?.list; cover()
+                if (covered && f == 1) { reach(if (noticeTimer) "a notice over bound list 1" else "a cover over bound list 1 (adjust, menu)")
+                    if (now - lastL1FireAt < 300) reach("a cover over bound list 1 with a notch of it in flight") }
+                "cover" } }
+        }
+    }
+
     private fun itemTable(ids: IntArray) = ByteArray(2 * ids.size).also { b -> ids.forEachIndexed { i, id -> b[2 * i] = (recs[id] and 0xFF).toByte(); b[2 * i + 1] = (recs[id] shr 8).toByte() } }
 
     /** The phone's truth (levels, one per pixel; the list is flat, so both lenses alike). */
     fun truth(): ByteArray {
         val t = ByteArray(W * H)
         fun fill(r: Rect, l: Int) { for (y in r.y until r.bottom) for (x in r.x until r.right) t[y * W + x] = l.toByte() }
-        fill(BAND, if (covered || window) MODAL else level(ids[row]))
+        fill(BAND, bandLevel())
         if (covered && noticeTimer) fill(NOTICE_GEO.rule, wm.damage.core.motion.PopupPrograms.BAR_LEVEL)
-        if (badge && !covered && !window) fill(BADGE, BADGE_LEVEL)
+        if (badge && !covered && !window && !trans) fill(BADGE, BADGE_LEVEL)
         fill(CLOCK, 1 + clock % 13)
         if (pitchProbe) fill(PROBE, probeLevel(row))
         return t
@@ -545,14 +778,17 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (arm == Arm.RIGHT) { f.shownR = shownOnRight(); f.resetsAtFireR = rightResets; f.fireTimeR = now }
             if (arm == Arm.RIGHT) { f.awaitsPresentR = listRefusedPresentR == sim.right.presentSeq; f.shadowR = bandIdIn(sim.right.shadow, BADGE) }
             if (arm == Arm.RIGHT && !tap) { scrollFiresR++; if (sim.motionForTest(arm).slots.any { it != null && it.slot <= WRAP_SLOT && it.drawing && it.d < it.T }) scrollFiresInMotionR++ }
+            // K1-2 stage 4b: the list the lens's entry for this event names (list 1's or Main's; 0 without list 1)
+            val lf = if (!list1) 0 else (b.entries.firstOrNull { it != null && it.eventId == id }?.list ?: 0)
             sim.conformanceInput(arm, dev, id.toLong(), 0, now)
             if (holdWordOn == arm) sim.motionForTest(arm).holdWordForTest(false)
             sim.conformanceStockCalls(arm)
             val s = if (b.seq != before) b.seq else null
-            if (arm == Arm.LEFT) f.sL = s else { f.sR = s; s?.let { bySR[it] = g }; f.cursorR = b.lists[0].cursor; f.markR = b.lists[0].mark }
-            if (arm == Arm.RIGHT) f.cursorIdR = ids.getOrNull(b.lists[0].cursor)
+            if (arm == Arm.LEFT) f.sL = s else { f.sR = s; s?.let { bySR[it] = g }; f.cursorR = b.lists[lf].cursor; f.markR = b.lists[lf].mark }
+            if (arm == Arm.RIGHT) f.cursorIdR = (if (lf == 1) staged1Ids else ids).getOrNull(b.lists[lf].cursor)
+            if (arm == Arm.RIGHT && lf == 1 && s != null) lastL1FireAt = now
             if (arm == Arm.RIGHT && carryHold) f.holdEndR = deferUntil
-            if (arm == Arm.LEFT && (covered || window) && sim.motionForTest(arm).slots.any { it?.local == true && it.tag == s }) localsUnderCover++
+            if (arm == Arm.LEFT && (covered || (window && rules.front?.list != 1)) && sim.motionForTest(arm).slots.any { it?.local == true && it.tag == s }) localsUnderCover++
         }
         trace?.invoke("[$now] gesture g$g kind $kind answer $answer band $bandNow hold $holdWordOn")
         if (covered && noticeTimer) { noticeOwed = true; pumpSoon() }           // K1-4a: the input restarts the notice's timer
@@ -582,7 +818,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             // holds no scroll entry of its direction, so it sends no 115) is that front's own
             if (!tap && !mainInFront()) {
                 val b = sim.bindForTest(Arm.RIGHT)
-                if (!b.live || b.entries.none { it != null && it.eventId == id }) frontNotchAt[g] = (if (window) "window" else "cover") to frontGen
+                if (!b.live || b.entries.none { it != null && it.eventId == id }) frontNotchAt[g] = (if (window && win1) "window list" else if (window) "window" else "cover") to frontGen
             }
             input(Arm.RIGHT)
             drainSent()
@@ -624,7 +860,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  adoption or a tap's correction — the gap's notches RIGHT drew and still held at this report's fire (no phone message
      *  reset its cursor between), which the move carries. */
     class Move(val g: Int, val t: Long, val n: Long, val by115: Boolean, val v: LocalRules.Verdict, val before: Int, val after: Int,
-               val carried: Boolean, val outcome: Int?, val size: Int, val carries: List<Int> = emptyList())
+               val carried: Boolean, val outcome: Int?, val size: Int, val carries: List<Int> = emptyList(),
+               /** K1-2 stage 4b: the list whose row the verdict moved (1: the window list's; (9) counts Main's alone). */
+               val list: Int = 0)
     val phoneMoves = ArrayList<Move>()
     /** The notches in an adoption's (or a tap correction's) gap that RIGHT drew and still held at its fire — the move
      *  carries them; the ring hears them there (B083 v2), as the verdict comes, before anything it opens. */
@@ -640,8 +878,17 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         for (gk in out) ringHeard(gk, "carrying adoption")
         return out
     }
-    private fun record(g: Int, by115: Boolean, v: LocalRules.Verdict, before: Int, carried: Boolean, a: DamageMsg.Applied?, carries: List<Int> = emptyList()) {
-        phoneMoves += Move(g, now, ringN++, by115, v, before, row, carried, a?.outcome, ids.size, carries)
+    private fun record(g: Int, by115: Boolean, v: LocalRules.Verdict, before: Int, carried: Boolean, a: DamageMsg.Applied?, carries: List<Int> = emptyList(),
+                       onL1: Boolean = false, before1: Int = row1) {
+        phoneMoves += if (onL1) Move(g, now, ringN++, by115, v, before1, row1, carried, a?.outcome, ids1.size, carries, list = 1)
+            else Move(g, now, ringN++, by115, v, before, row, carried, a?.outcome, ids.size, carries)
+    }
+    /** K1-2 stage 4b: the verdict acts on the window list's row (an adoption or an act while list 1 is the rules' front; a
+     *  verdict applied as today while its window is in front, uncovered), not Main's. */
+    private fun onL1(v: LocalRules.Verdict): Boolean = list1 && when (v) {
+        is LocalRules.Verdict.Adopt, is LocalRules.Verdict.Act -> rules.front?.list == 1
+        is LocalRules.Verdict.Apply -> l1View()
+        else -> false
     }
     private fun carriedNow() = !rules.burstOpen && rules.owesCarriedUntilMs != Long.MIN_VALUE
 
@@ -649,26 +896,36 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         beforeReport?.let { beforeReport = null; it() }
         if (g >= 0 && g !in reportHeardAt) reportHeardAt[g] = now
         if (g >= 0) ringHeard(g, "115")
-        val before = row; val carried = carriedNow(); val heardBefore = rules.sHeard
+        val before = row; val before1 = row1; val carried = carriedNow(); val heardBefore = rules.sHeard
         val opening = !rules.burstOpen
-        val v = rules.report(a, row, now)
+        val fl = rules.front?.list; val markNow = a.list?.let { rules.markOf(it) }
+        val v = rules.report(a, rowNow(), now)
         gapOf(g, a.s, heardBefore)
         if (v is LocalRules.Verdict.Adopt && a.wrapped) wrapAdopted += g        // C3 DM-0: a ring fire across the wrap, adopted
         if (opening && rules.burstOpen) { burstFrom = now; burstS0 = heardBefore; burstSeq++ }
-        trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
+        trace?.invoke("[$now] phone 115 g$g ${a.describe()} row ${rowNow()} → $v")
         verdicts += g to v
+        val l1 = onL1(v)
+        if (list1) {
+            // pins 13 and 7 reached by a sequence (the K1-2 spec §8): a report of the other list in slot 0, a fire on list 1's old mark
+            if (a.list == 0 && fl == 1) reach("pin 13: a list-0 report answered with list 1 in front ($v)")
+            if (a.list == 1 && fl == 0) reach("pin 13: a list-1 report answered with Main in front ($v)")
+            if (a.list == 1 && fl == 1 && a.mark != null && a.mark != markNow && a.outcome == DamageMsg.APPLIED_DREW) reach("pin 7: a fire on list 1's old mark ($v)")
+            if (l1 && v is LocalRules.Verdict.Adopt) { reach("a notch adopted on list 1"); if (a.wrapped) reach("a wrap notch adopted on ring list 1") }
+        }
         val carries = carries(g, v, a, heardBefore)
         apply(v, g, a)
-        record(g, true, v, before, carried, a, carries)
+        record(g, true, v, before, carried, a, carries, l1, before1)
         afterReport?.let { afterReport = null; it() }
         pumpSoon()
     }
 
     private fun phoneStock(st: LocalRules.Stock, g: Int) {
         if (!st.click) ringHeard(g, "stock")
-        val before = row; val carried = carriedNow()
+        val before = row; val before1 = row1; val carried = carriedNow()
         val os = rules.owesScroll; val oa = rules.owesAny
-        val v = rules.stock(st, row, now)
+        val v = rules.stock(st, rowNow(), now)
+        val l1 = onL1(v)
         if (rules.owesAny < oa) stockPaidAny += g
         trace?.invoke("[$now] phone stock g$g $st row $row → $v (carried $carried)")
         verdicts += g to v
@@ -687,12 +944,23 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             }
         }
         apply(v, g, null)
-        record(g, false, v, before, carried, null)
+        record(g, false, v, before, carried, null, onL1 = l1, before1 = before1)
         pumpSoon()
     }
 
     private fun apply(v: LocalRules.Verdict, g: Int, a: DamageMsg.Applied?) {
-        when (v) {
+        // K1-2 stage 4b: a verdict on the window list moves its row (an adoption or act on list 1; applied as today with its
+        // window in front); Main's exactly as before otherwise
+        if (onL1(v)) when (v) {
+            is LocalRules.Verdict.Adopt -> move1(g, v.row)
+            is LocalRules.Verdict.Apply -> when (v.type) {
+                EvenHubMsg.EV_CLICK -> if (l1Shows()) act1(g, row1, viaRule = false)
+                EvenHubMsg.EV_SCROLL_BOTTOM -> move1(g, (row1 + 1) % ids1.size)
+                EvenHubMsg.EV_SCROLL_TOP -> move1(g, (row1 - 1 + ids1.size) % ids1.size)
+            }
+            is LocalRules.Verdict.Act -> { val was = row1; move1(g, v.row); act1(g, v.row, viaRule = true, rowBefore = was) }
+            else -> {}
+        } else when (v) {
             is LocalRules.Verdict.Adopt -> move(g, v.row)
             is LocalRules.Verdict.Apply -> when (v.type) {
                 EvenHubMsg.EV_CLICK -> if (!covered && !window) act(g, row, viaRule = false)
@@ -704,6 +972,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         }
     }
 
+    private fun move1(g: Int, newRow: Int) { if (newRow != row1) { moves1[g] = (moves1[g] ?: 0) + 1; row1 = newRow } }
+
     var actOpensWindow = 0.0
     private fun act(g: Int, r: Int, viaRule: Boolean, rowBefore: Int = r) {
         val f = fires[g]
@@ -711,12 +981,24 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         acts += Act(g, ids[r], viaRule, rightId, rules.taps, rowBefore, r)
         if (rnd.nextDouble() < actOpensWindow) openWindow()
     }
+    /** K1-2 stage 4b: a tap acted on the window list's row (its tap entry is report-only: no press); a Select into a new
+     *  level with probability [actSelects]. */
+    private fun act1(g: Int, r: Int, viaRule: Boolean, rowBefore: Int = r) {
+        acts += Act(g, ids1[r], viaRule, fires[g]?.shownR, rules.taps, rowBefore, r)
+        reach("a tap acted on list 1")
+        if (rules.front?.list == 1 && l1Rnd.nextDouble() < actSelects) selectFrom1()
+    }
 
     // ---- covers, windows, re-stages, switches (the shell's own changes, each in the batch that draws it)
-    fun cover() { if (covered || window) return; covered = true; frontGen++; noteFrontInBurst(); rules.front(null, row); if (noticeTimer) noticeOwed = true; pumpSoon() }
-    fun uncover() { if (!covered) return; covered = false; frontGen++; if (!window) rules.front(bound, row); pumpSoon() }
+    /** K1-2 stage 4b: a cover (an adjust level, a menu, a notice) may also stand over a window's own list; no cover in a run. */
+    fun cover() { if (covered || trans || (window && !win1)) return; covered = true; frontGen++; noteFrontInBurst(); rules.front(null, rowNow()); if (noticeTimer) noticeOwed = true; pumpSoon() }
+    fun uncover() { if (!covered) return; covered = false; frontGen++
+        if (!window) rules.front(bound, row) else if (win1 && l1Bound && staged1Key == win1Key) { noteFrontInBurst(); rules.front(bound1, row1) }
+        pumpSoon() }
     fun openWindow() {
         if (window || covered) return
+        // K1-2 stage 4b: in a list-1 sequence an act's window has its own list most of the time
+        if (list1 && !trans && l1Rnd.nextDouble() < 0.6) { openWindowList(l1Rnd.nextBoolean(), if (l1Rnd.nextInt(10) < 4) 200L + l1Rnd.nextInt(500) else 0L); return }
         // decisions AW.3, as the shell does it: a window over the list while a COMMITted instance still draws in the slot —
         // a CLOSE of the slot goes first, alone, ahead of the window's frame
         val inst = sim.motionForTest(Arm.RIGHT).slots[0]
@@ -762,7 +1044,17 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  drawing on RIGHT (a step still to come) — the reach of the motion's length; read only, no draw. */
     var scrollFiresR = 0
     var scrollFiresInMotionR = 0
-    fun back() { if (!window) return; window = false; frontGen++; if (!covered) rules.front(bound, row); pumpSoon() }
+    /** [run] (K1-2 stage 4b, list-1 sequences): Back with a transition's run — Main bound at its end. The window list's
+     *  view and staging are kept (decisions CX: kept across Main). */
+    fun back(run: Long = 0L) {
+        if (!window) return
+        val from1 = win1
+        window = false; win1 = false; frontGen++
+        if (from1) reach("return: list 1 → Main")
+        if (run > 0 && list1 && !covered && !trans) { if (from1) reach("transition list 1 → Main (Back with a run)"); startRun(run); rules.front(null, row) }
+        else if (!covered && !trans) { if (from1) slot0Changes(); rules.front(bound, row) }
+        pumpSoon()
+    }
     fun toggleBadge() { badge = !badge; pumpSoon() }
     fun tick() { clock++; pumpSoon() }
     fun switchTaps(t: Taps) { rules.taps(t); pumpSoon() }
@@ -775,7 +1067,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     /** A re-stage of a given shape: "top+" a row inserted at the top, "top-" the top row removed, "bottom-" the last one. */
     fun restage(shape: String): Boolean {
-        if (rules.burstOpen || covered || window) return false
+        // K1-2 stage 4b: in a list-1 sequence Main is also made again under a window (Main's covered re-make): its LIST goes
+        // when Main is next in front
+        if (rules.burstOpen || covered || trans || (window && !list1)) return false
         if (shape != "top+" && ids.size <= 2) return false
         val oldId = ids[row]
         val newIds = when (shape) {
@@ -792,7 +1086,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         row = newRow
         markBase++
         bound = boundFor(ids, markBase, tableAt[tableSlot])
-        rules.front(bound, row, shift)
+        if (!window) rules.front(bound, row, shift)
         pumpSoon()
         return true
     }
@@ -1085,7 +1379,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         for (r in regions) {
             if (r !in dirty || !differs(m, t, r)) continue
             if (r == BAND) {
-                val l = if (covered || window) MODAL else level(ids[row])
+                val l = bandLevel()
                 out += CfwModes.fill(BAND, l) to BAND; paint(m, BAND, l)
                 if (levelAt(t, BADGE) != l) { out += CfwModes.fill(BADGE, levelAt(t, BADGE)) to BADGE; paint(m, BADGE, levelAt(t, BADGE)) }
             } else { val l = levelAt(t, r); out += CfwModes.fill(r, l) to r; paint(m, r, l) }
@@ -1107,25 +1401,28 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     fun pump() {
         if (!rules.active) return
+        lane1()
+        val rowF = rowNow()                             // K1-2 stage 4b: the row of the list in front (Main's without list 1)
         val t = truth()
         if (rollbackAll) { rollbackAll = false; java.util.Arrays.fill(model, 0x7F.toByte()); java.util.Arrays.fill(lastTruth, 0x7F.toByte()) }
         val changed = regions.filter { differs(t, lastTruth, it) }.toMutableSet()
         changed += held
         val noticeNow = noticeOwed && covered && noticeTimer
         if (rules.settleDue(now) && changed.isEmpty() && !rules.owed && !noticeNow) {
-            val subs = rules.loneSettle(row, now)
+            val subs = rules.loneSettle(rowF, now)
             if (subs.isNotEmpty()) { loneSettles += now; emit(subs, emptyList()) }
             return
         }
         if (changed.isEmpty() && !rules.owed && !noticeNow) { rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }; return }
-        val plan = rules.plan(row)
+        val plan = rules.plan(rowF)
         val m2 = model.copyOf()
         val dirty = HashSet(changed)
         for (c in plan) { paintEnd(m2, c); dirty += BAND; dirty += BADGE; if (pitchProbe) dirty += PROBE }
         // decisions AZ.4 (the shell's `mainWrapPlan`): an edge at an end with the row now the other end — the scroll's PLAY
         // in slot 1 from the end to the row past it, END (the wrapped row's record) into the model, its areas held. None on
         // a ring list (C3 X2M0: a ring staging has no wrap pan; an edge there goes as the phone's frames)
-        val wrap = rules.wrapPlan(row)?.takeIf { !ring && wrapRecord }
+        // K1-2 stage 4b: no wrap record or slot-1 PLAY for a window list (the K1-2 spec §8, Not built)
+        val wrap = rules.wrapPlan(rowF)?.takeIf { !ring && wrapRecord && it.list.list == 0 }
         val wrapPlay = wrap?.let { w ->
             val prog = w.list.entries.first { it.step == w.step }.program!!
             val p = intArrayOf(recs[ids[w.cPrime.mod(ids.size)]], 0, 0, 0)
@@ -1162,7 +1459,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         } else null
         held = (dirty intersect hold).filter { differs(m2, t, it) }.toSet()
         if (held.isNotEmpty()) heldBatches++
-        val tail = listOfNotNull(wrapPlay) + rules.tail(row, now, emptySet(), frame = subs.isNotEmpty(), wrapped = wrapPlay != null) +
+        val tail = listOfNotNull(wrapPlay) + rules.tail(rowF, now, emptySet(), frame = subs.isNotEmpty(), wrapped = wrapPlay != null) +
             listOfNotNull(noticePlay)
         if (wrapPlay != null) { wrapOpen = true; wrapTagNow = 0xB000 + (wrapPlays and 0xFFF); wrapPlays++; wrapUntil = deferUntil }
         if (noticePlay != null) { noticeOpen = true; noticeTagNow = 0xC000 + (noticePlays and 0xFFF); noticePlays++ }
@@ -1300,6 +1597,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         repairOwed = false; repairBatch = -1
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
         deferAreas = emptyList()                        // the start's keyframe ends every motion's wait
+        // K1-2 stage 4b: a start ends a transition's run (its frames are gone with the keyframe); the lane's wake is put back
+        if (trans) { trans = false; frontGen++ }
+        if (list1 && ready1At != Long.MAX_VALUE && !l1Bound) at(maxOf(now, ready1At)) { pumpSoon() }
         if (fresh) for (a in Arm.entries) { sim.conformanceLease(a, false, now); sim.conformanceLease(a, true, now) }
         for (a in Arm.entries) sim.conformanceControl(a, DamageMsg.OP_FLAGS_SET, armed, now)
         val t = truth()
@@ -1310,11 +1610,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             sim.conformanceMessage(a, CfwModes.keyframe(Zl.encodeCfw(packed)), now)
             if (fresh) for (w in cacheWrites) sim.conformanceMessage(a, w, now)
             if (fresh || true) sim.conformanceMessage(a, write19(tableAt[tableSlot], itemTable(ids)), now)
+            if (list1 && staged1Key >= 0) sim.conformanceMessage(a, write19(table1At[table1Slot], itemTable(staged1Ids)), now)
         }
         drainSent()
         model = t.copyOf(); lastTruth = t.copyOf(); held = emptySet()
         val s0 = if (fresh) 0 else sim.bindForTest(Arm.RIGHT).seq
-        rules.sessionStart(true, s0, now, if (covered || window) null else bound, row, rules.taps)
+        val front0 = if (covered || trans) null else if (!window) bound else if (win1 && l1Bound && staged1Key == win1Key) bound1 else null
+        rules.sessionStart(true, s0, now, front0, rowNow(), rules.taps)
         noticeOpen = false; if (covered && noticeTimer) noticeOwed = true    // the start's keyframe closed it; the box shown again
         pump()
     }
@@ -1370,5 +1672,5 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         return out
     }
 
-    fun cursors(): Pair<Int, Int> = sim.bindForTest(Arm.LEFT).lists[0].cursor to sim.bindForTest(Arm.RIGHT).lists[0].cursor
+    fun cursors(list: Int = 0): Pair<Int, Int> = sim.bindForTest(Arm.LEFT).lists[list].cursor to sim.bindForTest(Arm.RIGHT).lists[list].cursor
 }
