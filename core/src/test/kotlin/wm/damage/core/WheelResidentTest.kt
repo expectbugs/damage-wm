@@ -232,7 +232,9 @@ class WheelResidentTest {
             if (current != null) p.put("shell.state", JsonObject(mapOf("mode" to kotlinx.serialization.json.JsonPrimitive("WINDOW"),
                 "current" to kotlinx.serialization.json.JsonPrimitive(current))))
         }
-        val shell = Shell(CachedText(text), t, p, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        /** The shell's cached-text recorder (DW-1aF's F2 pin draws a face through it). */
+        val ct = CachedText(text)
+        val shell = Shell(ct, t, p, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val kinds = listOf(IconKind.READER, IconKind.TERMINAL, IconKind.FILES, IconKind.MUSIC, IconKind.FEED, IconKind.TORRENTS, IconKind.GAMES)
         val rows = (0 until n).map { Row("w$it", name(it), kinds[it % kinds.size]) }
         /** Every top-level image a lens took, in order. */
@@ -664,11 +666,13 @@ class WheelResidentTest {
     }
 
     /**
-     * V1-DW1a F2: a notice's faces going live after the block is placed change the faces live on the glasses (`atlasLive`,
-     * which drops Page staging's strips and has Main's rows painted again): the wheel's cells are painted again too, the block
-     * is built anew from those paints (only a part whose bytes differ written in place), and both lenses hold it. Watched to
-     * fail on `5f21143c` (the cells kept their paints under the old set) and on the review's one line alone (the cells painted
-     * again, the block never rebuilt from them: its want was still current for the unchanged keys).
+     * V1-DW1a F2: a face drawn for the first time after the block is placed (in use: a window's or a notice's first face of
+     * the session; here a size nothing else draws, through the relay every staged picture is painted through) is packed by
+     * the atlas and changes the faces live on the glasses (`atlasLive`, which drops Page staging's strips and has Main's rows
+     * painted again): the wheel's cells are painted again too, the block is built anew from those paints (only a part whose
+     * bytes differ written in place), and both lenses hold it. Watched to fail on `5f21143c` (the cells kept their paints
+     * under the old set) and on the review's one line alone (the cells painted again, the block never rebuilt from them: its
+     * want was still current for the unchanged keys).
      */
     @Test
     fun aChangeOfTheLiveFacesPaintsTheCellsAgain_DW1aF(): Unit = runBlocking {
@@ -677,15 +681,15 @@ class WheelResidentTest {
             r.start()
             val b0 = assertNotNull(r.block())
             val live0 = r.onLoop { r.shell.cachedFontsLive.toSet() }
+            val face = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 33)
+            assertTrue(face !in live0, "precondition: a face nothing has drawn: $live0")
             val from = r.images.size
-            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · WARM", "t0", "the faces go live", "12:00"))
-            r.until("the notice's faces live") { r.onLoop { r.shell.cachedFontsLive.toSet() } != live0 }
-            repeat(wm.damage.core.shell.Notifications.GRACE_STEPS) {
-                if (!r.onLoop { r.shell.notifications.focused }) { r.shell.graceStepByHand(); r.until("a grace step") { r.shell.isQuiescent() } }
+            r.onLoop {
+                val g = wm.damage.core.gfx.Gray8(64, 24)
+                r.ct.via(g, 0, 0, wm.damage.core.geom.Rect(0, 0, 0, 0)) { r.ct.draw(g, 0, 0, "Wq", face, wm.damage.core.gfx.Level.BODY) }
             }
-            assertTrue(r.onLoop { r.shell.notifications.focused }, "the notice took focus")
-            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                     // focused: dismissed
-            r.until("the notice dismissed") { r.onLoop { !r.shell.notifications.active } }
+            r.shell.postIdleTick()
+            r.until("the new face live") { r.onLoop { face in r.shell.cachedFontsLive } }
             r.done("the live faces changed")
             val b = assertNotNull(r.block())
             println("DW-1aF F2: live ${live0.size} -> ${r.onLoop { r.shell.cachedFontsLive.size }} face(s); wheel writes ${r.wheelWrites(from, b)}; ${r.notes("wheel").takeLast(3)}")
