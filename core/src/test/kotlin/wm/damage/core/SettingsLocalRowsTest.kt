@@ -95,7 +95,7 @@ class SettingsLocalRowsTest {
             val r = wm.damage.core.geom.Rect(0, 0, 640, 40)
             return (0 until v.rowCount()).map { i -> drawn.clear(); v.paintRow(wm.damage.core.gfx.Gray8(640, 40), i, r, false); drawn.first() }
         }
-        assertEquals(listOf("Scroll", "Select", "Close / Back", "Lock Screen", "Popups"), names(-1), "the page: the tiers' names")
+        assertEquals(listOf("Scroll", "Select", "Close / Back", "Lock Screen", "Popups", "Switcher"), names(-1), "the page: the tiers' names, then its own row (C3 DW-1b-2)")
         assertEquals(listOf("Effect", "Length", "Frames"), names(0))
         assertEquals(listOf("Length", "Frames", "Depth", "Warp", "Flip", "Fall", "Glitch", "Encode", "Matrix", "Explode"), names(2), "Close / Back")
         assertEquals(listOf("Length", "Frames", "Fade", "Build", "Matrix", "Encode", "Glitch", "Explode"), names(3), "Lock Screen")
