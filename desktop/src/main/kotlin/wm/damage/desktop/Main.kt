@@ -1087,6 +1087,7 @@ private suspend fun hostOnly(cfg: Config) {
         wm.damage.core.windows.reader.ReaderIndex(Path.of(cfg.dataDir).resolve("reader-index.json"), scope))
     readerCore.refreshLibrary()
     Log.i("damage", "Reader's core on the PC record (${readerCore.window}); no presenter in host-only")
+    val health = startHealth(appNet, appHost, noticeCore, watcher, alerts, readerCore, Path.of(cfg.dataDir), scope)   // R-b H1
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store),
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
@@ -1104,7 +1105,7 @@ private suspend fun hostOnly(cfg: Config) {
             wm.damage.core.windows.feed.FeedBlobs.PREFIX to feedScopes.blobs))
     watcher.start()
     presence.start()
-    cfg.nightlyCopy(alerts, scope)?.start()
+    cfg.nightlyCopy(alerts, scope).also(health::copy)?.start()
     Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + feed + bastion + icons + app on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
@@ -1503,7 +1504,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     filesPc.serveOn(appNet)
     val filesProvider = filesPc.slotted
 
-
+    val health = startHealth(appNet, appHost, noticeCore, bastionWatcher, alertStore, readerCore, dataDir, tmuxScope)   // R-b H1
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmuxProvider, sync = syncPeer,
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
@@ -1529,7 +1530,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
             wm.damage.core.windows.feed.FeedBlobs.PREFIX to feedScopes.blobs))
     bastionWatcher.start()
     phonePresence.start()
-    cfg.nightlyCopy(alertStore, tmuxScope)?.start()
+    cfg.nightlyCopy(alertStore, tmuxScope).also(health::copy)?.start()
 
     lateinit var build: (String) -> DesktopStack
     // ONE mutation path for the running stack, shared by manual switches and

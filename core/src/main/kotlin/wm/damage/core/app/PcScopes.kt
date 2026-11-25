@@ -112,11 +112,7 @@ class PcScopes(
                 put("icon", "book")
                 put("min", minLevel(ReaderCore.WINDOW))
                 val state = reader.libraryState
-                put("availability", when (state) {
-                    "ok" -> "live"
-                    "loading" -> "loading"
-                    else -> "unavailable"
-                })
+                put("availability", availability(state))
                 if (state != "ok") put("reason", state)
                 put("summary", summary(st))
             })
@@ -149,6 +145,14 @@ class PcScopes(
         const val LOG_TAIL = 300
 
         private val PART = Regex("^reader/book:([0-9a-f]{1,64})/part:(\\d{1,6})$")
+
+        /** Reader's card's availability from its library's state (R-b H1: the health record's `sources` line reads
+         *  it too). */
+        fun availability(state: String): String = when (state) {
+            "ok" -> "live"
+            "loading" -> "loading"
+            else -> "unavailable"
+        }
 
         /** A part scope as (book, n), or null. */
         fun partOf(scope: String): Pair<String, Int>? =
