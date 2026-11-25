@@ -166,7 +166,7 @@ class WheelBindTest {
         fun lensWindow(b: wm.damage.core.motion.Wheel.Block): String? = synchronized(sim) {
             val l = sim.bindForTest(Arm.RIGHT).lists[2]
             val c = sim.right.textureCache!!
-            val at = (l.items + l.cursor) * 4
+            val at = l.items * 4 + 2 * l.cursor
             val off = ((c[at].toInt() and 0xFF) or ((c[at + 1].toInt() and 0xFF) shl 8)) * 4
             regs[b.cellOffs.indexOf(off)]
         }
@@ -277,8 +277,8 @@ class WheelBindTest {
                 assertEquals(emptyList(), r.entriesOn(a, 0), "$a holds nothing of Main's list")
             }
             val ss = assertNotNull(bindBatch(r, at), "a batch binds list 2")
-            val firstTable = ss.indexOfFirst { (it[0].toInt() and 0x7F) in setOf(26, 27) }
-            assertTrue(firstTable > 0, "the bind after the open's drawing subs: ${ss.map { "${it[0]}/${it[1]}" }}")
+            val firstBind = ss.indexOfFirst { (it[0].toInt() and 0x7F) == 27 }
+            assertTrue(ss.take(firstBind).any { (it[0].toInt() and 0x7F) !in setOf(26, 27) }, "the bind after the open's drawing subs: ${ss.map { "${it[0]}/${it[1]}" }}")
             val clears = (0..2).map { e -> ss.indexOfFirst { r.isClearOf(it, e) } }
             val li = ss.indexOfFirst { r.isListOf(it, 2) }
             val sets = ss.withIndex().filter { r.isSetOf(it.value, 2) }
@@ -349,9 +349,10 @@ class WheelBindTest {
         val doc = Doc()
         val r = Rig(extra = listOf(doc))
         try {
-            r.up(); r.open("w0"); r.open("w1"); r.open("doc")
+            r.up(); r.open("w0"); r.open("w1")
+            r.onLoop { r.shell.services.openWindow("doc", null) }
             r.until("Page staging has staged strips") { r.onLoop { r.shell.pageStripsForTest().isNotEmpty() } }
-            r.done("the doc")
+            r.until("the doc: the wheel's lane done") { r.shell.isQuiescent() && r.onLoop { r.shell.wheelLaneDoneForTest() && r.shell.transitionPhaseForTest() == null } }
             fun strips() = r.onLoop { r.shell.pageStripsForTest().map { it.first to it.second.contentHashCode() } }.toSet()
             r.onLoop { repeat(8) { r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }; r.chord() }
             r.bound("the open over the doc")
@@ -471,7 +472,7 @@ class WheelBindTest {
     }
 
     /**
-     * The amendment's §7.1 "An older cell binds" (CK A4): a dirty flip and the chord in one loop turn — the wheel binds at the
+     * The amendment's §7.1 "An older cell binds" (CK A4): the chord and a dirty flip in one loop turn — the wheel binds at the
      * open with the cell as written (not a cell's picture: the item table and the programs are current); a notch lands on the
      * dirty window and after it the panel equals the switcher's paint (the held repaint); nothing of the block is written while
      * the wheel is bound, and the cell goes after the close.
@@ -484,7 +485,7 @@ class WheelBindTest {
             val b = assertNotNull(r.block())
             val from = r.images.size
             val at = r.right.size
-            r.onLoop { r.rows[0].dirty = true; r.shell.services.requestRender(r.rows[0]); r.chord() }
+            r.onLoop { r.chord(); r.rows[0].dirty = true; r.shell.services.requestRender(r.rows[0]) }
             r.bound("the open")
             val ss = assertNotNull(bindBatch(r, at))
             assertTrue(ss.any { (it[0].toInt() and 0x7F) !in setOf(26, 27) }, "bound in the open's own flush (it draws the wheel): ${ss.map { "${it[0]}/${it[1]}" }}")
@@ -715,7 +716,8 @@ class WheelBindTest {
     }
 
     /**
-     * The envelope's "a session that ends with the wheel open" (the DW spec §5): the link drops with the wheel bound — the new
+     * The envelope's "a session that ends with the wheel open" (the DW spec §5): the session ends with the wheel bound (the
+     * shell stopped and started: the rig has no keeper to rebuild a dropped link) — the new
      * session's start sends nothing of list 2 (the offer goes at the start; the cache went with the session), the block is
      * written again, and once it is counted the wheel binds mid-open with the DISCARD naming the cursor.
      */
@@ -727,7 +729,8 @@ class WheelBindTest {
             r.chord(); r.bound("the open")
             val clears = r.shell.stageClears
             val from = r.images.size
-            r.t.endLink("a test: the link drops with the wheel open")
+            r.shell.stop()
+            r.shell.start()
             r.until("a new session") { r.shell.stageClears > clears && r.t.state.value.effects }
             assertTrue(r.shell.switcherIsOpen, "the switcher stays open across the session's end")
             r.bound("bound again in the new session")
