@@ -82,7 +82,7 @@ class PhoneHealth(
     fun start() {
         if (everyMs > 0) loop = scope.launch {
             while (isActive) {
-                step()
+                pass()
                 delay(everyMs)                // pacing between two reads, not a bound on any work
             }
         }
@@ -95,7 +95,7 @@ class PhoneHealth(
     // ---- the lane's (its reading thread: handed off) ----
 
     override fun welcome() {
-        scope.launch(Dispatchers.IO) { step() }
+        scope.launch(Dispatchers.IO) { pass() }
     }
 
     override fun described(scope: String, desc: JsonObject) {
@@ -104,11 +104,21 @@ class PhoneHealth(
         val lines = raw.mapNotNull { e -> (e as? JsonObject)?.let { o -> HealthLine.parse(o) } }
         if (lines.size != raw.size) Log.w(TAG, "${raw.size - lines.size} of the PC's ${raw.size} health lines do not decode; left out")
         synchronized(lock) { pc = lines }
-        this.scope.launch(Dispatchers.IO) { step() }
+        this.scope.launch(Dispatchers.IO) { pass() }
     }
 
     override fun reach(r: AppClient.Reach) {
-        scope.launch(Dispatchers.IO) { step() }
+        scope.launch(Dispatchers.IO) { pass() }
+    }
+
+    /** A pass off the caller's thread: one that fails is said and the next reads everything again (a failure never ends
+     *  the pacing loop or, on the phone, the process). */
+    private fun pass() {
+        try {
+            step()
+        } catch (e: Exception) {
+            Log.e(TAG, "a health pass failed (${e::class.simpleName}: ${e.message}); the next pass reads every line again", e)
+        }
     }
 
     /** One pass (any thread): the lines read, sent when one changed or the connection is new, the view composed. */
