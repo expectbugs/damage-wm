@@ -2938,8 +2938,13 @@ class Shell(
         if (key != noticeProgsFor) noticeLayout(st, key)
         for (p in noticeProgs) if (p.rec.state == StagedRecord.State.SENT && stageInFlightRec !== p.rec) p.rec.state = StagedRecord.State.WANTED
         val rec = noticeProgs.firstOrNull { it.rec.state == StagedRecord.State.WANTED }?.rec ?: return false
-        // Page staging's holds, every one (fix A2): the atlas's lane, the count's reading, a re-send owed, one unproven
-        // record at a time
+        return stageOwnRecord(rec, st)
+    }
+
+    /** One record of the stage lane's own books ([ownRecs]: the notice's programs, the held lanes' areas) written, after
+     *  Page staging's holds, every one (fix A2): the atlas's lane, the count's reading, a re-send owed, one unproven
+     *  record at a time. */
+    private suspend fun stageOwnRecord(rec: StagedRecord, st: LinkState): Boolean {
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight || st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
@@ -3102,7 +3107,8 @@ class Shell(
         if (spec != null && region != null) stagePagesDropUnder(region, "the held lanes take the stage reserve's lower 16 KiB (his answer 6); " +
             "Reader stages them again when it is next in front")
         val d = spec?.let { comp.laneDisparity(it.rects[0]) } ?: 0
-        lanes.pump(WindowLanes.Env(System.currentTimeMillis(), spec, why, d, if (inForce) region else null, if (inForce) effectsToken(st) else null) { slot ->
+        lanes.pump(WindowLanes.Env(System.currentTimeMillis(), spec, why, d, if (inForce) region else null, if (inForce) effectsToken(st) else null,
+            written = { (l, r) -> comp.laneWritten(l, r) }) { slot ->
             transport.mirror.motionTagIn(Arm.RIGHT, slot)
         })
         lanes.takeRelease()?.let { comp.laneRelease(it) }
@@ -3135,20 +3141,13 @@ class Shell(
         } ?: return false
         if (pagingInFront() || cacheWritesHeld()) return false
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld || !ledgerReadable(st)) return false
-        if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
-        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight || st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
-        if (ledgerBaseOwed(st)) return tryLedgerRead(st)
-        if (stage.count(StagedRecord.State.ACKED) > 0 || ownRecs().any { it.state == StagedRecord.State.ACKED }) return false
-        if (atlasResendMissing > 0L) return false
-        stageSubmit(rec, st)
-        return true
+        return stageOwnRecord(rec, st)
     }
 
     /** Tests: the lanes' chain (open, its (slot, tag)s, its areas' states, strikes off). */
     internal fun lanesForTest(): String = "open ${lanes.open} tags ${lanes.openTags.joinToString { "%d:0x%04x".format(it.first, it.second) }} " +
         "areas ${lanes.records.joinToString { "${it.key.firstLine}:${it.state}" }} off ${lanes.off}"
     internal val lanesOpenForTest: Boolean get() = lanes.open
-    internal val laneStretchesDrawnForTest: Int get() = lanes.stretchesDrawn
 
     private fun scheduleSilentDismiss() {
         val gen = ++silentDismissGen

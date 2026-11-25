@@ -329,8 +329,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      * batch (§6.5). A sub that still meets them (a delta spanning them, a cached box grown into them) is held too, on both
      * lenses, and the flush taken again ([assembleHolding] says why that ends, and its backstop). Denied (the rules answer
      * DISCARD): a slot whose list gave no END painter, and every slot when this flush is a keyframe or a reseed — it
-     * writes the whole model (END would not survive it) and closes every instance on the glasses. Returns the flush and
-     * the denied slots.
+     * writes the whole model (END would not survive it); a keyframe closes every instance on the glasses, a contract-2
+     * reseed (a fill and the diff) every one its writes meet through the transport's CLOSE-before-a-write rule, but none
+     * in a slot the flush holds (`FlushRequest.held`). Returns the flush and the denied slots.
      */
     fun assembleWithEnds(rectBudget: Int, ends: List<EndPlan>, nowMs: Long = 0L): Pair<Assembled?, Set<Int>> {
         val regrounds = needsKeyframe || needsReseed
@@ -445,8 +446,11 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     fun assembleFlush(rectBudget: Int): Assembled? {
-        // a keyframe or a reseed writes the whole model and closes every instance: nothing waits behind it (a held lane's
-        // chain ends with it — the shell drops the chain when the flush is a keyframe)
+        // a keyframe or a reseed writes the whole model: nothing waits behind it. A keyframe closes every instance on the
+        // glasses (the shell drops a held lane's chain when the flush is one); a contract-2 reseed is a fill and the diff,
+        // and closes only what the transport's CLOSE-before-a-write rule closes — every open instance its writes meet, none
+        // in a slot the flush holds (`FlushRequest.held`). So a held lane's chain stays open over a reseed, its owners
+        // presenting their own rects; a chain that ended goes with nothing held (`WindowLanes.start`)
         val regrounds = needsKeyframe || needsReseed
         if (deferL.isNotEmpty() && regrounds) { deferL = emptyList(); deferR = emptyList() }
         if (regrounds) { laneGrownL = emptyList(); laneGrownR = emptyList() }
@@ -471,7 +475,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      * dirty, never sent, a sub that still meets them held whole and the frame planned again ([assembleHolding]) — so no
      * write meets an owning lane, and belief keeps there the picture the glasses' shadow holds under the owner, while
      * the window's own paint goes on into [composed] as today. [laneRelease] makes them dirty again; a keyframe or a
-     * reseed writes everything (and closes every instance on the glasses).
+     * reseed writes everything (a keyframe closes every instance on the glasses; a reseed's closes are the transport's,
+     * withheld for the slots the flush holds).
      */
     var laneHold: List<Pair<Rect, Rect>> = emptyList()
     private var laneGrownL: List<Rect> = emptyList()
@@ -486,6 +491,18 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         for (r in laneGrownL) { markUnknown(unknownL, r); pendingDamage.add(widen(r)) }
         for (r in laneGrownR) { markUnknown(unknownR, r); pendingDamage.add(widen(r)) }
         laneGrownL = emptyList(); laneGrownR = emptyList()
+    }
+
+    /** Whether every cell of a released lane's per-lens rects [l] / [r] has been written since [laneRelease] marked it
+     *  unknown — the frame that carried it was assembled (a rolled-back flush marks its cells unknown again). */
+    fun laneWritten(l: Rect, r: Rect): Boolean = !anyCell(unknownL, l) && !anyCell(unknownR, r)
+
+    private fun anyCell(cells: BooleanArray, r: Rect): Boolean {
+        val c = r.clip()
+        if (c.w <= 0 || c.h <= 0) return false
+        val cx0 = c.x / CW; val cx1 = (c.right + CW - 1) / CW
+        for (cy in c.y / CH until (c.bottom + CH - 1) / CH) for (cx in cx0 until cx1) if (cells[cy * cellsW + cx]) return true
+        return false
     }
 
     /** The disparity of the plane region holding [r] (0 outside every region): a held lane's per-lens rects. */

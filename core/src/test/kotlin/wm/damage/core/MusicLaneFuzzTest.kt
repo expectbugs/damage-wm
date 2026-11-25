@@ -14,7 +14,10 @@ import wm.damage.core.transport.Arm
  *
  * What every sequence must hold: no lane instance open on either lens once the release that ended its chain has landed
  * (unless a newer chain opened it); every stretch RIGHT says drew its last step was drawn or folded whole (drawn + folded
- * = T: no seam lost); a notice's timer is never closed by a lane; and with nothing in the way the chain runs again.
+ * = T: no seam lost); a notice's timer is never closed by a lane; no chain starts in the pump that ended one (that
+ * pump's frame writes the ended chain's cells holding nothing); and with nothing in the way the chain runs again. The
+ * rig's frames apply the transport's CLOSE rule with the slots the chain holds (`FlushRequest.held`), and its time text
+ * each second reaches Now Playing's bar as the transport reads a glyph run.
  */
 class MusicLaneFuzzTest {
 
@@ -121,6 +124,54 @@ class MusicLaneFuzzTest {
         assertTrue(r.lanes.open, "running again")
     }
 
+    /** Now Playing → Music Mode → Now Playing at four phases of a stretch (the first review's finding 1, `MM-decisions.md`
+     *  "Stage L, review pass 1" item 1): back at Now Playing its area is still written and proven, so its chain starts at
+     *  once — after the frame that writes the ended chain's cells, which holds nothing, so the transport CLOSEs both of
+     *  that chain's instances (the one waiting in slot 1 sits where the new bar's PLAY does not reach). */
+    @Test
+    fun aChainEndedForAnotherLayoutIsClosedBeforeTheNextStarts() = visits(split = false)
+
+    /** The same where the frame that writes the ended chain's cells is a later one (a frame the budget cut): no chain
+     *  starts while they are unwritten. */
+    @Test
+    fun aChainEndedForAnotherLayoutIsClosedEvenWhenALaterFrameWritesItsCells() = visits(split = true)
+
+    private fun visits(split: Boolean) {
+        // the bar's period with 3.75-s stretches: an ended chain's instance in slot 1 would stay until the next chain's
+        // first PLAY-AFTER into that slot, half a stretch on — the check comes well before
+        val period = 128; val steps = 30
+        val len = steps * period * 1000L / 1024
+        for (k in 0 until 4) {
+            val r = LaneRig(21L + k, period, steps, fixed = true)
+            r.pump(); r.runUntil(r.nowMs + 2 * len)
+            // Music Mode: its area written, its chain's second stretch drawing in slot 1 at each phase
+            r.layout(); r.runUntil(r.nowMs + len + 400 + k * len / 5)
+            assertTrue(r.lanes.open && r.laneTagsOpen().isNotEmpty(), "phase $k: Music Mode's chain runs — ${r.notes.takeLast(4)}")
+            val sent = r.sent.size
+            r.splitNext = split
+            r.layout()
+            r.runUntil(r.nowMs + 300)
+            assertEquals(2, r.notes.count { "written for its programs" in it }, "phase $k: Now Playing's area was used again: ${r.notes}")
+            assertTrue(r.sent.drop(sent).any { it[3] == 0L }, "phase $k: Now Playing's chain started again — ${r.notes.takeLast(4)}")
+            val left = r.laneTagsOpen().filter { it in r.endedTagsNow() }
+            assertEquals(emptyList(), left.map { "0x%04x".format(it) }, "phase $k: the ended chain's instances are closed — ${r.notes.takeLast(5)}; delivered ${r.log.toList().takeLast(8)}")
+            assertEquals(0, r.startsInTheEndingPump, "phase $k: a chain started in the pump that ended one")
+        }
+    }
+
+    /** A chain dropped by a reset that is not a session start (another writer touched the cache, no keyframe after it)
+     *  releases its cells as every other end does, so the cells the hold grew with them are written (finding 4). */
+    @Test
+    fun aResetReleasesTheOpenChainsCells() {
+        val t = Timing.STAGE4
+        val r = LaneRig(6, t.period, t.steps, fixed = true)
+        r.pump(); r.runUntil(r.nowMs + 2 * lenMs(t))
+        val areas = r.lanes.hold
+        assertTrue(r.lanes.open && areas.isNotEmpty(), "a chain open: ${r.notes.takeLast(3)}")
+        r.lanes.reset("another writer touched the cache")
+        assertEquals(areas, r.lanes.takeRelease(), "the dropped chain's cells are released")
+    }
+
     // ------------------------------------------------------------------------------------------------- the walk
     @Test
     fun theCancelEnvelopeAtThreeTimings() {
@@ -129,22 +180,26 @@ class MusicLaneFuzzTest {
         val figures = StringBuilder()
         for (t in Timing.entries) {
             var stretches = 0; var seams = 0; var restarts = 0; var strikesOff = 0; var events = 0
+            var samePump = 0; var nextPumpSeqs = 0; var nextPump = 0; var splits = 0; var leftOpen = 0
             val why = HashMap<String, Int>()
             for (seed in 1..n.toLong()) {
                 val f = walk(seed * 7919 + t.ordinal, t)
                 fails += f.fails.map { "${t.name} seed $seed: $it" }
                 stretches += f.stretches; seams += f.seams; restarts += f.restarts; strikesOff += f.off; events += f.events
+                samePump += f.samePump; nextPump += f.nextPump; if (f.nextPump > 0) nextPumpSeqs++; splits += f.splits
+                leftOpen += f.fails.count { "are open on a lens" in it }
                 for (w in f.strikes) why.merge(if ("reason" in w) w else w.replace(Regex("[0-9]+"), "N"), 1, Int::plus)
             }
             figures.append("${t.name} (P ${t.period}, T ${t.steps}): $n sequences, $events events, $stretches stretches drawn, $seams seams checked whole, " +
-                "$restarts chain ends, $strikesOff sequences off for strikes\n" + why.entries.sortedByDescending { it.value }.joinToString("") { "    strike ×${it.value}: ${it.key}\n" })
+                "$restarts chain ends, $strikesOff sequences off for strikes; a chain started in the pump that ended one: $samePump; " +
+                "started at the next pump with no area written ($nextPump, in $nextPumpSeqs sequences); releases a later frame wrote: $splits; an ended chain's instance found open: $leftOpen\n" + why.entries.sortedByDescending { it.value }.joinToString("") { "    strike ×${it.value}: ${it.key}\n" })
         }
         println("MusicLaneFuzzTest (modeled, the firmware model on a virtual clock):\n$figures")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }
 
     private class Walk(val fails: List<String>, val stretches: Int, val seams: Int, val restarts: Int, val off: Int, val events: Int,
-                       val strikes: List<String>)
+                       val strikes: List<String>, val samePump: Int, val nextPump: Int, val splits: Int)
 
     private fun walk(seed: Long, t: Timing): Walk {
         val r = LaneRig(seed, t.period, t.steps)
@@ -173,7 +228,8 @@ class MusicLaneFuzzTest {
                 5 -> r.keyframe()
                 6 -> r.session()
                 7 -> r.upExtraNext = len / 2 + r.rnd.nextInt(len.toInt() + 1)     // a stalled link holds the next message (and all after it)
-                else -> {}
+                8 -> r.layout()                          // Now Playing <-> Music Mode
+                else -> { r.splitNext = true; r.layout() }   // the same, the ended chain's cells written by a later frame
             }
             // once the uplink has drained (a held link lands the release late), what an ended chain left open is gone
             r.runUntil(r.nowMs + 150)
@@ -191,7 +247,9 @@ class MusicLaneFuzzTest {
         val drew = r.bodies.filter { it[1] and 0xF000 == WindowLanes.TAG && it[2] == 0 }
         for (b in drew) if (b[3] + b[4] != t.steps) fails += "tag 0x%04x drew %d + folded %d, not T %d".format(b[1], b[3], b[4], t.steps)
         fails += r.noticeClosedByLane
+        if (r.startsInTheEndingPump > 0) fails += "${r.startsInTheEndingPump} chain(s) started in the pump that ended one (its frame held the slots)"
         val strikes = r.notes.filter { "a strike" in it }.map { it.substringAfter("this session): ").take(90) }
-        return Walk(fails, r.lanes.stretchesDrawn, drew.size, r.notes.count { "the chain ends" in it }, if (r.lanes.off != null) 1 else 0, events, strikes)
+        return Walk(fails, r.lanes.stretchesDrawn, drew.size, r.notes.count { "the chain ends" in it }, if (r.lanes.off != null) 1 else 0, events, strikes,
+            r.startsInTheEndingPump, r.startsAtTheNextPump, r.splits)
     }
 }
