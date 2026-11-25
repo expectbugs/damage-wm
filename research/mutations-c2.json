@@ -11205,13 +11205,14 @@
    ]
   ],
   "tests": [
+   "*MusicLaneFuzzTest",
    "*MusicLaneShellTest"
   ],
   "expect": [
-   "theBarIsAHeldLaneTheGlassesGrowWhileThePhoneWritesNothingIntoIt"
+   "aChainOfStretchesPlaysOnTheLensClockWithOneWriteAndPlayAftersOnly"
   ],
-  "note": "spec §4.1: the flush leaves the lane's owners open — without it the transport's CLOSE-before-a-write rule ends the chain at the time text's cached glyph run (read as reaching the panel's edges)",
-  "from": "MML-L"
+  "note": "spec §4.1: the flush leaves the lane's owners open while a chain runs — without it the transport's CLOSE-before-a-write rule ends the chain at the time text's cached glyph run each second (Now Playing's digits left of the bar, read as reaching the panel's edges) and it restarts with a PLAY (measured MM-LF: the fuzz's chain shows PLAYs among its PLAY-AFTERs; MusicLaneShellTest's held-lane test fails beside it now that its digits differ)",
+  "from": "MML-L, MM-LF"
  },
  {
   "id": "MML-comp-hold",
@@ -11244,10 +11245,10 @@
    "*MusicLaneShellTest"
   ],
   "expect": [
-   "(no test pins it: Now Playing repaints its whole view each second, which rewrites the lane without the release; it carries weight on Music Mode after a cancel that repaints no card — the lanes off for strikes — which no test produces)"
+   "(no pin holds: with the release's write removed, the menu over Now Playing still closes the chain and shows the window's own bar as it settles — measured MM-LF, theMenuOverNowPlayingEndsTheChainAndTheBarIsWrittenFromTheTruth passed under it; the lead rules where it is pinned or whether it goes)"
   ],
-  "note": "spec §4.1 cancel: a released lane is written from the truth, whose write meets the owners so the transport CLOSEs them — without it a pause leaves the chain drawing",
-  "from": "MML-L"
+  "note": "spec §4.1 cancel: a released lane is written from the truth, whose write meets the owners so the transport CLOSEs them — without it a chain ended by the menu over Now Playing leaves the chain's start picture (the shadow under its owners) on the panel, or its instances open, until the window next repaints",
+  "from": "MML-L, MM-LF"
  },
  {
   "id": "MML-end-release",
@@ -11448,5 +11449,100 @@
   ],
   "note": "K1-2 stage 3a's adoption on list 1: an adopted report's row reaches the window's own cursor — removed, every list-1 notch snaps back (belief, glass and truth stay equal; the walk's row check sees it)",
   "from": "K12S4c"
+ },
+ {
+  "id": "MMLF-start-after-release",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        if (release.isNotEmpty()) { wakeAt = env.nowMs; return }\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aChainEndedForAnotherLayoutIsClosedBeforeTheNextStarts",
+   "theCancelEnvelopeAtThreeTimings"
+  ],
+  "note": "the first review's finding 1 (cure A, spec §4.1's cancel order): no chain starts in the pump that ended one — without it that pump's frame holds slots 0 and 1, the ended chain's instance waiting in slot 1 is never CLOSEd and keeps Music Mode's bar over Now Playing (or the reverse) for half a stretch",
+  "from": "MM-LF"
+ },
+ {
+  "id": "MMLF-unwritten",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        if (unwritten.isNotEmpty()) return\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aChainEndedForAnotherLayoutIsClosedEvenWhenALaterFrameWritesItsCells"
+  ],
+  "note": "finding 1's class: an ended chain's cells left by a frame the budget cut for a later one — without it the next chain starts first and that later frame holds the slots",
+  "from": "MM-LF"
+ },
+ {
+  "id": "MMLF-time-restart",
+  "file": "windows/music/MusicGlasses.kt",
+  "edits": [
+   [
+    "        if (timeRunGen != timeGen) scheduleTimeTick()\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "theElapsedTimeTicksEachSecondAfterALevelIsPushedAndPopped"
+  ],
+  "note": "the first review's finding 2: the lanes' hook restarts the time text's run — without it a level pushed over Now Playing and popped leaves the digits still (they step with the player's 10-s re-emission)",
+  "from": "MM-LF"
+ },
+ {
+  "id": "MMLF-reset-release",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        chain?.let { release += it.areas }\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aResetReleasesTheOpenChainsCells"
+  ],
+  "note": "the first review's finding 4: a chain dropped by a reset releases its cells — without it the cells the hold grew stay unsent until the next keyframe, reseed or chain end",
+  "from": "MM-LF"
+ },
+ {
+  "id": "MMLF-proven-lanes",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                for (r in stage.records.values + ownRecs()) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.upTo) { r.state = StagedRecord.State.PROVEN; n++ }",
+    "                for (r in stage.records.values + noticeProgs.map { it.rec }) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.upTo) { r.state = StagedRecord.State.PROVEN; n++ }"
+   ],
+   [
+    "                for (r in stage.records.values + ownRecs()) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.toAcked) { r.state = StagedRecord.State.PROVEN; n++ }",
+    "                for (r in stage.records.values + noticeProgs.map { it.rec }) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.toAcked) { r.state = StagedRecord.State.PROVEN; n++ }"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "theBarIsAHeldLaneTheGlassesGrowWhileThePhoneWritesNothingIntoIt"
+  ],
+  "note": "stage L widened the ledger's Proven loops to the lanes' areas — without it an area's write is acked and never proven, so no chain starts (the rows lane's owed row)",
+  "from": "MM-LF"
  }
 ]
