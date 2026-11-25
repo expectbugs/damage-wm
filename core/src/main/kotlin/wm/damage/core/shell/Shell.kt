@@ -6409,10 +6409,11 @@ class Shell(
     internal fun focusedRowForTest(): Int = (focusedView() as? WindowView.ListView)?.model?.cursor ?: -1
     internal fun stepWindowsForTest(): Pair<List<Long>, List<Long>> = mainList.stepWindow.toList() to windowList.stepWindow.toList()
     /** Tests (on the loop): the window list's lane has nothing left to write — no window list wanted here (below stage 5,
-     *  160 KiB, no list in front), or a staging for the view in front counted, offered or refused for its key. */
+     *  160 KiB, the window's list not in front: none, or Settings at its adjust level, a cover by design), or a staging for
+     *  the view in front counted, offered or refused for its key. */
     internal fun windowListLaneDoneForTest(): Boolean {
         val st = transport.state.value
-        if (!st.effects || !st.bind || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || windowFront() == null) return true
+        if (!st.effects || !st.bind || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || !windowList.inFront()) return true
         val b = windowList.mainBind
         return (b.staging != null && b.counted && windowList.surface.offered != null && windowListMatches()) ||
             (b.staging == null && windowList.mainBindRefusedFor != null && windowList.mainBindPaint == null)
@@ -6442,12 +6443,32 @@ class Shell(
     internal fun noticeProgramsForTest(): List<String> = noticeProgs.map { "${it.style} ${it.lines} ${it.rec.state}" }
     /** 0.83 integration, tests (on the loop): each notice program's cache offset, its bytes as written, its state. */
     internal fun noticeProgramRecordsForTest(): List<Triple<Int, ByteArray, String>> = noticeProgs.map { Triple(it.rec.off, it.rec.encoded.copyOf(), it.rec.state.name) }
-    /** Tests: the notice lane has nothing left to write this session — no programs here (no region, no engine), or every
-     *  one laid out for the box as it is and counted. A rig's start waits on it: its writes and their count readings
-     *  are the start's work. */
+    /** Tests: the notice lane has nothing left to write this session — no programs here (no region, no engine), the slice
+     *  Page staging's while a window that stages pages is in front (the coordinator's ruling (a): the lane yields by design
+     *  until it leaves; K1-2 S4cF, decisions DG), or every one laid out for the box as it is and counted. A rig's start
+     *  waits on it: its writes and their count readings are the start's work. */
     internal fun noticeLaneDoneForTest(): Boolean {
         val key = noticeLayoutKey(transport.state.value) ?: return true
+        if (pagingInFront()) return true
         return key == noticeProgsFor && noticeProgs.all { it.rec.state == StagedRecord.State.PROVEN }
+    }
+    /** K1-2 stage 4cF, tests (on the loop): the notice lane's state and each of [pumpNoticeStage]'s gates in its order, the
+     *  count's paces against the clock — a stall's report. Diagnostic only. */
+    internal fun noticeLaneReportForTest(): String {
+        val st = transport.state.value
+        val key = noticeLayoutKey(st)
+        val region = CfwModes.noticeRegion(st.cacheSize, st.bind)
+        val now = System.currentTimeMillis()
+        return "key ${when { key == null -> "none"; key == noticeProgsFor -> "laid out"; else -> "$key, laid out for $noticeProgsFor" }}, " +
+            "programs ${noticeProgs.map { "${it.style} ${it.lines} ${it.rec.state}" }}; gates: paging in front ${pagingInFront()}, " +
+            "slice held ${region?.let { sliceHeld(it) }}, writes held ${cacheWritesHeld()} (glyph hold ${glyphHoldUntilMs - now} ms), " +
+            "stage failed $stageFailed, silent $glassesSilent, draw2 ${st.draw2}, lease ${st.leaseHeld}, readable ${ledgerReadable(st)}, " +
+            "atlas in flight ${atlasInFlight != null} queue ${atlasQueue.size} lapsed $atlasLapsedOwed check $atlasCheckInFlight, " +
+            "stage in flight ${stageInFlight != null} cursor ${stageCursor != null} reading $ledgerReadInFlight, link in flight ${st.inFlight}, " +
+            "pending ${comp.hasPending} keyframe ${comp.needsKeyframe}, base owed ${ledgerBaseOwed(st)}, acked ${stage.count(StagedRecord.State.ACKED)}" +
+            "/${ownRecs().count { it.state == StagedRecord.State.ACKED }}, resend missing $atlasResendMissing; the count: unjudged ${cacheLedger.unjudged}, " +
+            "writes open ${cacheLedger.writesOpen}, re-read in ${ledgerReadNotBeforeMs - now} ms, retry in ${ledgerRetryNotBeforeMs - now} ms; " +
+            "mode $mode, window ${current?.id}, view ${focusedView()?.let { it::class.simpleName }}"
     }
     /** Fix A2's pin, on the loop: the first notice program taken as acked now, then a Base or ([shortfall]) a Shortfall
      *  over the interval that holds that ack, judged as the ledger judges it; the program's state after. */
