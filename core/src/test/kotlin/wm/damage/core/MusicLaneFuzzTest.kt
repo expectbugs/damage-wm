@@ -94,8 +94,10 @@ class MusicLaneFuzzTest {
     fun aLatePlayAfterRestartsTheChain() {
         val t = Timing.STAGE4
         val r = LaneRig(4, t.period, t.steps, fixed = true)
-        r.pump(); r.runUntil(r.nowMs + lenMs(t) / 4)
-        r.upExtraNext = lenMs(t) + 200                 // the next message (a PLAY-AFTER) is held on the way
+        r.pump()
+        while (r.sent.isEmpty() && r.nowMs < 5_000) r.runUntil(r.nowMs + 10)
+        r.runUntil(r.nowMs + 120)                      // the PLAY has landed; the next message is its first PLAY-AFTER
+        r.upExtraNext = lenMs(t) + 200                 // which is held on the way past its stretch's start
         r.runUntil(r.nowMs + 3 * lenMs(t))
         assertTrue(r.notes.any { "landed" in it && "after its step 1 was due" in it }, "said late: ${r.notes}")
         assertTrue(r.lanes.open, "running again")
@@ -139,21 +141,30 @@ class MusicLaneFuzzTest {
                 3 -> r.notice(near = false)
                 4 -> {                                   // a box over the lane: the gate first, the box's PLAY once the release landed
                     r.boxOver = true; r.pump(); r.runUntil(r.nowMs + 120)
-                    r.notice(near = true); r.runUntil(r.nowMs + 700); r.boxOver = false; r.pump()
+                    r.notice(near = true)
+                    // the box stays up (the shell's gate: no lane while it shows) until its program has played — a held
+                    // link can land it late
+                    val until = r.nowMs + 4 * len + 5_000
+                    r.runUntil(r.nowMs + 100)
+                    while ((r.noticeDrawing() || r.lastUp >= r.nowMs) && r.nowMs < until) r.runUntil(r.nowMs + 50)
+                    r.boxOver = false; r.pump()
                 }
                 5 -> r.keyframe()
                 6 -> r.session()
-                7 -> r.upExtraNext = len / 2 + r.rnd.nextInt(len.toInt() + 1)
+                7 -> r.upExtraNext = len / 2 + r.rnd.nextInt(len.toInt() + 1)     // a stalled link holds the next message (and all after it)
                 else -> {}
             }
-            // the release's frame lands within a round trip: what an ended chain left open is gone by then
+            // once the uplink has drained (a held link lands the release late), what an ended chain left open is gone
             r.runUntil(r.nowMs + 150)
+            val drainBy = r.nowMs + 4 * len + 5_000
+            while (r.lastUp >= r.nowMs && r.nowMs < drainBy) r.runUntil(r.nowMs + 20)
             val left = r.laneTagsOpen().filter { it in r.endedTags }
-            if (left.isNotEmpty()) fails += "[${r.nowMs}] an ended chain's tags ${left.map { "0x%04x".format(it) }} are open on a lens — ${r.notes.takeLast(3)}"
+            if (left.isNotEmpty()) fails += "[${r.nowMs}] an ended chain's tags ${left.map { "0x%04x".format(it) }} are open on a lens — ${r.notes.takeLast(4)}; delivered ${r.log.toList().takeLast(10)}"
             r.runUntil(r.nowMs + r.rnd.nextInt(maxOf(200, minOf(len.toInt() * 3, 6_000))))
         }
-        // nothing in the way: within one stretch and a round trip the chain runs again (unless off for strikes)
-        r.runUntil(r.nowMs + len + 400)
+        // nothing in the way: once a held message (up to 1.5 stretches) and a stretch have passed, the chain runs again
+        // (unless off for strikes)
+        r.runUntil(r.nowMs + 3 * len + 1_000)
         if (r.lanes.off == null && !(r.lanes.open && r.laneTagsOpen().isNotEmpty())) fails += "the chain did not run again: ${r.notes.takeLast(4)}"
         val drew = r.bodies.filter { it[1] and 0xF000 == WindowLanes.TAG && it[2] == 0 }
         for (b in drew) if (b[3] + b[4] != t.steps) fails += "tag 0x%04x drew %d + folded %d, not T %d".format(b[1], b[3], b[4], t.steps)

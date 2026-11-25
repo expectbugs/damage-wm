@@ -82,8 +82,19 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
 
     private fun upLat(): Long = if (fixed) 20 else 10L + rnd.nextInt(30)
     /** The uplink keeps its order (one stream to the lenses): a message lands after every message sent before it. */
-    private var lastUp = 0L
-    private fun up(extra: Long = 0, f: () -> Unit): Long { val t = maxOf(lastUp + 1, nowMs + upLat() + extra); lastUp = t; at(t, f); return t }
+    /** When the last message on its way to the lenses lands: the uplink is drained once [nowMs] passes it. */
+    var lastUp = 0L
+        private set
+    /** A session start drops what the old session still had on its way (a new link, a new lease). */
+    private var linkGen = 0
+    private fun up(extra: Long = 0, f: () -> Unit): Long {
+        val t = maxOf(lastUp + 1, nowMs + upLat() + extra); lastUp = t
+        val g = linkGen
+        at(t) { if (g == linkGen) f() }
+        return t
+    }
+    /** The last deliveries (a failure's trace). */
+    val log = ArrayDeque<String>()
     /** Every lane tag sent before a release: none may stay open once the release's frame has landed. */
     val endedTags = HashSet<Int>()
     private fun downLat(): Long = if (fixed) 25 else 15L + rnd.nextInt(35)
@@ -102,6 +113,7 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
 
     /** Both lenses take [msg] now (the recorded form: one tick, both lenses). */
     fun deliver(msg: ByteArray) {
+        log.addLast("[$nowMs] " + hex(msg.copyOf(minOf(msg.size, 12)))); while (log.size > 24) log.removeFirst()
         for (a in Arm.entries) sim.conformanceMessage(a, msg, tick())
         rec("tick" to tick(), "msg" to hex(msg))
         drain()
@@ -158,7 +170,8 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
                 deliver(m)
                 val back = nowMs + downLat()
                 val w = nowMs
-                at(back) { lanes.flushDone(id, true, nowMs, w, back); pump() }
+                val g = linkGen
+                at(back) { if (g == linkGen) { lanes.flushDone(id, true, nowMs, w, back); pump() } }
             }
         }
         lanes.wakeAt?.let { w -> at(w) { pump() } }
@@ -194,14 +207,13 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
 
     /** A keyframe: it closes every instance on both lenses (§5.6); the shell tells the chain. */
     fun keyframe() {
-        noticeMayClose = true
-        deliver(KEYFRAME)
-        noticeMayClose = false
-        lanes.keyframed(); pump()
+        up { noticeMayClose = true; deliver(KEYFRAME); noticeMayClose = false }   // in stream order, as the shell's flush
+        lanes.keyframed(); pump()                                                 // told at its submit, as the shell does
     }
 
     /** A session start after a release point: the lease again frees the cache and ends every instance. */
     fun session() {
+        linkGen++
         noticeMayClose = true
         for (a in Arm.entries) {
             sim.conformanceLease(a, false, tick()); sim.conformanceLease(a, true, tick())
@@ -223,9 +235,14 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
             Motion.program(NOTICE_AT4 + 64 * i) { track(box, Motion.Backdrop.Level(3)) { fill(9, 16) } }
         }
         // written once a session: a write meeting an open instance's read range would close it (§5.6)
-        if (!noticeWritten) { deliver(CfwModes.cacheUpdate2(progs.flatMap { p -> p.records.map { (o, b) -> CfwModes.CacheWrite2(o, b) } }, CfwModes.CACHE2_MAX_RIDERS)); noticeWritten = true }
-        deliver(Motion.play(progs[if (near) 1 else 0], 2, 34, NOTICE_TAG + (noticeTags++ and 0xFFF), 0, IntArray(4)))
+        if (!noticeWritten) { val w = CfwModes.cacheUpdate2(progs.flatMap { p -> p.records.map { (o, b) -> CfwModes.CacheWrite2(o, b) } }, CfwModes.CACHE2_MAX_RIDERS); up { deliver(w) }; noticeWritten = true }
+        val play = Motion.play(progs[if (near) 1 else 0], 2, 34, NOTICE_TAG + (noticeTags++ and 0xFFF), 0, IntArray(4))
+        // a notice's PLAY replaces the one before it in slot 2 (its own close pass, not a lane's)
+        up { noticeMayClose = true; deliver(play); noticeMayClose = false }
     }
+
+    /** The notice in slot 2 is still drawing on RIGHT. */
+    fun noticeDrawing(): Boolean = sim.motionForTest(Arm.RIGHT).slots.getOrNull(2)?.let { it.drawing && it.tag and 0xF000 == NOTICE_TAG } == true
 
     /** Lane tags open in slots 0 and 1 on either lens. */
     fun laneTagsOpen(): List<Int> = Arm.entries.flatMap { a -> (0..1).mapNotNull { s -> sim.motionTagIn(a, s)?.takeIf { it and 0xF000 == WindowLanes.TAG } } }

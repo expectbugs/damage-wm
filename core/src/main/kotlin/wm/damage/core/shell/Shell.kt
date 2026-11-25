@@ -3092,7 +3092,7 @@ class Shell(
 
     /** Before the frame: the slice for the lanes (Page staging's strips there dropped, his answer 6), the chain's step,
      *  and the cells the compositor holds or releases. */
-    private fun lanesBefore(st: LinkState, localOn: Boolean) {
+    private fun lanesBefore(st: LinkState) {
         val inForce = lanesInForce(st)
         if (inForce != laneInForceWas) { laneInForceWas = inForce; current?.let { w -> post(Msg.Invalidate(w.id)) } }  // its look follows
         val region = CfwModes.musicRegion(st.cacheSize, st.bind)
@@ -3104,7 +3104,7 @@ class Shell(
             transport.mirror.motionTagIn(Arm.RIGHT, slot)
         })
         lanes.takeRelease()?.let { comp.laneRelease(it) }
-        comp.laneHold = if (localOn) emptyList() else lanes.hold
+        comp.laneHold = lanes.hold                    // empty whenever a list is in front: the gate ends the chain first
     }
 
     /** After the frame: the chain's PLAY or PLAY-AFTER alone, and the pump owed when the next stretch is due. */
@@ -8471,7 +8471,7 @@ class Shell(
         // the records' write, then alone the rules' CLEARs, the out PLAY and their answers. Nothing waits behind it: every
         // flush from the out PLAY to the run's end is held by both owners and shows at the in half's next step or at LAND
         transitionFirst(st, localOn, localNow)
-        lanesBefore(st, localOn)              // stage L: the held lanes' step — before the frame, whose cells it holds or releases
+        lanesBefore(st)                       // stage L: the held lanes' step — before the frame, whose cells it holds or releases
         // decisions AF.7: the cells held behind a COMMIT go once the adopted motion has ended on the glasses — the loop is
         // asked back then (pacing, never a wait on a send)
         comp.releaseDeferred(localNow)
@@ -8489,7 +8489,7 @@ class Shell(
             // included, the assemble path is what it was
             comp.motionOpen = st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE != 0 && transport.mirror.motionOpen()
             // build C2, stage DI: no delta is merged across the bound list's areas (chrome's ink beside Main's rail thumb)
-            comp.keepOut = if (localOn) local.front?.areas ?: emptyList() else lanes.hold     // stage L: or a held lane's
+            comp.keepOut = (if (localOn) local.front?.areas else null) ?: lanes.hold     // stage L: or a held lane's (no list in front)
             val assembleT0 = System.nanoTime()
             // build C2 (P3, P10): each planned COMMIT's END applied to the model before the diff; denied when a drawing
             // sub then meets its slot's areas
