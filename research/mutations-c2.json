@@ -3036,8 +3036,8 @@
   "file": "shell/SettingsWindow.kt",
   "edits": [
    [
-    "        if (bindBuild()) out.add(Cat(\"Animations\", listOf(scrollTier) + (if (effectsInForce()) transitionTiers else emptyList()) + popupTier))",
-    "        out.add(Cat(\"Animations\", listOf(scrollTier) + (if (effectsInForce()) transitionTiers else emptyList()) + popupTier))"
+    "        if (bindBuild()) out.add(Cat(\"Animations\", listOf(scrollTier) + (if (effectsInForce()) transitionTiers else emptyList()) + popupTier +",
+    "        out.add(Cat(\"Animations\", listOf(scrollTier) + (if (effectsInForce()) transitionTiers else emptyList()) + popupTier +"
    ]
   ],
   "tests": [
@@ -3046,7 +3046,7 @@
   "expect": [
    "theAnimationsCategoryShowsOnlyOnABit10Build_ANIM"
   ],
-  "note": "ANIM: the category shown without bit 10 [re-pointed at the 0.83 integration, part 2: C3's tier rows join the category at stage 5] [re-pointed at MR-083: C1 (decisions BW (3)) splits the rows into Scroll, the tiers at stage 5, Popups] [re-pointed at C3 AS: the page is one row per tier, each opening the tier's rows as a sub menu]",
+  "note": "ANIM: the category shown without bit 10 [re-pointed at the 0.83 integration, part 2: C3's tier rows join the category at stage 5] [re-pointed at MR-083: C1 (decisions BW (3)) splits the rows into Scroll, the tiers at stage 5, Popups] [re-pointed at C3 AS: the page is one row per tier, each opening the tier's rows as a sub menu] [re-anchored at C3 DW-1b-2: the Switcher row follows the tiers on the page]",
   "from": "ANIM"
  },
  {
@@ -11759,12 +11759,12 @@
    ]
   ],
   "tests": [
-   "*WheelBindTest.aSessionThatEnds*"
+   "*WheelBindTest.aLinkThatDrops*"
   ],
   "expect": [
-   "<no pin: in the rig the session's end passes a pump with the link down, whose poll clears the offer (Main's lane's conditions fail) before the next start reads the front — the line covers a start reached with no such pump; declared>"
+   "aLinkThatDropsWithTheWheelBoundStartsWithNothingOfList2BeforeTheBlock_DW1b2"
   ],
-  "note": "C3 DW-1b-1 (the amendment's §5, the offer cleared at a session start): the start's bind batch SETs list 2 from the last session's offer, before the block is written again (watched: not caught — see expect)",
+  "note": "C3 DW-1b-1 (the amendment's §5, the offer cleared at a session start): the start's bind batch SETs list 2 from the last session's offer, before the block is written again (watched: not caught — see expect) [re-pointed at C3 DW-1b-2 (decisions DJ item 5): the pin a link that drops with the wheel bound — no pump polls between the link's end and the next start]",
   "from": "DW-1b-1"
  },
  {
@@ -12086,5 +12086,59 @@
   ],
   "note": "finding 3's onset: the stall counted from the first sample that finds the place still, not from where it stopped — the song's zero passes the slack first, and a paint between restarts the chain at the stall's start",
   "from": "MM-LF2"
+ },
+ {
+  "id": "DW1b2-none-not-in-key",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val key: WheelKey get() = WheelKey(keys, order.toList(), g.toString(), motion, regionEnd)",
+    "        val key: WheelKey get() = WheelKey(keys, order.toList(), g.toString(), motion.copy(none = false), regionEnd)"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.switcherNone*"
+  ],
+  "expect": [
+   "switcherNoneHoldsTheOfferUntilTheProgramsAreRewrittenInPlace_DW1b2"
+  ],
+  "note": "C3 DW-1b-2 (the DW spec §6): `Switcher` = None left out of the programs' key — the lane never rewrites the programs for None and the offer, which compares the timing in force, never holds again",
+  "from": "DW-1b-2"
+ },
+ {
+  "id": "DW1b2-block-before-list",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        wheel.reserved = size\n        if (windowListFirst()) return false\n",
+    "        wheel.reserved = size\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aSessionStartWithAWindowsList*"
+  ],
+  "expect": [
+   "aSessionStartWithAWindowsListInFrontBindsTheListBeforeTheBlocksWrite_DW1b2"
+  ],
+  "note": "C3 DW-1b-2 (decisions DF finding 2): the wheel's block written ahead of a window's list in front at a session start (CK A3's old order) — the list waits for the whole block",
+  "from": "DW-1b-2"
+ },
+ {
+  "id": "DW1b2-no-reserve",
+  "file": "shell/WheelResident.kt",
+  "edits": [
+   [
+    "    fun baseIn(regionEnd: Int): Int = block?.base ?: reserved?.let { baseFor(regionEnd, it) } ?: regionEnd",
+    "    fun baseIn(regionEnd: Int): Int = block?.base ?: regionEnd"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aSessionStartWithAWindowsList*"
+  ],
+  "expect": [
+   "aSessionStartWithAWindowsListInFrontBindsTheListBeforeTheBlocksWrite_DW1b2"
+  ],
+  "note": "C3 DW-1b-2 (decisions DF finding 2): no place reserved for the block — the window's list staged first is laid out where the block goes and yields to it",
+  "from": "DW-1b-2"
  }
 ]
