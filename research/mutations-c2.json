@@ -4818,17 +4818,19 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "override fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout",
+    "override fun mainBindLayout(): Layout = if (mode == Mode.MAIN) layout else layoutFor(settings)",
     "override fun mainBindLayout(): Layout = layout"
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
+   "*MainLocalShellTest.aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP",
+   "*WindowListShellTest.mainsStagingIsKept*"
   ],
   "expect": [
-   "aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
+   "aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP",
+   "mainsStagingIsKeptAcrossAWindowOfAnotherHeight_K12S3b"
   ],
-  "note": "decisions BP: behind the clock the shell's layout, not the one the wake brings (both sites) [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now]",
+  "note": "decisions BP: behind the clock the shell's layout, not the one the wake brings (both sites) [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now] [re-pointed by K1-2 stage 3b: Main's own layout wherever Main is not in front]",
   "from": "B083-ms"
  },
  {
@@ -10569,8 +10571,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (ms != null && ms.regionEnd == wheel.regionEnd && ms.end > b.base)\n            wheelDrop(",
-    "        if (ms != null && ms.regionEnd == wheel.regionEnd && ms.end > b.base && false)\n            wheelDrop("
+    "        if (ms != null && ms.end > b.base)\n            wheelDrop(",
+    "        if (ms != null && ms.end > b.base && false)\n            wheelDrop("
    ]
   ],
   "tests": [
@@ -10579,7 +10581,7 @@
   "expect": [
    "mainsStagingOverTheBlockDropsItAndASmallerOnePlacesItAgain_DW1a"
   ],
-  "note": "C3 DW-1a (decisions BD, Main wins): Main's staging laid out over the placed block leaves the block in the registry",
+  "note": "C3 DW-1a (decisions BD, Main wins): Main's staging laid out over the placed block leaves the block in the registry [re-pointed at DW-1aF: the region-end comparison removed (V1-DW1a R1)]",
   "from": "DW-1a"
  },
  {
@@ -10740,7 +10742,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        val b = if (known == null) mainList else lists.firstOrNull { it.listNo == known } ?: return",
+    "        val b = if (known == null) mainList.takeIf { ev.slot == MainStaging.WRAP_SLOT || windowList.mainBind.stagings == 0 } ?: return\n            else lists.firstOrNull { it.listNo == known } ?: return",
     "        val b = mainList"
    ]
   ],
@@ -10750,7 +10752,7 @@
   "expect": [
    "theWindowListsStepsNeverMoveMainsPeriod_K12S3a"
   ],
-  "note": "pin 14 (BF per list): every slot-0 body goes to Main's measured window, as before stage 3a",
+  "note": "pin 14 (BF per list): every slot-0 body goes to Main's measured window, as before stage 3a [re-pointed by K1-2 stage 3b: a body with no report heard is used for nothing once a window list was staged]",
   "from": "K12S3a"
  },
  {
@@ -10896,5 +10898,301 @@
   ],
   "note": "the K1-2 spec §6 (AppStyle.scrollEffect: an unknown id reads default), decisions CV (Crush and Flip not offered on a window's list): a stored value passes unclamped",
   "from": "K12S3c"
+ },
+ {
+  "id": "K12S4d-map-order",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        for (spec in a.specs().sortedWith(atlasFaceOrder)) {",
+    "        for (spec in a.specs()) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.theFacesOneAtlasMessageExtendsGoInTheFacesOwnOrder_K12S4d"
+  ],
+  "expect": [
+   "theFacesOneAtlasMessageExtendsGoInTheFacesOwnOrder_K12S4d"
+  ],
+  "note": "decisions CW: the faces one atlas message extends go out in the face map's own order (a hash order that follows the Face enum's identity hash, which differs between builds) — the key removed at Shell.atlasGrow's extension loop",
+  "from": "K12S4d"
+ },
+ {
+  "id": "DW1aF-wheel-in-mains-gap",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (mainList.mainBind.records.any { it.state == StagedRecord.State.SENT || it.state == StagedRecord.State.ACKED }) return false",
+    "        if (false && mainList.mainBind.records.any { it.state == StagedRecord.State.SENT || it.state == StagedRecord.State.ACKED }) return false"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.mainIsOfferedBeforeTheBlocksFirstPiece*"
+  ],
+  "expect": [
+   "mainIsOfferedBeforeTheBlocksFirstPieceWhenItsReadingIsPending_DW1aF"
+  ],
+  "note": "C3 DW-1aF (V1-DW1a F1): the wheel's lane does not hold while Main's base records are written and not yet counted - the block's pieces go in the pace after a pending reading, ahead of Main's count (5f21143c's lane)",
+  "from": "DW-1aF"
+ },
+ {
+  "id": "DW1aF-live-not-wheel",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            wheel.liveChanged()",
+    "            if (false) wheel.liveChanged()"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aChangeOfTheLiveFaces*"
+  ],
+  "expect": [
+   "aChangeOfTheLiveFacesPaintsTheCellsAgain_DW1aF"
+  ],
+  "note": "C3 DW-1aF (V1-DW1a F2): a change of the live faces never reaches the wheel - its cells keep their paints under the old set (5f21143c's atlasLive)",
+  "from": "DW-1aF"
+ },
+ {
+  "id": "DW1aF-live-paint-only",
+  "file": "shell/WheelResident.kt",
+  "edits": [
+   [
+    "    fun liveChanged() { painted.clear(); paintedAgain = null; wantFor = null; sized = null; refusedFor = null }",
+    "    fun liveChanged() { painted.clear(); paintedAgain = null; sized = null; refusedFor = null }"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aChangeOfTheLiveFaces*"
+  ],
+  "expect": [
+   "aChangeOfTheLiveFacesPaintsTheCellsAgain_DW1aF"
+  ],
+  "note": "C3 DW-1aF (V1-DW1a F2, the review's one line): the cells painted again at a change of the live faces, but the placed block's want stays current for the unchanged keys - never rebuilt from the new paints",
+  "from": "DW-1aF"
+ },
+ {
+  "id": "DW1aF-live-size-kept",
+  "file": "shell/WheelResident.kt",
+  "edits": [
+   [
+    "    fun liveChanged() { painted.clear(); paintedAgain = null; wantFor = null; sized = null; refusedFor = null }",
+    "    fun liveChanged() { painted.clear(); paintedAgain = null; wantFor = null; }"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.aChangeOfTheLiveFaces*"
+  ],
+  "expect": [
+   "<no pin: an unplaced block's size and refusal kept across a change of the live faces - they matter only where the new paints' bytes differ in size before a placement (Main's staging meeting the block, then a notice); no rig here changes a cell's bytes at a live change (F2's pin: no wheel write); declared>"
+  ],
+  "note": "C3 DW-1aF (V1-DW1a F2, the class): the measured size and a refusal of the old paints kept across a change of the live faces",
+  "from": "DW-1aF"
+ },
+ {
+  "id": "DW1aF-exclusive-d0",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun wheelOpenD(st: LinkState): Int = if (!st.effects) 0 else if (settings.depth != 0) settings.depth\n        else (if (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) current?.let { appDepth(it) } else null) ?: settings.depth",
+    "    private fun wheelOpenD(st: LinkState): Int = if (!st.effects || mode == Mode.EXCLUSIVE) 0 else if (settings.depth != 0) settings.depth else contentDepth()"
+   ]
+  ],
+  "tests": [
+   "*WheelResidentTest.anExclusiveVisit*"
+  ],
+  "expect": [
+   "anExclusiveVisitWritesNothingOfTheBlock_DW1aF"
+  ],
+  "note": "C3 DW-1aF (V1-DW1a F3): on an exclusive screen the wheel's want is at d 0 - the programs' slot rewritten on entering it and on leaving it (5f21143c's wheelOpenD)",
+  "from": "DW-1aF"
+ },
+ {
+  "id": "K12S3b-no-compose-compare",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        else if (mode == Mode.WINDOW) windowList.composeCompare()  // K1-2 stage 3b",
+    "        else if (false) windowList.composeCompare()  // K1-2 stage 3b"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aReorderOnScreen*",
+   "*WindowListShellTest.anAdjustedValue*",
+   "*WindowListShellTest.aListThatDoesNotFit*"
+  ],
+  "expect": [
+   "aReorderOnScreenIsReStagedRowByRowWithTheMarkKept_K12S3b",
+   "anAdjustedValueIsReStagedWithin5sAndTheNextNotchsEndShowsIt_K12S3b",
+   "aListThatDoesNotFitIsTriedAgainOnAContentChange_K12S3b"
+  ],
+  "note": "K1-2 stage 3b (the spec's O5): no compose compare for list 1 — the tree before 3b: a changed row found by the round-robin alone, a refused list never tried again on a content change",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-rows-half-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    if (!same) { differ++; mainBind.differs(row) }",
+    "                    if (!same) { differ++ }"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aReorderOnScreen*"
+  ],
+  "expect": [
+   "aReorderOnScreenIsReStagedRowByRowWithTheMarkKept_K12S3b"
+  ],
+  "note": "K1-2 stage 3b: the rows beside the band not compared — a reorder on screen found by the round-robin alone",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-band-half-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (b != null && b.first === ref && b.second == c && b.third != band) {",
+    "if (b != null && b.first === ref && b.second == c && b.third != band && false) {"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.anAdjustedValue*"
+  ],
+  "expect": [
+   "anAdjustedValueIsReStagedWithin5sAndTheNextNotchsEndShowsIt_K12S3b"
+  ],
+  "note": "K1-2 stage 3b (pin 8): the band's picture not compared — an adjusted value under the band is not re-staged until the round-robin reaches it",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-band-any-row",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (b != null && b.first === ref && b.second == c && b.third != band) {",
+    "if (b != null && b.first === ref && b.third != band) {"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aComposeOfRowsUnchangedMarksNone*"
+  ],
+  "expect": [
+   "aComposeOfRowsUnchangedMarksNone_K12S3b"
+  ],
+  "note": "K1-2 stage 3b: the band compared across a cursor move — every notch marks the row under the band (a row painted again in idle for nothing)",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-refused-content-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (retry) { mainBindRefusedFor = null; refusedRows = null; bandSeen = null; post(Msg.Pump) }",
+    "if (false) { mainBindRefusedFor = null; refusedRows = null; bandSeen = null; post(Msg.Pump) }"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aListThatDoesNotFit*"
+  ],
+  "expect": [
+   "aListThatDoesNotFitIsTriedAgainOnAContentChange_K12S3b"
+  ],
+  "note": "K1-2 stage 3b (pin 6's content half, AF.6): a refused window list never tried again on a content change",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-main-layout-follows-window",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "override fun mainBindLayout(): Layout = if (mode == Mode.MAIN) layout else layoutFor(settings)",
+    "override fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.mainsStagingIsKept*"
+  ],
+  "expect": [
+   "mainsStagingIsKeptAcrossAWindowOfAnotherHeight_K12S3b"
+  ],
+  "note": "K1-2 stage 3b (decisions CX): Main's poll on the shell's layout — the tree before 3b: a window of another height drops Main's staging, and the way back stages it whole",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-title-in-key",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private data class WindowListView(val window: String, val level: Int, val model: ListModel) {",
+    "    private data class WindowListView(val window: String, val level: Int, val model: ListModel, val t: String = \"\") {"
+   ],
+   [
+    "settingsWindow.listLevel() else w.levelDepth(), v.model).also { it.title = w.title() })",
+    "settingsWindow.listLevel() else w.levelDepth(), v.model, w.title()).also { it.title = w.title() })"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aTitleNoticeKeepsTheListBound*"
+  ],
+  "expect": [
+   "aTitleNoticeKeepsTheListBound_K12S3b"
+  ],
+  "note": "decisions CY (the first review of 3a, finding A): the title back in the window list's key — a title notice unbinds and stages an unchanged list again",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-all-changed-row-by-row",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (allChanged === ms) return \"every row on screen",
+    "            if (false) return \"every row on screen"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.everyRowOnScreenChanged*"
+  ],
+  "expect": [
+   "everyRowOnScreenChangedIsANewStaging_K12S3b"
+  ],
+  "note": "decisions CY: every row on screen changed is re-staged a row per 5 s, not made a new staging (another list under the same key)",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-close-any-window-list-change",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            (mode != Mode.WINDOW || frontBefore.list != windowList.listNo || windowList.screenLeft()) &&\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aNoticeOverABoundWindowListInsideTheWaitCutsNothing*"
+  ],
+  "expect": [
+   "aNoticeOverABoundWindowListInsideTheWaitCutsNothing_K12S3b"
+  ],
+  "note": "decisions CY (finding B): a cover, the adjust level, a withdrawal or a drop of the same view over a window list's motion sends a CLOSE ahead of the frame (the motion cut short)",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-body-unknown-to-main",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "mainList.takeIf { ev.slot == MainStaging.WRAP_SLOT || windowList.mainBind.stagings == 0 } ?: return",
+    "mainList"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aSlot0BodyWithNoReportHeard*"
+  ],
+  "expect": [
+   "aSlot0BodyWithNoReportHeardMovesNoPeriod_K12S3b"
+  ],
+  "note": "decisions CY (finding C): a slot-0 body whose report was not heard is credited to Main's measured window",
+  "from": "K12S3b"
  }
 ]

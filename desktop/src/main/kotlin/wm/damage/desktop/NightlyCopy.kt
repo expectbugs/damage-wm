@@ -68,7 +68,8 @@ class NightlyCopy(
     private val dataDir: Path,
     private val backupDir: Path,
     private val keep: Int,
-    private val at: LocalTime,
+    /** The daily copy's time of day. */
+    val at: LocalTime,
     private val rulesPath: Path,
     private val feedDir: Path,
     private val store: AlertStore,
@@ -87,9 +88,22 @@ class NightlyCopy(
     /** The last daily slot this instance handled (a slot that had passed at start is the catch-up's). */
     private var lastSlot: LocalDateTime = slotAtOrBefore(clock())
     /** When the one catch-up is due; null when none is (or it has run). */
-    private var catchUpAt: Long? = null
+    @Volatile private var catchUpAt: Long? = null
     /** When the running copy started; 0 = none running. */
     private val runningSince = AtomicLong(0)
+
+    /** R-b H1: told on the copy's thread at each run's end, good or failed (the health record reads [last] again). */
+    @Volatile var onRunEnd: (() -> Unit)? = null
+
+    /** R-b H1: a copy, by its folder's name and the instant the name stamps. */
+    data class Copy(val name: String, val at: Long)
+
+    /** R-b H1: the newest copy, or null when the folder holds none. Lists the folder (disk); throws when it cannot. */
+    fun last(): Copy? = copies().lastOrNull()?.let { p -> stampOf(p.fileName.toString())?.let { Copy(p.fileName.toString(), it) } }
+
+    /** R-b H1: when the running copy started, and when the one catch-up is due; null for none. In memory. */
+    val running: Long? get() = runningSince.get().takeIf { it != 0L }
+    val catchUpDue: Long? get() = catchUpAt
 
     /** One source: where it is read and where it lands inside the copy. */
     class Source(val from: Path, val to: String)
@@ -167,6 +181,11 @@ class NightlyCopy(
                 copyNow(why)
             } finally {
                 runningSince.set(0)
+                try {
+                    onRunEnd?.invoke()
+                } catch (e: Exception) {
+                    Log.e(TAG, "the health record's read after a nightly copy failed", e)
+                }
             }
         }
     }
