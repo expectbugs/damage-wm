@@ -26,6 +26,8 @@ import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.TransportEvent
+import wm.damage.core.transport.bind
+import wm.damage.core.transport.effects
 import wm.damage.core.wire.EvenHubMsg
 import wm.damage.core.windows.games.GamesWindow
 
@@ -64,7 +66,10 @@ class OracleWalkTest {
                       /** Build C3 (DP2): a bit-11 build (0xdff) at the ladder's stage 5 — EFFECTS armed, transitions played. */
                       val stage5: Boolean = false,
                       /** C3 DM-1: Main's `Scroll effect` (the walk's local events then fire it on the glasses). */
-                      scrollEffect: String = ShellSettings().scrollEffect) {
+                      scrollEffect: String = ShellSettings().scrollEffect,
+                      /** K1-2 stage 4c: Files registered over a disposable world in [tmp] ([walkFiles]), its provider's calls
+                       *  counted in [filesIo]. */
+                      files: Boolean = false) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp: java.nio.file.Path = Files.createTempDirectory("damage-walk")
         val store = Persistence(tmp.resolve("state.json"))
@@ -94,6 +99,11 @@ class OracleWalkTest {
         private val marks = ArrayList<Pair<Long, String>>()
         /** The walk's own input, stamped (stage 5): which step an act came from, and whether input arrived inside it. */
         fun mark(what: String) { if (stage5) synchronized(marks) { marks += System.currentTimeMillis() to what } }
+        /** K1-2 stage 4c: Files' provider calls under way (0 with no Files registered). */
+        val filesIo = java.util.concurrent.atomic.AtomicInteger()
+        /** K1-2 stage 4c: Files' "Open on PC" taken (counted, never run), and the provider calls the rig refused ([walkFiles]). */
+        val filesOpened = java.util.concurrent.atomic.AtomicInteger()
+        val filesRefused = java.util.concurrent.CopyOnWriteArrayList<String>()
 
         init {
             // DP2: every tier's every effect checked, at the shortest length, so the walk meets them all quickly
@@ -104,6 +114,7 @@ class OracleWalkTest {
             shell.register(GamesWindow(FakeText(), scope) { 1_757_000_000_000L })
             shell.register(SurfaceWindow())
             shell.register(WalkDocWindow())
+            if (files) shell.register(wm.damage.core.windows.files.FilesWindow(FakeText(), walkFiles(tmp, filesIo, filesOpened, filesRefused), scope))
             // the glasses' engine thread: a step due is drawn (the model draws only when woken)
             if (stage4 || stage5) scope.launch {
                 var last = 0L
@@ -145,6 +156,71 @@ class OracleWalkTest {
             }
             throw AssertionError("$what: the shell did not settle — " +
                 "${shell.quiescenceReport()}\n${busyThreads()}")
+        }
+
+        /** K1-2 stage 4c: the window-list walk's decision point — settled, the lanes that write into the cache done (the
+         *  notice's, the window list's, no cache work in flight, no transition), Files' provider idle; three readings in a
+         *  row, 10 ms apart (a provider call that returned posts its answer to the loop just after it). A shell at rest for
+         *  10 s with a lane still not done is a STALL: said in [stalls] with [laneReport], and the walk decides there (more
+         *  than ten in one height fail it). */
+        suspend fun ready(what: String) {
+            val t0 = System.currentTimeMillis()
+            var calm = 0
+            while (true) {
+                val waited = System.currentTimeMillis() - t0
+                val quiet = filesIo.get() == 0 && shell.isQuiescent()
+                val ok = quiet && shell.sampleIdle {
+                    shell.noticeLaneDoneForTest() && shell.windowListLaneDoneForTest() && !shell.cacheWorkInFlight && shell.transitionPhaseForTest() == null
+                } == true
+                if (!ok) calm = 0 else if (++calm >= 3) return
+                if (quiet && waited > 10_000) {
+                    stalls += "$what, at rest after $waited ms: ${laneReport()}"
+                    if (stalls.size > 10) throw AssertionError("$what: more than ten stalls in one height —\n${stalls.joinToString("\n")}")
+                    return
+                }
+                if (waited > 60_000) throw AssertionError("$what: the shell never came to rest — files io ${filesIo.get()}; ${laneReport()}; ${shell.quiescenceReport()}\n${busyThreads()}")
+                delay(10)
+            }
+        }
+
+        /** K1-2 stage 4c: the decision points the walk took with a lane not done ([ready]). */
+        val stalls = ArrayList<String>()
+
+        /** K1-2 stage 4c: each lane condition [ready] reads, the window list's binding, the session, and the journal's last
+         *  `liststage` notes — one evaluation on the loop. Diagnostic only. */
+        fun laneReport(): String {
+            val st = transport.state.value
+            val r = shell.onLoop {
+                val b = shell.windowListBinding
+                "notice lane done ${shell.noticeLaneDoneForTest()}, window list lane done ${shell.windowListLaneDoneForTest()}, " +
+                    "wheel lane done ${shell.wheelLaneDoneForTest()}, cache work in flight ${shell.cacheWorkInFlight}, transition ${shell.transitionPhaseForTest()}; " +
+                    "slot 0 ${shell.slot0ForTest()}, on screen ${surface()}, its row ${shell.focusedRowForTest()}; the window list: staging " +
+                    "${b.staging?.let { "${it.rows} rows at ${it.start}..${it.end}" }}, counted ${b.counted}, list ${b.list?.let { "mark ${it.mark} count ${it.count}" }}, " +
+                    "records ${b.records.map { it.state }}, stagings ${b.stagings}, refusals ${shell.windowListRefusalsForTest()}"
+            }
+            val notes = journalFile?.takeIf { Files.exists(it) }?.let { f ->
+                Files.readAllLines(f).filter { "\"kind\":\"liststage\"" in it }.takeLast(6).map { DETAIL_FIELD.find(it)?.groupValues?.get(1) ?: it }
+            }
+            return "$r; session effects ${st.effects} bind ${st.bind} cache ${st.cacheSize}; liststage notes $notes"
+        }
+
+        /** K1-2 stage 4c: who holds slot 0 ("main", "window" or null), the list it offers when that list's two notch
+         *  entries are held on RIGHT (null otherwise), and its row — one evaluation on the loop, the entries read under the
+         *  model's lock. A holder whose list is not held yet is asked again for up to 5 s (Main's lane has no door that says
+         *  it is done). */
+        suspend fun pick(what: String): Pick {
+            val t0 = System.currentTimeMillis()
+            while (true) {
+                val p = shell.sampleIdle {
+                    val holder = shell.slot0ForTest()
+                    val (list, row) = when (holder) { "main" -> shell.mainBoundForTest(); "window" -> shell.windowBoundForTest(); else -> null to -1 }
+                    val held = list != null && synchronized(sim) { sim.bindForTest(Arm.RIGHT).entries.filterNotNull().count { it.list == list.list && !it.tap } == 2 }
+                    Pick(surface(), holder, if (held) list else null, row)
+                }
+                if (p != null && (p.holder == null || p.list != null || System.currentTimeMillis() - t0 > 5_000)) return p
+                delay(10)
+                ready(what)
+            }
         }
 
         /** WHERE it is stuck, not just THAT it is: a bound that fires with no
@@ -362,6 +438,9 @@ class OracleWalkTest {
      * menu, the §4.8 keyboard and §4.9 exclusive mode — so their plane maps
      * are reachable from a random walk. Row 0 is harmless (§1.7).
      */
+    /** K1-2 stage 4c: [Rig.pick]'s reading — the surface on screen, slot 0's holder, its list when held on RIGHT, its row. */
+    private class Pick(val surface: String, val holder: String?, val list: wm.damage.core.local.BoundList?, val row: Int)
+
     private class SurfaceWindow : wm.damage.core.shell.DamageWindow(
         "surfaces", "Surfaces", wm.damage.core.gfx.IconKind.FILES,
     ) {
@@ -791,6 +870,117 @@ class OracleWalkTest {
         assertTrue(timerReads > 0, "the stage-5 walk never read the oracle while a notice's timer drew — it no longer meets a box in its grace")
     }
 
+    /**
+     * K1-2 stage 4c (the K1-2 spec §7, stage 4's row: "`OracleWalkTest` (its stage-5 walk then binds window lists)"; §8's
+     * gate "OracleWalk at stage 5 twice"; decisions DA): the local walk at stage 5 on a bit-11 build (256 KiB, every
+     * transition tier played) entering windows whose own list the shell binds as glasses list 1 — Settings' categories
+     * and a category's rows, Files' locations and folders (a disposable world in the rig's directory), the walk's Surfaces
+     * — and firing local events through the simulator's input hook on both lenses on whichever list holds slot 0 (list 1,
+     * or Main's), each followed by its stock message. The truth oracle judges every settle at the four heights, and a
+     * list-1 notch that drew leaves the window's row where the bound list said (its adoption: a snap-back keeps belief,
+     * glass and truth equal, so the pixels alone cannot see it). Each step decides at one point ([Rig.ready], [Rig.pick])
+     * and takes the same draws whatever it decides, so the pinned seed walks the same steps at every run: each height
+     * prints its steps and their digest, which two runs compare. Every height must have drawn list-1 notches, and Settings
+     * and Files must both have taken list-1 local events.
+     */
+    @Test
+    fun localEventsOnWindowListsKeepTheOracleAtStage5_K12S4c(): Unit = runBlocking {
+        val byWindow = java.util.TreeMap<String, Int>()
+        for (h in ShellSettings.HEIGHTS) {
+            val rig = Rig(h, seed = 0x4C_12_5A4CL + h, contract = 2, cached = true, stage5 = true, files = true)
+            val tag = "c3 stage 5 window lists h=$h"
+            try {
+                val c = windowListWalk(rig, tag)
+                val (owed, whole) = rig.shell.transitionCountsForTest()
+                println("$tag: ${c.l1Local} local event(s) on list 1, ${c.l1Drew} notch(es) drew, ${c.l1Taps} tap(s), ${c.l1Edges} edge(s) " +
+                    "(by window ${c.l1ByWindow}); ${c.mainLocal} on Main's list, ${c.mainDrew} drew; $owed transition(s) owed, $whole whole; " +
+                    "${rig.shell.divergencesReported} divergence(s) reported; steps digest %08x".format(c.trace.toString().hashCode()))
+                println("$tag steps:${c.trace}")
+                println("$tag: ${rig.stalls.size} stall(s)${rig.stalls.joinToString("") { "\n  $it" }}")
+                println("$tag: Files' \"Open on PC\" taken ${rig.filesOpened.get()} time(s), counted and not run; provider calls refused ${rig.filesRefused}")
+                // the walk with Files registered starts no process and reads nothing outside its directory ([walkFiles])
+                assertTrue(rig.filesRefused.isEmpty(), "$tag: the walk's Files rig was asked for what it does not run: ${rig.filesRefused}")
+                c.l1ByWindow.forEach { (k, v) -> byWindow.merge(k, v, Int::plus) }
+                assertTrue(c.l1Drew > 0, "$tag: no local notch on list 1 drew (${c.l1Local} fired) — the walk never reached a bound window list")
+                assertEquals(0, rig.shell.divergencesReported, "$tag: no divergence")
+            } finally {
+                rig.stop()
+            }
+        }
+        println("c3 stage 5 window lists: list-1 local events by window over the four heights $byWindow")
+        assertTrue((byWindow["settings"] ?: 0) > 0 && (byWindow["files"] ?: 0) > 0, "list-1 local events in Settings and in Files: $byWindow")
+    }
+
+    /** What [windowListWalk] counted, and its steps as one line (two runs of a pinned seed compare it). */
+    private class WalkCounts {
+        var l1Local = 0; var l1Drew = 0; var l1Taps = 0; var l1Edges = 0; var mainLocal = 0; var mainDrew = 0
+        val l1ByWindow = java.util.TreeMap<String, Int>()
+        val trace = StringBuilder()
+    }
+
+    /** K1-2 stage 4c: one walk of [WINDOW_LIST_STEPS] (see [localEventsOnWindowListsKeepTheOracleAtStage5_K12S4c]). */
+    private suspend fun windowListWalk(rig: Rig, tag: String): WalkCounts {
+        val c = WalkCounts()
+        rig.shell.start()
+        rig.ready("$tag boot")
+        rig.assertOracle("$tag boot")
+        for (step in 1..WINDOW_LIST_STEPS) {
+            // the same four draws at every step whatever it decides: the seed's stream never forks on a reading
+            val dLocal = rig.rnd.nextInt(4); val dEntry = rig.rnd.nextInt(1 shl 16); val dBack = rig.rnd.nextInt(3); val dGesture = rig.rnd.nextInt(GESTURES.size)
+            if (step % WINDOW_LIST_HANDOFF_EVERY == 0) {
+                val (win, target) = WINDOW_LIST_HANDOFFS[(step / WINDOW_LIST_HANDOFF_EVERY - 1) % WINDOW_LIST_HANDOFFS.size]
+                rig.shell.services.runOnShell { rig.shell.services.openWindow(win, target) }
+                val where = "$tag step $step (open $win${target?.let { ":$it" } ?: ""})"
+                rig.ready(where)
+                rig.assertOracle(where)
+                c.trace.append(" $step:open:$win")
+                continue
+            }
+            val p = rig.pick("$tag step $step")
+            val list = p.list
+            if (list != null && dLocal != 0) {
+                val e = list.entries[dEntry % list.entries.size]
+                val before = rig.sim.bindForTest(Arm.RIGHT).seq
+                val now = System.currentTimeMillis()
+                for (arm in Arm.entries) rig.sim.conformanceInput(arm, wm.damage.core.wire.CfwModes.DEV_RING, e.eventId.toLong(), 0, now)
+                val fired = rig.sim.bindForTest(Arm.RIGHT).seq != before
+                rig.transport.ringStockForTest(wm.damage.core.local.BoundList.stockEvent(e.eventId)!!)
+                val f = list.predict(p.row, e)
+                // the lens draws the local picture to its end (a period of steps and one more), and the rules' burst closes
+                val q = rig.shell.onLoop { rig.shell.localQForTest() }
+                e.program?.let { prog -> delay(((prog.T + 1) * e.period * 1000L / 1024) + q + 20) }
+                val dir = if (e.isTap) "tap" else if (e.step > 0) "down" else "up"
+                val where = "$tag step $step (local $dir on list ${list.list} in ${p.surface} from row ${p.row})"
+                rig.ready(where)
+                rig.assertOracle(where)
+                val rowAfter = rig.shell.onLoop { rig.shell.focusedRowForTest() }
+                c.trace.append(" $step:L${list.list}:${p.surface}:$dir@${p.row}>$rowAfter${if (fired) "" else "!"}")
+                if (list.list == wm.damage.core.shell.WindowListCheck.LIST) {
+                    c.l1Local++
+                    c.l1ByWindow.merge(p.surface, 1, Int::plus)
+                    if (fired && e.isTap) c.l1Taps++
+                    if (fired && !e.isTap && f is wm.damage.core.local.BoundList.Fire.Edge) c.l1Edges++
+                    if (fired && !e.isTap && f is wm.damage.core.local.BoundList.Fire.Drew) {
+                        c.l1Drew++
+                        assertEquals(f.cursor, rowAfter, "$where: the window's row after a notch that drew on the lens (the report adopted)")
+                    }
+                } else {
+                    c.mainLocal++
+                    if (fired && !e.isTap && f is wm.damage.core.local.BoundList.Fire.Drew) c.mainDrew++
+                }
+                continue
+            }
+            // away from Main, a double tap back one level now and then
+            val g = if (p.surface != "main" && dBack == 0) EvenHubMsg.EV_DOUBLE_CLICK else GESTURES[dGesture]
+            rig.shell.postGesture(g)
+            val where = "$tag step $step (${EvenHubMsg.eventName(g)} in ${p.surface})"
+            rig.ready(where)
+            rig.assertOracle(where)
+            c.trace.append(" $step:${p.surface}:${EvenHubMsg.eventName(g)}")
+        }
+        return c
+    }
+
     internal companion object {
         const val STEPS = 240
         /** DP2: the stage-5 walk's steps per height. */
@@ -798,6 +988,66 @@ class OracleWalkTest {
         /** The local walk's steps per height (each local event waits for its picture to be held). */
         const val LOCAL_STEPS = 120
         const val HANDOFF_EVERY = 17
+        /** K1-2 stage 4c: the window-list walk's steps per height, and how often it opens a window whose list binds. */
+        const val WINDOW_LIST_STEPS = 120
+        const val WINDOW_LIST_HANDOFF_EVERY = 11
+        /** K1-2 stage 4c: the windows the window-list walk opens, in rotation (Settings at its categories or a category). */
+        val WINDOW_LIST_HANDOFFS: List<Pair<String, String?>> = listOf(
+            "settings" to null, "files" to null, "settings" to "cat:Global", "surfaces" to null, "files" to null, "settings" to "cat:Files",
+        )
+
+        /** K1-2 stage 4c: the `FilesProvider` calls the walk's Files rig hands to the real provider — each reads or changes
+         *  only paths under the rig's directory and starts no process (the K1-2 S4c report lists what each does). */
+        val WALK_FILES_FORWARDED = setOf("stateLine", "locations", "list", "cachedLocations", "cachedList", "stat", "du", "readText",
+            "readBytes", "trash", "trashList", "restore", "purge", "rename", "mkdir", "copy", "move", "refuseTrashStore")
+
+        /**
+         * K1-2 stage 4c: Files' provider over a disposable world in [tmp] — three roots (4, 6 and 8 folders, each with one
+         * to three sub folders; nothing else), the rig's own trash and books directories, no mounts read. Nothing outside
+         * [tmp] is listed: the locations are the three roots, and Files' Back never climbs above a root. Only the calls in
+         * [WALK_FILES_FORWARDED] reach the real provider, each counted in [io] while it runs (the walk decides once a listing
+         * has landed). `openOnPc` (the real one starts `xdg-open` on the PC's display) is counted in [opened] and returns;
+         * any other call (the PDF calls start `pdfinfo`, `pdftotext`, `pdftoppm`; `thumb` decodes an image; a call added to
+         * the interface later) is recorded in [refused] and throws. The real provider's own `openOnPc` is replaced too: a
+         * call that reaches it is recorded in [refused] and throws, so even a rig that forwarded it starts nothing — and
+         * [refused] fails the walk.
+         */
+        fun walkFiles(tmp: java.nio.file.Path, io: java.util.concurrent.atomic.AtomicInteger, opened: java.util.concurrent.atomic.AtomicInteger,
+                      refused: MutableList<String>): wm.damage.core.windows.files.FilesProvider {
+            val roots = listOf("SC", "Docs", "Media").mapIndexed { k, label ->
+                val r = tmp.resolve("files").resolve(label.lowercase())
+                for (i in 0 until 4 + 2 * k) for (j in 0..(i % 3)) Files.createDirectories(r.resolve("folder-${'a' + i}").resolve("sub-$j"))
+                label to r
+            }
+            val local = wm.damage.core.windows.files.LocalFilesProvider(tmp.resolve("files-books"), tmp.resolve("files-trash"),
+                decoder = null, mountsFile = tmp.resolve("files-no-mounts"))
+            val base = object : wm.damage.core.windows.files.FilesProvider by local {
+                override fun locations() = roots.map { (label, r) -> wm.damage.core.windows.files.FLocation(label, r.toString(), "mount", 1_000_000, 500_000) }
+                override fun openOnPc(path: String) {
+                    refused += "openOnPc reached the provider ($path)"
+                    throw IllegalStateException("the walk's Files rig opens nothing on the PC")
+                }
+            }
+            return java.lang.reflect.Proxy.newProxyInstance(wm.damage.core.windows.files.FilesProvider::class.java.classLoader,
+                arrayOf(wm.damage.core.windows.files.FilesProvider::class.java)) { proxy, m, args ->
+                when (m.name) {
+                    "openOnPc" -> { opened.incrementAndGet(); null }
+                    in WALK_FILES_FORWARDED -> {
+                        io.incrementAndGet()
+                        try { m.invoke(base, *(args ?: emptyArray())) }
+                        catch (e: java.lang.reflect.InvocationTargetException) { throw e.targetException }
+                        finally { io.decrementAndGet() }
+                    }
+                    "toString" -> "the walk's Files provider"
+                    "hashCode" -> System.identityHashCode(proxy)
+                    "equals" -> proxy === args?.getOrNull(0)
+                    else -> {
+                        refused += m.name
+                        throw UnsupportedOperationException("the walk's Files rig does not run ${m.name}")
+                    }
+                }
+            } as wm.damage.core.windows.files.FilesProvider
+        }
 
         /** C3 X5T: the engine loop sleeps 4 ms a turn; a turn later than this is printed beside an act not whole. */
         const val WAKE_GAP_MS = 20L
