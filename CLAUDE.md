@@ -208,9 +208,12 @@ Since then:
 - **His subscription is a budget, watched all the time** (`REPLAN.md` §17.6). Before a run: its size in percent of
   his week and what he will see or be able to do for it; "nothing he would notice" goes to him first. Both meters
   are read before and after every run and the change reported; a build over its budget says so and goes on (his
-  word, 2026-11-17: no stop for budget). **A week is paced to last to its reset:** on his ask for a taper, lanes stop
-  with their work committed, the records are written and the build is staged; work resumes on his word after the
-  reset. The lead's own turns cost several times an Opus lane's: when the meter is tight, reading and editing go to
+  word, 2026-11-17: no stop for budget). **The aim is the least usage per task, never a week that lasts** (Adam,
+  2026-11-24: "wasting time to stretch the usage until Monday is backwards … We want to both keep usage low AND get a
+  lot done quickly, even if I run out of my allotment prior to Monday"): as many lanes run as the work's dependencies
+  and the machine safely allow, each kept lean (below), and none is held back to pace the week. On his ask for a
+  taper, lanes stop with their work committed, the records are written and the build is staged; work resumes on his
+  word after the reset. The lead's own turns cost several times an Opus lane's: when the meter is tight, reading and editing go to
   a lane.
 - **What is already written is cleaned up before more is added** (`REPLAN.md` §17.3 item 0; measured by the line
   count going down).

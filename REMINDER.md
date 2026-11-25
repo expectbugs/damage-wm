@@ -36,12 +36,19 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   pictures resident on the glasses** (DW-1a: placed in Main's region, nothing bound — the wheel is still
   phone-drawn); **Music's first half** (S1-4: Music on the PC's record and the PC as an output; gated on the merged
   tree, `--music-check` passes; not deployed); test rigs that decided too early, read the real clock or read the
-  shell's collections off its loop (none a product defect). **In work, on a branch:** K1-2's stage 3a (the shell
-  binds a window's own list at stage 5 — `wip/084-k12s3a`). **Specified and ruled, not started:** K1-2's stages
-  3b, 3c, 4 and 5; DW-1b; S1-5 (his five answers: `REPLAN.md` §17.3 item 10).
+  shell's collections off its loop (none a product defect); **a window's own list bound on the glasses** (K1-2
+  stage 3a: at stage 5 a window's list of two rows or more is staged, offered and bound beside Main; every Settings
+  list fits, the largest 17.5 KB on test rows, measured — four shipped acts now reach a bound list and are named as
+  moved until stage 4 re-captures them and the fork fills them, **so no build holding it goes onto his phone
+  before that comparison is at 0**). **In work, on branches:** K1-2's stages 3b (a bound list's rows kept current;
+  Main's staging kept across a window of another height; the first review's two defects) and 3c (the per-app
+  `Scroll effect` row); the wheel block's fix stage (three small findings of its first review); S1-5's Games stage;
+  stage L of Music's motion update (the progress bar and timer played by the glasses — his seven answers of 11-24).
+  **Specified and ruled, not started:** K1-2's stages 4 and 5; DW-1b; S1-5's Settings stage, close and page (his
+  five answers: `REPLAN.md` §17.3 item 10); the rest of Music's motion update.
 - **Owed before more is built on them:** the APK's `release` variant tried with him there (the phone runs the
   mirror's loops 70–93 times slower than the PC — the debug build is suspected, not measured); a sweep of the whole
-  mutation list (`research/mutations-c2.json`, 580 rows) on the current tree, machine time only (the last whole
+  mutation list (`research/mutations-c2.json`, 586 rows) on the current tree, machine time only (the last whole
   sweep: 0.77's tree, §92.11). The reading of Crush, Flip and Matrix is closed (two general passes and one focused
   read each; no defect open): only an instrument or the glass reopens it.
 - **Owed on glass from his earlier looks:** his answer to §97.1's question (in very fast scrolling, are the lenses
@@ -65,7 +72,7 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   while rows travel 32; Warp, Flip and Explode centred on the larger height; a notice arriving within about 2 s
   after a fast burst can still double-move Main.
 - **No browser of his is approved yet;** he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
-- **The counts** (simulator): on `main` `b24da380` (2026-11-24) the whole core suite 2,125 / 0, desktop 67 / 0 and the conformance vectors
+- **The counts** (simulator): on `main` `5f21143c` (2026-11-24) the whole core suite 2,137 / 0, desktop 67 / 0 and the conformance vectors
   247 files, 15,390 lens-steps, 0 disagreements. The last full battery, on 0.83's tree (`f81afd38`, §100.7): core 243
   classes / 2,032 tests, desktop 14 / 53; `--selfcheck` twice (486 checks at 0.82); `--motion-check` 8 + 3 + 28;
   `--local-check` 128 cases; the snapshot 94 + 66 scenes, 0 px outside the mask; node 200; lint 0; the mutation
@@ -101,8 +108,8 @@ The order is `REPLAN.md` §17.3 (every run sized first and both meters read, §1
 2. **S1-4** (Music: his five answers are in, `REPLAN.md` §17.3 item 7; half A is on `main`, §97.5, and goes onto
    the PC and the phone with the next build; then his sitting, and half B after it), **S1-5** (his five answers of 11-23
    and its lean spec, `REPLAN.md` §17.3 item 10), **R-b** (one health view on every surface, §17.4), then §16.1's
-   order. **Music's motion update** (his ask of 11-22, planned, no code: `MUSIC.md` §14) is placed at K3
-   (`REPLAN.md` §17.3 item 9).
+   order. **Music's motion update** (his ask of 11-22: `MUSIC.md` §14): its first two stages — the bar with its
+   timer, then Scope — are built now on his word of 11-24; the rest keeps its place at K3 (`REPLAN.md` §17.3 item 9).
 3. **Reddit in Feed** (§91.5, §100.9): stale since 11-17 11:45, and not his network — Reddit ended its public RSS
    feeds on 2026-11-13; measured 11-21 on both of the PC's network paths: HTTP 404. The service still asks every 15
    minutes and logs the refusal. His word on what replaces the source, then the change.
