@@ -1438,8 +1438,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "    private fun boundSurface(): wm.damage.core.local.BoundSurface? = slot0()?.surface",
-    "    private fun boundSurface(): wm.damage.core.local.BoundSurface? = null"
+    "    private fun boundSurface(): wm.damage.core.local.BoundSurface? = slot0()\n",
+    "    private fun boundSurface(): wm.damage.core.local.BoundSurface? = null\n"
    ]
   ],
   "tests": [
@@ -1450,7 +1450,7 @@
    "reportNotchesAndATap_DI",
    "theStartsBindBatchPerTapsValue_P1"
   ],
-  "note": "merge point: DP2's stand-in (no list in front) — Main's list is never bound",
+  "note": "merge point: DP2's stand-in (no list in front) — Main's list is never bound [re-pointed at C3 DW-1b-1: slot0 returns the surface]",
   "from": "DI"
  },
  {
@@ -2266,8 +2266,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        menu.open || switcher.open || keyboard.open || notifications.active || notifications.animating -> null",
-    "        menu.open || switcher.open || keyboard.open || (notifications.active && notifications.focused) -> null"
+    "        menu.open || keyboard.open || notifications.active || notifications.animating -> null",
+    "        menu.open || keyboard.open || (notifications.active && notifications.focused) -> null"
    ]
   ],
   "tests": [
@@ -2276,7 +2276,7 @@
   "expect": [
    "aNoticeUpIsACover_AF1"
   ],
-  "note": "AF.1: only a focused notice a cover",
+  "note": "AF.1: only a focused notice a cover [re-pointed at C3 DW-1b-1: the switcher's case goes first in the decider]",
   "from": "FB"
  },
  {
@@ -3889,8 +3889,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (counted && !local.burstOpen && slot0() === this) {",
-    "        if (counted && slot0() === this) {"
+    "        if (counted && !local.burstOpen && slot0() === surface) {",
+    "        if (counted && slot0() === surface) {"
    ]
   ],
   "tests": [
@@ -3899,7 +3899,7 @@
   "expect": [
    "(declared, no pin: the write itself goes only with no burst open, so the switch is reached in a burst only when a burst opens between the write's submit and its count — tens of ms on the instant rig; the run shows what fails beside it)"
   ],
-  "note": "the switch's SETs no longer wait for a burst opened after the write [re-pointed at C3 X3: the switch's condition reads the count once and the list uncovered]",
+  "note": "the switch's SETs no longer wait for a burst opened after the write [re-pointed at C3 X3: the switch's condition reads the count once and the list uncovered; at C3 DW-1b-1: slot0 returns the surface]",
   "from": "K1-1"
  },
  {
@@ -9837,7 +9837,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (counted && !local.burstOpen && slot0() === this) {\n",
+    "        if (counted && !local.burstOpen && slot0() === surface) {\n",
     "        if (counted && !local.burstOpen) {\n"
    ]
   ],
@@ -9847,7 +9847,7 @@
   "expect": [
    "stepsUnderACoverSwitchOnceToTheLastOnTheReturn_X3"
   ],
-  "note": "C3 X3 item A (decisions CA (2)): a counted re-make is switched under the cover (the tree before X3) — its old pans' slot is held until the return, so a second change is made only then, with Main in front",
+  "note": "C3 X3 item A (decisions CA (2)): a counted re-make is switched under the cover (the tree before X3) — its old pans' slot is held until the return, so a second change is made only then, with Main in front [re-pointed at C3 DW-1b-1: slot0 returns the surface]",
   "from": "C3-X3"
  },
  {
@@ -10535,8 +10535,12 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (!st.effects || switcher.open || transition != null) return false",
+    "        if (!st.effects || wheelBind.offered != null || transition != null) return false",
     "        if (!st.effects || transition != null) return false"
+   ],
+   [
+    "?.takeIf { switcher.open && wheel.block != null && wheel.want != null && it.cells.size == w0.keys.size }",
+    "?.takeIf { false && switcher.open && wheel.block != null && wheel.want != null && it.cells.size == w0.keys.size }"
    ]
   ],
   "tests": [
@@ -10545,7 +10549,7 @@
   "expect": [
    "nothingOfTheBlockGoesWhileTheWheelIsOpen_DW1a"
   ],
-  "note": "C3 DW-1a: nothing bound, so nothing of the block goes while the wheel is open — a dirty flip behind the open wheel is written at once",
+  "note": "C3 DW-1a, re-pointed at DW-1b-1: nothing of the block goes while the wheel is bound — without the lane's bind gate AND the open's cell hold (CK A4, A5) a dirty flip behind the bound wheel is written at once. (The bind gate alone is not observable: under a bound wheel the cell hold keeps every cell, and the offer fails before the item table or the programs could differ; the gate saves the lane's want per pump.)",
   "from": "DW-1a"
  },
  {
@@ -10553,8 +10557,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (!st.effects || switcher.open || transition != null) return false",
-    "        if (!st.effects || switcher.open) return false"
+    "        if (!st.effects || wheelBind.offered != null || transition != null) return false",
+    "        if (!st.effects || wheelBind.offered != null) return false"
    ]
   ],
   "tests": [
@@ -10563,7 +10567,7 @@
   "expect": [
    "<no pin: a block write owed while a transition runs (a session start in Main with a Select inside its first second) — the act's held flushes and the stage lane's gates (nothing pending, nothing in flight) already keep it off the link for most of the run; declared>"
   ],
-  "note": "C3 DW-1a (the amendment's §3.3): the wheel's lane runs while a transition does",
+  "note": "C3 DW-1a (the amendment's §3.3): the lane's transition gate [re-pointed at C3 DW-1b-1: the gate reads the bind, not the switcher]",
   "from": "DW-1a"
  },
  {
@@ -10688,8 +10692,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        val key: List<Any> get() = listOf(keys, order.toList(), g.toString(), motion, regionEnd)",
-    "        val key: List<Any> get() = listOf(keys, order.toList(), motion, regionEnd)"
+    "        val key: WheelKey get() = WheelKey(keys, order.toList(), g.toString(), motion, regionEnd)",
+    "        val key: WheelKey get() = WheelKey(keys, order.toList(), \"\", motion, regionEnd)"
    ]
   ],
   "tests": [
@@ -10698,7 +10702,7 @@
   "expect": [
    "aChangeRewritesOnlyTheRecordItChanges_DW1a"
   ],
-  "note": "C3 DW-1a (decisions CK A2): the programs' key without the geometry the wheel opens at — another height leaves the programs as they were",
+  "note": "C3 DW-1a (decisions CK A2): the programs' key without the geometry the wheel opens at — another height leaves the programs as they were [re-pointed at C3 DW-1b-1: the key is a data class]",
   "from": "DW-1a"
  },
  {
@@ -10832,8 +10836,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        st.effects && transition == null && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS",
-    "        st.effects && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS"
+    "        st.effects && transition == null && !switcher.open && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS",
+    "        st.effects && !switcher.open && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS"
    ]
   ],
   "tests": [
@@ -10842,7 +10846,7 @@
   "expect": [
    "aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a"
   ],
-  "note": "pin 11 / spec §5.3: the window list's lane runs under a transition — the new level staged and SET inside the run",
+  "note": "pin 11 / spec §5.3: the window list's lane runs under a transition — the new level staged and SET inside the run [re-pointed at C3 DW-1b-1: the lane's gate reads the switcher too]",
   "from": "K12S3a"
  },
  {
@@ -11544,5 +11548,297 @@
   ],
   "note": "stage L widened the ledger's Proven loops to the lanes' areas — without it an area's write is acked and never proven, so no chain starts (the rows lane's owed row)",
   "from": "MM-LF"
+ },
+ {
+  "id": "DW1b1-no-wheel-case",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        switcher.open -> wheelBind.takeIf { it.offered != null }\n",
+    "        switcher.open -> null\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.theOpenBinds*"
+  ],
+  "expect": [
+   "theOpenBindsTheWheelAsList2AndTheCloseGivesSlot0Back_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (DA (c) 2): the wheel's case left out of the one slot-0 decider — an open switcher is a cover and nothing of list 2 is sent",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-setrow-noop",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        override fun setRow(row: Int) = switcher.setCursor(row)\n",
+    "        override fun setRow(row: Int) {}\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aTapAfterALostReport*"
+  ],
+  "expect": [
+   "aTapAfterALostReportCommitsToTheWindowTheLensShows_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (the DW spec §7.1): setRow does not move the switcher's cursor — the tap after a lost report commits to the phone's row, one before the lens's",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-no-end-painter",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "                paintEnd = { left, prog4, p, pic -> paintEnd(image(), prog4, p, left, pic) }, ring = true)",
+    "                paintEnd = null, ring = true)"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.theOpenBinds*"
+  ],
+  "expect": [
+   "theOpenBindsTheWheelAsList2AndTheCloseGivesSlot0Back_DW1b1"
+  ],
+  "note": "C3 DW-1b-1: list 2 with no END painter — every adopted notch answered with DISCARD (a snap-back), never a COMMIT",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-page-gate",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (switcher.open && st.effects) return false\n",
+    "        if (false && switcher.open && st.effects) return false\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.pageStagingWritesNoStrip*"
+  ],
+  "expect": [
+   "pageStagingWritesNoStripWhileTheSwitcherIsOpen_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (the amendment's §4.5): Page staging lays out strips while the switcher is open",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-preview-no-wait",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (wheelBind.offered != null && (local.burstOpen || mainMotionMayDraw())) return false\n",
+    "        if (false && wheelBind.offered != null && (local.burstOpen || mainMotionMayDraw())) return false\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.thePreviewWaits*"
+  ],
+  "expect": [
+   "thePreviewWaitsForTheBurstsSettle_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (the DW spec §4.3): the preview follows each adopted notch inside the bound wheel's burst",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-offer-two-entries",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        wm.damage.core.motion.Wheel.refusal(b.geo, switcher.entryCount)?.let { return it }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.theWheelIsNotOffered*"
+  ],
+  "expect": [
+   "theWheelIsNotOfferedWhereItsConditionsFail_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (the amendment's §3.3): the offer without n >= 3 and the programs' shape — a wheel of two entries bound",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-offer-old-order",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (k.order != order) return \"the item table is not this open's order\"\n",
+    "        if (false && k.order != order) return \"the item table is not this open's order\"\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aChordBeforeTheItemTables*"
+  ],
+  "expect": [
+   "aChordBeforeTheItemTablesCountIsPhoneDrawnThenBindsMidOpen_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (the amendment's §3.3, §5): the offer without the item table's order — a chord before the item table's count binds on the old order",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-offer-needs-cells",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (k.order != order) return \"the item table is not this open's order\"\n",
+    "        if (k.order != order || k.cells != wheelWant(st).key.cells) return \"the item table is not this open's order\"\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.anOlderCellBinds*"
+  ],
+  "expect": [
+   "anOlderCellBindsAtTheOpenAndIsWrittenAfterTheClose_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (CK A4): the offer requires every cell's picture current — a dirty flip at the chord leaves the open phone-drawn",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-unbound-open-writes-cells",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "?.takeIf { switcher.open && wheel.block != null && wheel.want != null && it.cells.size == w0.keys.size }",
+    "?.takeIf { false && switcher.open && wheel.block != null && wheel.want != null && it.cells.size == w0.keys.size }"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aChordBeforeTheItemTables*"
+  ],
+  "expect": [
+   "aChordBeforeTheItemTablesCountIsPhoneDrawnThenBindsMidOpen_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (CK A4, A5): in an unbound open the lane writes a cell merely older than the truth too (not only what the offer needs)",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-main-under-bound-wheel",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (this === mainList && wheelBind.offered != null) wheel.block?.takeIf { ms.end > it.base }?.let { b ->\n",
+    "        if (false && this === mainList && wheelBind.offered != null) wheel.block?.takeIf { ms.end > it.base }?.let { b ->\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.mainsStagingThatMeets*"
+  ],
+  "expect": [
+   "mainsStagingThatMeetsTheBlockWaitsForTheClose_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (CK A6): Main's staging that meets the block starts while the wheel is bound — the block dropped mid-open",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-window-lane-under-wheel",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        st.effects && transition == null && !switcher.open && st.cacheSize",
+    "        st.effects && transition == null && st.cacheSize"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.theWindowListsLaneWaits*"
+  ],
+  "expect": [
+   "theWindowListsLaneWaitsUnderTheOpenWheel_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (DA (c) 4): the window list's lane stages a list under the open wheel",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-stale-offer-at-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        wheelBind.offered = null                  // C3 DW-1b-1: the wheel is offered again only once its block is counted again\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aSessionThatEnds*"
+  ],
+  "expect": [
+   "<no pin: in the rig the session's end passes a pump with the link down, whose poll clears the offer (Main's lane's conditions fail) before the next start reads the front — the line covers a start reached with no such pump; declared>"
+  ],
+  "note": "C3 DW-1b-1 (the amendment's §5, the offer cleared at a session start): the start's bind batch SETs list 2 from the last session's offer, before the block is written again (watched: not caught — see expect)",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-mark-kept",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (was == null || was.items4 != b.itemsOff / 4 || !was.items!!.contentEquals(b.items4)) mark = (mark + 1) and 0xFF\n",
+    "            if (was == null) mark = (mark + 1) and 0xFF\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aChordBeforeTheItemTables*"
+  ],
+  "expect": [
+   "aChordBeforeTheItemTablesCountIsPhoneDrawnThenBindsMidOpen_DW1b1"
+  ],
+  "note": "C3 DW-1b-1 (the amendment's §4.1): list 2 keeps its mark when the item table's order changed — no fresh LIST-RING, a report from the old order adoptable",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-repair-not-held",
+  "file": "local/TableRepair.kt",
+  "edits": [
+   [
+    "        if (!rules.holdsEntry(entry)) { owe(Owed.Clear(entry), \"entry $entry not held\"); return }\n",
+    "        if (!rules.holdsEntry(entry)) return\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aLostClear*"
+  ],
+  "expect": [
+   "aLostClearOfTheWheelsEntriesIsMendedByTheRulesThatExist_DW1b1"
+  ],
+  "note": "the table repair's CLEAR of an entry not held (the rule a lost CLEAR of the wheel's entries rests on, DA (d) 1) — the stale tap entry 0 stays and every tap fires it",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-yield-same-pump",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "the list yields, and is staged again below the block\")\n            return true\n",
+    "the list yields, and is staged again below the block\")\n"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.theWheelsBlockPlacedOverTheListMakesItYield_K12S3a"
+  ],
+  "expect": [
+   "theWheelsBlockPlacedOverTheListMakesItYield_K12S3a"
+  ],
+  "note": "K1-2 3a's yield (decisions CV), its order read by the pin since C3 DW-1b-1 (decisions DE §4): the block placed in the pump that drops the window list — its write ahead of the list's CLEAR",
+  "from": "DW-1b-1"
+ },
+ {
+  "id": "DW1b1-stale-front",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (localFrontNow != null && slot0List() != localFrontNow?.list) -1 else localRow(), ev.atMs)",
+    "localRow(), ev.atMs)"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aWindowListsReportAfterTheDoubleTap*",
+   "*WheelBindTest.aReportOfMainsOrTheWheels*",
+   "*WheelBindTest.aWindowListsReportMetByTheOpenWheel*"
+  ],
+  "expect": [
+   "aWindowListsReportAfterTheDoubleTapBackDoesNotSetMainsCursor_DW1b1",
+   "aReportOfMainsOrTheWheelsListMetByTheOtherInFrontMovesOnlyAsToday_DW1b1",
+   "aWindowListsReportMetByTheOpenWheelMovesItOnlyAsToday_DW1b1"
+  ],
+  "note": "decisions DE (the second review of K1-2, finding 1): a report handled between a change of the list in front and the pump that tells the rules is handed the new list's row — adopted onto it (Main and a window list; the wheel and either)",
+  "from": "DW-1b-1"
  }
 ]
