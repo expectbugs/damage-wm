@@ -120,6 +120,8 @@ async function step(s) {
   if (s.fetch) await fetch(s.fetch);
   // S1-3: text typed into a field, as a keyboard delivers it (Feed's browse stages the name on its button)
   if (s.type) { const e = await until(s.type); e.focus(); e.value = s.text; e.dispatchEvent(new Event('input', { bubbles: true })); }
+  // S1-5 W: an option picked in a select, as the browser hands the page a choice (the Settings page's own change path)
+  if (s.pick) { const e = await until(s.pick[0]); e.focus(); e.value = s.pick[1]; e.dispatchEvent(new Event('change', { bubbles: true })); }
   // S1-3: text pasted into an element, as the browser hands a paste to the page (Tmux's paste rule). Seen: headless
   // Firefox gives a constructed ClipboardEvent no readable data, so the event carries the text as the page reads it
   if (s.paste) { const e = await until(s.paste); e.focus(); const ev = new Event('paste', { bubbles: true, cancelable: true }); const text = s.text;

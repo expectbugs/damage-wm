@@ -383,6 +383,37 @@ class Shell(
      */
     @Volatile var noticeInput: wm.damage.core.app.NoticeInput? = null
 
+    /** S1-5 S: the record's settings moved — read on the loop ([settingsFromRecord]); held, the latest, while no session
+     *  runs (a keyed push), and run again at the next start. */
+    private val settingsListener = object : wm.damage.core.app.SourceListener {
+        override fun changed(state: wm.damage.core.app.WindowState, keys: Set<String>) =
+            services.runOnShell("settings:record") { settingsFromRecord() }
+    }
+
+    /**
+     * Build S1-5 S (the lean spec's §4.2): Settings' values on the PC's record — on the PC its own record, on the phone
+     * the working copy. Set by the host builder before the first start, and to null at its stack's stop (the source
+     * outlives the stack on the PC). Null (a tool, a test, `--snapshot`'s own shells without one): the local store
+     * alone, as before. With it: the start shows the local copy, then the record's values once the source has heard
+     * Settings; [applySettings] sends one op per changed item; a record change made elsewhere is applied here.
+     */
+    @Volatile var settingsSource: wm.damage.core.app.WindowSource? = null
+        set(v) {
+            field?.removeListener(settingsListener)
+            field = v
+            v?.addListener(settingsListener)
+        }
+
+    /** S1-5 S: per record item, the values this shell wrote and has not yet seen come back, oldest first — an older
+     *  write's change that arrives after a newer write is never read as the record moving (a fast adjust is never
+     *  stepped back). Games' guard (`GamesGlasses.echo`). On the loop only. */
+    private val settingsInflight = HashMap<String, ArrayDeque<kotlinx.serialization.json.JsonElement>>()
+
+    /** S1-5 S: settings applied because the record moved (a test reads it: an echo of this shell's own write is never
+     *  one). */
+    @Volatile internal var settingsFromRecordCount = 0
+        private set
+
     /** S1-2 Q3: the presenters' formatters by window ([ShellServices.noticeFormatter]). */
     private val noticeFormatters = java.util.concurrent.ConcurrentHashMap<String, (wm.damage.core.app.NoticeRecord) -> String>()
 
@@ -432,6 +463,9 @@ class Shell(
 
     val services: ShellServices = object : ShellServices {
         override fun requestRender(window: DamageWindow) { post(Msg.Invalidate(window.id)) }
+
+        /** Stage L: read at a paint, on the loop (the transport's state one read). */
+        override fun lanesInForce(): Boolean = lanesInForce(transport.state.value)
 
         override fun noticeFormatter(app: String, format: ((wm.damage.core.app.NoticeRecord) -> String)?) {
             if (format == null) noticeFormatters.remove(app) else noticeFormatters[app] = format
@@ -934,6 +968,10 @@ class Shell(
      * contributes only its own rows — none). Then each HOST category ([hostCategories], build W) whose name equals
      * no registered window's name, case-insensitive — the window wins.
      */
+    /** S1-5 S (test introspection, `SettingsCoreTest`): the Settings window after a start, and the shell's own Global rows. */
+    internal fun settingsWindowForTest(): SettingsWindow = settingsWindow
+    internal fun shellRowsForTest(): List<HostSetting> = globalFontRows
+
     internal fun settingsApps(): List<Pair<String, List<HostSetting>>> {
         // K1-2 stage 3c: the app's `Scroll effect` row only at ladder stage 5, where a window's list is bound (DP2's rule: a
         // row that does nothing is not shown) — left out of the same STABLE set below it, so every row keeps its identity
@@ -950,7 +988,7 @@ class Shell(
     // ------------------------------------------------------------------ set-up
     fun register(w: DamageWindow) {
         // the sub-record key scheme parses `window.<id>.<subKey>` at the FIRST
-        // dot — a dotted id would let one window's tombstone sweep overwrite
+        // dot — a dotted id would let one window's removal sweep remove
         // another's records (review 2026-09-01 F9). Enforced, not assumed.
         require('.' !in w.id) { "window id '${w.id}' must not contain '.'" }
         require(windows.none { it.id == w.id }) { "window id '${w.id}' already registered" }
@@ -1027,7 +1065,6 @@ class Shell(
         // here (a window's `onRegistered`, the load, a restore) left `running` and `starting` set: every later start
         // read "shell already started" and `post` dropped every ring event as a start's.
         val adopted: Boolean
-        val stampsAtLoad: Map<String, Long>
         val restoredId: String?
         val restoredMode: String?
         try {
@@ -1053,7 +1090,7 @@ class Shell(
         // a leftover surface from this instance's PREVIOUS session (the keeper
         // stops and restarts the same Shell on link edges) must not carry a
         // stale under-capture forward — content can change across the gap
-        // (a sync apply), and the close-restore would blit old pixels
+        // (a record's change), and the close-restore would blit old pixels
         // (review 2026-09-01 R2#19). Drop it; reopening costs one tap.
         if (menu.open) {
             val leftover = closeMenuSurface(restore = false)
@@ -1064,33 +1101,31 @@ class Shell(
         dropKeyboard()                    // the same rule for the keyboard (§4.8), draft handed back
         // reported sub-keys are per SESSION (review 2026-09-01 R2#5): a key
         // restored in session N whose restore THROWS in session N+1 must not
-        // stay "reported" — saveAll would tombstone the real record and sync
-        // the removal fleet-wide, exactly what the guard exists to prevent
+        // stay "reported" — saveAll would remove the real record, exactly what
+        // the guard exists to prevent
         subReported.clear()
         badPlaneSaid.clear()          // a new session re-reports a bad region once
 
-        // restore persisted state (§9.1: survives WM restart) BEFORE the loop
+        // restore persisted state (§9.1: survives WM restart) BEFORE the loop; a session start over a store already
+        // loaded keeps what it holds (Persistence.load)
         persistence.load()
-        // the stamp map AT load — the §19.4 reconciliation baseline: any
-        // syncable key whose stamp advances before the loop's first pass was
-        // applied store-direct and must be LIVE-applied before the first save
-        // can out-stamp it with stale live state (2026-09-01)
-        stampsAtLoad = persistence.stamps()
         stateLoaded = true
         settings = ShellSettings.fromJson(persistence.get("shell.settings"))
+        // S1-5 S (§4.2's (1)): once the source has heard Settings, the record's values over the local copy (and the copy
+        // written); until then the local copy shows — never the defaults over his settings
+        settingsSource?.takeIf { it.heard() }?.let { src ->
+            val r = recordSettingsOver(settings, src.state())
+            if (r != settings) { settings = r; persistence.put("shell.settings", r.toJson()) }
+        }
         // §73: BEFORE any window restores or wraps — with cached text on, every layout of the
         // session measures by the cache's metric, whether or not its face is uploaded yet
         cachedText?.cacheMetric = settings.cachedText == "on"
         clockWKey = null; statusWKey = null
-        settingsLocallyEdited = false   // live settings now MIRROR the store
-        if (persistence.get("shell.settings") == null) {
-            persistence.putBaseline("shell.settings", settings.toJson())  // R2#16
-        }
         layout = layoutFor(settings)
         refreshStyles()   // every window draws through its per-app transform (Style.kt)
         // §73: the same windows live across sessions and keep what they laid out. A typography or
-        // Cached text change that reached the store while no session ran (a synced record applied
-        // store-direct) is read just above — and nothing told the windows: a book held from the
+        // Cached text change that reached the store while no session ran (the record's, folded just
+        // above) is read just above — and nothing told the windows: a book held from the
         // last session stayed wrapped by the old metric, its long lines cut. Keyed on what a layout
         // depends on: an unconditional call would re-wrap the open book at every link edge.
         val styleKey = styleKeyOf(settings)
@@ -1120,24 +1155,15 @@ class Shell(
                 }
             }
             // keys the window actually HOLDS after restore count as reported
-            // (F2c/d): a later removal may tombstone them, while keys a build
+            // (F2c/d): a later removal may remove them, while keys a build
             // ignores (no sub-record support) or failed to restore stay
             // protected — "didn't load it" is never a removal
             try {
-                // an empty blob is the tombstone, never a held record (see saveAll)
+                // an empty blob is never a held record (see saveAll)
                 subReported.getOrPut(w.id) { HashSet() }
                     .addAll(w.saveSubState().filterValues { it.isNotEmpty() }.keys)
             } catch (e: Exception) {
                 Log.e("shell", "saveSubState of ${w.id} at restore failed", e)
-            }
-            // a window with NO stored record gets a stamp-0 BASELINE of its
-            // defaults (R2#16): persisted for offline restarts, but any real
-            // fleet record beats it — the first value-changing save after
-            // actual use re-stamps for real
-            if (persistence.get("window.${w.id}") == null) {
-                try { persistence.putBaseline("window.${w.id}", w.saveState()) } catch (e: Exception) {
-                    Log.e("shell", "baseline of ${w.id} failed", e)
-                }
             }
         }
         val shellState = persistence.get("shell.state")
@@ -1315,6 +1341,7 @@ class Shell(
             comp.requestKeyframe("session start")
             localSessionStart()                   // build C2 (P1): the start's bind batch rides the keyframe's tail
             noticeReset(); noticeStepsSaid.clear()  // build K1-4a: a fresh lease frees the cache — the notice's programs go again
+            lanes.reset("session start"); laneSaid.clear()   // stage L: and the held lanes' areas; every instance ended with the lease
             // fix round 2 (R2.4): only an AWAKE start enables the atlas. A start that rests has no flags in force
             // (`draw2` false): it built a v1 atlas and moved the layout metric, every window re-wrapped while asleep,
             // and the wake's session moved it back and re-wrapped again before its first flush. Every wake is a
@@ -1333,21 +1360,6 @@ class Shell(
             loopJob = scope.launch { loop() }
             loopLaunched = true
             loopStartedThisSession = true
-            // §19.4 post-start reconciliation (2026-09-01): the FIRST loop
-            // message — any syncable record that advanced past the load
-            // baseline (a peer's push racing this start) is live-applied now,
-            // so the first save writes the same value and cannot out-stamp it
-            post(Msg.Run {
-                for ((k, t) in persistence.stamps()) {
-                    if (!Persistence.syncable(k) || t <= (stampsAtLoad[k] ?: 0L)) continue
-                    Log.i("sync", "post-start reconciliation: '$k' advanced during startup — live-applying")
-                    persistence.get(k)?.let { v ->
-                        try { liveApplySync(k, v) } catch (e: Exception) {
-                            Log.e("sync", "reconciliation of '$k' failed", e)
-                        }
-                    }
-                }
-            })
             val gen = tickGen             // P5 item 3: bumped at the start's first lines (a rebuild asked above captured it)
             scheduleMinuteTick(gen)
             scope.launch {
@@ -1498,12 +1510,9 @@ class Shell(
                         try { current?.onDeactivate() } catch (e: Exception) { Log.e("shell", "onDeactivate at shutdown", e) }
                         saveAll(sync = true)      // the last state must be ON DISK before stop() returns
                     } finally {
-                        // P5 part a (review 1b RE-4's sibling): `running` goes false only AFTER the final save. Set
-                        // before it, a synced record that came during the save met `postSync` false, was stored
-                        // directly by the host's applier, and the save then put the live state over it under a fresh
-                        // stamp (pushed back to the peer). Now it is posted behind this message and the drain's
-                        // `dropped` arm stores it after the save. A message another thread posts meanwhile (a tick, a
-                        // probe, a transport event) goes to the drain, which decides it as `post` would have.
+                        // P5 part a (review 1b RE-4's sibling): `running` goes false only AFTER the final save. A
+                        // message another thread posts meanwhile (a tick, a probe, a transport event) goes to the
+                        // drain, which decides it as `post` would have.
                         // R4 item 2 (review 3A-3): on EVERY exit from the steps above. A throw there (an `Error`, an
                         // encode) left `running` true and `done` open: the loop served on with the pushes held and
                         // `stop()` did not return. The throw still reaches the catch below and its fault.
@@ -1963,14 +1972,11 @@ class Shell(
     /** §16.2: the hand-off caller a root-level back returns to (one level).
      *  Set by openWindow, consumed on use, cleared by explicit navigation. */
     private var backTarget: DamageWindow? = null
-    /** Live settings hold a value the stored record did not produce — i.e. a
-     *  local edit happened. Gates every re-encoding put (R2#4). */
-    private var settingsLocallyEdited = false
     /** One visible alarm per save-failure streak (R3s#11). */
     private var saveFailureRaised = false
 
     /** Per window: the sub-record keys its saveSubState has REPORTED this
-     *  session — the only keys the tombstone sweep may remove (F2c/d). */
+     *  session — the only keys the removal sweep may remove (F2c/d). */
     private val subReported = HashMap<String, MutableSet<String>>()
 
     /** Sub-keys already reported as wrongly-empty — one loud line each. */
@@ -2554,16 +2560,13 @@ class Shell(
         if (n.emergency || n.fault) return true
         val kind = n.source.substringBefore('·').trim().uppercase()
         return when (kind) {
-            "SMS", "MMS" -> settings.notifySms
-            "MAIL" -> settings.notifyMail
             // MUSIC is NOT gated here: the window owns its six Notify rows
             // (WINDOWS.md §1), and the Global "Notify · Music" row that APKs up
             // to 0.17 carried could have persisted a false that no row could
             // undo — a hidden gate (docs audit 2026-09-02)
             // `Notify · Damage` is the WM's own events (`DESIGN.md` §4.5): a notice that names its app
             // is gated by that app's own rows in its own Settings category, never by a Global row
-            // (P7 item 1, OS-1). Inside this arm, not ahead of the `when`: an `appId` on an SMS or MAIL
-            // notice does not get it past `Notify · SMS` / `Notify · Mail`. An answer to Adam's own gesture
+            // (P7 item 1, OS-1); S1-5 S removed the hidden SMS and MAIL gate (no row set it). An answer to Adam's own gesture
             // (`Notice.answer`, P7 item 2) is not a courtesy event either. A host category's notice
             // (`Notice.gatedBy`, build W: the bus watcher's "Bastion") was gated by that category's own rows.
             "DAMAGE" -> n.appId != null || n.answer || n.gatedBy != null || settings.notifyDamage
@@ -2935,12 +2938,17 @@ class Shell(
         if (key != noticeProgsFor) noticeLayout(st, key)
         for (p in noticeProgs) if (p.rec.state == StagedRecord.State.SENT && stageInFlightRec !== p.rec) p.rec.state = StagedRecord.State.WANTED
         val rec = noticeProgs.firstOrNull { it.rec.state == StagedRecord.State.WANTED }?.rec ?: return false
-        // Page staging's holds, every one (fix A2): the atlas's lane, the count's reading, a re-send owed, one unproven
-        // record at a time
+        return stageOwnRecord(rec, st)
+    }
+
+    /** One record of the stage lane's own books ([ownRecs]: the notice's programs, the held lanes' areas) written, after
+     *  Page staging's holds, every one (fix A2): the atlas's lane, the count's reading, a re-send owed, one unproven
+     *  record at a time. */
+    private suspend fun stageOwnRecord(rec: StagedRecord, st: LinkState): Boolean {
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight || st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
-        if (stage.count(StagedRecord.State.ACKED) > 0 || noticeProgs.any { it.rec.state == StagedRecord.State.ACKED }) return false
+        if (stage.count(StagedRecord.State.ACKED) > 0 || ownRecs().any { it.state == StagedRecord.State.ACKED }) return false
         if (atlasResendMissing > 0L) return false
         stageSubmit(rec, st)
         return true
@@ -3037,6 +3045,109 @@ class Shell(
         // fix B5: an engine style that cannot run gives what he left on — the unfurl if it is on, else at once
         return ok.randomOrNull() ?: if (settings.popupUnfurl) Notifications.Arrival.UNFURL else Notifications.Arrival.NONE
     }
+
+    // ------------------------------------------------------------------ Music's motion update, stage L: the held lanes
+    /** The window in front's held lanes, animated by the glasses in slots 0 and 1 (`WindowLanes.kt`). */
+    private val lanes = WindowLanes { journal.note("lane", it) }
+    /** Each reason a window's lanes were refused, said once a session. */
+    private val laneSaid = HashSet<String>()
+    private var laneWakeAt = 0L
+    private var laneInForceWas = false
+
+    /** The stage lane's own books beside the registry — the notice's programs and the lanes' areas — for the ledger. */
+    private fun ownRecs(): List<StagedRecord> = noticeProgs.map { it.rec } + lanes.records
+
+    /** The session can run held lanes (the look a window paints follows it: [ShellServices.lanesInForce]). */
+    private fun lanesInForce(st: LinkState): Boolean = lanes.off == null && st.effects && st.draw2 && st.leaseHeld &&
+        CfwModes.musicRegion(st.cacheSize, st.bind) != null && transport.mirror.modelsMotion && ledgerReadable(st)
+
+    private fun laneSay(why: String) { if (laneSaid.add(why)) journal.note("lane", why) }
+
+    /** What the front asks of the lanes now: the window in front's set, or null and why (null where nothing is said). */
+    private fun laneWanted(inForce: Boolean): Pair<LaneSpec?, String?> {
+        if (!inForce) return null to null
+        val w = current ?: return null to "no window in front"
+        val why = when {
+            glassesSilent || sleep != null -> "Silent Mode"
+            mode != Mode.WINDOW && mode != Mode.EXCLUSIVE -> "the window is not in front"
+            switcher.open -> "the wheel is open"
+            menu.open || keyboard.open -> "an overlay is open"
+            transition != null -> "a transition is in hand"
+            local.front != null -> "a list is bound in front"
+            pagingInFront() -> "page staging in front"
+            else -> null
+        }
+        if (why != null) return null to why
+        val spec = try { w.lanes(layout.content) } catch (e: wm.damage.core.geom.LintError) { laneSay("${w.id}'s lanes are refused: ${e.message}"); null }
+            ?: return null to "${w.id} wants no lanes now"
+        for (r in spec.rects) {
+            if (!layout.content.contains(r) || r != r.alignOut() || !comp.laneInOnePlane(r)) {
+                laneSay("${w.id}'s lane $r is refused: it must lie on the damage grid, inside the content and inside one plane")
+                return null to "a lane off the grid"
+            }
+        }
+        // a notice box over a lane: its paint goes there, and its PLAY's close pass would end its own timer (spec §4.1) —
+        // the box at its nearer depth and the lanes at theirs, each widened by the largest shift (32 px) either way
+        val n = notifications.current
+        if (notifications.active && n != null) {
+            val box = notifications.fullRect(n, layout, false)
+            val wide = Rect(box.x - 32, box.y, box.w + 64, box.h)
+            if (spec.rects.any { Rect(it.x - 32, it.y, it.w + 64, it.h).overlaps(wide) }) return null to "a notice box over a lane"
+        }
+        return spec to null
+    }
+
+    /** Before the frame: the slice for the lanes (Page staging's strips there dropped, his answer 6), the chain's step,
+     *  and the cells the compositor holds or releases. */
+    private fun lanesBefore(st: LinkState) {
+        val inForce = lanesInForce(st)
+        if (inForce != laneInForceWas) { laneInForceWas = inForce; current?.let { w -> post(Msg.Invalidate(w.id)) } }  // its look follows
+        val region = CfwModes.musicRegion(st.cacheSize, st.bind)
+        val (spec, why) = laneWanted(inForce)
+        if (spec != null && region != null) stagePagesDropUnder(region, "the held lanes take the stage reserve's lower 16 KiB (his answer 6); " +
+            "Reader stages them again when it is next in front")
+        val d = spec?.let { comp.laneDisparity(it.rects[0]) } ?: 0
+        lanes.pump(WindowLanes.Env(System.currentTimeMillis(), spec, why, d, if (inForce) region else null, if (inForce) effectsToken(st) else null,
+            written = { (l, r) -> comp.laneWritten(l, r) }) { slot ->
+            transport.mirror.motionTagIn(Arm.RIGHT, slot)
+        })
+        lanes.takeRelease()?.let { comp.laneRelease(it) }
+        comp.laneHold = lanes.hold                    // empty whenever a list is in front: the gate ends the chain first
+    }
+
+    /** After the frame: the chain's PLAY or PLAY-AFTER alone, and the pump owed when the next stretch is due. */
+    private suspend fun lanesAfter() {
+        lanes.takeSend()?.let { msg ->
+            try { lanes.sent(transport.submit(FlushRequest(emptyList(), comp.epoch, "LANE", tail = listOf(msg)))) }
+            catch (e: Exception) { lanes.notSent(e.message ?: e::class.simpleName ?: "the submit failed") }
+        }
+        val at = lanes.wakeAt
+        if (at != null && at != laneWakeAt) { laneWakeAt = at; pumpAfter(maxOf(0L, at - System.currentTimeMillis())) }
+    }
+
+    /** RIGHT's motion body: one of a lane's stretches drew, was closed or refused. */
+    private fun laneNotify(detail: String) {
+        val n = MotionNotify.parse(detail) ?: return
+        if (n.tag and 0xF000 != WindowLanes.TAG) return
+        lanes.notify(n.tag, n.outcome, n.drawn, n.folded, n.stepUs)
+        post(Msg.Pump)
+    }
+
+    /** The idle pump's step for the lanes' areas: as the notice's programs are written ([pumpNoticeStage]). */
+    private suspend fun pumpLaneStage(st: LinkState): Boolean {
+        val rec = lanes.wanted() ?: run {
+            for (r in lanes.records) if (r.state == StagedRecord.State.SENT && stageInFlightRec !== r) r.state = StagedRecord.State.WANTED
+            lanes.wanted()
+        } ?: return false
+        if (pagingInFront() || cacheWritesHeld()) return false
+        if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld || !ledgerReadable(st)) return false
+        return stageOwnRecord(rec, st)
+    }
+
+    /** Tests: the lanes' chain (open, its (slot, tag)s, its areas' states, strikes off). */
+    internal fun lanesForTest(): String = "open ${lanes.open} tags ${lanes.openTags.joinToString { "%d:0x%04x".format(it.first, it.second) }} " +
+        "areas ${lanes.records.joinToString { "${it.key.firstLine}:${it.state}" }} off ${lanes.off}"
+    internal val lanesOpenForTest: Boolean get() = lanes.open
 
     private fun scheduleSilentDismiss() {
         val gen = ++silentDismissGen
@@ -3390,6 +3501,7 @@ class Shell(
                 // agreement check finds END on both sides (no divergence, no keyframe)
                 if (ev.kind == "motion") wm.damage.core.motion.TestPrograms.playedName(ev.detail)?.let { testProgramEndIntoBelief(it) }
                 if (ev.kind == "motion") noticeNotify(ev.detail)          // build K1-4a: a refused notice PLAY
+                if (ev.kind == "motion") laneNotify(ev.detail)            // stage L: a held lane's stretch drew, was closed or refused
             }
             is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses; §4: its path
                 journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path, ev.atMs)
@@ -3403,6 +3515,7 @@ class Shell(
         if (ev.id == stageInFlight) { stageDone(ev); return }
         // build K1-4a: the flush that carried the notice's PLAY failed — the phone's steps for that box
         if (ev.id == noticePlayFlush) { noticePlayFlush = null; if (!ev.ok && !glassesSilent) noticeFallback("the flush carrying its PLAY failed (${ev.error})") }
+        if (lanes.flushDone(ev.id, ev.ok, System.currentTimeMillis(), ev.wroteAtMs, ev.ackAtMs)) post(Msg.Pump)   // stage L: a lane's PLAY landed
         transitionFlushDone(ev)                       // build C3 (DP2): the records' write, the out half, the PLAY-AFTER, a frame's
         val a = inflightFlushes.remove(ev.id)
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
@@ -4650,6 +4763,7 @@ class Shell(
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         val v = stagedDoc() ?: return false
         noticeYield("page staging in front")          // build K1-4a (a): before any strip goes where the notice's programs are
+        lanes.yieldSlice("page staging in front")     // stage L: and the held lanes' areas (his answer 6: Reader's in front)
         val key = v.contentKey() ?: return false
         val region = docRegion(v)
         val lineH = v.lineHeight
@@ -4855,7 +4969,7 @@ class Shell(
 
     /** The stage lane's record [r] is still owned: Page staging's or Main's (the registry), or one of the notice's programs
      *  (build K1-4a: written through this lane, kept in their own books). */
-    private fun stageOwns(r: StagedRecord): Boolean = stage.records[r.key] === r || noticeProgs.any { it.rec === r }
+    private fun stageOwns(r: StagedRecord): Boolean = stage.records[r.key] === r || ownRecs().any { it === r }   // stage L: and the lanes' areas
 
     private fun stageDone(ev: TransportEvent.FlushDone) {
         val rec = stageInFlightRec
@@ -5082,7 +5196,7 @@ class Shell(
                 val unproven = stage.records.values.filter { it.state == StagedRecord.State.ACKED }
                 for (r in unproven) stage.remove(r)
                 // fix A2: the notice's programs too — written again, never proven by a count that cannot see them
-                for (p in noticeProgs) if (p.rec.state == StagedRecord.State.ACKED) p.rec.state = StagedRecord.State.WANTED
+                for (r in ownRecs()) if (r.state == StagedRecord.State.ACKED) r.state = StagedRecord.State.WANTED   // stage L: the lanes' areas too
                 if (unproven.isNotEmpty()) journal.note("stage", "$from re-based the generation count at ${v.gen} — ${unproven.size} acked record(s) go again")
                 // build SPLIT: a part-written record's acked pieces cannot be counted either
                 if ((stageCursor?.lastAckedAt ?: -1L) >= 0L) stagePartialDropped("$from re-based the count under its acked pieces")
@@ -5108,7 +5222,7 @@ class Shell(
             }
             is CacheLedger.Verdict.Proven -> {
                 var n = 0
-                for (r in stage.records.values + noticeProgs.map { it.rec }) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.upTo) { r.state = StagedRecord.State.PROVEN; n++ }
+                for (r in stage.records.values + ownRecs()) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.upTo) { r.state = StagedRecord.State.PROVEN; n++ }
                 if (n > 0) journal.note("stage", "$from proved $n record(s) — ${stage.count(StagedRecord.State.PROVEN)} drawable, ${stage.ring?.bytesHeld ?: 0} B in the reserve")
                 val counted = atlasUnproven.filter { it.ledgerAt <= v.upTo }
                 atlasUnproven.removeAll { it.ledgerAt <= v.upTo }
@@ -5151,8 +5265,8 @@ class Shell(
                 val lost = stage.records.values.filter { it.state == StagedRecord.State.ACKED && it.ackedAt > v.fromAcked && it.ackedAt <= v.toAcked }
                 for (r in lost) stage.remove(r)
                 // fix A2: a notice program of the short interval goes again
-                for (p in noticeProgs) if (p.rec.state == StagedRecord.State.ACKED && p.rec.ackedAt > v.fromAcked && p.rec.ackedAt <= v.toAcked)
-                    p.rec.state = StagedRecord.State.WANTED
+                for (r in ownRecs()) if (r.state == StagedRecord.State.ACKED && r.ackedAt > v.fromAcked && r.ackedAt <= v.toAcked)
+                    r.state = StagedRecord.State.WANTED          // stage L: the lanes' areas too
                 // build SPLIT: a part-written record with a piece acked in the short interval may miss that piece
                 if ((stageCursor?.lastAckedAt ?: -1L) > v.fromAcked) stagePartialDropped("$from called the interval of an acked piece short")
                 // the atlas is NOT switched off on a shortfall (2026-09-16 21:xx, §66.1): the 0.57 ledger took
@@ -5184,7 +5298,7 @@ class Shell(
                 // transport's writer tag to catch (§66.1: seen once on glass, cause unread)
                 stageForeignBumps += v.extra
                 var n = 0
-                for (r in stage.records.values + noticeProgs.map { it.rec }) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.toAcked) { r.state = StagedRecord.State.PROVEN; n++ }
+                for (r in stage.records.values + ownRecs()) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.toAcked) { r.state = StagedRecord.State.PROVEN; n++ }
                 // with no strip acked at the reading's launch this is the count's own note (kind `atlas`,
                 // like its pending and short notes): a `stage` note means a strip was involved
                 if (staged) journal.note("stage", "$from: ${v.extra} more generation bump(s) than this shell's writes since the last reading ($stageForeignBumps this session) — re-based; $n acked record(s) taken as landed")
@@ -7813,7 +7927,13 @@ class Shell(
         return if (w.isEmpty()) "default" else "default ($w)"
     }
 
-    private fun applySettings(s: ShellSettings, persist: Boolean = true) {
+    /**
+     * The one door every settings change goes through. [input] = an input on this device: with a [settingsSource] its
+     * changed items go to the record as ops after the field is set (the first flush never waits); false = the record's
+     * own change ([settingsFromRecord]), which sends nothing back. Either way the local copy is written.
+     */
+    private fun applySettings(s: ShellSettings, input: Boolean = true) {
+        val old = settings
         val relayout = s.heightMode != settings.heightMode
         // any typography change — global face/scale/style or an app's —
         // re-derives every wrap and repaints whole (the §Type reversal)
@@ -7833,6 +7953,7 @@ class Shell(
         val relink = s.linkPriority != settings.linkPriority
         val retaps = s.taps != settings.taps
         settings = s
+        if (input) settingsSource?.let { src -> sendSettings(src, old, s) }
         if (retaps) { local.taps(s.taps); post(Msg.Pump) }     // build C2 (§6.7 Switching): the tap entry's SET or CLEAR only
         if (restage && s.pageStaging != "on") stagePagesClear("the Page staging row is off")     // AU.2: not Main's region
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
@@ -7844,14 +7965,7 @@ class Shell(
             clockWKey = null; statusWKey = null
             if (s.cachedText == "on") atlasEnable(rederive = false) else atlasDisable("the setting is off")
         }
-        // liveApplySync passes persist=false: the store already holds the
-        // EXACT synced record; putting our clamped re-encoding would re-stamp
-        // it and, across versions with different ladders, ping-pong restyles
-        // forever (review 2026-09-01 F5). The flag carries the same fact to
-        // freshenSyncKey and saveAll (R2#4): only a LOCAL edit may ever
-        // re-encode the record.
-        settingsLocallyEdited = persist
-        if (persist) persistence.put("shell.settings", s.toJson())
+        persistence.put("shell.settings", s.toJson())
         // the Cached text row moves every string's measure (§73), so it re-derives what a
         // typography change does: every wrap, the row pitch, the chrome's cells, a whole repaint
         if (restyle || (recache && cachedText != null)) {
@@ -7872,6 +7986,57 @@ class Shell(
             if (redepth) composeFullSurface() else composeContent()
         }
         scheduleSave()
+    }
+
+    /** S1-5 S: one `set` per item [new] changes from [old], stamped with the input's time; each value kept until it
+     *  comes back ([settingsEcho]). */
+    private fun sendSettings(src: wm.damage.core.app.WindowSource, old: ShellSettings, new: ShellSettings) {
+        val at = src.now()
+        for (d in SettingsCore.diff(old, new, at)) {
+            settingsInflight.getOrPut(d.targets.single()) { ArrayDeque() }.addLast(d.result)
+            src.act(d)
+        }
+    }
+
+    /** S1-5 S (§4.2's (3)), on the loop: every record item that is not this shell's own write coming back and differs
+     *  from what is shown is applied — the local copy written, no op sent back. Nothing until the source has heard
+     *  Settings: the local copy shows meanwhile. */
+    private fun settingsFromRecord() {
+        val src = settingsSource ?: return
+        if (!src.heard()) return
+        val next = recordSettingsOver(settings, src.state())
+        if (next == settings) return
+        settingsFromRecordCount++
+        Log.i("settings", "settings changed on the record")
+        applySettings(next, input = false)
+    }
+
+    /** [shown] with every item of [st] that moved: absent or removed reads as the default; an echo of this shell's own
+     *  write is skipped. */
+    private fun recordSettingsOver(shown: ShellSettings, st: wm.damage.core.app.WindowState): ShellSettings {
+        val cur = SettingsCore.encode(shown)
+        val prefix = wm.damage.core.app.Record.prefix(SettingsCore.WINDOW)
+        val names = LinkedHashSet(cur.keys)
+        for (k in st.items.keys) if (k.startsWith(prefix)) names += k.removePrefix(prefix)
+        val moved = HashMap<String, kotlinx.serialization.json.JsonElement?>()
+        for (name in names) {
+            if (!SettingsCore.known(name)) continue
+            val v = SettingsCore.valueIn(st, name)
+            if (v == null || settingsEcho(name, v)) continue
+            if (v != (cur[name] ?: SettingsCore.defaultOf(name))) moved[name] = v
+        }
+        return SettingsCore.with(shown, moved)
+    }
+
+    /** True when [v] is this shell's own write of [name] coming back: it and every older write still in flight leave
+     *  the list. */
+    private fun settingsEcho(name: String, v: kotlinx.serialization.json.JsonElement): Boolean {
+        val q = settingsInflight[name] ?: return false
+        val i = q.indexOf(v)
+        if (i < 0) return false
+        repeat(i + 1) { q.removeFirst() }
+        if (q.isEmpty()) settingsInflight.remove(name)
+        return true
     }
 
     /** Repaint chrome + content from scratch (mode changes, boot, relayout). */
@@ -8384,6 +8549,7 @@ class Shell(
         if (atlas != null && st.cacheWriter.isNotEmpty() && st.cacheWriter != atlasTag && st.cacheWriter != atlasForeignWriter) {
             atlasForeignWriter = st.cacheWriter
             noticeReset()                         // build K1-4a: the notice's programs are cache bytes another writer may have
+            lanes.reset("another writer touched the cache")   // stage L: so are the lanes' areas
             journal.note("atlas", "the texture cache was written by '${st.cacheWriter}' mid-session — the atlas is dropped, cached text is pixels until the next session or a Cached text toggle")
             atlasReset()
         }
@@ -8565,6 +8731,7 @@ class Shell(
         // the records' write, then alone the rules' CLEARs, the out PLAY and their answers. Nothing waits behind it: every
         // flush from the out PLAY to the run's end is held by both owners and shows at the in half's next step or at LAND
         transitionFirst(st, localOn, localNow)
+        lanesBefore(st)                       // stage L: the held lanes' step — before the frame, whose cells it holds or releases
         // decisions AF.7: the cells held behind a COMMIT go once the adopted motion has ended on the glasses — the loop is
         // asked back then (pacing, never a wait on a send)
         comp.releaseDeferred(localNow)
@@ -8582,7 +8749,7 @@ class Shell(
             // included, the assemble path is what it was
             comp.motionOpen = st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE != 0 && transport.mirror.motionOpen()
             // build C2, stage DI: no delta is merged across the bound list's areas (chrome's ink beside Main's rail thumb)
-            comp.keepOut = if (localOn) local.front?.areas ?: emptyList() else emptyList()
+            comp.keepOut = (if (localOn) local.front?.areas else null) ?: lanes.hold     // stage L: or a held lane's (no list in front)
             val assembleT0 = System.nanoTime()
             // build C2 (P3, P10): each planned COMMIT's END applied to the model before the diff; denied when a drawing
             // sub then meets its slot's areas
@@ -8639,9 +8806,10 @@ class Shell(
                     val playAfter = tr?.takeIf { it.phase == TransitionRun.Phase.FRAME && !transitionHoldInHalfForTest && !assembled.keyframe && !comp.hasPending && !comp.needsKeyframe }?.playAfter
                     val id = transport.submit(FlushRequest(assembled.ops, assembled.epoch, label,
                         wide = assembled.wide, tail = localTail + listOfNotNull(noticeTail) + listOfNotNull(playAfter),
-                        held = tr?.held() ?: emptySet()))
+                        held = (tr?.held() ?: emptySet()) + lanes.heldSlots))     // stage L: a held lane's owners stay open
                     if (noticeTail != null) noticePlayFlush = id
                     transitionSubmitted(id, assembled.keyframe, playAfter != null)
+                    if (assembled.keyframe) lanes.keyframed()          // stage L: it closed every instance
                     if (localTail.isNotEmpty()) { localTailFlushes += id; for (h in lists) h.mainBind.tailSent(id, h.mainBindEntriesSent()) }
                     inflightFlushes[id] = assembled
                     flushesSubmitted++
@@ -8693,8 +8861,9 @@ class Shell(
             // the wheel's preview over Main before Main's staging step (decisions AL.1): a staging's paint turns are not
             // what the preview waits for
             if (!animated && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !mainList.pumpMainBind(st) &&
-                !pumpNoticeStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)
+                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)
         }
+        lanesAfter()                          // stage L: the chain's PLAY or PLAY-AFTER alone, after the frame
 
         // animations continue on the next completion or message; make sure one
         // arrives even in instant-transport tests
@@ -8856,6 +9025,9 @@ class Shell(
             // record does above) and the notice lane writes them again once the run lets cache writes go
             CfwModes.noticeRegion(st.cacheSize, st.bind)?.takeIf { it.first <= lists.last && lists.first <= it.last }
                 ?.let { noticeYield("an Encode transition's cell lists take bytes ${lists.first}..${lists.last}") }
+            // stage L: and the held lanes' areas in the reserve's lower 16 KiB, likewise
+            CfwModes.musicRegion(st.cacheSize, st.bind)?.takeIf { it.first <= lists.last && lists.first <= it.last }
+                ?.let { lanes.yieldSlice("an Encode transition's cell lists take bytes ${lists.first}..${lists.last}") }
         }
         // K1 §9: a box on screen goes back to the queue unread, and returns after the transition
         if (notifications.active) {
@@ -8984,7 +9156,7 @@ class Shell(
     /** X2T item 3: an Encode act's lists, laid over [lists] (bytes), drop the page-staging strips whose bytes they meet —
      *  staged again when their document is in front and idle; every other strip stays proven and drawable (nothing
      *  writes the reserve while the run holds, [cacheWritesHeld]). */
-    private fun stagePagesDropUnder(lists: IntRange) {
+    private fun stagePagesDropUnder(lists: IntRange, why: String = "an Encode transition's cell lists take bytes ${lists.first}..${lists.last}") {
         val met = stage.records.values.filter { it.key !is RegionStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }
         if (met.isEmpty()) return
         val from = met.minOf { it.off }
@@ -8992,7 +9164,7 @@ class Shell(
         stage.ring?.rewind(from)                        // written back where they lay once the document is idle in front
         comp.placements = emptyList()                   // rebuilt from the registry at the next assemble
         stageRecount()
-        journal.note("stage", "dropped ${met.size} record(s) — an Encode transition's cell lists take bytes ${lists.first}..${lists.last} (${met.joinToString { it.key.toString() }})")
+        journal.note("stage", "dropped ${met.size} record(s) — $why (${met.joinToString { it.key.toString() }})")
     }
 
     /** The pump's first step for an owed transition: the records' write (one mode-19 message, this shell's tag), then
@@ -9403,150 +9575,14 @@ class Shell(
     }
 
     // ------------------------------------------------------------------ sync
-    /**
-     * A sync record from the peer (HANDOFF.md §19.2). Returns false when the
-     * shell is not running — the caller applies it to the store directly. On
-     * the loop: a record the store already HOLDS (the same value, a stamp not
-     * newer by more than the tolerance — HANDOFF §75.1) ends here, before any
-     * work is done for it. Otherwise FRESHEN the key first (last-write-wins
-     * must compare against the state the user sees now, not the last debounced
-     * save), then apply, then live-apply so the change is visible without a
-     * restart.
-     *
-     * The held-record test is the Run's FIRST statement and runs on the loop,
-     * not where the record is read off the wire (0.64 P3, review finding 1):
-     * records for one key are applied in the order they were posted, and a
-     * test made on the reader's thread compares against a store the queued
-     * ones have not reached yet (K = v1; the peer sends v2, then v1 again
-     * inside the tolerance: the second would be dropped against the old v1 and
-     * this side would end on v2).
-     *
-     * What skipping the freshen costs: the freshen also puts live state that
-     * no save has captured yet, and a save tick follows INPUT only, so state
-     * that changed with no ring input (a track change in Music) is not put by
-     * this record any more. It reaches the store and the peer at the next
-     * input-driven save, the next record for the key that is not held, or an
-     * orderly stop. Before this, a handshake's 77 records each ran the
-     * freshen and a whole-store save on the loop, every other handshake.
-     */
-    fun postSync(key: String, value: JsonObject, stamp: Long): Boolean {
-        if (!running) return false
-        // R2 (RE-4): `running` is read before the post, so a record can land behind the stop's Shutdown; the
-        // loop's drain then runs `dropped` — the store-direct apply the caller makes when this returns false.
-        // Inside its own `try`: the loop's `!running` arm calls `dropped` too.
-        post(Msg.Run(dropped = {
-            try {
-                if (persistence.tryApplyRemote(key, value, stamp))
-                    Log.i("sync", "'$key' from the peer met a stopped shell — stored; the next start shows it")
-            } catch (e: Exception) { Log.e("sync", "storing synced '$key' failed", e) }
-        }) {
-            try {
-                if (persistence.holdsSame(key, value, stamp)) return@Run
-                freshenSyncKey(key)
-                if (persistence.tryApplyRemote(key, value, stamp)) liveApplySync(key, value)
-            } catch (e: Exception) {
-                Log.e("sync", "applying synced '$key' failed", e)
-            }
-        })
-        return true
-    }
-
-    /** `window.<id>` → (window, null); `window.<id>.<subKey>` → (window, sub).
-     *  Window ids carry no dots, so the first segment is always the id. */
-    private fun windowForKey(key: String): Pair<DamageWindow, String?>? {
-        if (!key.startsWith("window.")) return null
-        val rest = key.removePrefix("window.")
-        val id = rest.substringBefore('.')
-        val sub = rest.substringAfter('.', "").ifEmpty { null }
-        val w = windows.firstOrNull { it.id == id } ?: return null
-        return w to sub
-    }
-
-    private fun freshenSyncKey(key: String) {
-        // FRESHEN ONLY WHAT THIS DEVICE EVER HELD (review 2026-09-01 F2): a
-        // virgin or unreadable-and-cleared store must not stamp its DEFAULTS over the
-        // fleet's real records — if we never had the key, the peer's record
-        // simply wins. Local edits made this session put the key first, so a
-        // genuinely-used device still freshens against its live state.
-        if (persistence.get(key) == null) return
-        when {
-            // re-encode ONLY after a local edit (R2#4): when live settings came
-            // from the stored record itself (boot restore or a peer apply), a
-            // re-encoding differs only by version shape — putting it would
-            // re-stamp the peer's record on every handshake, the F5 ping-pong
-            // through the freshen door
-            key == "shell.settings" -> if (settingsLocallyEdited) persistence.put(key, settings.toJson())
-            key.startsWith("window.") -> windowForKey(key)?.let { (w, sub) ->
-                try {
-                    if (sub == null) {
-                        persistence.put(key, w.saveState())
-                    } else {
-                        // freshen only what the window HOLDS: an absent item is
-                        // either never-had (the remote record should apply) or
-                        // removed (its tombstone already carries a fresh stamp
-                        // from the removal's save) — LWW decides both correctly
-                        w.saveSubState()[sub]?.let { persistence.put(key, it) }
-                    }
-                } catch (e: Exception) {
-                    Log.e("sync", "freshen of $key failed", e)
-                }
-            }
-        }
-    }
-
-    private fun liveApplySync(key: String, value: JsonObject) {
-        when {
-            key == "shell.settings" -> {
-                Log.i("sync", "settings updated from the peer")
-                applySettings(ShellSettings.fromJson(value), persist = false)
-            }
-            key.startsWith("window.") -> {
-                val (w, sub) = windowForKey(key) ?: return
-                if (sub == null) {
-                    Log.i("sync", "state of '${w.id}' updated from the peer")
-                    w.restoreStateLive(value)
-                    // per-ITEM last-write-wins on top of the main record
-                    // (R3d#1): an old peer's whole-map record can win the
-                    // MAIN key while this side holds NEWER sub-records — each
-                    // newer sub wins its item back, and restoreSubState's own
-                    // re-seat keeps the open item's screen position honest
-                    val mainStamp = persistence.stamp(key)
-                    for (k2 in persistence.keysWithPrefix("$key.")) {
-                        if (persistence.stamp(k2) > mainStamp) {
-                            persistence.get(k2)?.let { v2 ->
-                                try { w.restoreSubState(k2.removePrefix("$key."), v2) }
-                                catch (e: Exception) { Log.e("sync", "sub re-apply of $k2 failed", e) }
-                            }
-                        }
-                    }
-                } else {
-                    Log.i("sync", "item '$sub' of '${w.id}' updated from the peer")
-                    w.restoreSubState(sub, value)
-                    // the window now HOLDS (or just removed) this item: it
-                    // counts as reported (R3s#4) — without this, a user
-                    // removal made before the next saveAll never tombstones
-                    // and the peer's record resurrects it at the next restart
-                    subReported.getOrPut(w.id) { HashSet() }.add(sub)
-                }
-                // repaint only when the change is on screen; the wheel owns the
-                // screen while open (§4.3) and a parked window paints on focus
-                if ((mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) && current === w && !switcher.open) {
-                    syncLayout()
-                    composeFullSurface()
-                }
-            }
-        }
-    }
-
     /** [sync] = the shutdown form: the write has landed when this returns.
      *  The periodic form encodes on the loop and writes on the store's own
      *  thread (2026-09-05, §32), reporting a failed write back through the
      *  loop so the notice is raised where every other state mutation is. */
     private fun saveAll(sync: Boolean = false) {
-        // settings are NOT re-put here (R2#4): applySettings(persist=true)
-        // already persisted every local edit, and a blind re-encoding of a
-        // peer-applied record would re-stamp it on the next save tick — the
-        // exact echo the F5 fix suppressed at the apply site
+        // settings are NOT re-put here (R2#4): applySettings already wrote
+        // every change, and the stored record keeps any field this build does
+        // not know
         persistence.put("shell.state", buildJsonObject {
             put("current", current?.id ?: "")
             put("mode", mode.name)
@@ -9556,26 +9592,22 @@ class Shell(
         for (w in windows) {
             try {
                 persistence.put("window.${w.id}", w.saveState())
-                // §16.4a sub-records: per-item blobs, individually stamped so
-                // sync converges per ITEM. A stored sub-key the window no
-                // longer holds gets the removal TOMBSTONE (an empty object) —
-                // value-changed, so it re-stamps once and the removal syncs;
-                // re-putting an existing tombstone is value-equal and free.
+                // §16.4a sub-records: per-item blobs. A stored sub-key the
+                // window no longer holds is removed from the store (S1-5 §4.8).
                 // ⚠ Only keys the window ITSELF reported this session may be
-                // tombstoned (review 2026-09-01 F2c/d): a failed restore, or a
+                // removed (review 2026-09-01 F2c/d): a failed restore, or a
                 // build that does not speak sub-records, must never turn
-                // "didn't load it" into a fresh-stamped removal of real data.
-                // an EMPTY blob IS the tombstone: a window that returns one is
-                // reporting a removal it did not mean, and the key is syncable
-                // — refuse it loudly rather than fresh-stamp a deletion of the
-                // peer's real record (review 2026-09-03, the Music mirror)
+                // "didn't load it" into a removal of real data.
+                // An EMPTY blob is not a record (an older build's store holds
+                // it as a removal's mark): a window that returns one is refused
+                // loudly and its stored record kept (review 2026-09-03)
                 val subs = w.saveSubState().filter { (sk, blob) ->
                     // said ONCE per key per session: saveAll runs every couple
                     // of seconds and a standing defect must not become a stream
                     blob.isNotEmpty().also {
                         if (!it && emptySubSaid.add("${w.id}.$sk"))
                             Log.e("shell", "${w.id}.saveSubState() reported '$sk' as an EMPTY " +
-                                "object — that is the removal tombstone, not a record; refused")
+                                "object — that is not a record; refused")
                     }
                 }
                 val prefix = "window.${w.id}."
@@ -9584,7 +9616,7 @@ class Shell(
                 for ((sk, blob) in subs) persistence.put(prefix + sk, blob)
                 for (k in persistence.keysWithPrefix(prefix)) {
                     val sk = k.removePrefix(prefix)
-                    if (sk !in subs && sk in reported) persistence.put(k, JsonObject(emptyMap()))
+                    if (sk !in subs && sk in reported) persistence.remove(k)
                 }
             } catch (e: Exception) {
                 Log.e("shell", "saveState of ${w.id} failed", e)
@@ -9595,7 +9627,7 @@ class Shell(
         } else {
             persistence.saveAsync { landed ->
                 // back onto the loop; a shell already stopped drops it (the
-                // sync shutdown save reports for itself)
+                // synchronous shutdown save reports for itself)
                 if (running) post(Msg.Run(dropped = {}) { noteSaveLanded(landed) })
             }
         }

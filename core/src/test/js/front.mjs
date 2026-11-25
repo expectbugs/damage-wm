@@ -26,6 +26,7 @@ export function front(scene, real, secret) {
   const log = [];
   let ready = false;
   let held = null;
+  let cut = false; // R-b H3: the PC out of reach (`/__cut`) until `/__mend`
   const socks = new Set();
   // S1-2 Q5: a scene of the made-up device at control (LOOK_SECRET_CONTROL, its secret file) instead of the full one
   const sec = scene.control ? readFileSync(process.env.LOOK_SECRET_CONTROL, 'utf8').trim() : secret;
@@ -72,6 +73,9 @@ export function front(scene, real, secret) {
       const poll = () => (lines(`${dir}/ack`) > n ? own(200, 'text/plain', 'up again') : setTimeout(poll, 200));
       return poll();
     }
+    // R-b H3: the PC out of reach — every socket of the page ends and new ones are refused — and back in reach
+    if (url.pathname === '/__cut') { cut = true; for (const x of socks) x.destroy(); return own(204, 'text/plain', ''); }
+    if (url.pathname === '/__mend') { cut = false; return own(204, 'text/plain', ''); }
     if (url.pathname === '/__wait') return setTimeout(() => own(204, 'text/plain', ''), Number(url.searchParams.get('ms') || 0));
     if (url.pathname === '/__look.mjs') return own(200, TYPES.mjs, lookModule(scene.steps));
     if (url.pathname === '/__other') {
@@ -120,6 +124,7 @@ export function front(scene, real, secret) {
 
   // the socket: the upgrade goes through with the same three changes, then bytes both ways as they are
   server.on('upgrade', (req, sock, head) => {
+    if (cut) { sock.end('HTTP/1.1 503 Service Unavailable\r\n\r\n'); return; }
     const h = headsUp(req.headers);
     const upSock = connect(Number(up.port), up.hostname, () => {
       upSock.write(`${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(h).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`);
@@ -230,9 +235,40 @@ export function realScenes(book) {
       { fetch: '/__wait?ms=3000' }, { fetch: '/__ctl?mark' }, { fire: ['.reading', 'wheel'] }, { scroll: ['.reading', 400] },
       { fetch: '/__wait?ms=3000' }, { fetch: '/__ctl?mark' }, { fetch: '/__wait?ms=300' }, { click: '.side-toggle' },
       { click: '.chapters li:nth-child(3) button' }, { wait: '.chapters li:nth-child(3) button.current' }, { fetch: '/__wait?ms=3000' }, reach] },
-    // L1: the two pages no scene showed — Diagnosis, and Settings with a look picked (it stays on this browser)
-    'real-diag': { path: '/w/diag', steps: [{ wait: '.diag dl.facts' }, reach] },
+    // R-b H3: the Health page (Diagnosis merged into it as its lower half) — all well, a line in attention, one in alarm,
+    // the PC out of reach with the last state's age, back in reach with what changed meanwhile and no reload; home's
+    // line, well and in alarm. Each word sets every line.
+    'real-health': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-well' }, { wait: '.hl-summary.band-normal' },
+      { wait: '.hl[data-key="health:reach"]:not(.not-live)' }, { wait: '.hview dl.facts' }] },
+    'real-health-attention': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-attention' }, { wait: '.hl-summary.band-attention' },
+      { wait: '.hl[data-key="health:reach"]:not(.not-live)' }, { wait: '.hview dl.facts' }] },
+    'real-health-alarm': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hl[data-key="health:reach"].not-live' }, { wait: '.hview dl.facts' }] },
+    'real-health-away': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hview dl.facts' }, { fetch: '/__cut' }, { wait: '#reach:not([hidden])' }, { wait: '.hl-age' }] },
+    'real-health-back': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { fetch: '/__cut' }, { wait: '.hl-age' }, { fetch: '/__ctl?health-attention' }, { fetch: '/__wait?ms=1000' }, { fetch: '/__mend' },
+      reach, { wait: '.hl-summary.band-attention' }, { gone: '.hl-age' }, { wait: '.hview dl.facts' }] },
+    // the lower rows (a long error wraps at 390 px) and the diagnosis, the page scrolled
+    'real-health-alarm-mid': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hview dl.facts' }, { scroll: ['main', 1100] }] },
+    'real-health-alarm-end': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hview dl.facts' }, { scroll: ['main', 6000] }] },
+    'real-home-well': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__ctl?health-well' }, { wait: '.home-health.band-normal' }] },
+    'real-home-alarm': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.home-health.band-alarm' }] },
+    // L1: Settings with a look picked (it stays on this browser)
     'real-settings': { path: '/w/settings', steps: [{ wait: '.settings .looks' }, reach, { click: '.looks:last-of-type .choice:last-child input' }] },
+    // S1-5 W: every setting as a form; Quiet hours changed through the page's own select, then read back in the record,
+    // the PC's fold and the scratch shell (LookServer's word `settings` prints all three)
+    'real-settings-quiet': { path: '/w/settings', steps: [{ wait: '.set-cat select[data-key="set:settings:quietHours"]' }, reach,
+      { fetch: '/__ctl?settings' }, { pick: ['select[data-key="set:settings:quietHours"]', '22-07'] }, { fetch: '/__wait?ms=1500' },
+      { wait: 'select[data-key="set:settings:quietHours"] option[value="22-07"][selected]' }, { fetch: '/__ctl?settings' }] },
+    'real-settings-search': { path: '/w/settings', steps: [{ wait: '.set-cat' }, reach, { type: '.set-search', text: 'notify' }, { wait: '.set-cat' }] },
+    // the Animations tiers (a tier's effects as checkboxes, wrapping), an app's category (its own rows, then its style
+    // rows with Scroll effect), and the same at control (LOOK_SECRET_CONTROL): Tmux's rows need full, dim and saying so
+    'real-settings-anim': { path: '/w/settings', steps: [{ wait: '.set-cat' }, reach, { type: '.set-search', text: 'animations' }, { wait: '.set-many' }] },
+    'real-settings-tmux': { path: '/w/settings', steps: [{ wait: '.set-cat' }, reach, { type: '.set-search', text: 'tmux' }, { wait: '.set-cat' }] },
+    'real-settings-control': { path: '/w/settings', control: true, steps: [{ wait: '.set-cat' }, reach, { type: '.set-search', text: 'tmux' }, { wait: '.trow.dim' }] },
     // the approval of the waiting made-up page, from the devices page
     'real-approve': { path: '/w/devices', steps: [{ wait: '.devices li.row-item .pcode' },
       { click: 'li.row-item:has(.pcode) .row-acts button' }, { wait: '.devices ul.rows li:nth-child(2) .row-name' }, reach] },

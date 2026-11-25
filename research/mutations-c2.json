@@ -2756,8 +2756,8 @@
   "file": "comp/Compositor.kt",
   "edits": [
    [
-    "return assembleHolding(rectBudget, hl, hr, emptyList()).also { deferL = hl.distinct(); deferR = hr.distinct() }",
-    "return assembleHolding(rectBudget, hl, hr, emptyList())"
+    "if (deferL.isNotEmpty()) { deferL = hl.filter { it !in laneSetL && it !in laneGrownL }.distinct(); deferR = hr.filter { it !in laneSetR && it !in laneGrownR }.distinct() }",
+    "if (deferL.isNotEmpty()) { }"
    ]
   ],
   "tests": [
@@ -4107,8 +4107,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "                for (p in noticeProgs) if (p.rec.state == StagedRecord.State.ACKED) p.rec.state = StagedRecord.State.WANTED\n",
-    ""
+    "for (r in ownRecs()) if (r.state == StagedRecord.State.ACKED) r.state = StagedRecord.State.WANTED   // stage L: the lanes' areas too",
+    "for (r in lanes.records) if (r.state == StagedRecord.State.ACKED) r.state = StagedRecord.State.WANTED   // stage L: the lanes' areas too"
    ]
   ],
   "tests": [
@@ -4125,8 +4125,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "                for (p in noticeProgs) if (p.rec.state == StagedRecord.State.ACKED && p.rec.ackedAt > v.fromAcked && p.rec.ackedAt <= v.toAcked)\n                    p.rec.state = StagedRecord.State.WANTED\n",
-    ""
+    "for (r in ownRecs()) if (r.state == StagedRecord.State.ACKED && r.ackedAt > v.fromAcked && r.ackedAt <= v.toAcked)",
+    "for (r in lanes.records) if (r.state == StagedRecord.State.ACKED && r.ackedAt > v.fromAcked && r.ackedAt <= v.toAcked)"
    ]
   ],
   "tests": [
@@ -6454,8 +6454,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        transitionFirst(st, localOn, localNow)\n        // decisions AF.7",
-    "        transitionFirst(st, localOn, localNow)\n        if (transition?.phase == TransitionRun.Phase.IN && !pumpPriority && (comp.hasPending || comp.needsKeyframe)) return\n        // decisions AF.7"
+    "whose cells it holds or releases\n        // decisions AF.7",
+    "whose cells it holds or releases\n        if (transition?.phase == TransitionRun.Phase.IN && !pumpPriority && (comp.hasPending || comp.needsKeyframe)) return\n        // decisions AF.7"
    ]
   ],
   "tests": [
@@ -10517,8 +10517,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "!pumpStagePiece(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)",
-    "!pumpStagePiece(st) && !pumpWheel(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st) && !pumpWindowList(st)) pumpStage(st)"
+    "!pumpStagePiece(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)",
+    "!pumpStagePiece(st) && !pumpWheel(st) && !mainList.pumpMainBind(st) &&\n                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWindowList(st)) pumpStage(st)"
    ]
   ],
   "tests": [
@@ -11194,5 +11194,355 @@
   ],
   "note": "decisions CY (finding C): a slot-0 body whose report was not heard is credited to Main's measured window",
   "from": "K12S3b"
+ },
+ {
+  "id": "MML-held-slots",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "    val heldSlots: Set<Int> get() = if (chain != null) HELD else emptySet()",
+    "    val heldSlots: Set<Int> get() = emptySet()"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest",
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "aChainOfStretchesPlaysOnTheLensClockWithOneWriteAndPlayAftersOnly"
+  ],
+  "note": "spec §4.1: the flush leaves the lane's owners open while a chain runs — without it the transport's CLOSE-before-a-write rule ends the chain at the time text's cached glyph run each second (Now Playing's digits left of the bar, read as reaching the panel's edges) and it restarts with a PLAY (measured MM-LF: the fuzz's chain shows PLAYs among its PLAY-AFTERs; MusicLaneShellTest's held-lane test fails beside it now that its digits differ)",
+  "from": "MML-L, MM-LF"
+ },
+ {
+  "id": "MML-comp-hold",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        comp.laneHold = lanes.hold ",
+    "        comp.laneHold = emptyList() "
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "theBarIsAHeldLaneTheGlassesGrowWhileThePhoneWritesNothingIntoIt"
+  ],
+  "note": "spec §4.1 held still: the compositor holds the lane's cells — without it the window's moving bar is written under the owner",
+  "from": "MML-L"
+ },
+ {
+  "id": "MML-release-cells",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        lanes.takeRelease()?.let { comp.laneRelease(it) }\n",
+    "        lanes.takeRelease()\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "(no pin holds: with the release's write removed, the menu over Now Playing still closes the chain and shows the window's own bar as it settles — measured MM-LF, theMenuOverNowPlayingEndsTheChainAndTheBarIsWrittenFromTheTruth passed under it; the lead rules where it is pinned or whether it goes)"
+  ],
+  "note": "spec §4.1 cancel: a released lane is written from the truth, whose write meets the owners so the transport CLOSEs them — without it a chain ended by the menu over Now Playing leaves the chain's start picture (the shadow under its owners) on the panel, or its instances open, until the window next repaints",
+  "from": "MML-L, MM-LF"
+ },
+ {
+  "id": "MML-end-release",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        if (releaseCells) release += c.areas\n",
+    "        if (false) release += c.areas\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aChangedKeyEndsTheChainAndTheNextStartsFromTheNewPlace",
+   "theCancelEnvelopeAtThreeTimings"
+  ],
+  "note": "the envelope: an ended chain's cells are released — without it nothing closes its owners",
+  "from": "MML-L"
+ },
+ {
+  "id": "MML-key-change",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "                ch.key != spec.key -> \"its key changed\"",
+    "                false -> \"its key changed\""
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aChangedKeyEndsTheChainAndTheNextStartsFromTheNewPlace"
+  ],
+  "note": "spec §4.1: a changed key (a seek, a track, a play state) plans again",
+  "from": "MML-L"
+ },
+ {
+  "id": "MML-late",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        if (late > LATE_MS) end(",
+    "        if (false) end("
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aLatePlayAfterRestartsTheChain"
+  ],
+  "note": "spec §4.3: a PLAY-AFTER that lands after its stretch was due shows the past — the chain starts again",
+  "from": "MML-L"
+ },
+ {
+  "id": "MML-strikes",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        if (strikes >= REFUSALS_MAX && off == null) {",
+    "        if (false && off == null) {"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "threeRefusalsTurnTheLanesOffForTheSession"
+  ],
+  "note": "spec §4.1 fallback: three refusals in a session → off, said once",
+  "from": "MML-L"
+ },
+ {
+  "id": "MML-mirror-ended",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "            if (landed.isNotEmpty() && !inFlight && held.isEmpty()) {",
+    "            if (false) {"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aChainEndedOnTheGlassesWithNoWordStartsAgainFromTheMirror"
+  ],
+  "note": "the envelope (b): the chain ended on the glasses with no word to the phone (a done owner closed by another PLAY, a PLAY the mirror never held open)",
+  "from": "MML-L"
+ },
+ {
+  "id": "MML-send-at-half",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        val sendAt = due - Math.round(ch.lenMs / 2)\n",
+    "        val sendAt = due\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aChainOfStretchesPlaysOnTheLensClockWithOneWriteAndPlayAftersOnly"
+  ],
+  "note": "spec §4.1: each next stretch is sent with half the drawing one left, so it lands before that one's end",
+  "from": "MML-L"
+ },
+ {
+  "id": "MML-slots-in-turn",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        val slot = if (last.slot == SLOT_A) SLOT_B else SLOT_A\n",
+    "        val slot = last.slot\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aChainOfStretchesPlaysOnTheLensClockWithOneWriteAndPlayAftersOnly"
+  ],
+  "note": "spec §4.2: slots 0 and 1 in turn (a PLAY-AFTER names the other slot)",
+  "from": "MML-L"
+ },
+ {
+  "id": "MML-area-reuse",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "            if (rec.encoded.contentEquals(blob)) return if (rec.state == StagedRecord.State.PROVEN) i to plan else null\n",
+    "            if (false) return if (rec.state == StagedRecord.State.PROVEN) i to plan else null\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aChainOfStretchesPlaysOnTheLensClockWithOneWriteAndPlayAftersOnly",
+   "aChangedKeyEndsTheChainAndTheNextStartsFromTheNewPlace"
+  ],
+  "note": "spec §4.2: an area already holding a stretch's bytes is used again — the bar's program is written once a song",
+  "from": "MML-L"
+ },
+ {
+  "id": "MML-music-seek",
+  "file": "windows/music/MusicGlasses.kt",
+  "edits": [
+   [
+    "        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(zero - laneZero) > SEEK_SLACK_MS) { laneZero = zero; laneGen++ }",
+    "        if (laneZero == Long.MIN_VALUE) { laneZero = zero; laneGen++ }"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "theBarIsAHeldLaneTheGlassesGrowWhileThePhoneWritesNothingIntoIt"
+  ],
+  "note": "spec §4.1: a seek changes the lane's key — the chain starts from the new place",
+  "from": "MML-L"
+ },
+ {
+  "id": "MML-skew-said-once",
+  "file": "app/ClockSkew.kt",
+  "edits": [
+   [
+    "        if (s != null && kotlin.math.abs(best - s) < SAY_MS) return null\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*ClockSkewTest"
+  ],
+  "expect": [
+   "theBestPingSaysTheDifferenceOnceAndAgainOnlyWhenItMoves"
+  ],
+  "note": "spec §4.3: the PC–phone clock line is said once and again only when it moves",
+  "from": "MML-L"
+ },
+ {
+  "id": "K12S4c-window-row-not-adopted",
+  "file": "shell/WindowListSurface.kt",
+  "edits": [
+   [
+    "    override fun setRow(row: Int) { front()?.model?.cursor = row }",
+    "    override fun setRow(row: Int) { }"
+   ]
+  ],
+  "tests": [
+   "*OracleWalkTest.localEventsOnWindowListsKeepTheOracleAtStage5_K12S4c"
+  ],
+  "expect": [
+   "localEventsOnWindowListsKeepTheOracleAtStage5_K12S4c"
+  ],
+  "note": "K1-2 stage 3a's adoption on list 1: an adopted report's row reaches the window's own cursor — removed, every list-1 notch snaps back (belief, glass and truth stay equal; the walk's row check sees it)",
+  "from": "K12S4c"
+ },
+ {
+  "id": "MMLF-start-after-release",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        if (release.isNotEmpty()) { wakeAt = env.nowMs; return }\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aChainEndedForAnotherLayoutIsClosedBeforeTheNextStarts",
+   "theCancelEnvelopeAtThreeTimings"
+  ],
+  "note": "the first review's finding 1 (cure A, spec §4.1's cancel order): no chain starts in the pump that ended one — without it that pump's frame holds slots 0 and 1, the ended chain's instance waiting in slot 1 is never CLOSEd and keeps Music Mode's bar over Now Playing (or the reverse) for half a stretch",
+  "from": "MM-LF"
+ },
+ {
+  "id": "MMLF-unwritten",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        if (unwritten.isNotEmpty()) return\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aChainEndedForAnotherLayoutIsClosedEvenWhenALaterFrameWritesItsCells"
+  ],
+  "note": "finding 1's class: an ended chain's cells left by a frame the budget cut for a later one — without it the next chain starts first and that later frame holds the slots",
+  "from": "MM-LF"
+ },
+ {
+  "id": "MMLF-time-restart",
+  "file": "windows/music/MusicGlasses.kt",
+  "edits": [
+   [
+    "        if (timeRunGen != timeGen) scheduleTimeTick()\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "theElapsedTimeTicksEachSecondAfterALevelIsPushedAndPopped"
+  ],
+  "note": "the first review's finding 2: the lanes' hook restarts the time text's run — without it a level pushed over Now Playing and popped leaves the digits still (they step with the player's 10-s re-emission)",
+  "from": "MM-LF"
+ },
+ {
+  "id": "MMLF-reset-release",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        chain?.let { release += it.areas }\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "aResetReleasesTheOpenChainsCells"
+  ],
+  "note": "the first review's finding 4: a chain dropped by a reset releases its cells — without it the cells the hold grew stay unsent until the next keyframe, reseed or chain end",
+  "from": "MM-LF"
+ },
+ {
+  "id": "MMLF-proven-lanes",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                for (r in stage.records.values + ownRecs()) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.upTo) { r.state = StagedRecord.State.PROVEN; n++ }",
+    "                for (r in stage.records.values + noticeProgs.map { it.rec }) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.upTo) { r.state = StagedRecord.State.PROVEN; n++ }"
+   ],
+   [
+    "                for (r in stage.records.values + ownRecs()) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.toAcked) { r.state = StagedRecord.State.PROVEN; n++ }",
+    "                for (r in stage.records.values + noticeProgs.map { it.rec }) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.toAcked) { r.state = StagedRecord.State.PROVEN; n++ }"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "theBarIsAHeldLaneTheGlassesGrowWhileThePhoneWritesNothingIntoIt"
+  ],
+  "note": "stage L widened the ledger's Proven loops to the lanes' areas — without it an area's write is acked and never proven, so no chain starts (the rows lane's owed row)",
+  "from": "MM-LF"
  }
 ]

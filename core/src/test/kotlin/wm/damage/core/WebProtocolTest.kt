@@ -168,6 +168,56 @@ class WebProtocolTest {
 
     private fun value(v: String?) = buildJsonObject { put("value", v?.let { JsonPrimitive(it) } ?: JsonNull) }
 
+    /**
+     * S1-5 W: `desc/settings` holds every setting — Settings' own rows by category, each window's own rows (its registry
+     * entry's hook) first in its app's category with their window and item, a device's own row left out — and a page's
+     * `set` reaches the record and comes back: in the description and in the PC's fold (what its notices read). A
+     * change to an item no row reads (a Reader place, a Games world) does not describe it again; a row's item does.
+     */
+    @Test
+    fun theSettingsDescriptionHoldsEveryRowAndAPagesSetComesBackInIt() {
+        val rig = Rig().closeLater()
+        val (page, _) = rig.page(Levels.CONTROL, contracts = mapOf("reader" to 1, "settings" to 1), stream = "s-set")
+        val cats = page.desc(PcScopes.SETTINGS)["categories"]!!.jsonArray.map { it.jsonObject }
+        fun rows(cat: String) = cats.first { it.str("name") == cat }["rows"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cats.map { it.str("name") }.containsAll(listOf("Global", "Animations · Scroll", "Bastion", "Reader", "Tmux", "Files",
+            "Torrents", "Feed", "Music", "Games")), "every category: ${cats.map { it.str("name") }}")
+        val tmux = rows("Tmux")
+        assertEquals(listOf(wm.damage.core.windows.tmux.TmuxCore.ALERTS, wm.damage.core.windows.tmux.TmuxCore.CONTEXT,
+            wm.damage.core.windows.tmux.TmuxCore.SIZE), tmux.take(3).map { it.str("id") }, "Tmux's own rows first")
+        assertTrue(tmux.take(3).all { it.str("window") == "tmux" && it.str("item") == it.str("id") })
+        assertEquals(listOf("face", "scale", "style", "depth", "scrollEffect"), tmux.drop(3).map { it.str("field") }, "then its style rows")
+        assertTrue(rows("Torrents").none { it.str("scope") == "device" }, "Torrents' Poll is each device's own")
+        assertTrue(rows("Music").all { it["field"] != null }, "Music's core describes no rows of its own: its style rows only")
+        val reader = rows("Reader").filter { it["field"] == null }
+        assertEquals(listOf("choice", "bool", "choice"), reader.map { it.str("type") }, "Reader's rows carry their type")
+        assertEquals("8 lines", reader[0]["options"]!!.jsonArray.last().jsonObject.str("label"))
+        assertEquals("games", rows("Games").first().str("window"))
+        val quiet = rows("Global").first { it.str("id") == "quietHours" }
+        assertEquals("off", quiet.str("value"))
+        // a page's set: answered, described again with it, and the PC's fold holds it
+        page.send(buildJsonObject {
+            put("t", "op")
+            put("op", buildJsonObject {
+                put("device", ""); put("stream", "s-set"); put("n", 1); put("window", "settings"); put("action", "set")
+                put("targets", buildJsonArray { add(JsonPrimitive("quietHours")) }); put("result", "22-07")
+            })
+        })
+        assertEquals("seen", page.answer("s-set", 1).str("a"))
+        val again = page.await("desc/settings with the page's Quiet hours") { f ->
+            f.str("t") == "snap" && f.str("scope") == PcScopes.SETTINGS && f["desc"]!!.jsonObject["categories"]!!.jsonArray.any { c ->
+                c.jsonObject["rows"]!!.jsonArray.any { r -> r.jsonObject.str("id") == "quietHours" && r.jsonObject.str("value") == "22-07" } }
+        }
+        assertNotNull(again)
+        assertEquals("22-07", wm.damage.core.shell.SettingsCore.onHost(rig.host).quietHours)
+        // what it follows: Settings' items and the items of the windows' rows, nothing else
+        val scopes = PcScopes(rig.host, rig.core, rig.docs)
+        fun moves(key: String) = scopes.follows(PcScopes.SETTINGS, Change(1, 1, wm.damage.core.app.Effect(mapOf(key to
+            wm.damage.core.app.Item(JsonPrimitive(1), "web", 1)))))
+        assertTrue(moves("rec.settings.depth") && moves("rec.settings.app.tmux") && moves("rec.tmux.alerts") && moves("rec.games.glasses.size"))
+        assertFalse(moves("rec.reader.place.${rig.book}") || moves("rec.games.world") || moves("rec.tmux.mute.pc/build"))
+    }
+
     @Test
     fun aPageReadsMainsCardsTheShelfABookAndOnePart() {
         val rig = Rig().closeLater()

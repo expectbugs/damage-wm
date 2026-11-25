@@ -17,7 +17,6 @@ import wm.damage.core.app.Notices
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
 import wm.damage.core.app.Windows
-import wm.damage.core.shell.Persistence
 import wm.damage.core.windows.feed.FeedCore
 import wm.damage.core.windows.feed.ScriptedFeed
 
@@ -115,9 +114,7 @@ class FeedCoreTest {
         drain()
         assertEquals(60 * 60_000L to 7 * 86_400_000L, told.last())
         core.stop()
-        // the registry: converted (its keys never sync), its program ops and levels (C§4.2)
-        assertTrue(Windows.converted(FeedCore.WINDOW))
-        assertTrue(!Persistence.syncable("window.feed.src.popular") && !Persistence.syncable("window.feed"))
+        // the registry: its program ops and levels (C§4.2)
         assertTrue(Windows.isProgram(FeedCore.WINDOW, FeedCore.A_REFRESH) && Windows.isProgram(FeedCore.WINDOW, FeedCore.A_BROWSE))
         assertEquals(Levels.VIEW, Windows.minLevel(FeedCore.WINDOW))
         assertEquals(Levels.VIEW, FeedCore.levelOf(FeedCore.A_READ))

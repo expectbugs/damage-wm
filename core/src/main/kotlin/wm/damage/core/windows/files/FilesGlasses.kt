@@ -1450,10 +1450,9 @@ class FilesGlasses(
     private var pendingViewFor: String? = null
     /** A RESTORE's async pdf open in flight (path, name, mode) — R4#1: while
      *  set, (a) saveState reports the VIEW being restored, not the transient
-     *  BROWSE (a freshen mid-window otherwise re-stamped BROWSE and closed
-     *  the PEER's open PDF), and (b) the automatic refreshes (onActivate,
-     *  restoreStateLive) hold off — their ++navSeq deterministically
-     *  cancelled the very open the restore launched. */
+     *  BROWSE, and (b) the automatic refresh (onActivate) holds off — its
+     *  ++navSeq deterministically cancelled the very open the restore
+     *  launched. */
     private var pendingOpenView: Triple<String, String, String>? = null
 
     private fun consumePendingTop(v: Viewer) {
@@ -1681,37 +1680,6 @@ class FilesGlasses(
         }
     }
 
-    /** A LIVE-synced record needs the refresh boot gets from onActivate
-     *  (R3d#2): applying a new cwd over the OLD folder's rows let a menu
-     *  commit act on `pathOf(stale row)` — a same-named file in the new
-     *  folder would be the wrong file. */
-    override fun restoreStateLive(state: JsonObject) {
-        restoreState(state)
-        when (level) {
-            // R4#1: while the record's own pdf open is in flight the level is
-            // transiently BROWSE — refreshing would ++navSeq and cancel it.
-            // The OLD rows still clear either way (R6#2): a commit against
-            // them would resolve pathOf() under the record's NEW cwd — the
-            // wrong-file class. Safe-empty until the viewer lands (or the
-            // failure path's refresh runs).
-            Level_.BROWSE -> if (pendingOpenView == null) {
-                entries = emptyList(); listState = "listing"; refreshList()
-            } else {
-                entries = emptyList(); listState = "listing"
-            }
-            Level_.TRASH -> refreshTrash()
-            Level_.LOCATIONS -> refreshLocations()
-            Level_.VIEW -> {
-                // the restore path reopens through the normal opens — but the
-                // OLD folder's rows behind the viewer still clear (R7#2): a
-                // back() would otherwise commit pathOf(stale row) under the
-                // record's NEW cwd; back()'s empty-refresh relists
-                entries = emptyList(); listState = "listing"
-            }
-        }
-        services?.requestRender(this)
-    }
-
     override fun restoreState(state: JsonObject) {
         // any incoming record supersedes a pending pdf-restore intent (R5#1):
         // without this, a live-applied BROWSE/TRASH record left the stale
@@ -1725,8 +1693,8 @@ class FilesGlasses(
         locModel.cursor = state["locCursor"]?.jsonPrimitive?.intOrNull ?: 0
         browseModel.cursor = state["browseCursor"]?.jsonPrimitive?.intOrNull ?: 0
         trashModel.cursor = state["trashCursor"]?.jsonPrimitive?.intOrNull ?: 0
-        // S1-2 Q5: sort, hidden, the clipboard and the height come from Files' records (an old blob's are migrated
-        // once, `FilesMigration`), never from this view's local keys
+        // S1-2 Q5: sort, hidden, the clipboard and the height come from Files' records, never from this view's local
+        // keys
         val lvl = state["level"]?.jsonPrimitive?.contentOrNull
         val locPath = state["locationPath"]?.jsonPrimitive?.contentOrNull ?: ""
         val savedCwd = state["cwd"]?.jsonPrimitive?.contentOrNull ?: ""

@@ -107,17 +107,6 @@ class QueueWhileDownApiTest {
         keeper.stop()
     }
 
-    @Test
-    fun theSyncHandshakeNamesEveryKeyItMoves() {
-        val line = wm.damage.core.sync.SyncNet.describeKeys(listOf("window.reader.book.a", "window.feed"),
-            mapOf("window.reader.book.a" to 1_793_900_000_000L), "there", emptyMap(), "here")
-        assertTrue("window.reader.book.a (there " in line && "here none" in line, line)
-        assertTrue("window.feed (there none · here none)" in line, line)
-        assertEquals("none", wm.damage.core.sync.SyncNet.describeKeys(emptyList(), emptyMap(), "a", emptyMap(), "b"))
-        assertEquals("k (here none)", wm.damage.core.sync.SyncNet.describeKeys(listOf("k"), emptyMap(), "here", emptyMap(), ""),
-            "a side whose stamps are unknown prints no column, never a false \"none\"")
-    }
-
     /** The second review: a cached shelf must not stay one refresh behind, and an explicit open of a
      *  book the cache does not list yet asks the host. */
     @Test

@@ -17,15 +17,16 @@ js/notices.mjs
 js/proto.mjs
 js/reader-model.mjs
 js/record.mjs
+js/rows.mjs
 js/stream.mjs
 js/term-render.mjs
 js/terminal.mjs
 js/tmux-model.mjs
 js/torrents-model.mjs
 js/views/devices.mjs
-js/views/diag.mjs
 js/views/feed.mjs
 js/views/files.mjs
+js/views/health.mjs
 js/views/home.mjs
 js/views/reader.mjs
 js/views/settings.mjs

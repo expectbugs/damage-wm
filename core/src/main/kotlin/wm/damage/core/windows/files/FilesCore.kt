@@ -72,23 +72,11 @@ class FilesCore(
                 a.confirm?.let { put("confirm", it) }
             })
         })
-        put("settings", buildJsonArray { add(sizeRow(state)) })
+        put("settings", settings(state))
     }
 
     /** Files' levels are PC-served scopes (`FilesScopes`), not record levels. */
     override fun level(state: WindowState, addr: String): JsonObject? = null
-
-    /** The glasses' Size row as the description lists it (the page's settings section; the option ids are the
-     *  record's values). */
-    private fun sizeRow(state: WindowState): JsonObject = buildJsonObject {
-        put("id", SIZE); put("label", "Size (glasses)"); put("scope", "glasses"); put("type", "choice")
-        put("level", Levels.FULL); put("action", SET)
-        put("value", live(state, SIZE)?.value?.takeIf { validSize(it) } ?: JsonPrimitive(GLOBAL))
-        put("options", buildJsonArray {
-            add(buildJsonObject { put("id", GLOBAL); put("label", "as Global") })
-            for (h in ShellSettings.HEIGHTS) add(buildJsonObject { put("id", h); put("label", "$h") })
-        })
-    }
 
     /** One action as the description lists it (C§4.1; kinds as C§12 gives them). */
     data class ActionDesc(val id: String, val label: String, val kind: String, val into: String?, val job: Boolean = false,
@@ -176,6 +164,20 @@ class FilesCore(
         // ---- reading the record ----
 
         private fun live(state: WindowState, name: String): Item? = state.itemNamed(name)?.takeIf { !it.gone }
+
+        /** The rows (C§6): the glasses' Size as the description lists it (the page's settings section and the Settings
+         *  page; the option ids are the record's values). */
+        fun settings(state: WindowState): kotlinx.serialization.json.JsonArray = buildJsonArray {
+            add(buildJsonObject {
+                put("id", SIZE); put("label", "Size (glasses)"); put("scope", "glasses"); put("type", "choice")
+                put("level", Levels.FULL); put("action", SET)
+                put("value", live(state, SIZE)?.value?.takeIf { validSize(it) } ?: JsonPrimitive(GLOBAL))
+                put("options", buildJsonArray {
+                    add(buildJsonObject { put("id", GLOBAL); put("label", "as Global") })
+                    for (h in ShellSettings.HEIGHTS) add(buildJsonObject { put("id", h); put("label", "$h") })
+                })
+            })
+        }
 
         /** A clipboard value as (verb, path), or null when [v] is not one. */
         fun clipValue(v: JsonElement?): Pair<String, String>? {

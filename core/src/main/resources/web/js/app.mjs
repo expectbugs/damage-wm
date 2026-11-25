@@ -23,7 +23,7 @@ import { filesView } from './views/files.mjs';
 import { feedView } from './views/feed.mjs';
 import { tmuxView } from './views/tmux.mjs';
 import { devicesView } from './views/devices.mjs';
-import { diagView } from './views/diag.mjs';
+import { healthView, SCOPE as HEALTH } from './views/health.mjs';
 import { settingsView, applyLooks } from './views/settings.mjs';
 
 let ls = null;
@@ -188,6 +188,8 @@ function welcome(f) {
   if (store.failed) sayOnce('storage', `This browser keeps no local storage (${store.failed}): its looks and its stream last only this visit.`, { from: 'Damage' });
   send(P.sub('reader'));
   send(P.sub('desc/main'));
+  // R-b H3: the PC's health record, for home's one line and the Health page (level view, as Main's description)
+  send(P.sub(HEALTH));
   // a PC that keeps no notice record (an older build) is not asked for one
   if (f.contracts && f.contracts[NOTICES] !== undefined) send(P.sub(NOTICES));
   for (const w of recSubs) send(P.sub(w));
@@ -547,7 +549,8 @@ const VIEWS = {
   // S1-3 (B9, B17): Tmux, full as a whole (the window's minimum is full)
   tmux: { make: tmuxView, label: 'Tmux', icon: 'terminal', contract: 'tmux', need: 'full' },
   devices: { make: devicesView, label: 'Devices', icon: 'devices', need: 'full' },
-  diag: { make: diagView, label: 'Diagnosis', icon: 'pulse', need: 'full' },
+  // R-b H3: every line of the health record; at level full the diagnosis below it (the Diagnosis page merged here)
+  health: { make: healthView, label: 'Health', icon: 'pulse' },
   settings: { make: settingsView, label: 'Settings', icon: 'gear' },
 };
 

@@ -10,6 +10,7 @@
 import { h, fill, bar, icon, keepFocus } from '../dom.mjs';
 import { format } from '../address.mjs';
 import * as M from '../files-model.mjs';
+import * as R from '../rows.mjs';
 
 const ROW_PX = 40;
 const TEXT_NEAR_PX = 1500;
@@ -399,25 +400,19 @@ export function filesView(ctx) {
       !d ? h('p', { class: 'note', text: why ? `Files could not be read: ${why}` : 'Reading Files from the PC…' }) : null,
       d && d.availability && d.availability !== 'live' ? h('p', { class: 'health', text: d.reason || d.availability }) : null);
     const rows = ((d && d.settings) || []).filter((r) => r.scope !== 'device');
-    put(els.settings, JSON.stringify([rows, rows.map((r) => rec.value(M.W, r.id)), ctx.S.level, ctx.canAct('full')]), () => (rows.length ? settings(rows) : null));
+    put(els.settings, JSON.stringify([rows, rows.map((r) => R.rowValue(M.W, r, rec, pend)), ctx.S.level, ctx.canAct('full')]), () => (rows.length ? settings(rows) : null));
   }
 
   function settings(rows) {
     const box = h('details', { class: 'tset', open: setOpen, on: { toggle: () => { setOpen = box.open; } } },
       h('summary', { 'data-key': 'set', focus: true }, 'Settings'),
       rows.map((row) => {
-        const v = rec.value(M.W, row.id) ?? row.value;
-        const why = ctx.canAct(row.level || 'full');
-        const opts = (row.options || []).map((o) => (o && typeof o === 'object' ? [o.id, o.label ?? String(o.id)] : [o, String(o)]));
-        return h('label', { class: 'trow' }, h('span', { text: row.label }),
-          h('select', { 'data-key': `set:${row.id}`, focus: true, class: why ? 'dim' : null, 'data-why': why, on: { change: (e) => {
-            const o = opts.find(([id]) => String(id) === e.target.value);
-            // a row's own action if the description names one, else `set` (Torrents' row op; spec §4.5: Size, a record row)
-            const action = row.action || 'set';
-            const value = o ? o[0] : e.target.value;
-            setReg(action, row.id, value, { label: row.label, level: row.level || 'full' });
-            els.settings.dataset.sig = '';
-          } } }, opts.map(([id, l]) => h('option', { value: id, selected: String(id) === String(v) }, l))));
+        const need = row.level || 'full';
+        return R.settingRow(row, R.rowValue(M.W, row, rec, pend), { level: ctx.S.level, need, why: ctx.canAct(need), send: (value) => {
+          // a row's own action if the description names one, else `set` (Torrents' row op; spec §4.5: Size, a record row)
+          setReg(row.action || 'set', row.id, value, { label: row.label, level: need });
+          els.settings.dataset.sig = '';
+        } });
       }));
     return box;
   }

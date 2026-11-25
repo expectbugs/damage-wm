@@ -17,6 +17,9 @@ import kotlinx.serialization.json.put
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.AppNet
 import wm.damage.core.app.DevicesCore
+import wm.damage.core.app.HealthBand
+import wm.damage.core.app.HealthCore
+import wm.damage.core.app.HealthLine
 import wm.damage.core.app.HostBackend
 import wm.damage.core.app.Levels
 import wm.damage.core.app.NoticeCore
@@ -63,6 +66,10 @@ import wm.damage.core.windows.torrents.TorrentsScopes
  * starts it again on the same port and directory (a deploy under an open page). Words: `deny-browser` (a waiting page
  * denied), `mark` (the PC's time, before an act whose input time the change lines show), `miss` (a trash row's file
  * taken out of the trash).
+ * S1-5 W: Games' card as `Main.gamesParts` serves it, and a scratch shell (`FakeText` over the simulator, no device)
+ * whose settings go through this record as the PC's own shells' do (`Main.kt`'s `settingsSource`, device `look-shell`).
+ * Word `settings`: the record's Quiet hours item (value, writer), the PC's fold of it (what its notices read) and the
+ * scratch shell's own settings — the Settings page's change read back on both.
  */
 fun main(args: Array<String>) {
     val work = Path.of(args.firstOrNull() ?: error("usage: LookServer WORK_DIR (a directory of the stage's own)"))
@@ -161,6 +168,17 @@ fun main(args: Array<String>) {
     val filesPc = wm.damage.core.windows.files.FilesPc(host, look.files, look.books.toString(), uploads, ::lookThumb)
     filesPc.serveOn(net)
     if (!again) look.trashTwo(filesPc.slotted)
+    // S1-5 W: Games' card (its summary, no page), and the scratch shell over this record's Settings
+    val gamesW = wm.damage.core.windows.games.GamesCore.WINDOW
+    val games = wm.damage.core.windows.games.GamesCore()
+    net.serve(gamesW, card = { games.card(wm.damage.core.app.WindowState(gamesW, host.read(gamesW).third.items)) })
+    val shellScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val scratch = wm.damage.core.shell.Shell(FakeText(), wm.damage.core.transport.SimTransport(wm.damage.core.sim.GlassFirmwareSim(), shellScope,
+        wm.damage.core.transport.SimTransport.Timing(instant = true)),
+        wm.damage.core.shell.Persistence(Files.createDirectories(root.resolve("shell")).resolve("state.json")), null, shellScope)
+    scratch.settingsSource = wm.damage.core.app.LocalWindowSource(wm.damage.core.shell.SettingsCore(),
+        HostBackend(host, "look-shell", wm.damage.core.app.OpQueue.newStream()))
+    kotlinx.coroutines.runBlocking { scratch.start() }
     println("LOOK again=$again")
     val server = WebServer(System.getenv("LOOK_PORT")?.toInt() ?: 0, ReachGate(Side.PC), Access(Access.LOOPBACK_NAMES + listOfNotNull(System.getenv("LOOK_NAME")), ownBrowserFull = System.getenv("LOOK_OWN") == "1"), devices, net, Bundle.fromResources(),
         BlobSources(mapOf(ReaderBlobs.PREFIX to ReaderBlobs(reader, docs), wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs,
@@ -175,7 +193,8 @@ fun main(args: Array<String>) {
         // L1 R2 B1: a place's writer and input time, so the look reads what the record took, not the page
         val places = c.effect.items.filterKeys { it.startsWith("rec.reader.place.") }.map { (k, i) -> "${k.removePrefix("rec.reader.")} by ${i.by} at ${i.at}" } +
             // S1-3 stage M: Feed's and Tmux's record writes with their writer and input time (a read list by its size)
-            c.effect.items.filterKeys { it.startsWith("rec.feed.") || it.startsWith("rec.tmux.") }.map { (k, i) ->
+            // (S1-5 W: and Settings')
+            c.effect.items.filterKeys { it.startsWith("rec.feed.") || it.startsWith("rec.tmux.") || it.startsWith("rec.settings.") }.map { (k, i) ->
                 val v = (i.value as? JsonArray)?.let { "${it.size} id(s)" } ?: i.value.toString().take(120)
                 "${k.removePrefix("rec.")}=$v by ${i.by} at ${i.at}" }
         println("LOOK change ${c.seq}: ${c.effect.items.keys.sorted()}" +
@@ -183,6 +202,9 @@ fun main(args: Array<String>) {
     }
     // S1-2 Q3: the raiser, and the made-up other device that dismisses elsewhere
     val notices = NoticeCore(host)
+    // R-b H3: the health record as `startHealth` registers it; no reader runs here, the `health-*` words set its lines
+    val health = HealthCore(host, notices)
+    net.register(health)
     tscopes.core.attachNotices(torrents, torrents.epoch, notices)
     fscopes.core.startOnPc(host, notices) { f, k -> println("LOOK feed configure fetch ${f / 60_000} min keep ${k / 86_400_000} d") }
     var slow: CountDownLatch? = null
@@ -269,6 +291,17 @@ fun main(args: Array<String>) {
                 Thread.sleep(300); "files: ${filesPc.jobs.current()}" }
             "files" -> "files: ${filesPc.jobs.current()} · drop holds ${Files.list(look.drop).use { it.map { f -> f.fileName.toString() }.toList() }}" +
                 " · trash ${look.files.trashList().map { it.name }}"
+            // R-b H3: a made-up state of the health record (every line set, so the scenes' order does not matter)
+            "health-well", "health-attention", "health-alarm" -> {
+                lookHealth(health, word.removePrefix("health-"))
+                repeat(4) { host.executor.call {} }
+                "health: ${health.lines().filter { it.band != HealthBand.NORMAL }.map { "${it.id} ${it.band.wire}" }.ifEmpty { listOf("all normal") }}"
+            }
+            "settings" -> {
+                val i = host.read(wm.damage.core.shell.SettingsCore.WINDOW).third.items["rec.settings.quietHours"]
+                "settings: record quietHours=${i?.value} by ${i?.by} · the PC's fold ${wm.damage.core.shell.SettingsCore.onHost(host).quietHours}" +
+                    " · the scratch shell ${scratch.settings.quietHours} (from the record ${scratch.settingsFromRecordCount}×)"
+            }
             else -> "no such word: $word"
         }
         println("LOOK notice $said")
@@ -317,6 +350,38 @@ fun main(args: Array<String>) {
         "\"ctl\":\"http://127.0.0.1:${ctl.address.port}\",\"filesHome\":\"${look.home}\",\"controlSecret\":\"$lowSecret\"}")
     System.out.flush()
     CountDownLatch(1).await()
+}
+
+/** R-b H3: one made-up state of the health record — `well` (every line normal, the phone reporting in made-up words of
+ *  its own until H2 writes the real ones), `attention` (the hub not answering), `alarm` (the disk nearly full, the hub
+ *  not answering, the phone gone, the cap's read failing, a long error). Every reading is made up. */
+private fun lookHealth(health: HealthCore, kind: String) {
+    val now = System.currentTimeMillis()
+    val alarm = kind == "alarm"
+    val n = HealthBand.NORMAL
+    fun set(id: String, text: String, band: HealthBand, doing: String, since: Long? = null, tag: String? = null, stale: String? = null) =
+        health.set(id, HealthCore.Reading(text, band, doing, tag = tag, since = since, stale = stale))
+    set(HealthCore.SERVICE, "up; the record and its operation log are open", n, HealthCore.SHOWN_ONLY)
+    if (alarm) set(HealthCore.PHONE_LINE, "not attached", HealthBand.ATTENTION, "the phone connects again by itself; nothing is done on the PC", since = now - 120_000)
+    else set(HealthCore.PHONE_LINE, "attached", n, HealthCore.SHOWN_ONLY)
+    if (kind == "well") set(HealthCore.HUB, "answering", n, "asking every 10 s")
+    else set(HealthCore.HUB, "not answering: connection refused (made up)", HealthBand.ATTENTION, "asking every 10 s; the alert after 5 min", since = now - 180_000)
+    set(HealthCore.BACKUP, "the newest copy at 03:30 (made-up-copy)", n, "daily at 03:30", since = now - 10 * 3_600_000L)
+    set(HealthCore.CAP, "claude-work: 16 GiB, no swap", n, "shown only: the group is made at the PC's start; read every 10 minutes",
+        stale = if (alarm) "the read failed: /sys/fs/cgroup/made-up/memory.max: permission denied" else null)
+    set(HealthCore.BUILDS, "PC the real-server look (test code)", n, HealthCore.SHOWN_ONLY)
+    if (alarm) set(HealthCore.DISK, "1.6 % free of 3.6 TB", HealthBand.ALARM, "shown only: nothing is cleaned automatically; read every minute",
+        since = now - 420_000, tag = "disk 98%")
+    else set(HealthCore.DISK, "71 % free of 3.6 TB", n, "shown only: nothing is cleaned automatically; read every minute")
+    set(HealthCore.ERROR, if (alarm) "3 since the service's start; the last at %tR: could not write /home/made-up/a-folder-name-with-no-spaces-in-it-that-goes-on-for-a-long-way/record.json".format(now - 60_000)
+        else "none since the service's start", n, "shown only: each error's own path says what is done about it")
+    set(HealthCore.SOURCES, "all 6 live", n, "each window asks its own source again and says so in it")
+    fun line(id: String, text: String, doing: String) = HealthLine(id, id, text, n, now - 2_400_000, now, HealthCore.PHONE, HealthCore.LIVE, doing)
+    health.phone(listOf(line(HealthCore.REACH, "in reach (made up)", "the phone pings the PC every 15 s"),
+        line(HealthCore.GLASSES_LINK, "ok (made up)", "the session starts again by itself when it drops"),
+        line(HealthCore.GLASSES_BATTERY, "72 % (made up)", "shown only"),
+        line(HealthCore.GLASSES_STAGE, "stage 5, as stored (made up)", "armed at each session start")), now)
+    if (alarm) health.phoneGone(now - 120_000)
 }
 
 /** S1-2 Q5: the look's made-up Files tree (every name made up), under the run's own directory. */

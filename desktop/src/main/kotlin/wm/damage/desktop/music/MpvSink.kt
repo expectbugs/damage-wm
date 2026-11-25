@@ -36,6 +36,8 @@ class MpvSink(
     private val events: Events,
     /** `musicPcDevice` as he named it, for the one output's name. */
     private val device: String? = null,
+    /** The monotonic clock [positionMs] ages the last observed place by (nanoseconds; tests give their own). */
+    private val nanos: () -> Long = System::nanoTime,
 ) : PlayerCore.Sink, MpvProcess.Owner {
 
     /** What the sink reports to the host (K wires these to [PlayerCore]). Called off the player's thread. */
@@ -59,6 +61,9 @@ class MpvSink(
     @Volatile private var loaded = false
     @Volatile private var paused = true
     @Volatile private var posMs = 0L
+    /** When [posMs] was last observed from `time-pos` (on [nanos]); null after an open, a seek or a pause until the next
+     *  observation — only an observed place is aged. */
+    @Volatile private var posSeenNs: Long? = null
     @Volatile private var durMs = 0L
     @Volatile private var wantVolume = 100
     /** The last file opened, kept across an exit: the next Play reopens it at [posMs]. */
@@ -82,7 +87,7 @@ class MpvSink(
     override fun open(url: String, startMs: Long, playWhenReady: Boolean, track: TrackRef) {
         val c = connected()
         lastPath = url; lastTrack = track
-        posMs = startMs; durMs = track.durMs.toLong(); paused = !playWhenReady; loaded = true
+        posMs = startMs; posSeenNs = null; durMs = track.durMs.toLong(); paused = !playWhenReady; loaded = true
         val mine = ++opens
         entry = PENDING
         c.command("loadfile", url, "replace", -1, "start=${secs(startMs)},pause=${if (playWhenReady) "no" else "yes"}") { a ->
@@ -113,6 +118,7 @@ class MpvSink(
 
     override fun pause() {
         paused = true
+        posSeenNs = null                  // a resume ages the place from the next time-pos, not from the sample before the pause
         live()?.command("set_property", "pause", true) { warnIfRefused("pause", it) }
     }
 
@@ -122,11 +128,20 @@ class MpvSink(
     }
 
     override fun seekTo(ms: Long) {
-        posMs = ms
+        posMs = ms; posSeenNs = null
         if (loaded) live()?.command("seek", ms / 1000.0, "absolute") { warnIfRefused("seek", it) }
     }
 
-    override fun positionMs(): Long = posMs
+    /**
+     * Music's motion update, stage L (`MM-lean-spec.md` §3): the last observed `time-pos` aged by the time since it came,
+     * while playing — mpv says it about 13 times a second, so the bare value is up to ≈ 77 ms behind, and the glasses'
+     * bar and lyrics are planned from this place. Aged by at most [AGE_MAX_MS]: a stall (buffering) does not run on.
+     */
+    override fun positionMs(): Long {
+        val seen = posSeenNs ?: return posMs
+        if (paused || !loaded) return posMs
+        return posMs + ((nanos() - seen) / 1_000_000L).coerceIn(0L, AGE_MAX_MS)
+    }
     override fun durationMs(): Long = durMs
 
     override fun setVolumePct(pct: Int) {
@@ -171,7 +186,7 @@ class MpvSink(
         if (!current()) return
         val v = (value as? JsonPrimitive)?.doubleOrNull ?: return // unavailable after a stop: the last place stays
         when (name) {
-            "time-pos" -> posMs = (v * 1000).toLong()
+            "time-pos" -> { posMs = (v * 1000).toLong(); posSeenNs = nanos() }
             "duration" -> durMs = (v * 1000).toLong()
         }
     }
@@ -191,6 +206,8 @@ class MpvSink(
     companion object {
         private const val TAG = "music-pc"
         const val OUTPUT_ID = "pc"
+        /** Stage L: the most [positionMs] ages an observation (≈ 2.6 of mpv's spacings of ≈ 77 ms). */
+        const val AGE_MAX_MS = 200L
         private const val NONE = 0L
         private const val PENDING = -1L
         private val OBSERVED = listOf("time-pos", "duration")

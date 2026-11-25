@@ -96,6 +96,7 @@ object Snapshot {
             wm.damage.core.app.LocalWindowSource(pcCore, wm.damage.core.app.HostBackend(pcRecord,
                 wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), scope, AwtImages())
         shell.register(reader)
+        settingsOn(shell, pcRecord)            // build S1-5 S: the shell's settings on the same scratch record
         val tmuxScripted = ScriptedTmux()
         // build S1-3 B16: Tmux's presenter over a source on the same scratch record; its alerts raised once into that
         // record by its core (attached below, beside Torrents' notices) and shown from it by this shell's notice mirror.
@@ -685,6 +686,9 @@ object Snapshot {
             cursorFile = tmp.resolve("workcopy").resolve(wm.damage.core.app.NoticeMirror.CURSOR_FILE))
         shell.noticeInput = phoneMirror
         phoneMirror.attach(shell.noticeSink)
+        // build S1-5 S: the shell's settings over the working copy (the scratch PC record's), as `ShellService` builds it
+        val settingsSource = wm.damage.core.app.LocalWindowSource(wm.damage.core.shell.SettingsCore(), wc)
+        shell.settingsSource = settingsSource
         val phoneTorrents = wm.damage.core.windows.torrents.TorrentsCore()
         val torrentsSource = wm.damage.core.app.LocalWindowSource(phoneTorrents, wc)
         val torrentsWin = wm.damage.core.windows.torrents.TorrentsGlasses(text, torrentsRemote, scope, phoneTorrents, torrentsSource,
@@ -831,6 +835,8 @@ object Snapshot {
             music.win.detach()                                 // build S1-4 K: the presenter leaves the working copy's source
             gamesWin.detach()                                  // build S1-5 G: the same
             gamesSource.close()
+            shell.settingsSource = null                        // build S1-5 S: the shell leaves the working copy's source
+            settingsSource.close()
             music.source?.close()
             phoneMirror.detach(shell.noticeSink)
             phoneMirror.close()
@@ -1688,7 +1694,8 @@ object Snapshot {
      * tier's sub menu (37i). A shell of its own over the firmware model of a bit-11 build at stage 5 (the transition rigs'
      * form: DamageCaps 0xdff, `probe c1=5`, the model's engine woken every 4 ms), reached by Settings' `cat:` deep link,
      * one notch and one tap, so the sub menu is entered by the gesture he uses. Into the first arrangement's directory;
-     * no icon theme (the drawn icons).
+     * no icon theme (the drawn icons). Build S1-5 S: the shell's settings on a scratch PC record of its own (the first
+     * arrangement's form), so these rows are judged on the record's path.
      */
     private suspend fun animationsScenes(out: Path) {
         val tmp = Files.createTempDirectory("damage-snap-anim")
@@ -1697,6 +1704,8 @@ object Snapshot {
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val persistence = Persistence(tmp.resolve("state.json"))
         val shell = Shell(wm.damage.core.comp.CachedText(AwtText()), transport, persistence, tmp.resolve("journal.jsonl"), scope)
+        val record = wm.damage.core.app.AppHost.inScratchDir(Files.createDirectories(tmp.resolve("record")))
+        settingsOn(shell, record)
         val before = snapShell
         snapShell = shell
         try {
@@ -1716,10 +1725,19 @@ object Snapshot {
             save(sim, out, "37i-animations-select")
         } finally {
             shell.stop()
+            shell.settingsSource = null
+            record.close()
             scope.cancel()
             snapShell = before
             tmp.toFile().deleteRecursively()
         }
+    }
+
+    /** Build S1-5 S: [shell]'s settings on [record] (the PC's arrangement, `runShell`'s): its start folds the record's
+     *  values, and every row's change is an op on it. */
+    private fun settingsOn(shell: Shell, record: wm.damage.core.app.AppHost) {
+        shell.settingsSource = wm.damage.core.app.LocalWindowSource(wm.damage.core.shell.SettingsCore(),
+            wm.damage.core.app.HostBackend(record, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
     }
 
     /** Rest Feed's source cursor on the row NAMED [id] — by identity, never by counting. */

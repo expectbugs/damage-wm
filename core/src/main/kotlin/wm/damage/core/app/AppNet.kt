@@ -368,7 +368,7 @@ class AppNet(
                         val k = AppWire.num(f, "k")
                         host.executor.execute("app ping $id") {
                             viewers.pinged(id, clock())
-                            conn.outbox.offer(AppWire.encode(AppWire.pong(k)))
+                            conn.outbox.offer(AppWire.encode(AppWire.pong(k, clock())))   // stage L: with the PC's clock
                         }
                     }
                     "end" -> {

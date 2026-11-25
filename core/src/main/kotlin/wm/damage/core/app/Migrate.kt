@@ -10,12 +10,12 @@ import wm.damage.core.util.Log
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-2, package Q2, as L1 M1 made it: a converted window's rows from before its conversion become record items
- * once, on the PC only. The PC store's `window.<id>` blob holds them (the phone synced it there until the conversion
- * took the key off the channel). At the PC's process start, before any presenter reads the record, each field whose
- * record item the record holds none of is written as a `migrate` op of [DEVICE], stamped with the blob's stamp as its
- * input time; an item the record holds stands, so a second start writes nothing and no ledger is kept.
- * Build S1-3 B7: a field may become several items ([Many]: Feed's pinned ids, one `pin.<id>` each), and the blob's
- * sub-keys (`window.<id>.<sub>`, each stamped on its own) may become items too ([Sub]: Feed's per-source records).
+ * once, on the PC only. The PC store's `window.<id>` blob holds them (the phone's old sync put it there). At the PC's
+ * process start, before any presenter reads the record, each field whose record item the record holds none of is
+ * written as a `migrate` op of [DEVICE], at the PC's clock (S1-5's close: the store keeps no stamps); an item the
+ * record holds stands, so a second start writes nothing and no ledger is kept.
+ * Build S1-3 B7: a field may become several items ([Many]), and the blob's sub-keys (`window.<id>.<sub>`) may become
+ * items too ([Sub]: Games' world, bankroll, table and characters).
  */
 class Migrate(
     val window: String,
@@ -28,8 +28,10 @@ class Migrate(
     val derived: (JsonObject) -> List<Pair<String, JsonElement>> = { emptyList() },
     /** Fields that become several items each. */
     val many: List<Many> = emptyList(),
-    /** Sub-keys that become items, each stamped with its own key's stamp. */
+    /** Sub-keys that become items. */
     val subs: List<Sub> = emptyList(),
+    /** S1-5 S: the store key the blob is read from (Settings': `shell.settings`). */
+    val key: String = "window.$window",
 ) {
     /** One register field: [name] in the blob, [item] the record item it becomes, [read] its value as the record
      *  holds it (null: nothing to migrate — absent, or not a value of that row). */
@@ -41,24 +43,21 @@ class Migrate(
     /** The sub-keys `window.<id>.<prefix><sub>`: each blob becomes the items [read] names from its `<sub>`. */
     data class Sub(val prefix: String, val read: (sub: String, blob: kotlinx.serialization.json.JsonObject) -> Map<String, JsonElement>)
 
-    /** The ops [store]'s blob makes, for the items the record does not hold ([held]: record keys). */
-    fun offers(store: Persistence, held: Set<String>): List<Draft> {
+    /** The ops [store]'s blob makes, for the items the record does not hold ([held]: record keys), each at input
+     *  time [at] (the PC's clock). */
+    fun offers(store: Persistence, held: Set<String>, at: Long): List<Draft> {
         val out = ArrayList<Draft>()
-        fun offer(item: String, v: JsonElement, at: Long) {
+        fun offer(item: String, v: JsonElement) {
             if (Record.key(window, item) !in held && out.none { it.targets.first() == item }) out += Draft(action, listOf(item), v, at = at)
         }
-        val key = "window.$window"
-        val blob = store.get(key)
-        val stamp = store.stamp(key)
-        if (blob != null && stamp > 0L) {             // stamp 0: a baseline of defaults no one edited (S1-1's R2#16)
-            for (f in fields) blob[f.name]?.let(f.read)?.let { v -> offer(f.item, v, stamp) }
-            for (m in many) blob[m.name]?.let(m.read)?.forEach { (item, v) -> offer(item, v, stamp) }
-            for ((item, v) in derived(blob)) offer(item, v, stamp)
+        store.get(key)?.let { blob ->
+            for (f in fields) blob[f.name]?.let(f.read)?.let { v -> offer(f.item, v) }
+            for (m in many) blob[m.name]?.let(m.read)?.forEach { (item, v) -> offer(item, v) }
+            for ((item, v) in derived(blob)) offer(item, v)
         }
         for (sub in subs) for (k in store.keysWithPrefix("$key.${sub.prefix}")) {
-            val b = store.get(k)?.takeIf { it.isNotEmpty() } ?: continue        // an empty blob is a removal's tombstone
-            val at = store.stamp(k).takeIf { it > 0L } ?: continue
-            for ((item, v) in sub.read(k.removePrefix("$key.${sub.prefix}"), b)) offer(item, v, at)
+            val b = store.get(k)?.takeIf { it.isNotEmpty() } ?: continue        // an empty blob is an older build's removal mark
+            for ((item, v) in sub.read(k.removePrefix("$key.${sub.prefix}"), b)) offer(item, v)
         }
         return out
     }
@@ -66,7 +65,7 @@ class Migrate(
     /** The PC's pass at its process start: each offer is handed to [host] and answered on its executor (the record
      *  answers even when its log is closed: "retry", and the next start offers it again). [note] gets one line. */
     fun onHost(host: AppHost, store: Persistence, note: (String) -> Unit) {
-        val offers = offers(store, host.read(window).third.items.keys)
+        val offers = offers(store, host.read(window).third.items.keys, host.clock())
         if (offers.isEmpty()) return
         val refused = ConcurrentLinkedQueue<String>()
         val done = CountDownLatch(offers.size)

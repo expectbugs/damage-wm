@@ -49,6 +49,12 @@ interface LensPanels {
      *  with no engine answers false. */
     fun motionOpen(): Boolean = false
 
+    /** Music's motion update, stage L (`shell/WindowLanes.kt`): the tag of the instance open in [slot] on [arm]'s lens as
+     *  this mirror models it — drawing, waiting or a done owner — or null when the slot is empty. A mirror with no engine
+     *  model answers [modelsMotion] false, and the held lanes do not run on it. */
+    fun motionTagIn(arm: Arm, slot: Int): Int? = null
+    val modelsMotion: Boolean get() = false
+
     fun addListener(l: LensListener)
     fun removeListener(l: LensListener)
 

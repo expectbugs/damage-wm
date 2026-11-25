@@ -19,7 +19,6 @@ import wm.damage.core.app.Notices
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
 import wm.damage.core.app.Windows
-import wm.damage.core.shell.Persistence
 import wm.damage.core.windows.torrents.SessionStats
 import wm.damage.core.windows.torrents.Snapshot
 import wm.damage.core.windows.torrents.TorrentsCore
@@ -93,12 +92,9 @@ class TorrentsCoreTest {
         assertEquals("done · A made-up download (1080p)", notice("torrent:c0ffee01")?.body, "Notify · done is on (absent = on)")
     }
 
-    /** Pin (the spec's Q4: "the torrents keys still sync"), with the registry line's other facts. */
+    /** The registry line: the program actions and levels. */
     @Test
-    fun theRegistryLineTakesTheKeysOffTheSyncChannel_andNamesTheProgramActionsAndLevels() {
-        assertFalse(Persistence.syncable("window.torrents"), "Torrents' blob is the glasses' local row now")
-        // the merge with Q5: Files is converted too (FilesCoreTest pins `window.files` off the channel); Music is not
-        assertTrue(Persistence.syncable("window.settings"), "an unconverted window still syncs")   // S1-5 G converted Games
+    fun theRegistryLineNamesTheProgramActionsAndLevels() {
         assertEquals(1, Windows.VERSIONS["torrents"], "contract version 1 (S1-2 R0 §2)")
         for (a in listOf("start", "stop", "recheck", "delete", "deleteFiles", "add", "addStopped", "openOnPc"))
             assertTrue(Windows.isProgram("torrents", a), "$a goes into an outside program")

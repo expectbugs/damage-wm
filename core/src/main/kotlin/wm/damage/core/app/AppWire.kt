@@ -164,7 +164,9 @@ object AppWire {
 
     fun ping(k: Long): JsonObject = buildJsonObject { put("t", "ping"); put("k", k) }
 
-    fun pong(k: Long): JsonObject = buildJsonObject { put("t", "pong"); put("k", k) }
+    /** Stage L (`MM-lean-spec.md` §4.3): [ms] the PC's wall clock as it answers — the phone's line on the two clocks'
+     *  difference reads it; an answer without it (an older PC) says nothing of the clocks. */
+    fun pong(k: Long, ms: Long? = null): JsonObject = buildJsonObject { put("t", "pong"); put("k", k); if (ms != null) put("ms", ms) }
 
     fun end(reason: String, detail: String? = null): JsonObject = buildJsonObject {
         put("t", "end")

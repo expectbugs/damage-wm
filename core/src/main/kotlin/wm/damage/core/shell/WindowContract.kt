@@ -81,29 +81,17 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
     abstract fun saveState(): JsonObject
     abstract fun restoreState(state: JsonObject)
 
-    /** The LIVE-sync arrival of this window's main record — same contract as
-     *  [restoreState] (the default delegates), but the window may treat the
-     *  incoming record as the NEWER authority where boot restore must not
-     *  (R2#7: Reader's transitional legacy-offsets merge needs skip-if-present
-     *  at boot and overwrite on live apply — LWW already ruled the incoming
-     *  record newer than the stored main key). */
-    open fun restoreStateLive(state: JsonObject) = restoreState(state)
-
     /**
      * Per-ITEM state records (EXPLOSION §16.4a, agreed 2026-09-01): sub-key →
-     * blob, saved and SYNCED individually as `window.<id>.<subKey>` so two
-     * drivers touching DIFFERENT items (two books, two games) never clobber
-     * each other under last-write-wins — a whole-blob record would. Sub-keys
-     * are stable item identifiers ("book.<id>"). The shell writes a TOMBSTONE
-     * (an empty object) for any stored sub-key this map no longer contains, so
-     * removals (a progress reset) sync too; [restoreSubState] receiving an
-     * empty object treats it as removal. Keep it cheap — called on every save.
+     * blob, saved individually as `window.<id>.<subKey>` in this device's
+     * store. Sub-keys are stable item identifiers ("book.<id>"). The shell
+     * removes any stored sub-key this map no longer contains (and that it
+     * reported this session). Keep it cheap — called on every save.
      */
     open fun saveSubState(): Map<String, JsonObject> = emptyMap()
 
-    /** One sub-record arriving — at restore (before the loop runs) or LIVE
-     *  from sync (on the loop; the shell repaints after when this window is
-     *  focused). An empty [state] is the removal tombstone. */
+    /** One sub-record at restore (before the loop runs). An empty [state] is
+     *  the removal mark an older build left in the store: treat it as removed. */
     open fun restoreSubState(subKey: String, state: JsonObject) {}
 
     /**
@@ -150,6 +138,14 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
      * illegal region is refused LOUDLY and dropped — never silently clamped.
      */
     open fun contentPlanes(content: Rect): List<Pair<Rect, Int>> = emptyList()
+
+    /**
+     * Music's motion update, stage L (`WindowLanes.kt`): the held lanes this window wants the glasses to animate now —
+     * rects inside [content] it keeps painting as today while the glasses draw them on their own clock — or null. Called
+     * on the loop at each pump while this window is in front (WINDOW mode focused, or exclusive), no overlay, list or
+     * transition over it, and [ShellServices.lanesInForce]. Only Music implements it in this update.
+     */
+    open fun lanes(content: Rect): LaneSpec? = null
 
     /** The shell layout changed (size mode / safe rect): re-derive any cached
      *  wraps — stale widths would overrun line rects (§2.2b, NO TRUNCATION). */
@@ -262,6 +258,11 @@ class DocModel {
 interface ShellServices {
     fun requestRender(window: DamageWindow)
     fun setOperation(op: String)
+
+    /** Music's motion update, stage L: true while this session can run held lanes ([DamageWindow.lanes]) — ladder stage 5
+     *  on a bit-11 build, the 256 KiB session's slice, the cache count readable, a mirror that models the engine, and the
+     *  lanes not off for the session. A window paints the look its lanes draw while it is; otherwise as below stage 5. */
+    fun lanesInForce(): Boolean = false
 
     /** Raise an internal notification (§4.5). The §16.5 signature (2026-09-01):
      *  [thread] is the coalescing key (same source+thread replaces/merges),

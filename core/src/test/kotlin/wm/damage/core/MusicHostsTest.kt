@@ -386,13 +386,13 @@ class MusicHostsTest {
     fun theMigration_0_77Shapes_writeOnce() {
         val store = Persistence(dir.resolve("state.json"))
         val stamp = t - 86_400_000L
-        store.tryApplyRemote("window.music", buildJsonObject {
+        store.put("window.music", buildJsonObject {
             put("notifyTrack", false); put("notifyPc", true); put("defaultMode", "RADIO"); put("lyricsSources", "+netease")
             put("viz", "Bars"); put("vizRate", 12); put("mmPeek", true); put("height", 0)
             put("lyricsOffsets", buildJsonObject { put("auto", 150); put("17", 40) })
             put("stack", buildJsonArray {})
-        }, stamp)
-        store.tryApplyRemote("window.music.player", buildJsonObject {
+        })
+        store.put("window.music.player", buildJsonObject {
             put("engine", buildJsonObject {
                 put("index", 1); put("mode", "QUEUE"); put("label", "Pink Floyd"); put("nextQid", 3)
                 put("queue", buildJsonArray {
@@ -401,7 +401,7 @@ class MusicHostsTest {
                 })
             })
             put("posMs", 61_000); put("posAt", stamp); put("play", "PLAYING"); put("volume", 70)
-        }, stamp)
+        })
         val notes = ArrayList<String>()
         MusicMigration.onHost(host, store) { notes += it }
         val r = rec()
@@ -420,7 +420,7 @@ class MusicHostsTest {
         assertEquals(MusicCore.PHONE, MusicCore.outOf(r).host)
         assertNull(r.itemNamed(MusicCore.OUT), "out stays absent: the phone plays (answer 1)")
         assertEquals(1, notes.size)
-        assertTrue(MusicMigration.MIGRATE.offers(store, host.read(MusicCore.WINDOW).third.items.keys).isEmpty(), "a second start writes nothing")
+        assertTrue(MusicMigration.MIGRATE.offers(store, host.read(MusicCore.WINDOW).third.items.keys, t).isEmpty(), "a second start writes nothing")
     }
 
     @Test
