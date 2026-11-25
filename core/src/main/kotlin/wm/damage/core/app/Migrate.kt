@@ -30,6 +30,11 @@ class Migrate(
     val many: List<Many> = emptyList(),
     /** Sub-keys that become items, each stamped with its own key's stamp. */
     val subs: List<Sub> = emptyList(),
+    /** S1-5 S: the store key the blob is read from (Settings': `shell.settings`). */
+    val key: String = "window.$window",
+    /** S1-5 S: the input time every offer is stamped with (the PC's clock), in place of the blob's stamp; null = the
+     *  stamp, and a blob stamped 0 (a baseline of defaults no one edited) offers nothing. */
+    val at: (() -> Long)? = null,
 ) {
     /** One register field: [name] in the blob, [item] the record item it becomes, [read] its value as the record
      *  holds it (null: nothing to migrate — absent, or not a value of that row). */
@@ -47,9 +52,8 @@ class Migrate(
         fun offer(item: String, v: JsonElement, at: Long) {
             if (Record.key(window, item) !in held && out.none { it.targets.first() == item }) out += Draft(action, listOf(item), v, at = at)
         }
-        val key = "window.$window"
         val blob = store.get(key)
-        val stamp = store.stamp(key)
+        val stamp = at?.invoke() ?: store.stamp(key)
         if (blob != null && stamp > 0L) {             // stamp 0: a baseline of defaults no one edited (S1-1's R2#16)
             for (f in fields) blob[f.name]?.let(f.read)?.let { v -> offer(f.item, v, stamp) }
             for (m in many) blob[m.name]?.let(m.read)?.forEach { (item, v) -> offer(item, v, stamp) }

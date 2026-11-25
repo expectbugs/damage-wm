@@ -33,6 +33,7 @@ import wm.damage.core.shell.DocModel
 import wm.damage.core.shell.Draw
 import wm.damage.core.shell.HostSetting
 import wm.damage.core.shell.KeyboardSurface
+import wm.damage.core.shell.LaneSpec
 import wm.damage.core.shell.ListModel
 import wm.damage.core.shell.MenuSurface
 import wm.damage.core.shell.ShellServices
@@ -300,6 +301,7 @@ class MusicGlasses(
             if (before.entry?.qid != s.entry?.qid) { lyricsGen++; if (top.kind == Kind.LYRICS || exclusive) loadLyrics() }
             if (s.problem.isNotEmpty() && s.problem != before.problem) setNotice(s.problem)
             if (active || exclusive) render()
+            if (before.play != s.play) scheduleTimeTick()       // stage L: the time text's second follows the play state
             return
         }
         val rowsBefore = r.rowsCache
@@ -323,6 +325,7 @@ class MusicGlasses(
         if (trackChanged) { lyricsGen++; if (top.kind == Kind.LYRICS || exclusive) loadLyrics() }
         if (s.problem.isNotEmpty() && s.problem != before.problem) setNotice(s.problem)
         if (active || exclusive) render()
+        if (before.play != s.play) scheduleTimeTick()           // stage L
     }
 
     /** The queue cursor the WINDOW last set: a cursor elsewhere means the
@@ -341,10 +344,12 @@ class MusicGlasses(
         // the card repaints on a coarse pace (5 s while focused — a lens
         // repaint is a few hundred bytes; 1 Hz would be a 10 % link duty)
         val now = clock()
-        if ((top.kind == Kind.QUEUE || top.kind == Kind.NOWPLAYING) && active && now - lastCardRepaint >= CARD_PACE_MS) { lastCardRepaint = now; render() }
+        val held = lanesOn()
+        if ((top.kind == Kind.QUEUE || top.kind == Kind.NOWPLAYING) && active && now - lastCardRepaint >= CARD_PACE_MS &&
+            !(held && top.kind == Kind.NOWPLAYING)) { lastCardRepaint = now; render() }
         if (top.kind == Kind.SEEK && active) render()
         if (top.kind == Kind.LYRICS) scheduleLyricFlush()
-        if (exclusive) exclusiveTick(posMs)
+        if (exclusive && !held) exclusiveTick(posMs)              // stage L: the 5 % bucket goes where the glasses grow the bar
     }
 
     private fun handleEvent(e: PlayerEvent) {
@@ -461,10 +466,12 @@ class MusicGlasses(
         if (needsReload) { needsReload = false; reloadTop() }
         if (top.kind == Kind.LYRICS) loadLyrics()
         offerGrabbed()
+        scheduleTimeTick()
     }
 
     override fun onDeactivate() {
         active = false
+        if (!exclusive) timeGen++
         player.setFocused(false)
         library.setFocused(false, 0)
     }
@@ -1562,6 +1569,7 @@ class MusicGlasses(
      */
     private fun paintNowPlaying(g: Gray8, r: Rect) {
         g.fillRect(r, Level.BG)
+        npBar = null                                          // stage L: set again where the bar is painted as a lane
         val e = st.entry
         if (e == null) {
             // `entry` is queue[index], so this is reached ONLY with an empty
@@ -1617,15 +1625,23 @@ class MusicGlasses(
 
         // ---- where in the song: elapsed · bar · total, full width
         val dur = st.durMs.takeIf { it > 0 } ?: t.durMs.toLong()
-        val pos = player.positionMs().coerceIn(0, maxOf(0, dur))
+        val held = lanesOn()
+        val pos = (if (held) shownPos() else player.positionMs()).coerceIn(0, maxOf(0, dur))
         stateGlyph(g, x, y + 4, Level.MID)
         val posS = Fmt.mmss(pos)
         val durS = Fmt.mmss(dur)
         tx.draw(g, Geometry.snapX(x + 24), Geometry.snapY(y), posS, fSmall, Level.BODY)
         Draw.right(g, tx, right, y, durS, Level.DIM, fSmall)
-        val barX = Geometry.snapX(x + 24 + tx.measure(posS, fSmall) + 14)
+        // stage L: with held lanes the bar's place does not follow the elapsed digits' width (a moving bar is a new lane
+        // every second): the widest the digits get for this song is kept for them
+        val barX = Geometry.snapX(x + 24 + (if (held) digitsReserve(durS) else tx.measure(posS, fSmall)) + 14)
         val barW = Geometry.snapX(right - tx.measure(durS, fSmall) - 14 - barX)
-        if (barW > 60) Icons.blocks(g, barX, Geometry.snapY(y + 6), barW, 10,
+        npBar = null
+        if (barW > 60 && held) {
+            val bar = Rect(barX, Geometry.snapY(y + 6), barW, 10)
+            npBar = bar
+            MusicMotion.paintBar(g, bar, MusicMotion.litPx(barW, pos, dur), Level.of(NP_BAR_LIT), Level.of(BAR_UNLIT))
+        } else if (barW > 60) Icons.blocks(g, barX, Geometry.snapY(y + 6), barW, 10,
             if (dur > 0) pos.toDouble() / dur else 0.0, n = barW / 12, level = Level.of(8))
         y = Geometry.snapY(y + 40)
 
@@ -1793,7 +1809,8 @@ class MusicGlasses(
     override fun onExclusive(on: Boolean) {
         exclusive = on
         mmLayoutCache = null
-        mmCardKey = null; mmLyricsKey = null; mmClockKey = null; mmPeekKey = null; mmLinkKey = null
+        mmCardKey = null; mmLyricsKey = null; mmClockKey = null; mmPeekKey = null; mmLinkKey = null; mmTimeKey = null
+        scheduleTimeTick()
         val gen = ++mmVizGen
         if (on) {
             player.setFocused(true)
@@ -1826,10 +1843,90 @@ class MusicGlasses(
     private fun mmCardKeyNow(): List<Any?> {
         val dur = st.durMs.takeIf { it > 0 } ?: st.track?.durMs?.toLong() ?: 0L
         val pos = player.positionMs()
-        return listOf(st.track?.id, st.play, if (dur > 0) (pos * 20 / dur).toInt() else 0, st.boost, st.sleep.kind, st.backend, artCache.containsKey(mmArtKey()))
+        // stage L: with held lanes no 5 % bucket — the card repaints on its own changes (and on the lanes' look changing)
+        val bucket: Any = if (lanesOn()) "held" else if (dur > 0) (pos * 20 / dur).toInt() else 0
+        return listOf(st.track?.id, st.play, bucket, st.boost, st.sleep.kind, st.backend, artCache.containsKey(mmArtKey()))
     }
 
     private fun mmArtKey(): Int = (st.track?.id ?: -1) * 1000 + (mmLayoutCache?.artPx ?: 56)
+
+    // ================================================================ stage L: the bar as a held lane (MUSIC.md §14)
+    /** The bars as the last paint drew them with held lanes (nominal, on the grid), and Music Mode's time line. */
+    private var npBar: Rect? = null
+    private var mmBar: Rect? = null
+    private var mmTimes: Rect? = null
+    private class MmTimes(val x: Int, val rowTop: Int, val w: Int, val big: Boolean)
+    private var mmTimesGeo: MmTimes? = null
+    private var mmTimeKey: Any? = null
+    /** The song's zero on the phone's clock (now − the place) the lanes were keyed at: a seek, a stall or a correction
+     *  that moves it by more than [SEEK_SLACK_MS] plans them again. */
+    private var laneZero = Long.MIN_VALUE
+    private var laneGen = 0
+    /** The time text's once-a-second repaint ([scheduleTimeTick]), by generation. */
+    private var timeGen = 0
+
+    /** Held lanes run on this session: the bar is a continuous fill the glasses grow, the elapsed time its own repaint
+     *  each second. Otherwise everything as below stage 5. */
+    private fun lanesOn(): Boolean = services?.lanesInForce() == true
+
+    /** The place the time text and the window's own bar show: the song as heard when this paint's flush lands
+     *  ([MusicMotion.heardAt], the one equation, [TIME_LEAD_MS] ahead — the phone path's floor). */
+    private fun shownPos(): Long {
+        val now = clock()
+        return MusicMotion.heardAt(now + TIME_LEAD_MS, now, player.positionMs(), st.play == PlayState.PLAYING, lyricsOffset().toLong())
+    }
+
+    /** The widest the elapsed digits get for a song of [durS]'s form: zeros or eights in its places. */
+    private fun digitsReserve(durS: String): Int =
+        maxOf(tx.measure(durS.replace(Regex("[0-9]"), "0"), fSmall), tx.measure(durS.replace(Regex("[0-9]"), "8"), fSmall))
+
+    override fun lanes(content: Rect): LaneSpec? {
+        if (!lanesOn() || st.play != PlayState.PLAYING || st.backend == Backend.SPOTIFY) return null
+        val t = st.track ?: return null
+        val dur = st.durMs.takeIf { it > 0 } ?: t.durMs.toLong()
+        if (dur <= 0) return null
+        val (bar, lit) = when {
+            exclusive -> (mmBar ?: return null) to MM_BAR_LIT
+            active && top.kind == Kind.NOWPLAYING && stack.size == 1 -> (npBar ?: return null) to NP_BAR_LIT
+            else -> return null
+        }
+        val now = clock()
+        val zero = now - player.positionMs()
+        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(zero - laneZero) > SEEK_SLACK_MS) { laneZero = zero; laneGen++ }
+        val off = lyricsOffset().toLong()
+        val key = listOf(st.entry?.qid, st.play, laneGen, st.output, exclusive, off, bar, lit, dur)
+        // asked at every pump: made again only when its key moved (the bar's record is a picture of its width)
+        laneSpec?.takeIf { it.first == key }?.let { return it.second }
+        return MusicMotion.barLanes(key, bar, lit, BAR_UNLIT, dur) { t1 -> MusicMotion.heardAt(t1, clock(), player.positionMs(), true, off) }
+            .also { laneSpec = key to it }
+    }
+    private var laneSpec: Pair<List<Any?>, LaneSpec>? = null
+
+    /**
+     * With held lanes, the time text repaints once a second, each repaint asked [TIME_LEAD_MS] before the song's next
+     * whole second so its flush lands as the second turns — paced on the loop by a generation (a stop, a pause, the
+     * window leaving the front end the run), never a wait on a send.
+     */
+    private fun scheduleTimeTick() {
+        val gen = ++timeGen
+        if (!lanesOn() || st.play != PlayState.PLAYING || !(exclusive || (active && top.kind == Kind.NOWPLAYING))) return
+        val wait = (1000L - Math.floorMod(shownPos(), 1000L)).coerceIn(10L, 1000L)
+        bg.launch {
+            delay(wait)
+            onShell("timetick") { if (gen == timeGen) { render(); scheduleTimeTick() } }
+        }
+    }
+
+    /** Music Mode's time line alone (stage L): the card's own text in the rect [paintMmCard] gave it. */
+    private fun paintMmTimes(g: Gray8) {
+        val geo = mmTimesGeo ?: return
+        val tr = mmTimes ?: return
+        val dur = st.durMs.takeIf { it > 0 } ?: st.track?.durMs?.toLong() ?: 0L
+        val times = "${Fmt.mmss(shownPos().coerceIn(0, maxOf(0, dur)))} / ${Fmt.mmss(dur)}"
+        g.fillRect(tr, Level.BG)
+        if (geo.big) Draw.fit(g, tx, geo.x, geo.rowTop, times, Level.DIM, fSmall, geo.w)
+        else Draw.fit(g, tx, geo.x, geo.rowTop, dn((listOf(times) + mmRest()).joinToString(" · "), fSmall), Level.DIM, fSmall, geo.w)
+    }
 
     override fun paintExclusive(g: Gray8, safe: Rect, full: Boolean): List<Rect> {
         val l = mmLayout(safe)
@@ -1841,6 +1938,12 @@ class MusicGlasses(
         val cardKey = mmCardKeyNow()
         val cardPainted = l.card != null && (full || cardKey != mmCardKey)
         if (cardPainted) { mmCardKey = cardKey; paintMmCard(g, l); out.add(l.card!!) }
+        // stage L: with held lanes the elapsed time repaints alone, in its own rect sized from the face's measured ink, once a
+        // second (the glasses grow the bar); below stage 5 it rides the card's 5 % bucket as before
+        if (l.card == null) { mmBar = null; mmTimes = null; mmTimesGeo = null }
+        val timeKey = if (lanesOn() && l.card != null) Fmt.mmss(shownPos()) else null
+        if (cardPainted) mmTimeKey = timeKey
+        else if (timeKey != null && timeKey != mmTimeKey && mmTimes != null) { mmTimeKey = timeKey; paintMmTimes(g); out.add(mmTimes!!) }
         // the clock + link ride INSIDE the card's band: a card repaint fills
         // their pixels, so they repaint with it; alone, on their own keys
         val clockKey = mmClockText()
@@ -1894,8 +1997,13 @@ class MusicGlasses(
         }
     }
 
+    /** The card's line after the times: the queue's place, the mode, a boost and a sleep timer. */
+    private fun mmRest(): List<String> = listOf("${st.index + 1}/${st.queue.size}", st.mode.label,
+        if (st.boost > 100) "+${st.boost}%" else "", if (st.sleep.kind != Sleep.Kind.OFF) "sleep ${st.sleep.label(clock())}" else "").filter { it.isNotEmpty() }
+
     private fun paintMmCard(g: Gray8, l: MmLayout) {
         val r = l.card ?: return
+        mmBar = null; mmTimes = null; mmTimesGeo = null
         g.fillRect(r, Level.BG)
         val t = st.track
         val big = l.artPx >= 120
@@ -1933,14 +2041,22 @@ class MusicGlasses(
         val restTop = if (big) rowTop + 18 else rowTop
         val y = rowTop + 2                                   // the 10 px glyph, on the row
         val dur = st.durMs.takeIf { it > 0 } ?: t.durMs.toLong()
-        val pos = player.positionMs().coerceIn(0, maxOf(0, dur))
+        val held = lanesOn()
+        val pos = (if (held) shownPos() else player.positionMs()).coerceIn(0, maxOf(0, dur))
         val barW = if (big) 200 else 144
         stateGlyph(g, x0, y, Level.MID)
-        Icons.blocks(g, x0 + 16, y + 2, barW, 6, if (dur > 0) pos.toDouble() / dur else 0.0, n = 20, level = Level.of(6))
+        if (held) {
+            val bar = Rect(x0 + 16, y + 2, barW, 6)
+            mmBar = bar
+            MusicMotion.paintBar(g, bar, MusicMotion.litPx(barW, pos, dur), Level.of(MM_BAR_LIT), Level.of(BAR_UNLIT))
+        } else Icons.blocks(g, x0 + 16, y + 2, barW, 6, if (dur > 0) pos.toDouble() / dur else 0.0, n = 20, level = Level.of(6))
         val times = "${Fmt.mmss(pos)} / ${Fmt.mmss(dur)}"
-        val rest = listOf("${st.index + 1}/${st.queue.size}", st.mode.label,
-            if (st.boost > 100) "+${st.boost}%" else "", if (st.sleep.kind != Sleep.Kind.OFF) "sleep ${st.sleep.label(clock())}" else "").filter { it.isNotEmpty() }
+        val rest = mmRest()
         val afterBar = r.w - (x0 - r.x) - 16 - barW - 12 - rightPad
+        if (held) {
+            mmTimesGeo = MmTimes(x0 + 16 + barW + 12, rowTop, afterBar, big)
+            mmTimes = Rect(x0 + 16 + barW + 12, rowTop, afterBar, minOf(r.bottom - rowTop, ink(fSmall))).intersect(r)
+        }
         if (big) {
             Draw.fit(g, tx, x0 + 16 + barW + 12, rowTop, times, Level.DIM, fSmall, afterBar)
             Draw.fit(g, tx, x0, restTop, dn(rest.joinToString(" · "), fSmall), Level.DIM, fSmall, tw)
@@ -2148,6 +2264,15 @@ class MusicGlasses(
         /** The record items the player follows (S1-4): a write of only these redraws no row here. */
         private val PLAYER_KEYS = setOf(MusicCore.Q, MusicCore.NOW, MusicCore.OUT).map { wm.damage.core.app.Record.key(MusicCore.WINDOW, it) }.toSet()
         const val CARD_PACE_MS = 5_000L
+        /** Stage L: the bar's levels (as below stage 5: Now Playing's lit 8, Music Mode's 6, the unlit FAINT). */
+        const val NP_BAR_LIT = 8
+        const val MM_BAR_LIT = 6
+        const val BAR_UNLIT = 1
+        /** The time text is painted this far ahead of its second (the phone path's floor for a small flush, 71 ms on LE
+         *  2M, measured, `REMINDER.md`), so its flush lands as the second turns (modeled). */
+        const val TIME_LEAD_MS = 70L
+        /** A jump of the song's place beyond this plans the lanes again (a seek; the place's own corrections are a few ms). */
+        const val SEEK_SLACK_MS = 250L
         /** The modeled display cost of a lyric repaint (`60 + bytes/50`, a few hundred bytes). */
         const val LYRIC_DISPLAY_MS = 70L
         val BOOSTS = listOf(100, 150, 200, 300, 400)

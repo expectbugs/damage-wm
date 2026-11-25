@@ -97,7 +97,13 @@ class ConformanceVectorTest {
         // acts MX2 and X1MX2 moved (ended with SV2's comparison, X9T) and C3 stage SV3's one exception for two stages —
         // the ship acts K1-2 stage 1 moved, C3 stage X2MX2's Warp, Flip and Encode acts and its new Crush act, and SV3's
         // new act (ended with SV3's comparison, X10T) — are gone: every unfilled file in the repo fails like any other.
-        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        // Music's motion update, stage L (`MML_UNFILLED`): the held lanes' two program shapes, inputs written from the
+        // shell's own builder (`MusicLaneVectorsTest`), filled by the fork's runner in a later lane — excused by name until
+        // then, and a filled one names the exception stale
+        for (n in out.notFilled) if (MML_UNFILLED.none { n.startsWith("$it ") })
+            out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        for (m in MML_UNFILLED) if (Files.exists(dir.resolve("$m.json")) && out.notFilled.none { it.startsWith("$m ") })
+            out.problems += "$m: filled — the stage-L exception MML_UNFILLED is stale, remove it"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -936,6 +942,10 @@ class ConformanceVectorTest {
         /** K1-2 stage 3a (`private/build083/K1-2-S3a-built.md`; decisions CV): the shipped acts that move — the ring tap on
          *  Main's last row opens Settings, whose categories the shell now stages and binds as glasses list 1 at stage 5 on
          *  256 KiB. Never regenerated here: stage 4 owns the list-1 acts and the one fork fill. */
+        /** Music's motion update, stage L (`private/build085/MM-L-built.md`): the bar's shape and a three-link chain of
+         *  it, written by `MusicLaneVectorsTest` from the shell's own builder, not filled until the fork's runner fills them
+         *  in a later lane (never by hand). */
+        val MML_UNFILLED = setOf("v5-mml-bar", "v5-mml-chain")
         val K12S3A_MOVED = setOf("v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-glasses-last-288",
             "v5-ship-ring-tap-report-last-352", "v5-ship-ring-tap-glasses-last-352")
     }

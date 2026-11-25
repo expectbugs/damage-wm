@@ -125,7 +125,8 @@ class SyncTest {
 
     @Test
     fun handshakeConvergesBothWays_andLivePushesFlow(): Unit = runBlocking {
-        // build S1-1 P4 (dec. A.13): the sample key is another window's — Reader's keys no longer sync (S1-3: nor Feed's)
+        // build S1-1 P4 (dec. A.13): the sample key is another window's — Reader's keys no longer sync (S1-3: nor Feed's;
+        // S1-5 S: every window is converted, so the sample is a window id no build has converted)
         val tmp = Files.createTempDirectory("damage-sync-net")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val port = freePort()
@@ -134,7 +135,7 @@ class SyncTest {
         try {
             val storeA = Persistence(tmp.resolve("a.json"))      // the PC side
             val storeB = Persistence(tmp.resolve("b.json"))      // the phone side
-            storeA.put("window.settings", blob(10))                // newer on A
+            storeA.put("window.legacy", blob(10))                // newer on A
             delay(5)
             storeB.put("shell.settings", blob(20))               // newer on B
             storeB.put("shell.state", blob(99))                  // must NEVER travel
@@ -143,13 +144,13 @@ class SyncTest {
             host.start()
             client = RemoteSync("127.0.0.1", port, "tok", scope, SyncPeer(storeB), retryPacingMs = 200)
 
-            awaitTrue("A's record reached B") { storeB.get("window.settings") == blob(10) }
+            awaitTrue("A's record reached B") { storeB.get("window.legacy") == blob(10) }
             awaitTrue("B's record reached A") { storeA.get("shell.settings") == blob(20) }
             assertNull(storeA.get("shell.state"), "shell.state is per-device and never syncs")
 
             // live push, both directions
-            storeB.put("window.settings", blob(11))
-            awaitTrue("B's live change reached A") { storeA.get("window.settings") == blob(11) }
+            storeB.put("window.legacy", blob(11))
+            awaitTrue("B's live change reached A") { storeA.get("window.legacy") == blob(11) }
             storeA.put("shell.settings", blob(21))
             awaitTrue("A's live change reached B") { storeB.get("shell.settings") == blob(21) }
         } finally {

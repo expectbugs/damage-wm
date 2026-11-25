@@ -10,6 +10,7 @@
 import { h, fill, bar, keepFocus } from '../dom.mjs';
 import { hhmm, when, atLeast } from '../proto.mjs';
 import * as M from '../torrents-model.mjs';
+import * as R from '../rows.mjs';
 
 const NS = 'http://www.w3.org/2000/svg';
 const LONG_PRESS_MS = 500;
@@ -169,7 +170,7 @@ export function torrentsView(ctx) {
     const redraw = () => { els.settings.dataset.sig = ''; drawHead(); };
     const box = h('details', { class: 'tset', open: setOpen, on: { toggle: () => { setOpen = box.open; } } },
       h('summary', { 'data-key': 'set', focus: true }, 'Settings'),
-      rows.map(setRow),
+      rows.map((row) => setRow(row, redraw)),
       h('label', { class: 'trow' }, h('span', { text: 'Poll (this device)' }),
         h('select', { 'data-key': 'set:poll', focus: true, on: { change: (e) => {
           store.set(M.KEYS.poll, String(e.target.value));
@@ -179,15 +180,8 @@ export function torrentsView(ctx) {
     return box;
   }
 
-  function setRow(row) {
-    const v = M.rowValue(row, rec);
+  function setRow(row, redraw) {
     const need = row.level || 'control';
-    const label = h('span', { text: row.label });
-    if (!atLeast(ctx.S.level, need)) {
-      const shown = row.type === 'bool' ? (v ? 'on' : 'off') : (M.optionsOf(row).find(([id]) => String(id) === String(v)) || [v, String(v)])[1];
-      return h('div', { class: 'trow' }, label, h('span', { text: shown }), h('span', { class: 'note', text: `changing it needs level ${need}` }));
-    }
-    const why = ctx.canAct(need);
     const send = (value) => {
       const sent = ctx.sendQueued(M.setDraft(row, value), (ans) => {
         if (ans.a === 'refused') ctx.say(`${row.label}: ${ans.reason}`, { from: 'Torrents' });
@@ -195,15 +189,7 @@ export function torrentsView(ctx) {
       }, { need });
       if (!sent) redraw();
     };
-    const key = `set:${row.id}`;
-    const ctl = row.type === 'bool'
-      ? h('input', { type: 'checkbox', checked: !!v, 'data-key': key, focus: true, class: why ? 'dim' : null, 'data-why': why, on: { change: (e) => send(!!e.target.checked) } })
-      // a select's value is text: the option's own id goes back (Size's 288 stays a number)
-      : h('select', { 'data-key': key, focus: true, class: why ? 'dim' : null, 'data-why': why, on: { change: (e) => {
-        const o = M.optionsOf(row).find(([id]) => String(id) === e.target.value);
-        send(o ? o[0] : e.target.value);
-      } } }, M.optionsOf(row).map(([id, l]) => h('option', { value: id, selected: String(id) === String(v) }, l)));
-    return h('label', { class: 'trow' }, label, ctl);
+    return R.settingRow(row, M.rowValue(row, rec), { level: ctx.S.level, need, why: ctx.canAct(need), send });
   }
 
   // ---- the body: one tab at a time ----

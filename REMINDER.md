@@ -44,19 +44,25 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   app's Settings category; a window's list plays its app's choice, "default" follows `Animations`); **a fixed
   order for the faces one atlas message extends** (K1-2 stage 4d: the order no longer depends on the build; same
   messages, same pictures); **Games on the PC's record** (S1-5 stage G; the home page's Games card has no page
-  until stage W, so no build holding it is staged before W). **In work, on branches:** K1-2's stage 3b (a bound
-  list's rows kept current; Main's staging kept across a window of another height; the first review's two
-  defects), the wheel block's fix stage (three small findings of its first review) and stage H1 of the health view
-  (R-b: one health record on the PC, thirteen lines) — built, each green on its own tree, merged on the
-  integration branch and waiting for one whole-suite run; S1-5's Settings stage; K1-2 stage 4b (the fuzz drives a
-  window's list); DW-1b's first stage (the wheel bound as a third list); stage L of Music's motion update (the
-  progress bar and timer played by the glasses — his seven answers of 11-24). **Specified and ruled, not
-  started:** the rest of K1-2's stage 4 and stage 5; DW-1b's second stage; S1-5's close and page (his five
-  answers: `REPLAN.md` §17.3 item 10); the health view's phone half and page (`REPLAN.md` §17.4; his three answers
-  of 11-25: a notice after 5 minutes, disk alarm under 2 % free and attention under 5 %, the tag in the link cell); the rest of Music's motion update.
+  until stage W, so no build holding it is staged before W); **a bound window list's rows kept current** (K1-2
+  stage 3b: a row on screen that changes is staged again by itself with the mark kept, an adjusted value when the
+  adjust level is left; Main's staging is kept across a window of another height; the first review's two defects
+  cured); the wheel block's three small review fixes; **stage H1 of the health view** (R-b: one health record on
+  the PC, thirteen lines; no surface shows it yet); **Settings on the PC's record** (S1-5 stage S: one description
+  of every row, every change through one door, the PC's Quiet hours read from the record; `Profiler`, `Diag
+  overlay` and `Head tracking` are removed and `Battery alert` is hidden, his word of 11-23). **In work, on
+  branches:** K1-2 stage 4a (a list's paint under a transition; a list too long to bind is no longer painted
+  first; a live list whose rows all change is staged anew once per view, not every 2 s), 4b (the fuzz drives a
+  window's list) and 4c (the walk with window lists); DW-1b's first stage (the wheel bound as a third list); stage
+  L of Music's motion update (the progress bar and timer played by the glasses — his seven answers of 11-24);
+  S1-5's page (stage W). **Specified and ruled, not started:** the rest of K1-2's stage 4 (the `FIRMWARE.md`
+  sentences, the capture, the fork's fill, the comparison) and stage 5; DW-1b's second stage; S1-5's close (his
+  five answers: `REPLAN.md` §17.3 item 10); the health view's phone half and page (`REPLAN.md` §17.4; his three
+  answers of 11-25: a notice after 5 minutes, disk alarm under 2 % free and attention under 5 %, the tag in the
+  link cell); the rest of Music's motion update.
 - **Owed before more is built on them:** the APK's `release` variant tried with him there (the phone runs the
   mirror's loops 70–93 times slower than the PC — the debug build is suspected, not measured); a sweep of the whole
-  mutation list (`research/mutations-c2.json`, 590 rows) on the current tree, machine time only (the last whole
+  mutation list (`research/mutations-c2.json`, 605 rows) on the current tree, machine time only (the last whole
   sweep: 0.77's tree, §92.11). The reading of Crush, Flip and Matrix is closed (two general passes and one focused
   read each; no defect open): only an instrument or the glass reopens it.
 - **Owed on glass from his earlier looks:** his answer to §97.1's question (in very fast scrolling, are the lenses
@@ -80,7 +86,9 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   while rows travel 32; Warp, Flip and Explode centred on the larger height; a notice arriving within about 2 s
   after a fast burst can still double-move Main.
 - **No browser of his is approved yet;** he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
-- **The counts** (simulator): on `main` `b450523b` (2026-11-25) the whole core suite 2,147 / 0, desktop 67 / 0 and the conformance vectors
+- **The counts** (simulator): on `main` `48025819` (2026-11-25) the whole core suite 2,175 tests (2 failed in that run: both read the
+  window-list check's old Global sample; the sample was corrected and both pass, re-run by class), desktop 74 / 0,
+  `--selfcheck` twice ALL CHECKS PASS, the phone build and its wiring check green, and the conformance vectors
   247 files, 15,390 lens-steps, 0 disagreements. The last full battery, on 0.83's tree (`f81afd38`, §100.7): core 243
   classes / 2,032 tests, desktop 14 / 53; `--selfcheck` twice (486 checks at 0.82); `--motion-check` 8 + 3 + 28;
   `--local-check` 128 cases; the snapshot 94 + 66 scenes, 0 px outside the mask; node 200; lint 0; the mutation

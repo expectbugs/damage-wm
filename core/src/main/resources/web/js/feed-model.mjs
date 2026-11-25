@@ -15,6 +15,7 @@
 import { atLeast, hhmm } from './proto.mjs';
 import { Listing, nearEnd } from './torrents-model.mjs';
 import { Pending as RecordPending } from './record.mjs';
+import * as R from './rows.mjs';
 
 export { nearEnd };
 export const W = 'feed';
@@ -315,17 +316,10 @@ export function seenDraft(srcId, rows, rec) {
 }
 
 /** A shared or glasses row's value: this page's on its way, else the record's, else the description's. */
-export function rowValue(row, rec, pend) {
-  if (pend && pend.has(row.id)) return pend.get(row.id);
-  const v = rec && rec.value(W, row.id);
-  return v === undefined ? row.value : v;
-}
+export const rowValue = (row, rec, pend) => R.rowValue(W, row, rec, pend);
 
 /** The `set` op of a row (control; L1: the latest input wins). */
-export const setDraft = (row, value) => ({ window: W, action: 'set', targets: [row.id], result: value });
-
-/** A choice row's options as [id, label]. */
-export const optionsOf = (row) => (row.options || []).map((o) => (o && typeof o === 'object' ? [o.id, o.label ?? str(o.id)] : [o, str(o)]));
+export const setDraft = (row, value) => R.setDraft(W, row, value);
 
 /** The description's actions by id. */
 export const actionsOf = (desc) => new Map(((desc && desc.actions) || []).map((a) => [a.id, a]));

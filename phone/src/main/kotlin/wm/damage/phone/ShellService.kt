@@ -146,6 +146,8 @@ class ShellService : Service() {
     private var feedGlasses: wm.damage.core.windows.feed.FeedGlasses? = null
     private var gamesSource: wm.damage.core.app.LocalWindowSource? = null
     private var gamesGlasses: wm.damage.core.windows.games.GamesGlasses? = null
+    /** Build S1-5 S: Settings' source over the working copy (the copy outlives the stack; the shell leaves it at the stop). */
+    private var settingsSource: wm.damage.core.app.LocalWindowSource? = null
     /** Build S1-3 B16: Tmux's presenter over the working copy and its source (the copy outlives the stack). */
     private var tmuxSource: wm.damage.core.app.LocalWindowSource? = null
     private var tmuxGlasses: wm.damage.core.windows.tmux.TmuxGlasses? = null
@@ -469,6 +471,14 @@ class ShellService : Service() {
             sh.noticeInput = m
             m.attach(sh.noticeSink)
         }
+        // S1-5 S: Settings' values are the PC record's, read and written through the working copy (this phone's waiting
+        // ops on top; the local copy shows until the copy has heard Settings). Without a copy the shell keeps them in its
+        // own store, as before.
+        if (wc != null) {
+            val src = wm.damage.core.app.LocalWindowSource(wm.damage.core.shell.SettingsCore(), wc)
+            settingsSource = src
+            sh.settingsSource = src
+        }
         sh.register(reader)
         // State sync (HANDOFF.md §19.2): the PC pushes/receives stamped state
         // records over the content port, most-recent wins. Records reach the
@@ -755,6 +765,7 @@ class ShellService : Service() {
         val k = keeper
         keeper = null
         shell?.let { s -> noticeMirror?.detach(s.noticeSink) }   // S1-2 Q3: the mirror outlives the stack
+        shell?.settingsSource = null                              // S1-5 S: the shell leaves Settings' source
         shell = null
         replica?.close()
         replica = null
@@ -815,6 +826,9 @@ class ShellService : Service() {
         gamesGlasses = null
         try { gamesSource?.close() } catch (e: Exception) { Log.w("service", "games source close: ${e.message}") }
         gamesSource = null
+        // S1-5 S: Settings' source leaves the working copy (the shell left it above)
+        try { settingsSource?.close() } catch (e: Exception) { Log.w("service", "settings source close: ${e.message}") }
+        settingsSource = null
         feedProvider = null
         torrentsProvider = null
         // S1-4 K (ruling 9): the presenter leaves; the player and library outlive the stack (closed at the service's end)

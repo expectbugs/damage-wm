@@ -99,9 +99,6 @@ data class ShellSettings(
      *  Additive. */
     val linkPriority: String = "high",
 
-    /** Head tracking — default OFF (§7.1: "that would get old FAST"). */
-    val headTracking: Boolean = false,
-
     /** Long-press (§1.2, revised 2026-08-30): OFF (the default) = a bare
      *  long-press is a no-op everywhere — it is the most common accidental
      *  press by far, all day, gloves worst — and the switcher opens by the
@@ -149,19 +146,12 @@ data class ShellSettings(
     val lockFrames: Int = 10,
     val lockEffects: List<String> = listOf("fade"),
 
-    /** Battery alert mode for the <=20 % pulse (§4.1). */
+    /** Battery alert mode for the <=20 % pulse (§4.1). S1-5 S (his word, 2026-11-23): no row on any surface until the
+     *  pulse exists (it is built when the status cells go to the firmware); the field stays. */
     val batteryAlert: BatteryAlert = BatteryAlert.ON,
 
-    /** Status-bar profiler + mode-7 diagnostic overlay (§9.2). Overlay stays ON
-     *  through bring-up; flags are treated as hard errors either way. */
-    val profiler: Boolean = false,
-    val diagOverlay: Boolean = true,
-
-    /** Notification sources — filtered, unlike G2CC (§4.5: the filter is what
-     *  makes focus-taking tolerable). */
-    val notifySms: Boolean = true,
-    val notifyMail: Boolean = true,
-    val notifyMusic: Boolean = true,
+    /** Global `Notify · Damage`: the WM's own events (§4.5: the filter is what makes focus-taking tolerable; an app's
+     *  notices are gated by its own rows). */
     val notifyDamage: Boolean = true,
 
     /** Build W (the lead's decision B.3): the bus alert watcher's glasses notices — `Notify · alerts` (a raise and

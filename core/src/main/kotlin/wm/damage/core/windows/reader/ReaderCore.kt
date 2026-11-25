@@ -141,11 +141,7 @@ class ReaderCore(
                 a.confirm?.let { put("confirm", it) }
             })
         })
-        put("settings", buildJsonArray {
-            add(setting(SCROLL_LINES, "Scroll step", scrollLines(state) ?: DEFAULT_SCROLL_LINES))
-            add(setting(SCROLL_ACCEL, "Scroll accel", scrollAccel(state) ?: false))
-            add(setting(SIZE, "Size", size(state) ?: 0))
-        })
+        put("settings", settings(state))
     }
 
     /** `shelf` (the root), `folder:<path>`, or `book:<id>`; null when [addr] names nothing on the shelf. */
@@ -208,15 +204,6 @@ class ReaderCore(
         e?.error?.let { put("unreadable", it) }
         place?.let { put("place", it.format()) }
         bookmarkOf(state, b.id)?.let { put("bookmark", it.format()) }
-    }
-
-    private fun setting(id: String, label: String, value: Any): JsonObject = buildJsonObject {
-        put("id", id); put("label", label); put("scope", "glasses"); put("level", "control")
-        when (value) {
-            is Int -> put("value", value)
-            is Boolean -> put("value", value)
-            else -> put("value", value.toString())
-        }
     }
 
     /** One action as the description lists it (C§4.1, C§12; the levels as the spec's §6 rules them). */
@@ -306,6 +293,24 @@ class ReaderCore(
         fun scrollAccel(state: WindowState): Boolean? = (live(state, SCROLL_ACCEL)?.value as? JsonPrimitive)?.booleanOrNull
 
         fun size(state: WindowState): Int? = (live(state, SIZE)?.value as? JsonPrimitive)?.intOrNull
+
+        /** The glasses' rows (C§6) with their options in the glasses' words (`ReaderGlasses`' rows; S1-5 W: the Settings
+         *  page draws them as a form, so each carries its type and options). */
+        fun settings(state: WindowState): kotlinx.serialization.json.JsonArray = buildJsonArray {
+            fun row(id: String, label: String, type: String, value: JsonPrimitive, options: List<Pair<JsonPrimitive, String>>) =
+                add(buildJsonObject {
+                    put("id", id); put("label", label); put("scope", "glasses"); put("type", type); put("level", "control")
+                    if (options.isNotEmpty()) put("options", buildJsonArray {
+                        for ((v, l) in options) add(buildJsonObject { put("id", v); put("label", l) })
+                    })
+                    put("value", value)
+                })
+            row(SCROLL_LINES, "Scroll step", "choice", JsonPrimitive(scrollLines(state) ?: DEFAULT_SCROLL_LINES),
+                (1..8).map { JsonPrimitive(it) to "$it line${if (it == 1) "" else "s"}" })
+            row(SCROLL_ACCEL, "Scroll accel", "bool", JsonPrimitive(scrollAccel(state) ?: false), emptyList())
+            row(SIZE, "Size", "choice", JsonPrimitive(size(state) ?: 0),
+                listOf(JsonPrimitive(0) to "global") + wm.damage.core.shell.ShellSettings.HEIGHTS.map { JsonPrimitive(it) to "$it" })
+        }
 
         // ---- the drafts a presenter sends (C§2.4: the result; L1 C1: its input time when the presenter knows it) ----
 

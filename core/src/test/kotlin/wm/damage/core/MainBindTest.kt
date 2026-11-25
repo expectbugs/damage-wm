@@ -79,6 +79,10 @@ class MainBindTest {
         assertEquals(listOf(true, true, true, false), listOf(288, 352, 416, 480).map { h -> r.table.first { it.startsWith("h$h categories") }.contains("ring") },
             "the categories ring at 288, 352 and 416, not at 480")
         assertTrue(r.table.filter { " global " in it }.all { "ring" in it } && r.table.filter { " app3 " in it }.all { "plain" in it }, "Global rings, the three-row category does not")
+        // K1-2 stage 4c (decisions DA (c) 2, pin 10's cells): every plain list's two ends, every effect, pixels counted — the
+        // three-row category at the four heights and the categories at 480: five lists × four effects × (down from the last
+        // row, up from the first)
+        assertEquals(5 * 4 * 2, r.cases.sumOf { c -> c.lines.count { "the staged edge" in it } }, "the plain lists' ends: ${r.cases.flatMap { c -> c.lines.filter { "the staged edge" in it }.map { "${c.name}: $it" } }}")
     }
 
     /** Decisions AF.4 (review V1Db §4, its probe turned into the pin): a report adopted before a band switch's
