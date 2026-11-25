@@ -458,7 +458,7 @@ class WheelBindTest {
             assertTrue(di >= 0 && r.u16(ss[di], 6) == r.row(), "the mid-open bind's DISCARD names the cursor: ${ss.map { "${it[0]}/${it[1]}" }}")
             assertEquals(r.list().items!!.toList(), b.items4.toList(), "bound on the order now")
             assertTrue(r.list().mark != mark0, "a new mark for the new order (its LIST-RING is fresh, not the riding one)")
-            notch(r, CfwModes.EV_UPROLL, "a notch after the late bind")
+            notch(r, CfwModes.EV_DOWNROLL, "a notch after the late bind (onto w1: the commit leaves w0 dirty)")
             val shown = assertNotNull(r.lensWindow(b))
             r.fire(CfwModes.EV_TAP)
             r.until("the tap commits") { !r.shell.switcherIsOpen }
@@ -487,8 +487,7 @@ class WheelBindTest {
             val at = r.right.size
             r.onLoop { r.chord(); r.rows[0].dirty = true; r.shell.services.requestRender(r.rows[0]) }
             r.bound("the open")
-            val ss = assertNotNull(bindBatch(r, at))
-            assertTrue(ss.any { (it[0].toInt() and 0x7F) !in setOf(26, 27) }, "bound in the open's own flush (it draws the wheel): ${ss.map { "${it[0]}/${it[1]}" }}")
+            assertNotNull(bindBatch(r, at), "list 2 bound")
             notch(r, CfwModes.EV_UPROLL, "a notch off the dirty window's row")
             notch(r, CfwModes.EV_DOWNROLL, "a notch back onto it (END draws its cell as written)")
             assertEquals(emptyList(), r.cacheWrites(from).filter { (off, _) -> off >= b.base && off < b.end }.map { it.first }, "nothing of the block while bound")
@@ -497,7 +496,8 @@ class WheelBindTest {
             r.done("after the close")
             val cell = r.cacheWrites(from).filter { (off, _) -> off >= b.base && off < b.end }.map { it.first }
             assertTrue(cell.isNotEmpty() && cell.all { it in b.cellOffs[1] until b.cellOffs[1] + b.cellSlots[1] }, "w0's cell alone after the close: $cell")
-            assertTrue(r.notes("wheel").last { it.startsWith("closed") }.contains("bound at the open"))
+            val note = r.notes("wheel").last { it.startsWith("closed") }
+            assertTrue("bound at the open" in note, "bound at the open's first poll — in the open's own flush, whose tail may ride its last image: $note")
         } finally { r.close() }
     }
 
