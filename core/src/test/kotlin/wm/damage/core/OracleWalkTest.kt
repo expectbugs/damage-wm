@@ -155,18 +155,48 @@ class OracleWalkTest {
 
         /** K1-2 stage 4c: the window-list walk's decision point — settled, the lanes that write into the cache done (the
          *  notice's, the window list's, no cache work in flight, no transition), Files' provider idle; three readings in a
-         *  row, 10 ms apart (a provider call that returned posts its answer to the loop just after it). */
+         *  row, 10 ms apart (a provider call that returned posts its answer to the loop just after it). A shell at rest for
+         *  10 s with a lane still not done is a STALL: said in [stalls] with [laneReport], and the walk decides there (more
+         *  than six in one height fail it). */
         suspend fun ready(what: String) {
             val t0 = System.currentTimeMillis()
             var calm = 0
-            while (System.currentTimeMillis() - t0 < 60_000) {
-                val ok = filesIo.get() == 0 && shell.isQuiescent() && shell.sampleIdle {
+            while (true) {
+                val waited = System.currentTimeMillis() - t0
+                val quiet = filesIo.get() == 0 && shell.isQuiescent()
+                val ok = quiet && shell.sampleIdle {
                     shell.noticeLaneDoneForTest() && shell.windowListLaneDoneForTest() && !shell.cacheWorkInFlight && shell.transitionPhaseForTest() == null
                 } == true
                 if (!ok) calm = 0 else if (++calm >= 3) return
+                if (quiet && waited > 10_000) {
+                    stalls += "$what, at rest after $waited ms: ${laneReport()}"
+                    if (stalls.size > 6) throw AssertionError("$what: more than six stalls in one height —\n${stalls.joinToString("\n")}")
+                    return
+                }
+                if (waited > 60_000) throw AssertionError("$what: the shell never came to rest — files io ${filesIo.get()}; ${laneReport()}; ${shell.quiescenceReport()}\n${busyThreads()}")
                 delay(10)
             }
-            throw AssertionError("$what: the walk's decision point never came — files io ${filesIo.get()}; ${shell.quiescenceReport()}\n${busyThreads()}")
+        }
+
+        /** K1-2 stage 4c: the decision points the walk took with a lane not done ([ready]). */
+        val stalls = ArrayList<String>()
+
+        /** K1-2 stage 4c: each lane condition [ready] reads, the window list's binding, the session, and the journal's last
+         *  `liststage` notes — one evaluation on the loop. Diagnostic only. */
+        fun laneReport(): String {
+            val st = transport.state.value
+            val r = shell.onLoop {
+                val b = shell.windowListBinding
+                "notice lane done ${shell.noticeLaneDoneForTest()}, window list lane done ${shell.windowListLaneDoneForTest()}, " +
+                    "wheel lane done ${shell.wheelLaneDoneForTest()}, cache work in flight ${shell.cacheWorkInFlight}, transition ${shell.transitionPhaseForTest()}; " +
+                    "slot 0 ${shell.slot0ForTest()}, on screen ${surface()}, its row ${shell.focusedRowForTest()}; the window list: staging " +
+                    "${b.staging?.let { "${it.rows} rows at ${it.start}..${it.end}" }}, counted ${b.counted}, list ${b.list?.let { "mark ${it.mark} count ${it.count}" }}, " +
+                    "records ${b.records.map { it.state }}, stagings ${b.stagings}, refusals ${shell.windowListRefusalsForTest()}"
+            }
+            val notes = journalFile?.takeIf { Files.exists(it) }?.let { f ->
+                Files.readAllLines(f).filter { "\"kind\":\"liststage\"" in it }.takeLast(6).map { DETAIL_FIELD.find(it)?.groupValues?.get(1) ?: it }
+            }
+            return "$r; session effects ${st.effects} bind ${st.bind} cache ${st.cacheSize}; liststage notes $notes"
         }
 
         /** K1-2 stage 4c: who holds slot 0 ("main", "window" or null), the list it offers when that list's two notch
@@ -861,6 +891,7 @@ class OracleWalkTest {
                     "(by window ${c.l1ByWindow}); ${c.mainLocal} on Main's list, ${c.mainDrew} drew; $owed transition(s) owed, $whole whole; " +
                     "${rig.shell.divergencesReported} divergence(s) reported; steps digest %08x".format(c.trace.toString().hashCode()))
                 println("$tag steps:${c.trace}")
+                println("$tag: ${rig.stalls.size} stall(s)${rig.stalls.joinToString("") { "\n  $it" }}")
                 c.l1ByWindow.forEach { (k, v) -> byWindow.merge(k, v, Int::plus) }
                 assertTrue(c.l1Drew > 0, "$tag: no local notch on list 1 drew (${c.l1Local} fired) — the walk never reached a bound window list")
                 assertEquals(0, rig.shell.divergencesReported, "$tag: no divergence")
