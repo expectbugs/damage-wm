@@ -49,10 +49,16 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
     var keyGen = 0
     /** A box over the lane (the shell's gate says no lanes). */
     var boxOver = false
-    fun heard(t: Long): Long = MusicMotion.heardAt(t, nowMs, nowMs - songZero, playing, 0)
+    fun heard(t: Long): Long = MusicMotion.heardAt(t, nowMs, place(), playing, 0)
+    /** The song's place now: it stands during a stall ([stall]: the stream waits for data, the song still PLAYING). */
+    fun place(): Long = stallPlace ?: (nowMs - songZero)
+    private var stallPlace: Long? = null
+    /** The window's stall rule, the product's own (`MusicGlasses.lanes`, the second review's finding 3). */
+    private val still = MusicMotion.StillPlace(wm.damage.core.windows.music.MusicGlasses.SEEK_SLACK_MS)
 
     fun spec(): LaneSpec? {
-        if (!playing || boxOver) return null
+        val stalled = still.stalled(nowMs, playing, place())
+        if (!playing || boxOver || stalled) return null
         val grow = MusicMotion.barGrowth(bar.w, durMs, period, steps)
         val b = bar; val dur = durMs
         return LaneSpec(listOf(keyGen, b, dur), listOf(b), period, steps, listOf(MusicMotion.barRecord(b.w, b.h, 8))) { at: LaneAt ->
@@ -219,7 +225,7 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
 
     private fun areaWrites() = notes.count { "written for its programs" in it }
 
-    /** The frame of one pump, as `CfwTransportBase.withMotionCloses` sends it: a CLOSE of each lane slot whose open
+    /** The frame of one pump, as `CfwTransportBase.withMotionCloses` sends it (its meet rule, `motionClosesMet`): a CLOSE of each lane slot whose open
      *  instance (its areas on the lens: the owned rect, or the program's areas while waiting) one of [writes] meets, on
      *  either lens, unless the slot is in [held] (`FlushRequest.held`, fixed at the submit); decided when the frame is
      *  encoded, in stream order (the model is the mirror). The notice's slot is left to its own close pass (its grace
@@ -228,12 +234,9 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
     private fun frame(writes: List<Pair<Rect, Rect>>, held: Set<Int>, repump: Boolean) {
         if (writes.isEmpty()) return
         val landed = up {
-            val slots = java.util.TreeSet<Int>()
-            for (a in Arm.entries) for (w in sim.motionWindows(a)) {
-                if (w.slot !in 0..1 || w.slot in held) continue
-                if (sim.motionTagIn(a, w.slot)?.let { it and 0xF000 == WindowLanes.TAG } != true) continue
-                if (w.areas.any { ar -> writes.any { (l, r) -> (if (a == Arm.LEFT) l else r).overlaps(ar) } }) slots += w.slot
-            }
+            // the lane's instances on each lens, met by the transport's own rule (the second review's finding 4)
+            val open = Arm.entries.associateWith { a -> sim.motionWindows(a).filter { w -> w.slot in 0..1 && sim.motionTagIn(a, w.slot)?.let { it and 0xF000 == WindowLanes.TAG } == true } }
+            val slots = wm.damage.core.transport.CfwTransportBase.motionClosesMet(open, writes, held)
             if (slots.isNotEmpty()) { closesSent++; deliver(CfwModes.batch(slots.map { CfwModes.motionClose(it) }, engine = true)) }
         }
         if (repump) at(landed + downLat()) { pump() }
@@ -282,7 +285,12 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
     fun seek(byMs: Long) { songZero -= byMs; keyGen++; pump() }
     fun pause() { playing = false; pump() }
     fun play() { playing = true; keyGen++; pump() }
-    fun track() { songZero = nowMs; durMs = 60_000L + rnd.nextInt(300_000); keyGen++; pump() }
+    fun track() { stallPlace = null; songZero = nowMs; durMs = 60_000L + rnd.nextInt(300_000); keyGen++; pump() }
+    /** The stream stops giving data while the song plays: the place stands ([unstall] moves it on from there). */
+    fun stall() { stallPlace = place(); pump() }
+    /** Data again: the place moves on from where it stood — the song's zero moved by the stall (a new key, as the window's
+     *  zero moving past its paint makes one). */
+    fun unstall() { val p = stallPlace ?: return; stallPlace = null; songZero = nowMs - p; keyGen++; pump() }
 
     /** A keyframe: it closes every instance on both lenses (§5.6); the shell tells the chain. */
     fun keyframe() {
