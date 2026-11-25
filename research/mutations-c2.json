@@ -10896,5 +10896,23 @@
   ],
   "note": "the K1-2 spec §6 (AppStyle.scrollEffect: an unknown id reads default), decisions CV (Crush and Flip not offered on a window's list): a stored value passes unclamped",
   "from": "K12S3c"
+ },
+ {
+  "id": "K12S4d-map-order",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        for (spec in a.specs().sortedWith(atlasFaceOrder)) {",
+    "        for (spec in a.specs()) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.theFacesOneAtlasMessageExtendsGoInTheFacesOwnOrder_K12S4d"
+  ],
+  "expect": [
+   "theFacesOneAtlasMessageExtendsGoInTheFacesOwnOrder_K12S4d"
+  ],
+  "note": "decisions CW: the faces one atlas message extends go out in the face map's own order (a hash order that follows the Face enum's identity hash, which differs between builds) — the key removed at Shell.atlasGrow's extension loop",
+  "from": "K12S4d"
  }
 ]
