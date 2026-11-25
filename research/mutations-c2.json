@@ -10842,5 +10842,59 @@
   ],
   "note": "pin 11 / spec §5.3: the window list's lane runs under a transition — the new level staged and SET inside the run",
   "from": "K12S3a"
+ },
+ {
+  "id": "K12S3c-one-effect",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            return g.copy(effect = settings.scrollEffectOf(id))",
+    "            return g"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.filesPlaysSlideWhileMainPlaysDepth_K12S3c"
+  ],
+  "expect": [
+   "filesPlaysSlideWhileMainPlaysDepth_K12S3c"
+  ],
+  "note": "pin 9 (the K1-2 spec §8): a window's list plays Animations' effect whatever its app's Scroll effect row says — one effect everywhere",
+  "from": "K12S3c"
+ },
+ {
+  "id": "K12S3c-row-below-stage5",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "styleRowsFor(w.id).let { s -> if (stage5) s else s.filter { it.name != APP_SCROLL_ROW } })",
+    "styleRowsFor(w.id))"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.belowStage5NothingOfTheWindowListIsSent_K12S3a"
+  ],
+  "expect": [
+   "belowStage5NothingOfTheWindowListIsSent_K12S3a"
+  ],
+  "note": "the K1-2 spec §4, decisions BC O8: the app's Scroll effect row shown below stage 5, where no window list is bound (a row that does nothing)",
+  "from": "K12S3c"
+ },
+ {
+  "id": "K12S3c-no-clamp",
+  "file": "shell/ShellSettings.kt",
+  "edits": [
+   [
+    "            scrollEffect = if (scrollEffect in APP_SCROLL_EFFECTS) scrollEffect else \"default\",\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*StyleTest*"
+  ],
+  "expect": [
+   "appScrollEffectIsAdditiveClampedAndDefaultFollowsAnimations_K12S3c"
+  ],
+  "note": "the K1-2 spec §6 (AppStyle.scrollEffect: an unknown id reads default), decisions CV (Crush and Flip not offered on a window's list): a stored value passes unclamped",
+  "from": "K12S3c"
  }
 ]
