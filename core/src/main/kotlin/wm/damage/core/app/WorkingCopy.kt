@@ -212,6 +212,8 @@ class WorkingCopy(
 
     override fun pinged(k: Long) = executor.execute("ping") { onPing() }
 
+    override fun clockSkew(line: String) = note(line)          // stage L: the PC–phone clocks, in this device's journal
+
     private fun onWelcome(w: Welcome) {
         gen++
         retryHeld = false

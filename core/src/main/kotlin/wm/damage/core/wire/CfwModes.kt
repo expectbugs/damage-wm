@@ -378,6 +378,15 @@ object CfwModes {
     fun noticeRegion(cacheSize: Int, bind: Boolean): IntRange? =
         if (ownRegion(cacheSize, bind)) (cacheSize - NOTICE_REGION) until cacheSize else null
 
+    /** Music's motion update, stage L (`MM-lean-spec.md` §4.2; his answer 6): the lower 16 KiB of the stage reserve, a
+     *  window's held lanes' records and programs (`shell/WindowLanes.kt`) while a lane runs — Page staging's strips there
+     *  are dropped then and re-staged when Reader is next in front. Directly below the notice's region; null where the
+     *  notice has none (160 KiB, or no BIND: stages 0–3), and the lanes do not run. */
+    const val MUSIC_REGION = 16 * 1024
+
+    fun musicRegion(cacheSize: Int, bind: Boolean): IntRange? =
+        if (ownRegion(cacheSize, bind)) (cacheSize - NOTICE_REGION - MUSIC_REGION) until (cacheSize - NOTICE_REGION) else null
+
     /** The largest offset a u16 in 4-byte units reaches. */
     const val OFF4_REACH = 0xFFFF * 4
 

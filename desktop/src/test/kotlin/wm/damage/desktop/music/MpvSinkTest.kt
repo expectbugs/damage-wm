@@ -44,7 +44,9 @@ class MpvSinkTest {
 
     private val link = Link()
     private val heard = Heard()
-    private val sink = MpvSink(link, heard)
+    /** The sink's monotonic clock (stage L ages an observed place by it): held still unless a test moves it. */
+    @Volatile private var nowNs = 1_000_000_000L
+    private val sink = MpvSink(link, heard, nanos = { nowNs })
     private val track = TrackRef(7, "Tone", durMs = 4000)
 
     @After fun tearDown() {
@@ -198,5 +200,32 @@ class MpvSinkTest {
         assertFalse(sink.streamed()); assertFalse(sink.waitingForData())
         assertEquals("alsa_output.usb-desk.analog-stereo", MpvSink(link, heard, "pipewire/alsa_output.usb-desk.analog-stereo").outputs().single().name)
         assertEquals(0, link.ensures)
+    }
+
+    /** Stage L (`MM-lean-spec.md` §3): while it plays, the last `time-pos` is aged by the time since it came (mpv says it
+     *  about 13 times a second), by at most AGE_MAX_MS; paused, sought or freshly opened, the place is as said. */
+    @Test fun `an observed place ages while playing, bounded, and not after a pause or a seek`() {
+        sink.open("/music/a.flac", 0, true, track)
+        waitUntil("entry 1 known") { server.received.size == 3 }
+        server.emit("""{"event":"playback-restart"}""")
+        server.emit("""{"event":"property-change","id":1,"name":"time-pos","data":1.000000}""")
+        waitUntil("the place") { sink.positionMs() == 1_000L }
+        nowNs += 60_000_000L
+        assertEquals(1_060L, sink.positionMs(), "aged by the 60 ms since it was said")
+        nowNs += 1_000_000_000L
+        assertEquals(1_000L + MpvSink.AGE_MAX_MS, sink.positionMs(), "a stall does not run on past the bound")
+        sink.pause()
+        val paused = sink.positionMs()
+        nowNs += 500_000_000L
+        assertEquals(paused, sink.positionMs(), "paused: the place stands")
+        sink.play()
+        assertTrue(sink.isPlaying())
+        sink.seekTo(3_000)
+        nowNs += 500_000_000L
+        assertEquals(3_000L, sink.positionMs(), "playing, a seek's target is not aged until mpv says a place")
+        server.emit("""{"event":"property-change","id":1,"name":"time-pos","data":3.010000}""")
+        waitUntil("the new place") { sink.positionMs() == 3_010L }
+        nowNs += 40_000_000L
+        assertEquals(3_050L, sink.positionMs())
     }
 }

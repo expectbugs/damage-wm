@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import wm.damage.core.util.Log
 
@@ -94,6 +95,9 @@ class AppClient(
         /** After each paced ping went out (or was counted as sent): the wire's pacing, for what waits on it (P3: the
          *  queue's head after a "retry" refusal, an append that failed). */
         fun pinged(k: Long) {}
+
+        /** Stage L: a line on the PC–phone wall-clock difference ([ClockSkew]) for this device's journal. */
+        fun clockSkew(line: String) {}
     }
 
     @Volatile var reach: Reach = Reach.Unknown
@@ -120,6 +124,10 @@ class AppClient(
     /** The ping sent at the last tick and not answered yet, and when it was sent. */
     private var outstanding: Long? = null
     private var outstandingAt = 0L
+    /** Stage L: the last ping's number and when it went (this device's clock), for the clocks' line. */
+    private var pingSentK = 0L
+    private var pingSentMs = 0L
+    private val skew = ClockSkew()
 
     private val loop: Job = scope.launch(Dispatchers.IO) { connectLoop() }
     private val pinger: Job? = if (pingEveryMs <= 0) null else scope.launch {
@@ -157,6 +165,7 @@ class AppClient(
             say { listener.reach(down) }
             closeSocket()
         }
+        synchronized(pingLock) { pingSentK = k; pingSentMs = clock() }
         write(AppWire.ping(k))
         say { listener.pinged(k) }
     }
@@ -212,6 +221,7 @@ class AppClient(
                             "ans" -> AppWire.parseAns(f).let { say { listener.answer(it) } }
                             "pong" -> {
                                 lastPong = AppWire.num(f, "k")
+                                (f["ms"] as? JsonPrimitive)?.longOrNull?.let { pc -> clockSample(lastPong, pc, clock()) }
                                 answered()
                             }
                             "end" -> {
@@ -263,6 +273,12 @@ class AppClient(
             is Credential.Local -> { put("token", ""); put("local", credential.secret) }
         }
         put("proto", 1)
+    }
+
+    /** Stage L: a pong carrying the PC's clock — the line, when [ClockSkew] has one to say (only the reading thread). */
+    private fun clockSample(k: Long, pcMs: Long, gotMs: Long) {
+        val sentMs = synchronized(pingLock) { if (k == pingSentK) pingSentMs else null } ?: return
+        skew.sample(pcMs, sentMs, gotMs)?.let { line -> say { listener.clockSkew(line) } }
     }
 
     /** The PC answered: a pong or a fresh welcome. */
