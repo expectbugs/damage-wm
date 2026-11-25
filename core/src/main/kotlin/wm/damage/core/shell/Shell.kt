@@ -6106,7 +6106,7 @@ class Shell(
         var stagedFor: Pair<MainStaging, WindowListView>? = null
 
         override fun stagingOf(): Any? = windowFront()?.id
-        override fun began(ms: MainStaging) { stagedFor = windowFront()?.let { ms to it.id }; refusedRows = null }
+        override fun began(ms: MainStaging) { stagedFor = windowFront()?.let { ms to it.id }; refusedRows = null; if (stagedFor?.second != allChangedFor) allChangedFor = null }
 
         /** K1-2 stage 3b (pin 6's content half; decisions AF.6): a staging refused with every row painted — each row form's
          *  hash ([rectHash]), the view and the layout it was painted for. A compose of that view that shows one of those rows
@@ -6123,6 +6123,10 @@ class Shell(
         /** Decisions CY: the staging whose every row a compose compared drew otherwise — [notKept] drops it (held by
          *  identity: a new staging is never it). */
         private var allChanged: MainStaging? = null
+        /** Decisions DF (the focused read of 3b's fixes, finding 1): the view an every-row-changed drop was made for, kept until
+         *  another view is staged ([began]) — a second every-row-changed of that same view is a live list (Torrents' speed
+         *  in each downloading row), whose rows go one at a time with the staging and its mark kept. */
+        private var allChangedFor: WindowListView? = null
 
         /**
          * K1-2 stage 3b (the K1-2 spec's O5 and §6's row "the compose compare and the round-robin"; decisions BC O5): at a
@@ -6133,8 +6137,10 @@ class Shell(
          * change there with the row unmoved is that row's own (an adjusted value) and marks it the same way. A reorder is
          * found as row changes (the spec §1: no identity is known); every row compared drawing otherwise is another list
          * under the same key (decisions CY: the title is no part of it) — the poll drops the staging and the next is a new
-         * one ([notKept]). For a staging the space refused, a row drawing otherwise
-         * than its refused paint tries the staging again (AF.6: the key is what the rows draw). Bytes the paint already
+         * one ([notKept]) — once per view (decisions DF: a second time it is a live list, kept, its rows one at a time).
+         * For a staging the space refused, a row drawing otherwise than its refused paint tries the staging again (AF.6:
+         * the key is what the rows draw; a row count the form cannot take is refused before any paint, decisions DE, and
+         * keeps no rows to compare). Bytes the paint already
          * made, loop-only; the only state is [bandSeen].
          */
         fun composeCompare() {
@@ -6159,7 +6165,9 @@ class Shell(
             // decisions CY (the first review of 3a, finding A): every row compared drawing otherwise is another list under
             // the same key (the title is no part of it) — the poll drops the staging and the next is a new one with a new
             // mark ([notKept]), not a re-stage of a row per 5 s
-            if (ms != null && compared > 0 && differ == compared && allChanged !== ms) { allChanged = ms; post(Msg.Pump) }
+            // decisions DF: once per view — a second time with no other view staged between, it is a live list: its rows,
+            // each marked above, go one at a time and the staging and its mark are kept
+            if (ms != null && compared > 0 && differ == compared && allChanged !== ms && f.id != allChangedFor) { allChanged = ms; allChangedFor = f.id; post(Msg.Pump) }
             val band = rectHash(g, l.lens.x, l.lens.y, l.lens.w - Layout.RAIL_W, l.lens.h)
             val b = bandSeen
             if (b != null && b.first === ref && b.second == c && b.third != band) { if (ms != null) mainBind.differs(c) else retry = true }
@@ -6540,6 +6548,14 @@ class Shell(
         val fx = effectsToken(st)
         val what = "$lay $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} stage5=$stage5 ${List(n) { rowKey(it) }.hashCode()}${stagingOf()?.let { " $it" } ?: ""}"
         if (mainBindRefusedFor == what) return false
+        // decisions DE (the second review's finding 2): a row count the window form can never take is refused before any row
+        // is painted, and keeps no rows — so no change of what they draw tries it again (that retry is for a list refused for
+        // its space, which a change of its content can cure); under a transition too (stage 4a's paint)
+        if (form == wm.damage.core.motion.ListForm.STRIP_WINDOWS) MainStaging.windowCountRefusal(lay, n)?.let {
+            mainBindPaint = null
+            mainBindRefused(what, "$who's rows cannot be staged: $it — the list stays unbound (its scrolls and taps go as today) until $who's layout or row count changes, or the next session")
+            return false
+        }
         val ct = cachedText
         // decisions AF.8: one row painted per loop turn (its row form and band form); the staging is laid out once every row
         // is painted for this same key — a change of layout, planes, rows or their content starts the paint again

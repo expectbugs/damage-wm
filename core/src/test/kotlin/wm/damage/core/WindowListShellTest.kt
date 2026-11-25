@@ -52,6 +52,8 @@ class WindowListShellTest {
     /** A window in Main's list (its own view a list of [n] rows, each row drawn as marks of its own, when [list]). */
     private class Win(id: String, name: String, @Volatile var n: Int = 0, val list: Boolean = false) : DamageWindow(id, name, IconKind.FILES) {
         @Volatile var heavy = false
+        /** K1-2 stage 4a: each row drawn as noise across its whole rect (a strip that compresses poorly: refused for its space). */
+        @Volatile var ink = false
         /** Its own rows in its Settings category (beside the shell's style rows), each an On/Off row of a real-looking name. */
         @Volatile var appRows = 0
         override fun appSettings(): List<wm.damage.core.shell.HostSetting> = List(appRows) { i ->
@@ -69,7 +71,9 @@ class WindowListShellTest {
         override fun view(): WindowView = WindowView.ListView(model, { n },
             { g, i, r, _ ->
                 val k0 = order?.getOrNull(i) ?: i
-                for (k in 0..(k0 % 5)) g.fillRect(r.x + 12 + k * 22 + (k0 * 7) % 40, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
+                if (ink) for (y in r.y until r.y + r.h) for (x in r.x until r.x + r.w)
+                    g[x, y] = (((k0 * 73856093) xor (x * 19349663) xor (y * 83492791)) ushr 5 and 15) * 17
+                else for (k in 0..(k0 % 5)) g.fillRect(r.x + 12 + k * 22 + (k0 * 7) % 40, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
             { g, r, i -> g.fillRect(r.x + 4, r.y + 4, 8 + (i * 13) % 200, r.h - 8, 255) }, {})
         override fun summary() = if (heavy) Summary("M@W#".repeat(24), detail = "detail of $name", more = true) else Summary("summary of $name", detail = "detail")
         override fun saveState(): JsonObject = JsonObject(emptyMap())
@@ -803,13 +807,15 @@ class WindowListShellTest {
         } finally { r.close() }
     }
 
-    /** Pin 6's content half (the K1-2 spec §6; decisions AF.6, AL.1): a window list the window form refuses (70 rows at 352:
-     *  its strip past 2,048 px) stays unbound with one note through composes and a phone-drawn notch that change nothing it
-     *  draws, and is tried again — painted and refused once more, with no second note — when the rows on screen draw
-     *  otherwise. Without: never tried again until its rows, layout, planes or space change. */
+    /** Pin 6's content half (the K1-2 spec §6; decisions AF.6, AL.1, DE): a window list refused for its space (twelve rows
+     *  drawn as noise at 352: a strip the space below the wheel's block cannot hold) stays unbound with one note through
+     *  composes and a phone-drawn notch that change nothing it draws, and is tried again — painted and refused once more,
+     *  with no second note — when the rows on screen draw otherwise. Without: never tried again until its rows, layout,
+     *  planes or space change. (A list refused for its row count is never tried again on a content change:
+     *  [aListRefusedForItsRowCountPaintsNoRow_K12S4a].) */
     @Test
     fun aListThatDoesNotFitIsTriedAgainOnAContentChange_K12S3b(): Unit = runBlocking {
-        val win = Win("nw", "Long", n = 70, list = true)
+        val win = Win("nw", "Long", n = 12, list = true).also { it.ink = true }
         val r = Rig(extra = listOf(win))
         try {
             r.up()
@@ -819,13 +825,15 @@ class WindowListShellTest {
             val refusal = r.notes("liststage").filter { "cannot be staged" in it }
             println("K12S3b does not fit: $refusal")
             assertEquals(1, refusal.size, "one note: ${r.notes("liststage")}")
+            assertTrue(refusal.none { "more than a bound list holds" in it || "taller than a record" in it || "nowhere to go" in it },
+                "refused for its space, not its row count: $refusal")
             for (k in 1..3) { r.onLoop { r.shell.services.requestRender(win) }; delay(200); r.done("compose $k") }
             r.fire(CfwModes.EV_UPROLL)                                     // unbound: the phone draws it, as today
             r.until("the row moved") { r.onLoop { r.shell.focusedRowForTest() } == 1 }
             delay(300); r.done("a notch drawn by the phone")
             assertEquals(1, r.onLoop { r.shell.windowListRefusalsForTest() }, "not tried again while nothing it draws changed")
             assertEquals(null, r.onLoop { r.shell.slot0ForTest() }, "unbound")
-            win.order = IntArray(70) { it + 3 }                            // every row draws otherwise
+            win.order = IntArray(12) { it + 3 }                            // every row draws otherwise
             r.onLoop { r.shell.services.requestRender(win) }
             r.until("tried again on the content change", 20_000) { r.onLoop { r.shell.windowListRefusalsForTest() } == 2 }
             r.done("refused again")
@@ -981,6 +989,39 @@ class WindowListShellTest {
         } finally { r.close() }
     }
 
+    /** Decisions DF (the focused read's finding 1): a live list — every row on screen drawing otherwise at each refresh, as
+     *  Torrents' downloading rows show their speed — is dropped and staged anew the first time (another list under the
+     *  same key looks the same), and the second time, the same view with no other staged between, keeps its staging and
+     *  its mark: the rows go one at a time. Without: a whole new staging (and a new mark) at every refresh. */
+    @Test
+    fun aLiveListIsStagedAnewOnceThenKeptRowByRow_K12S4a(): Unit = runBlocking {
+        val win = Win("lw", "Listy", n = 12, list = true)
+        val r = Rig(extra = listOf(win))
+        try {
+            r.up()
+            r.open("lw")
+            r.windowBound("Listy")
+            val ms0 = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            win.order = IntArray(12) { it + 3 }
+            r.onLoop { r.shell.services.requestRender(win) }
+            r.until("a new staging the first time", 10_000) { r.onLoop { r.shell.windowListBinding.staging.let { it != null && it !== ms0 } } }
+            r.windowBound("after the first refresh")
+            val ms1 = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            val wireMark = synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).lists[1].mark }
+            val drops = r.notes("liststage").count { it.startsWith("dropped — every row on screen draws otherwise") }
+            assertEquals(1, drops, "dropped once: ${r.notes("liststage")}")
+            val restaged = r.notes("liststage").count { "re-staged" in it }
+            win.order = IntArray(12) { it + 6 }                             // every row on screen draws otherwise again
+            r.onLoop { r.shell.services.requestRender(win) }
+            r.until("a row re-staged, or a new staging", 20_000) { r.notes("liststage").count { "re-staged" in it } > restaged ||
+                r.onLoop { r.shell.windowListBinding.staging.let { it != null && it !== ms1 } } }
+            assertTrue(r.onLoop { r.shell.windowListBinding.staging } === ms1, "the staging kept the second time: ${r.notes("liststage").takeLast(3)}")
+            assertEquals(drops, r.notes("liststage").count { it.startsWith("dropped — every row on screen draws otherwise") }, "no second drop")
+            assertTrue(r.notes("liststage").count { "re-staged" in it } > restaged, "the rows go one at a time")
+            assertEquals(wireMark, synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).lists[1].mark }, "the mark on the glasses kept")
+        } finally { r.close() }
+    }
+
     /** Finding B: a notice over a bound window list inside the wait of an adopted notch cuts nothing — the held cells wait
      *  for the motion's end and the shell sends no CLOSE of its own, as over Main (AW.3). `Scroll length` 600 ms, so the
      *  notice comes up inside the motion. Without: a CLOSE ahead of the notice's frame, the motion cut short. */
@@ -1024,6 +1065,57 @@ class WindowListShellTest {
 
     // ------------------------------------------------------------------ K1-2 stage 4a: the paint under a transition
 
+    /** Main's cursor stepped to [row] by local notches, each to its motion's end; then Main bound with nothing in hand. */
+    private suspend fun mainTo(r: Rig, row: Int) {
+        repeat(r.rows.size + r.extra.size + 1) {
+            val at0 = r.onLoop { r.shell.mainBoundForTest().second }
+            if (at0 == row) return@repeat
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("Main's row ${at0 + 1}") { r.onLoop { r.shell.mainBoundForTest().second } == at0 + 1 }
+            delay(r.onLoop { r.shell.motionMsForTest() } + r.q() + 200); r.settle("Main at row ${at0 + 1}")
+        }
+        assertEquals(row, r.onLoop { r.shell.mainBoundForTest().second }, "Main's cursor on row $row")
+        mainBound(r, "Main on row $row")
+    }
+
+    /**
+     * Decisions DE (the second review's finding 2): a window list of more rows than the window form takes (70 at 352: its
+     * strip past a record's 2,048 px) is refused before any row is painted — reached by a Select from Main with the run
+     * held in its frame phase, it is refused under the run with no paint in hand — and, refused for its row count, it is
+     * not painted or tried again when every row it draws changes. Without: its 70 rows are painted (under the run as well,
+     * by stage 4a's lift) before the count refuses them, and painted whole again at each change of its visible rows.
+     */
+    @Test
+    fun aListRefusedForItsRowCountPaintsNoRow_K12S4a(): Unit = runBlocking {
+        val win = Win("nw", "Long", n = 70, list = true)
+        val r = Rig(extra = listOf(win))
+        try {
+            r.up()
+            mainTo(r, r.rows.size)                                          // the long window's row (after w0..w3)
+            r.shell.transitionHoldInHalfForTest = true
+            r.fire(CfwModes.EV_TAP)
+            r.until("the long window in front, its run held") { r.onLoop { r.shell.currentWindowId() == "nw" && r.shell.transitionPhaseForTest() == "FRAME" } }
+            r.until("refused, or its rows painted, with the run held", maxMs = 20_000) { r.onLoop {
+                r.shell.windowListRefusalsForTest() >= 1 || r.shell.windowListPaintForTest()?.let { it.first == it.second } == true } }
+            val s = r.onLoop { Triple(r.shell.transitionPhaseForTest(), r.shell.windowListRefusalsForTest(), r.shell.windowListPaintForTest()) }
+            assertEquals("FRAME", s.first, "the run still held")
+            assertEquals(1, s.second, "refused under the run for its row count: ${r.notes("liststage").takeLast(2)}")
+            assertEquals(null, s.third, "no row of it painted: ${s.third}")
+            val refusal = r.notes("liststage").filter { "cannot be staged" in it }
+            assertTrue(refusal.size == 1 && "taller than a record" in refusal[0], "one note, the row count's: $refusal")
+            r.shell.transitionHoldInHalfForTest = false; r.shell.postIdleTick()
+            r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.done("the long window in front")
+            for (k in 1..2) { r.onLoop { r.shell.services.requestRender(win) }; delay(200); r.done("compose $k") }
+            win.order = IntArray(70) { it + 3 }                            // every row draws otherwise
+            r.onLoop { r.shell.services.requestRender(win) }
+            delay(500); r.done("its rows changed")
+            assertEquals(1, r.onLoop { r.shell.windowListRefusalsForTest() }, "not tried again when its rows change")
+            assertEquals(null, r.onLoop { r.shell.windowListPaintForTest() }, "and nothing painted")
+            assertEquals(null, r.onLoop { r.shell.slot0ForTest() }, "unbound")
+        } finally { r.shell.transitionHoldInHalfForTest = false; r.close() }
+    }
+
     /** The cache spans (byte offsets, end exclusive) a mode-19 or mode-25 image writes; empty for any other image. */
     private fun writtenSpans(img: ByteArray): List<IntRange> {
         val list = when (img[0].toInt() and 0x7F) {
@@ -1049,11 +1141,21 @@ class WindowListShellTest {
         return Triple(m.groupValues[1].toInt(), m.groupValues[2].toDouble(), m.groupValues[3].toInt())
     }
 
-    /** No LIST or SET naming list 1 in RIGHT's images [from] until [to], and no cache write meeting [span]. */
-    private fun noWriteOfList1(r: Rig, from: Int, to: Int, span: IntRange, what: String) {
-        val imgs = r.right.toList().subList(from, to)
-        assertTrue(imgs.none { img -> r.subs(img).any { r.isListOf(it, 1) || r.isSetOf(it, 1) } }, "$what: no LIST or SET of list 1")
-        val met = imgs.flatMap { writtenSpans(it) }.filter { it.first < span.last + 1 && span.first < it.last + 1 }
+    /** RIGHT's subs in images [from] until [to] that bind the ARRIVING list 1: any SET of list 1, and a LIST of list 1 with a
+     *  mark other than [oldMark] — the leaving staging's riding LIST (shift 0, its own mark, decisions U.1) goes with the
+     *  act's answers in the out half's batch and writes nothing. */
+    private fun arrivingList1(r: Rig, from: Int, to: Int, oldMark: Int): List<String> =
+        r.right.toList().subList(from, to).flatMap { r.subs(it) }.filter { r.isSetOf(it, 1) || (r.isListOf(it, 1) && (it[11].toInt() and 0xFF) != oldMark) }
+            .map { s -> s.take(12).joinToString(",") { "${it.toInt() and 0xFF}" } }
+
+    /** The leaving list's mark as RIGHT holds it. */
+    private fun wireMark1(r: Rig): Int = synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).lists[1].mark }
+
+    /** Nothing of the arriving list 1 in RIGHT's images [from] until [to] ([arrivingList1]), and no cache write meeting
+     *  [span] (its records). */
+    private fun noWriteOfList1(r: Rig, from: Int, to: Int, span: IntRange, oldMark: Int, what: String) {
+        assertEquals(emptyList(), arrivingList1(r, from, to, oldMark), "$what: no SET of list 1 and no LIST of a new staging")
+        val met = r.right.toList().subList(from, to).flatMap { writtenSpans(it) }.filter { it.first < span.last + 1 && span.first < it.last + 1 }
         assertTrue(met.isEmpty(), "$what: no cache write meets list 1's records at $span: $met")
     }
 
@@ -1074,6 +1176,7 @@ class WindowListShellTest {
             r.open("settings")
             r.windowBound("Settings")
             val stagings = r.onLoop { r.shell.windowListBinding.stagings }
+            val oldMark = wireMark1(r)
             val at = r.right.size
             r.shell.transitionHoldInHalfForTest = true
             r.fire(CfwModes.EV_TAP)
@@ -1094,15 +1197,14 @@ class WindowListShellTest {
             assertTrue(held.third == null, "nothing laid out under the run: ${r.notes("liststage").takeLast(2)}")
             val p = assertNotNull(held.second, "the arriving list's paint in hand")
             assertTrue(p.first == p.second && p.third == p.second, "every row of the arriving list painted under the run: $p")
-            assertTrue(r.right.toList().subList(at, r.right.size).none { img -> r.subs(img).any { r.isListOf(it, 1) || r.isSetOf(it, 1) } },
-                "no LIST or SET of list 1 while the run is held")
+            assertEquals(emptyList(), arrivingList1(r, at, r.right.size, oldMark), "nothing of the arriving list 1 while the run is held")
             r.shell.transitionHoldInHalfForTest = false; r.shell.postIdleTick()
             r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
             val runTo = r.right.size
             r.done("Global"); r.windowBound("Global, after the run")
             val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
             assertEquals(stagings + 1, r.onLoop { r.shell.windowListBinding.stagings }, "one staging, of Global")
-            noWriteOfList1(r, at, runTo, ms.start until ms.end, "from the Select to the run's end")
+            noWriteOfList1(r, at, runTo, ms.start until ms.end, oldMark, "from the Select to the run's end")
             val (n, paintMs, under) = paintClause(r)
             assertEquals(n, under, "the staging laid out from rows all painted under the run (none painted again after it)")
             val inRun = r.right.toList().subList(at, runTo).filter { r.cacheWrite(it) }
@@ -1129,6 +1231,7 @@ class WindowListShellTest {
             r.open("settings")
             r.windowBound("Settings")
             val staged = r.notes("liststage").count { it.startsWith("staged") }
+            val oldMark = wireMark1(r)
             val at = r.right.size
             r.fire(CfwModes.EV_TAP)
             r.until("RIGHT's in half drawing") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" &&
@@ -1143,7 +1246,7 @@ class WindowListShellTest {
             r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
             val runTo = r.right.size
             assertEquals(applied, r.notes("applied").size, "no report of the notch: ${r.notes("applied").drop(applied)}")
-            assertTrue(r.right.toList().subList(at, runTo).none { img -> r.subs(img).any { r.isSetOf(it, 1) || r.isListOf(it, 1) } }, "no LIST or SET of list 1 in the run")
+            assertEquals(emptyList(), arrivingList1(r, at, runTo, oldMark), "no SET of list 1 and no LIST of a new staging in the run")
             r.done("Global"); r.windowBound("Global, after the run")
             assertTrue(r.notes("liststage").count { it.startsWith("staged") } > staged, "the new level staged after the run")
             val (n, _, under) = paintClause(r)
@@ -1174,16 +1277,7 @@ class WindowListShellTest {
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             mainBound(r, "back on Main")
             assertTrue(r.onLoop { r.shell.windowListBinding.staging } === ms1, "the window list's staging kept while Main is in front")
-            val last = r.rows.size                                          // Settings is Main's last row
-            repeat(r.rows.size + 1) {
-                val at0 = r.onLoop { r.shell.mainBoundForTest().second }
-                if (at0 == last) return@repeat
-                r.fire(CfwModes.EV_UPROLL)
-                r.until("Main's row ${at0 + 1}") { r.onLoop { r.shell.mainBoundForTest().second } == at0 + 1 }
-                delay(r.onLoop { r.shell.motionMsForTest() } + r.q() + 200); r.settle("Main at row ${at0 + 1}")
-            }
-            assertEquals(last, r.onLoop { r.shell.mainBoundForTest().second }, "Main's cursor on Settings")
-            mainBound(r, "on Settings' row")
+            mainTo(r, r.rows.size)                                          // Settings is Main's last row
             r.fire(CfwModes.EV_TAP)
             r.until("RIGHT's in half drawing") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" &&
                 synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 } == true } }
