@@ -114,7 +114,10 @@ class TransitionShellTest {
      *  [nRows] (X2P2 stage 2): Main's row count, for a frame that takes several flushes. The shell over the firmware
      *  model on the instant link; internal since X3D: `ShipVectors` takes the shipped programs from it. */
     internal class Rig(val features: Int = 0xdff, val stage: Int = 4, val taps: Taps = Taps.REPORT, val kib256: Boolean = false, nRows: Int = 5,
-                       val paced: Boolean = false) {
+                       val paced: Boolean = false, text: wm.damage.core.text.TextRasterizer = FakeText(), startOn: String? = null,
+                       startSettings: wm.damage.core.shell.ShellSettings = wm.damage.core.shell.ShellSettings()) {
+        // K1-2 stage 4f (`ShipVectors`' list-1 acts): [text] the rig's rasterizer; with [startOn] the session starts on that
+        // window, [startSettings] stored as the shell's settings before its start (as `WindowListShellTest`'s rig does)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-transition")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
@@ -135,8 +138,11 @@ class TransitionShellTest {
         private val lateAcks = kotlinx.coroutines.channels.Channel<Triple<Long, Arm, ByteArray>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
         private val lateBodies = kotlinx.coroutines.channels.Channel<Triple<Long, Arm, ByteArray>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
         val journal = tmp.resolve("journal.jsonl")
-        val ct = CachedText(FakeText())
-        val shell = Shell(ct, t, Persistence(tmp.resolve("state.json")), journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        val ct = CachedText(text)
+        val shell = Shell(ct, t, Persistence(tmp.resolve("state.json")).also { p -> if (startOn != null) {
+            p.put("shell.settings", startSettings.toJson())
+            p.put("shell.state", JsonObject(mapOf("mode" to kotlinx.serialization.json.JsonPrimitive("WINDOW"), "current" to kotlinx.serialization.json.JsonPrimitive(startOn))))
+        } }, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val rows = (0 until nRows).map { Row("w$it", "Win $it", DamageWindow.Summary("summary $it", detail = "detail of $it")).also { r -> r.text = ct } }
         /** Every top-level image a lens is handed, in order, while [recording]. */
         val images = java.util.concurrent.CopyOnWriteArrayList<String>()
