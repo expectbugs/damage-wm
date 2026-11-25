@@ -939,6 +939,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row ${rowNow()} → $v")
         verdicts += g to v
         val l1 = onL1(v)
+        if (list1 && l1 && g >= 0 && fires[g]?.listR == 0 && fires[g]?.sR != null) crossHeld = true
         if (list1) {
             // pins 13 and 7 reached by a sequence (the K1-2 spec §8): a report of the other list in slot 0, a fire on list 1's old mark
             if (a.list == 0 && fl == 1) reach("pin 13: a list-0 report answered with list 1 in front ($v)")
@@ -959,6 +960,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val os = rules.owesScroll; val oa = rules.owesAny
         val v = rules.stock(st, rowNow(), now)
         val l1 = onL1(v)
+        if (list1 && l1 && v is LocalRules.Verdict.Apply && fires[g]?.listR == 0 && fires[g]?.sR != null) crossHeld = true
         if (rules.owesAny < oa) stockPaidAny += g
         trace?.invoke("[$now] phone stock g$g $st row $row → $v (carried $carried)")
         verdicts += g to v
@@ -1278,14 +1280,17 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         lens.refSeen = false
         if (induce) sim.motionForTest(arm).holdWordForTest(true)
         val cursor0 = if (arm == Arm.RIGHT) sim.bindForTest(arm).lists[0].cursor else 0
+        val resets0 = rightResets
         sim.conformanceMessage(arm, img, now)
         if (induce) sim.motionForTest(arm).holdWordForTest(false)
         if (arm == Arm.RIGHT && sim.bindForTest(arm).lists[0].cursor != cursor0) { rightResets++; rightResetAt += decided; rightResetLanded += now }
         else if (arm == Arm.RIGHT && !lens.refSeen && setBackUnderShift(img)) { rightResets++; rightResetAt += decided; rightResetLanded += now }
-        // K1-2 stage 4b: with two lists a DISCARD or SETTLE naming Main sets RIGHT's list-0 cursor even when the value comes
-        // out unchanged — a notch the phone applied to list 1 that the lens drew on list 0 can cancel another step there, so
-        // the value alone no longer says whether a lost step is still held (the carry rule's premise)
-        else if (list1 && arm == Arm.RIGHT && !lens.refSeen && namesMainCursor(img)) { rightResets++; rightResetAt += decided; rightResetLanded += now }
+        // K1-2 stage 4b: a notch the phone applied to list 1 that the lens drew on list 0 ([crossHeld]) can cancel another
+        // step there, so a DISCARD or SETTLE naming Main then sets RIGHT's list-0 cursor with its value unchanged — a reset
+        // all the same (the carry rule's premise: a lost step still held); only after such a fire, so Main's own classes
+        // read their resets as before
+        else if (crossHeld && arm == Arm.RIGHT && !lens.refSeen && namesMainCursor(img)) { rightResets++; rightResetAt += decided; rightResetLanded += now }
+        if (arm == Arm.RIGHT && rightResets != resets0) crossHeld = false
         val refusedNow = lens.refSeen
         if (!refusedNow) { lens.refSeen = kept[0] as Boolean; lens.refMode = kept[1] as Int; lens.refReason = kept[2] as Int; lens.refSeq = kept[3] as Long }
         trace?.invoke("[$now] $arm gets ${subsOf(img).joinToString(" ") { it.take(3).joinToString("") { b -> "%02x".format(b) } }}" +
@@ -1311,6 +1316,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         drainSent()
         traceOutcome()
     }
+    /** K1-2 stage 4b: since RIGHT's last reset, a fire RIGHT drew on list 0 was applied by the phone to list 1. */
+    private var crossHeld = false
     /** K1-2 stage 4b: [img] carries a DISCARD or SETTLE naming list 0 (byte 5 the list, as [setBackUnderShift] reads it). */
     private fun namesMainCursor(img: ByteArray): Boolean =
         subsOf(img).any { it[0].toInt() == 26 && it.size > 5 && (it[1].toInt() == 4 || it[1].toInt() == 5) && it[5].toInt() == 0 }
