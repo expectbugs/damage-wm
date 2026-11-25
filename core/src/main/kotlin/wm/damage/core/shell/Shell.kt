@@ -3109,6 +3109,9 @@ class Shell(
         else -> null
     }
 
+    /** The glasses list [slot0]'s surface binds — by identity with the three holders' surfaces — or −1 (none in front). */
+    private fun slot0List(): Int = when (slot0()) { mainList.surface -> mainList.listNo; windowList.surface -> windowList.listNo; wheelBind -> WHEEL_LIST; else -> -1 }
+
     /** A bound list in front with nothing drawn over it (§6.7): [slot0] has one. */
     private fun localUncovered(): Boolean = slot0() != null
 
@@ -3297,7 +3300,11 @@ class Shell(
                 // K1-2 stage 3 (the spec §6's BF row): the list each fire's instance (tag S, `FIRMWARE.md` §6.4) belongs to, by
                 // its report's field 7 — its 114 bodies are that list's period samples ([localBodyRead])
                 ev.report.s?.let { s -> ev.report.list?.let { reportListByTag[s] = it } }
-                localVerdict(local.report(ev.report, localRow(), ev.atMs), ev.report.eventId)
+                // decisions DE (the second review of K1-2, finding 1): a report handled between a change of the list in front
+                // and the pump that tells the rules ([syncLocalFront], past the room check) is judged against the list the
+                // rules hold — so it is handed no row (`focus`, applied as today to the screen in front), never adopted onto
+                // the other list's row: Main and a window list, and since DW-1b-1 the wheel and either
+                localVerdict(local.report(ev.report, if (localFrontNow != null && slot0List() != localFrontNow?.list) -1 else localRow(), ev.atMs), ev.report.eventId)
             }
             is TransportEvent.LocalRead -> {
                 ev.flagsInForce?.let { local.bindInForce(it and wm.damage.core.wire.DamageMsg.FLAG_BIND != 0) }
@@ -6275,7 +6282,7 @@ class Shell(
      *  row; which list holds slot 0 ("main", "window" or null: [slot0]); the window list's measured window (BF). */
     internal val windowListBinding: MainBinding get() = windowList.mainBind
     internal fun windowBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = windowList.surface.bound() to windowList.surface.row()
-    internal fun slot0ForTest(): String? = when (slot0()) { mainList.surface -> "main"; windowList.surface -> "window"; wheelBind -> "wheel"; else -> null }
+    internal fun slot0ForTest(): String? = when (slot0List()) { mainList.listNo -> "main"; windowList.listNo -> "window"; WHEEL_LIST -> "wheel"; else -> null }
     /** C3 DW-1b-1, tests (on the loop): what the wheel offers and its row; whether a burst is open and the preview's key. */
     internal fun wheelBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = wheelBind.offered to wheelBind.row()
     internal fun previewForTest(): Pair<Boolean, String?> = local.burstOpen to previewPainted

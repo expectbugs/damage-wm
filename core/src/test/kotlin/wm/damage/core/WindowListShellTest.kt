@@ -529,7 +529,9 @@ class WindowListShellTest {
     }
 
     /** Decisions CV: the wheel's block placed again over a window list already staged in its bytes — the list yields (its
-     *  staging drops, its entries CLEARed before the block's write) and is staged again below the block. */
+     *  staging drops, its entries CLEARed before the block's write) and is staged again below the block. C3 DW-1b-1
+     *  (decisions DE, §4 of the second review): the order is read from RIGHT's recording — the batch CLEARing entries 3–5
+     *  comes before the first cache write into the block's new bytes. */
     @Test
     fun theWheelsBlockPlacedOverTheListMakesItYield_K12S3a(): Unit = runBlocking {
         val r = Rig()
@@ -543,10 +545,16 @@ class WindowListShellTest {
             val ms1 = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
             val base0 = assertNotNull(r.onLoop { r.shell.wheelBlockForTest() }).base
             assertEquals(base0, ms1.end, "the list lies flush below the block")
+            val at = r.right.size
             r.onLoop { r.shell.register(Win("w9", "W9")) }                 // one more cell: the block placed again, larger
             r.until("the block placed again") { r.onLoop { r.shell.wheelBlockForTest()?.base?.let { it < base0 } == true } }
             r.done("the block again"); r.windowBound("Global again")
             val b1 = assertNotNull(r.onLoop { r.shell.wheelBlockForTest() })
+            val imgs = r.right.drop(at)
+            val clearAt = imgs.indexOfFirst { img -> r.subs(img).let { ss -> (3..5).all { e -> ss.any { r.isClearOf(it, e) } } } }
+            val writeAt = imgs.indexOfFirst { img -> (img[0].toInt() and 0x7F) in setOf(19, 25) &&
+                ShipVectors.cacheWrites(img).any { (off, d) -> off < base0 && off + d.size > b1.base } }
+            assertTrue(clearAt >= 0 && writeAt > clearAt, "the list's CLEAR of 3–5 (RIGHT's image $clearAt) before the block's first write into its new bytes (image $writeAt)")
             val ms2 = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
             assertTrue(ms2 !== ms1 && ms2.end <= b1.base, "staged again below the block: ${ms2.start}..${ms2.end}, the block at ${b1.base}")
             assertTrue(r.notes("liststage").any { it.startsWith("dropped — the wheel's block goes at") }, "${r.notes("liststage")}")

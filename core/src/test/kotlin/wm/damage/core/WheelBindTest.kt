@@ -70,7 +70,8 @@ class WheelBindTest {
     }
 
     private class Rig(stage: Int = 5, kib: Int = 256, nRows: Int = 3, text: wm.damage.core.text.TextRasterizer = FakeText(),
-                      val extra: List<DamageWindow> = emptyList(), names: (Int) -> String = { "W$it" }, taps: Taps = Taps.REPORT) {
+                      val extra: List<DamageWindow> = emptyList(), names: (Int) -> String = { "W$it" }, taps: Taps = Taps.REPORT,
+                      tweak: (ShellSettings) -> ShellSettings = { it }) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-wheelbind")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0xdff }
@@ -78,7 +79,7 @@ class WheelBindTest {
             Files.writeString(it, wm.damage.core.transport.LadderRecord(stage = stage, sessionKib = kib).encode()) })
         val journal = tmp.resolve("journal.jsonl")
         val persistence = Persistence(tmp.resolve("state.json")).also { p ->
-            p.put("shell.settings", ShellSettings().copy(heightMode = 352, cachedText = "on", taps = taps).toJson())
+            p.put("shell.settings", tweak(ShellSettings().copy(heightMode = 352, cachedText = "on", taps = taps)).toJson())
         }
         val shell = Shell(CachedText(text), t, persistence, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val rows = (0 until nRows).map { Win("w$it", names(it)) }
@@ -550,35 +551,118 @@ class WheelBindTest {
         } finally { r.close() }
     }
 
+    // ------------------------------------------------------------------- decisions DE: a report met by a stale front
+    /** No Select or Back transition (the stale-front pins change the screen with no room: an act would wait for room). */
+    private val noActs: (ShellSettings) -> ShellSettings = { it.copy(selectEffects = emptyList(), backEffects = emptyList()) }
+
+    /** A notch on the glasses on whatever list they hold, waited out (the motion, Q and a margin) and settled. */
+    private suspend fun step(r: Rig, eventId: Int, what: String) { r.fire(eventId); delay(1_300); r.settle(what) }
+
+    private fun mainRow(r: Rig): Int = r.onLoop { r.shell.mainBoundForTest().second }
+
     /**
-     * The amendment's §7.1 "A window list never displaces it" (DW-1b with K1-2 S3): Settings' Global rows bound as list 1
-     * flush under the block; one more registered window places the block lower over them — the list yields, and the batch
-     * CLEARing its entries reaches the lenses before the block's first write into its new bytes; the list is staged again
-     * below the new base.
+     * Decisions DE (the second review of K1-2, finding 1), Main and a window list: Files' list bound, its cursor one row
+     * past the row Main shows after a double tap back (a dry pass finds it); then, with no room at the pumps, the double tap
+     * and a notch up on the glasses, which still hold list 1 — its report (cursor = Main's row) is handled while Main is in
+     * front and the rules still hold list 1: it is applied to Main as today (one row up), never adopted onto Main's row.
      */
     @Test
-    fun aBlockPlacedLowerMakesTheWindowListYieldItsClearFirst_DW1b1(): Unit = runBlocking {
-        val r = Rig()
+    fun aWindowListsReportAfterTheDoubleTapBackDoesNotSetMainsCursor_DW1b1(): Unit = runBlocking {
+        val files = Win("files", "Files", n = 6)
+        val r = Rig(extra = listOf(files), tweak = noActs)
         try {
             r.up()
-            r.open("settings")
-            r.until("Settings bound") { r.onLoop { r.shell.slot0ForTest() == "window" } && r.entriesOn(Arm.RIGHT, 1).isNotEmpty() }
-            r.fire(CfwModes.EV_TAP)
-            r.until("Global's rows bound") { r.onLoop { r.shell.slot0ForTest() == "window" && r.shell.windowBoundForTest().first?.count?.let { it > 5 } == true } }
-            r.done("Global")
-            r.until("Global bound on RIGHT") { r.entriesOn(Arm.RIGHT, 1).size == 3 }
-            val base0 = assertNotNull(r.block()).base
-            val at = r.images.size
-            r.onLoop { r.shell.register(Win("w9", "W9")) }
-            r.until("the block placed again") { r.block()?.base?.let { it < base0 } == true }
-            r.done("the block again")
-            val b1 = assertNotNull(r.block())
-            val imgs = r.images.toList().drop(at)
-            val clearAt = imgs.indexOfFirst { (a, img) -> a == Arm.LEFT && r.subs(img).any { s -> (3..5).any { r.isClearOf(s, it) } } }
-            val writeAt = imgs.indexOfFirst { (a, img) -> a == Arm.LEFT && (img[0].toInt() and 0x7F) in setOf(19, 25) &&
-                ShipVectors.cacheWrites(img).any { (off, d) -> off < base0 && off + d.size > b1.base } }
-            assertTrue(clearAt >= 0 && writeAt > clearAt, "the list's CLEAR (image $clearAt) before the block's first write into its new bytes (image $writeAt)")
-            r.until("list 1 staged again under the block") { r.onLoop { r.shell.windowListBinding.staging?.let { it.end <= b1.base } == true } }
+            suspend fun inFiles() { r.open("files"); r.until("Files' list bound") { r.onLoop { r.shell.slot0ForTest() == "window" } && r.entriesOn(Arm.RIGHT, 1).size == 3 }; r.settle("Files") }
+            suspend fun back() { r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK); r.until("Main in front") { r.onLoop { r.shell.currentWindowId() == null && r.shell.slot0ForTest() == "main" } } }
+            inFiles(); back(); r.done("Main (the dry pass)")
+            val (main0, r1) = r.onLoop { r.shell.mainBoundForTest() }
+            val count = assertNotNull(main0, "Main offered").count
+            inFiles()
+            while (r.onLoop { r.shell.windowBoundForTest().second } != r1 + 1) step(r, CfwModes.EV_UPROLL, "Files' cursor toward ${r1 + 1}")
+            try {
+                r.shell.noRoomAfterPollForTest = { true }
+                back()
+                assertEquals(r1, mainRow(r), "precondition: Main's row as in the dry pass")
+                r.fire(CfwModes.EV_DOWNROLL)                                       // list 1 fires on the glasses: its cursor becomes r1
+                delay(500)
+            } finally { r.shell.noRoomAfterPollForTest = null }
+            delay(1_000); r.done("after")
+            assertEquals((r1 - 1).mod(count), mainRow(r), "list 1's report applied to Main as today (one row up), not adopted onto Main's row")
+        } finally { r.close() }
+    }
+
+    /**
+     * Decisions DE with the wheel, Main and the wheel both ways: (1) Main's row 0, no room, the chord and a notch down on the
+     * glasses (still Main's entries: Main's cursor becomes 1, the wheel's open cursor) — applied to the wheel as a phone notch
+     * (cursor 2), never adopted onto its cursor; (2) Main's row 2, the wheel bound at cursor 0, no room, the phone's click
+     * (to Main) and a notch down on the glasses (still list 2's: its cursor becomes 1) — applied to Main as today (row 3),
+     * never adopted onto Main's row.
+     */
+    @Test
+    fun aReportOfMainsOrTheWheelsListMetByTheOtherInFrontMovesOnlyAsToday_DW1b1(): Unit = runBlocking {
+        val r = Rig(tweak = noActs)
+        try {
+            r.up(); r.open("w0"); r.open("w1"); r.toMain()
+            r.until("Main bound") { r.onLoop { r.shell.slot0ForTest() == "main" } && r.entriesOn(Arm.RIGHT, 0).size == 3 }
+            val count = assertNotNull(r.onLoop { r.shell.mainBoundForTest().first }).count
+            while (mainRow(r) != 0) step(r, CfwModes.EV_DOWNROLL, "Main toward row 0")
+            try {
+                r.shell.noRoomAfterPollForTest = { true }
+                r.chord()
+                r.until("the wheel open and offered") { r.shell.switcherIsOpen && r.onLoop { r.shell.slot0ForTest() } == "wheel" }
+                assertEquals(1, r.row(), "precondition: the wheel opens at row 1")
+                r.fire(CfwModes.EV_UPROLL)                                         // Main's entry fires: its cursor becomes 1
+                delay(500)
+            } finally { r.shell.noRoomAfterPollForTest = null }
+            delay(1_000); r.settle("(1)")
+            assertEquals(2, r.row(), "(1) Main's report applied to the wheel as a phone notch, not adopted onto its cursor")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("closed") { !r.shell.switcherIsOpen }
+            r.done("(1) closed")
+            r.until("Main bound again") { r.onLoop { r.shell.slot0ForTest() == "main" } && r.entriesOn(Arm.RIGHT, 0).size == 3 }
+            while (mainRow(r) != 2) step(r, CfwModes.EV_UPROLL, "Main toward row 2")
+            r.chord(); r.bound("(2) the open")
+            step(r, CfwModes.EV_DOWNROLL, "(2) the wheel to row 0 (Main)")
+            assertEquals(0, r.row(), "precondition: the wheel at Main's entry")
+            try {
+                r.shell.noRoomAfterPollForTest = { true }
+                r.shell.postGesture(EvenHubMsg.EV_CLICK)
+                r.until("committed to Main") { !r.shell.switcherIsOpen && r.onLoop { r.shell.currentWindowId() == null && r.shell.slot0ForTest() == "main" } }
+                assertEquals(2, mainRow(r), "precondition: Main's row 2")
+                r.fire(CfwModes.EV_UPROLL)                                         // list 2's entry 6 fires: its cursor becomes 1
+                delay(500)
+            } finally { r.shell.noRoomAfterPollForTest = null }
+            delay(1_000); r.done("(2)")
+            assertEquals(3.mod(count), mainRow(r), "(2) the wheel's report applied to Main as today (one row down), not adopted onto Main's row")
+        } finally { r.close() }
+    }
+
+    /**
+     * Decisions DE with the wheel, a window list and the wheel: Files' list bound at row 1, no room, the chord and a notch down
+     * on the glasses (still list 1's: its cursor becomes 2, the wheel's open cursor) — applied to the wheel as a phone notch
+     * (cursor 0 of three), never adopted onto its cursor.
+     */
+    @Test
+    fun aWindowListsReportMetByTheOpenWheelMovesItOnlyAsToday_DW1b1(): Unit = runBlocking {
+        val files = Win("files", "Files", n = 6)
+        val r = Rig(extra = listOf(files), tweak = noActs)
+        try {
+            r.up(); r.open("w0"); r.open("files")
+            r.until("Files' list bound") { r.onLoop { r.shell.slot0ForTest() == "window" } && r.entriesOn(Arm.RIGHT, 1).size == 3 }
+            r.settle("Files")
+            step(r, CfwModes.EV_UPROLL, "Files to row 1")
+            assertEquals(1, r.onLoop { r.shell.windowBoundForTest().second }, "precondition: Files at row 1")
+            try {
+                r.shell.noRoomAfterPollForTest = { true }
+                r.chord()
+                r.until("the wheel open and offered") { r.shell.switcherIsOpen && r.onLoop { r.shell.slot0ForTest() } == "wheel" }
+                assertEquals(2, r.row(), "precondition: the wheel opens at row 2 (Main, Files, w0)")
+                r.fire(CfwModes.EV_UPROLL)                                         // list 1 fires: its cursor becomes 2
+                delay(500)
+            } finally { r.shell.noRoomAfterPollForTest = null }
+            delay(1_000); r.settle("after")
+            assertEquals(0, r.row(), "list 1's report applied to the wheel as a phone notch, not adopted onto its cursor")
+            assertEquals(1, r.onLoop { files.model.cursor }, "Files' own cursor untouched by its stale report")
         } finally { r.close() }
     }
 
