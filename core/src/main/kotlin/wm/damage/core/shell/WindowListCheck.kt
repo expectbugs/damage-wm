@@ -24,9 +24,10 @@ import wm.damage.core.wire.DamageMsg
  * contacts a device, and in this stage the shell sends none of it (stage 3 binds a window's list).
  *
  * The lists are Settings' own, through its painters ([SettingsWindow]): its categories (ten: Global, Animations and eight
- * app categories — a ring list at 288, 352 and 416, a plain one at 480), Global's rows (a ring list at every height) and a
- * three-row app category (Bastion's size: a plain list everywhere). At each of the four heights, on a bit-11 build at
- * stage 5 with a 256 KiB cache, the list is laid out where stage 3 lays it: from the wheel block's base ([WHEEL_BLOCK]
+ * app categories — a ring list at 288, 352 and 416, a plain one at 480), Global's rows (the window's and the shell's own,
+ * as on the glasses: a ring list at every height) and a three-row app category (Bastion's size: a plain list
+ * everywhere). At each of the four heights, on a bit-11 build at stage 5 with a 256 KiB cache, the list is laid out
+ * where stage 3 lays it: from the wheel block's base ([WHEEL_BLOCK]
  * below the end of Main's region, until the wheel's stage DW-1a names the function that gives that base) down, over Main's
  * staging of its eight sample rows (its end is the floor). Bound as glasses list 1, entries 3–5 (decisions BD), slot 0.
  * Then for each of the form's effects ([ScrollEffects.WINDOW_EFFECTS]), at EVERY cursor and both directions, the notch
@@ -56,6 +57,28 @@ object WindowListCheck {
     private val APPS = listOf("Reader" to 9, "Tmux" to 9, "Files" to 6, "Torrents" to 9, "Music" to 9, "Games" to 7, "Feed" to 8, "Bastion" to 3)
     private val ROW_NAMES = listOf("Font", "Depth", "Scroll effect", "Notify", "Height", "Sort", "Refresh", "Preview", "Quiet")
 
+    /** S1-5 S (the lead's ruling: a check is measured on the thing it names): the shell's own Global rows after the
+     *  window's (`Shell.globalFontRows`: names, options, values and the three font rows' preview faces), so the Global
+     *  sample is the list on the glasses — 20 rows. Names, options and values from the one description
+     *  ([SettingsCore.ROWS], which `SettingsCoreTest` holds equal to the shell's rows). */
+    private val SHELL_ROWS = listOf("fontFace", "fontScale", "fontStyle", "silentClock", "slideFrames", "slideFill", "cachedText",
+        "pageStaging", "linkPriority")
+
+    private fun shellRows(settings: ShellSettings): List<HostSetting> {
+        val v = SettingsCore.encode(settings)
+        return SHELL_ROWS.map { id ->
+            val r = SettingsCore.ROWS.first { it.id == id }
+            val label = r.options.first { it.first == v[id] }.second
+            HostSetting(r.label, { r.options.map { it.second } }, { label }, {}, optionFont = when (id) {
+                "fontFace" -> { opt -> wm.damage.core.text.Faces.byLabel(opt)?.let { wm.damage.core.text.FontSpec(it, 18, raw = true) } }
+                "fontScale" -> { opt -> ShellSettings.SCALES.firstOrNull { ShellSettings.scaleLabel(it) == opt }?.let {
+                    wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, maxOf(6, Math.round(18 * it).toInt()), raw = true) } }
+                "fontStyle" -> { opt -> wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18, bold = opt == "bold", italic = opt == "italic", raw = true) }
+                else -> null
+            })
+        }
+    }
+
     private fun appRows(app: String, n: Int, values: Map<String, String>): List<HostSetting> = List(n) { i ->
         HostSetting(ROW_NAMES[i % ROW_NAMES.size], listOf("On", "Off"), { values["$app/$i"] ?: if (i % 2 == 0) "On" else "Off" }, {})
     }
@@ -70,7 +93,8 @@ object WindowListCheck {
         private val settings = ShellSettings()
         /** An app category's row values by "App/row" (the re-stage pins change one); the rest read On and Off. */
         val values = HashMap<String, String>()
-        private val window = SettingsWindow(text, { settings }, {}, apps = { APPS.map { (n, k) -> n to appRows(n, k, values) } }, effectsInForce = { true })
+        private val shellRows = shellRows(settings)
+        private val window = SettingsWindow(text, { settings }, {}, { shellRows }, apps = { APPS.map { (n, k) -> n to appRows(n, k, values) } }, effectsInForce = { true })
         /** The app category [sample] opens (Bastion's three rows for [Sample.APP3]), or null. */
         val app: String? = if (sample == Sample.APP3) APPS.first { it.second == 3 }.first else null
         val view: WindowView.ListView = run {
