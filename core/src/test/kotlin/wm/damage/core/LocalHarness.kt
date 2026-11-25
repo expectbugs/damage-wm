@@ -261,9 +261,17 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun reach(k: String) { l1Reach[k] = (l1Reach[k] ?: 0) + 1 }
     private var lastL1FireAt = Long.MIN_VALUE / 2
 
-    /** The row of the surface the shell hands the rules: the window list's while its window is in front (covered or not —
-     *  decisions AF.2: a withdrawn list's row stays current), Main's otherwise (as before). */
-    fun rowNow(): Int = if (window && win1) row1 else row
+    /** The row the shell hands the rules in a list-1 sequence (`Shell.localRow`, 3119): the row of the list `slot0` holds —
+     *  Main's, or the window list's while its staging is held for the view — and −1 when it holds none (a cover, a run, a
+     *  window whose list has no staging of its own: its row is not read). Two lists make this exact: the rules keep a row
+     *  per list and credit a row handed with nothing in front to the list last in front (AF.2), so a row handed for the
+     *  wrong surface lands on the other list. Without list 1, Main's row in every case, as the harness always handed it. */
+    fun rowNow(): Int = when {
+        !list1 -> row
+        covered || trans -> -1
+        window -> if (win1 && l1Bound && staged1Key == win1Key) row1 else -1
+        else -> row
+    }
     fun idsNow(): IntArray = if (window && win1) ids1 else ids
     /** The window list is what the band shows (its window in front, uncovered, no run). */
     fun l1Shows() = window && win1 && !covered && !trans
@@ -395,6 +403,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         } else {
             val wasFront = rules.front?.list == 1
             ids1 = newIds; row1 = newRow
+            l1Bound = false
             if (wasFront) { frontChanged(); rules.front(null, rowNow()) }
             stage1New(now, now + laneDelay())
             reach(if (wasFront) "count change of bound list 1: withdrawn, staged again by the lane" else "count change of unbound list 1: staged again")
@@ -422,6 +431,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  again below by the lane (a new place, a new mark). */
     fun withdraw1(): Boolean {
         if (rules.front?.list != 1) return false
+        l1Bound = false
         frontChanged()
         rules.front(null, rowNow())
         stage1New(now, now + laneDelay())
@@ -434,17 +444,35 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun list1Event(r: java.util.Random): String {
         val y = r.nextInt(100)
         return when {
-            y < 25 -> { val same = r.nextBoolean(); val run = if (r.nextInt(10) < 4) 200L + r.nextInt(500) else 0L
+            y < 20 -> { val same = r.nextBoolean(); val run = if (r.nextInt(10) < 4) 200L + r.nextInt(500) else 0L
                 if (!window && !covered && !trans) { openWindowList(same, run); "open a window list (${if (same) "same" else "another"}, run $run)" } else "open a window list (not now)" }
-            y < 40 -> { val run = if (r.nextBoolean()) 200L + r.nextInt(500) else 0L; if (window && win1) { back(run); "back from list 1 (run $run)" } else { back(); "back" } }
-            y < 55 -> if (count1()) "count change of list 1" else "count change (not now)"
-            y < 65 -> if (effect1()) "effect change" else "effect change (not now)"
-            y < 75 -> if (withdraw1()) "withdraw list 1" else "withdraw (not now)"
-            y < 85 -> if (window && restage()) { reach("Main's covered re-make under ${if (win1) "list 1" else "a window"}"); "Main's covered re-make" } else "Main's re-make (not now)"
-            else -> { if (covered) { uncover(); "uncover" } else { val f = rules.front?.list; cover()
+            y < 32 -> { val run = if (r.nextBoolean()) 200L + r.nextInt(500) else 0L; if (window && win1) { back(run); "back from list 1 (run $run)" } else { back(); "back" } }
+            y < 44 -> if (count1()) "count change of list 1" else "count change (not now)"
+            y < 52 -> if (effect1()) "effect change" else "effect change (not now)"
+            y < 60 -> if (withdraw1()) "withdraw list 1" else "withdraw (not now)"
+            y < 68 -> if (window && restage()) { reach("Main's covered re-make under ${if (win1) "list 1" else "a window"}"); "Main's covered re-make" } else "Main's re-make (not now)"
+            y < 80 -> { if (covered) { uncover(); "uncover" } else { val f = rules.front?.list; cover()
                 if (covered && f == 1) { reach(if (noticeTimer) "a notice over bound list 1" else "a cover over bound list 1 (adjust, menu)")
                     if (now - lastL1FireAt < 300) reach("a cover over bound list 1 with a notch of it in flight") }
                 "cover" } }
+            else -> {
+                // a notch racing a change of what is in front (pins 7 and 13's shapes): the change 0–40 ms after the notch
+                val kind = 1 + r.nextInt(2); val d = r.nextInt(41).toLong(); val k = r.nextInt(4)
+                val f = rules.front?.list
+                gesture(kind)
+                at(now + d) {
+                    val what = when {
+                        f == 0 && !window && !covered && !trans -> { openWindowList(true, 0L); "the window list opened" }
+                        f == 1 && k == 0 -> { if (count1()) "a count change" else "nothing" }
+                        f == 1 && k == 1 -> { if (withdraw1()) "a withdrawal" else "nothing" }
+                        f == 1 && k == 2 -> { val c = covered; cover(); if (!c && covered) "a cover" else "nothing" }
+                        f == 1 && window && win1 -> { back(); "Back" }
+                        else -> "nothing"
+                    }
+                    if (what != "nothing") reach("a notch on list ${f} racing $what")
+                }
+                "a notch racing a front change (list $f, +$d ms)"
+            }
         }
     }
 
@@ -485,7 +513,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                var awaitsPresentR: Boolean = false, var shadowR: Int? = null, var cursorIdR: Int? = null,
                /** C3 FZ5 (part BO (A)): at RIGHT's fire, the end of the latest wait for a motion's end on the glasses (the
                 *  harness's carried hold: an adopted motion's or the wrap's). */
-               var holdEndR: Long = Long.MIN_VALUE)
+               var holdEndR: Long = Long.MIN_VALUE,
+               /** K1-2 stage 4b: the list whose entry RIGHT's fire matched (0 without list 1). */
+               var listR: Int = 0)
 
     /** The row identity RIGHT's panel shows in the band now (a press drawn inverse reads as its row; -1 anything else). */
     fun shownOnRight(): Int {
@@ -786,6 +816,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             val s = if (b.seq != before) b.seq else null
             if (arm == Arm.LEFT) f.sL = s else { f.sR = s; s?.let { bySR[it] = g }; f.cursorR = b.lists[lf].cursor; f.markR = b.lists[lf].mark }
             if (arm == Arm.RIGHT) f.cursorIdR = (if (lf == 1) staged1Ids else ids).getOrNull(b.lists[lf].cursor)
+            if (arm == Arm.RIGHT) f.listR = lf
             if (arm == Arm.RIGHT && lf == 1 && s != null) lastL1FireAt = now
             if (arm == Arm.RIGHT && carryHold) f.holdEndR = deferUntil
             if (arm == Arm.LEFT && (covered || (window && rules.front?.list != 1)) && sim.motionForTest(arm).slots.any { it?.local == true && it.tag == s }) localsUnderCover++
@@ -872,7 +903,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (v !is LocalRules.Verdict.Adopt && v !is LocalRules.Verdict.Act) return out
         var k = (heardBefore + 1) and 0xFFFF
         while (k != s && LocalRules.after(s, k)) {
-            bySR[k]?.let { gk -> if (rightOutcome[gk] == DamageMsg.APPLIED_DREW && ringStep[gk] != null && fires[gk]?.resetsAtFireR == fires[g]?.resetsAtFireR) out += gk }
+            // K1-2 stage 4b: a fire of the same list only (a list-1 fire's step is never in a Main adoption, nor the reverse)
+            bySR[k]?.let { gk -> if (rightOutcome[gk] == DamageMsg.APPLIED_DREW && ringStep[gk] != null && fires[gk]?.resetsAtFireR == fires[g]?.resetsAtFireR &&
+                fires[gk]?.listR == (a.list ?: 0)) out += gk }
             k = (k + 1) and 0xFFFF
         }
         for (gk in out) ringHeard(gk, "carrying adoption")
@@ -1249,6 +1282,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (induce) sim.motionForTest(arm).holdWordForTest(false)
         if (arm == Arm.RIGHT && sim.bindForTest(arm).lists[0].cursor != cursor0) { rightResets++; rightResetAt += decided; rightResetLanded += now }
         else if (arm == Arm.RIGHT && !lens.refSeen && setBackUnderShift(img)) { rightResets++; rightResetAt += decided; rightResetLanded += now }
+        // K1-2 stage 4b: with two lists a DISCARD or SETTLE naming Main sets RIGHT's list-0 cursor even when the value comes
+        // out unchanged — a notch the phone applied to list 1 that the lens drew on list 0 can cancel another step there, so
+        // the value alone no longer says whether a lost step is still held (the carry rule's premise)
+        else if (list1 && arm == Arm.RIGHT && !lens.refSeen && namesMainCursor(img)) { rightResets++; rightResetAt += decided; rightResetLanded += now }
         val refusedNow = lens.refSeen
         if (!refusedNow) { lens.refSeen = kept[0] as Boolean; lens.refMode = kept[1] as Int; lens.refReason = kept[2] as Int; lens.refSeq = kept[3] as Long }
         trace?.invoke("[$now] $arm gets ${subsOf(img).joinToString(" ") { it.take(3).joinToString("") { b -> "%02x".format(b) } }}" +
@@ -1274,6 +1311,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         drainSent()
         traceOutcome()
     }
+    /** K1-2 stage 4b: [img] carries a DISCARD or SETTLE naming list 0 (byte 5 the list, as [setBackUnderShift] reads it). */
+    private fun namesMainCursor(img: ByteArray): Boolean =
+        subsOf(img).any { it[0].toInt() == 26 && it.size > 5 && (it[1].toInt() == 4 || it[1].toInt() == 5) && it[5].toInt() == 0 }
     /** Part BH: RIGHT's present count when the newest message it was handed was refused at the induced LIST after a SET. */
     private var listRefusedPresentR: Long? = null
     /** [img] carries a SET ahead of its refused LIST (the one [lose27] "list" gave count 0). */

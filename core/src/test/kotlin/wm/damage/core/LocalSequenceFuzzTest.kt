@@ -472,6 +472,8 @@ class LocalSequenceFuzzTest {
         atRest(h, failed, counted)
         tapLiveness(h, failed, counted)
         scrollLiveness(h, failed)
+        // K1-2 stage 4b: list 1's reach is the random part's (the end phase opens, binds, taps and leaves it in every one)
+        val reach0 = java.util.TreeMap(h.l1Reach)
         if (h.list1) list1Phase(h, failed, counted)
         // row A's first trigger (declined, declared): does a batch lost on RIGHT alone heal once COMMITs land again?
         if (h.commitMissedRight) {
@@ -516,7 +518,7 @@ class LocalSequenceFuzzTest {
         // K1-2 stage 4b: list 1's reach — per class, one for each sequence that reached it
         if (h.list1) {
             counted[L1_SEQS] = (counted[L1_SEQS] ?: 0) + 1
-            for ((k, c) in h.l1Reach) if (c > 0) counted["$L1 $k"] = (counted["$L1 $k"] ?: 0) + 1
+            for ((k, c) in reach0) if (c > 0) counted["$L1 $k"] = (counted["$L1 $k"] ?: 0) + 1
             if (h.moves.keys.any { it in h.moves1.keys }) counted["$L1 a gesture that moved both lists' rows"] = (counted["$L1 a gesture that moved both lists' rows"] ?: 0) + 1
         }
         val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} held ${h.heldCommits} acts ${h.acts.size} " +
