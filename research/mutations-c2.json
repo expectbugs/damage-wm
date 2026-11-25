@@ -4818,17 +4818,19 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "override fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout",
+    "override fun mainBindLayout(): Layout = if (mode == Mode.MAIN) layout else layoutFor(settings)",
     "override fun mainBindLayout(): Layout = layout"
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
+   "*MainLocalShellTest.aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP",
+   "*WindowListShellTest.mainsStagingIsKept*"
   ],
   "expect": [
-   "aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
+   "aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP",
+   "mainsStagingIsKeptAcrossAWindowOfAnotherHeight_K12S3b"
   ],
-  "note": "decisions BP: behind the clock the shell's layout, not the one the wake brings (both sites) [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now]",
+  "note": "decisions BP: behind the clock the shell's layout, not the one the wake brings (both sites) [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now] [re-pointed by K1-2 stage 3b: Main's own layout wherever Main is not in front]",
   "from": "B083-ms"
  },
  {
@@ -10740,7 +10742,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        val b = if (known == null) mainList else lists.firstOrNull { it.listNo == known } ?: return",
+    "        val b = if (known == null) mainList.takeIf { ev.slot == MainStaging.WRAP_SLOT || windowList.mainBind.stagings == 0 } ?: return\n            else lists.firstOrNull { it.listNo == known } ?: return",
     "        val b = mainList"
    ]
   ],
@@ -10750,7 +10752,7 @@
   "expect": [
    "theWindowListsStepsNeverMoveMainsPeriod_K12S3a"
   ],
-  "note": "pin 14 (BF per list): every slot-0 body goes to Main's measured window, as before stage 3a",
+  "note": "pin 14 (BF per list): every slot-0 body goes to Main's measured window, as before stage 3a [re-pointed by K1-2 stage 3b: a body with no report heard is used for nothing once a window list was staged]",
   "from": "K12S3a"
  },
  {
@@ -11004,5 +11006,193 @@
   ],
   "note": "C3 DW-1aF (V1-DW1a F3): on an exclusive screen the wheel's want is at d 0 - the programs' slot rewritten on entering it and on leaving it (5f21143c's wheelOpenD)",
   "from": "DW-1aF"
+ },
+ {
+  "id": "K12S3b-no-compose-compare",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        else if (mode == Mode.WINDOW) windowList.composeCompare()  // K1-2 stage 3b",
+    "        else if (false) windowList.composeCompare()  // K1-2 stage 3b"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aReorderOnScreen*",
+   "*WindowListShellTest.anAdjustedValue*",
+   "*WindowListShellTest.aListThatDoesNotFit*"
+  ],
+  "expect": [
+   "aReorderOnScreenIsReStagedRowByRowWithTheMarkKept_K12S3b",
+   "anAdjustedValueIsReStagedWithin5sAndTheNextNotchsEndShowsIt_K12S3b",
+   "aListThatDoesNotFitIsTriedAgainOnAContentChange_K12S3b"
+  ],
+  "note": "K1-2 stage 3b (the spec's O5): no compose compare for list 1 — the tree before 3b: a changed row found by the round-robin alone, a refused list never tried again on a content change",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-rows-half-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    if (!same) { differ++; mainBind.differs(row) }",
+    "                    if (!same) { differ++ }"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aReorderOnScreen*"
+  ],
+  "expect": [
+   "aReorderOnScreenIsReStagedRowByRowWithTheMarkKept_K12S3b"
+  ],
+  "note": "K1-2 stage 3b: the rows beside the band not compared — a reorder on screen found by the round-robin alone",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-band-half-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (b != null && b.first === ref && b.second == c && b.third != band) {",
+    "if (b != null && b.first === ref && b.second == c && b.third != band && false) {"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.anAdjustedValue*"
+  ],
+  "expect": [
+   "anAdjustedValueIsReStagedWithin5sAndTheNextNotchsEndShowsIt_K12S3b"
+  ],
+  "note": "K1-2 stage 3b (pin 8): the band's picture not compared — an adjusted value under the band is not re-staged until the round-robin reaches it",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-band-any-row",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (b != null && b.first === ref && b.second == c && b.third != band) {",
+    "if (b != null && b.first === ref && b.third != band) {"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aComposeOfRowsUnchangedMarksNone*"
+  ],
+  "expect": [
+   "aComposeOfRowsUnchangedMarksNone_K12S3b"
+  ],
+  "note": "K1-2 stage 3b: the band compared across a cursor move — every notch marks the row under the band (a row painted again in idle for nothing)",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-refused-content-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (retry) { mainBindRefusedFor = null; refusedRows = null; bandSeen = null; post(Msg.Pump) }",
+    "if (false) { mainBindRefusedFor = null; refusedRows = null; bandSeen = null; post(Msg.Pump) }"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aListThatDoesNotFit*"
+  ],
+  "expect": [
+   "aListThatDoesNotFitIsTriedAgainOnAContentChange_K12S3b"
+  ],
+  "note": "K1-2 stage 3b (pin 6's content half, AF.6): a refused window list never tried again on a content change",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-main-layout-follows-window",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "override fun mainBindLayout(): Layout = if (mode == Mode.MAIN) layout else layoutFor(settings)",
+    "override fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.mainsStagingIsKept*"
+  ],
+  "expect": [
+   "mainsStagingIsKeptAcrossAWindowOfAnotherHeight_K12S3b"
+  ],
+  "note": "K1-2 stage 3b (decisions CX): Main's poll on the shell's layout — the tree before 3b: a window of another height drops Main's staging, and the way back stages it whole",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-title-in-key",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private data class WindowListView(val window: String, val level: Int, val model: ListModel) {",
+    "    private data class WindowListView(val window: String, val level: Int, val model: ListModel, val t: String = \"\") {"
+   ],
+   [
+    "settingsWindow.listLevel() else w.levelDepth(), v.model).also { it.title = w.title() })",
+    "settingsWindow.listLevel() else w.levelDepth(), v.model, w.title()).also { it.title = w.title() })"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aTitleNoticeKeepsTheListBound*"
+  ],
+  "expect": [
+   "aTitleNoticeKeepsTheListBound_K12S3b"
+  ],
+  "note": "decisions CY (the first review of 3a, finding A): the title back in the window list's key — a title notice unbinds and stages an unchanged list again",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-all-changed-row-by-row",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (allChanged === ms) return \"every row on screen",
+    "            if (false) return \"every row on screen"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.everyRowOnScreenChanged*"
+  ],
+  "expect": [
+   "everyRowOnScreenChangedIsANewStaging_K12S3b"
+  ],
+  "note": "decisions CY: every row on screen changed is re-staged a row per 5 s, not made a new staging (another list under the same key)",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-close-any-window-list-change",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            (mode != Mode.WINDOW || frontBefore.list != windowList.listNo || windowList.screenLeft()) &&\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aNoticeOverABoundWindowListInsideTheWaitCutsNothing*"
+  ],
+  "expect": [
+   "aNoticeOverABoundWindowListInsideTheWaitCutsNothing_K12S3b"
+  ],
+  "note": "decisions CY (finding B): a cover, the adjust level, a withdrawal or a drop of the same view over a window list's motion sends a CLOSE ahead of the frame (the motion cut short)",
+  "from": "K12S3b"
+ },
+ {
+  "id": "K12S3b-body-unknown-to-main",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "mainList.takeIf { ev.slot == MainStaging.WRAP_SLOT || windowList.mainBind.stagings == 0 } ?: return",
+    "mainList"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aSlot0BodyWithNoReportHeard*"
+  ],
+  "expect": [
+   "aSlot0BodyWithNoReportHeardMovesNoPeriod_K12S3b"
+  ],
+  "note": "decisions CY (finding C): a slot-0 body whose report was not heard is credited to Main's measured window",
+  "from": "K12S3b"
  }
 ]
