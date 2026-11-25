@@ -444,7 +444,7 @@ class WindowListShellTest {
             val runTo = r.right.size
             assertTrue((3..5).all { e -> r.since(at).take(runTo - at).any { ss -> ss.any { r.isClearOf(it, e) } } }, "the CLEARs of 3–5 by the run's end")
             fun words(ss: List<ByteArray>) = ss.filter { (it[0].toInt() and 0x7F) in setOf(26, 27) }.joinToString(" ") { "${it[0].toInt() and 0x7F}/${it[1]}:" + it.drop(2).take(6).joinToString(",") { b -> "${b.toInt() and 0xFF}" } }
-            assertTrue(r.right.subList(runFrom, runTo).none { img -> r.subs(img).any { r.isSetOf(it, 1) } }, "no SET of list 1 in the run: " +
+            assertTrue(r.right.toList().subList(runFrom, runTo).none { img -> r.subs(img).any { r.isSetOf(it, 1) } }, "no SET of list 1 in the run: " +
                 r.since(at).withIndex().joinToString(" | ") { (i, ss) -> "${if (i + at in runFrom until runTo) "RUN " else ""}${words(ss)}" } +
                 " — local ${r.notes("local").takeLast(6)}; liststage ${r.notes("liststage").takeLast(4)}")
             r.done("Global"); r.windowBound("Global, after the run")
