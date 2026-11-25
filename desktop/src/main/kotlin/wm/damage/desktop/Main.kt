@@ -37,7 +37,7 @@ import wm.damage.core.windows.reader.ReaderWindow
  *
  *   auto     THE DEFAULT — the DATA HOST (HANDOFF.md §19; build W, REPLAN.md
  *            §14): the PHONE SHELL drives; this process serves data (content
- *            host + state sync + replica) and probes the phone's seam on a 5 s
+ *            host + the record + replica) and probes the phone's seam on a 5 s
  *            pacing for its status line. It never takes the glasses by itself:
  *            PC-direct BLE is a manual choice — `--transport ble`, the replica
  *            probe `drive=ble` (back with `drive=auto`) or the PC shell's
@@ -51,7 +51,7 @@ import wm.damage.core.windows.reader.ReaderWindow
  *
  * Whatever the mode: the 1x preview draws the transport's mirror with mouse
  * input, the browser replica is served on `replicaPort`, the content host
- * serves `booksDir` + tmux + sync, and a session keeper restarts any running
+ * serves `booksDir` + tmux + the windows' lanes, and a session keeper restarts any running
  * session after every link end. Other entry points, one at a time:
  *
  *   --selfcheck · --snapshot [DIR] · --epub-check [DIR] · --music-check · --games-check [deep]
@@ -1022,7 +1022,7 @@ private suspend fun hostOnly(cfg: Config) {
     // refusal lines go to the log alone
     val reach = cfg.reachGate { line -> Log.w("reach", line) }
     val tmux = wm.damage.core.windows.tmux.LocalTmuxProvider(cfg.tmuxHostList(), cfg.tmuxConfig(), scope)
-    // host-only still syncs (§19.2): the store is the data, no shell needed
+    // the PC store: the migrations still to run read it (no shell in host-only)
     val store = Persistence(Path.of(cfg.dataDir).resolve("state.json"))
     store.load()
     val filesLocal = wm.damage.core.windows.files.LocalFilesProvider(
@@ -1052,16 +1052,12 @@ private suspend fun hostOnly(cfg: Config) {
     wm.damage.core.shell.SettingsMigration.onHost(appHost, store) { }
     val noticeCore = wm.damage.core.app.NoticeCore.atProcessStart(appHost,
         { wm.damage.core.shell.SettingsCore.onHost(appHost).quietHours }, null)
-    // build S1-2 (Q4): Torrents' rows from before its conversion, then its parts on the lane and its notices, as in
-    // runShell (host-only has no presenter: the core serves the web and raises the notices)
-    wm.damage.core.windows.torrents.TorrentsMigration.onHost(appHost, store) { }
+    // build S1-2 (Q4): Torrents' parts on the lane and its notices, as in runShell (host-only has no presenter: the
+    // core serves the web and raises the notices)
     torrentsParts(appNet, appHost, torrents, noticeCore)
-    // build S1-3 (B7, B16): Feed's state from before its conversion, then its parts on the lane and its notices
-    wm.damage.core.windows.feed.FeedMigration.onHost(appHost, store) { }
+    // build S1-3 (B7, B16): Feed's parts on the lane and its notices
     val feedScopes = feedParts(appNet, appHost, feed, noticeCore)
-    // build S1-3 (B15, B16): Tmux's rows from before its conversion, then its parts on the lane and its alerts, as in
-    // runShell (host-only has no presenter)
-    wm.damage.core.windows.tmux.TmuxMigration.onHost(appHost, store) { }
+    // build S1-3 (B15, B16): Tmux's parts on the lane and its alerts, as in runShell (host-only has no presenter)
     tmuxParts(appNet, appHost, tmux, noticeCore)
     // build S1-4 (K): Music's state from before its conversion, then its parts (the PC's player, the relay, the door);
     // the player writes its place at the process's end
@@ -1074,10 +1070,8 @@ private suspend fun hostOnly(cfg: Config) {
     gamesParts(appNet, appHost)
     Runtime.getRuntime().addShutdownHook(Thread({ endMusic(musicParts, appHost) }, "damage-music-end"))
 
-    // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
-    // Files on the PC record: the one job slot every PC caller meets (the phone's glasses through the window channel,
-    // the web's program ops), its scopes, ops, blobs and card on the lane; host-only has no presenter
-    wm.damage.core.windows.files.FilesMigration.onHost(appHost, store) { }
+    // build S1-2 (Q5): Files on the PC record: the one job slot every PC caller meets (the phone's glasses through the
+    // window channel, the web's program ops), its scopes, ops, blobs and card on the lane; host-only has no presenter
     val hostUploads = webUploads(cfg) { line -> Log.i("uploads", line) }
     val filesPc = wm.damage.core.windows.files.FilesPc(appHost, filesLocal, cfg.booksDir, hostUploads, FilesThumbs::jpeg)
     filesPc.serveOn(appNet)
@@ -1091,7 +1085,7 @@ private suspend fun hostOnly(cfg: Config) {
     Log.i("damage", "Reader's core on the PC record (${readerCore.window}); no presenter in host-only")
     val health = startHealth(appNet, appHost, noticeCore, watcher, alerts, readerCore, Path.of(cfg.dataDir), scope)   // R-b H1
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
-        tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store),
+        tmux = tmux,
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
             "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrents),
             "feed" to wm.damage.core.windows.feed.FeedService(feed),
@@ -1108,7 +1102,7 @@ private suspend fun hostOnly(cfg: Config) {
     watcher.start()
     presence.start()
     cfg.nightlyCopy(alerts, scope).also(health::copy)?.start()
-    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + feed + bastion + icons + app on :${cfg.contentPort}; Ctrl-C to stop")
+    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + files + torrents + music + feed + bastion + icons + app on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
 
@@ -1128,9 +1122,8 @@ class DesktopStack(
      *  the phone through the content host). Null only in tools that need no
      *  tmux window. */
     private val tmux: wm.damage.core.windows.tmux.TmuxProvider? = null,
-    /** The ONE process-wide state store (§19.2): shared with the content
-     *  host's sync channel, so a stack and the sync peer see the same
-     *  records. Null builds a private store (tools). */
+    /** The ONE process-wide view store, shared by every stack. Null builds a
+     *  private store (tools). */
     private val sharedStore: Persistence? = null,
     /** The process-wide filesystem provider (Files window; also served to the
      *  phone through the content host). Null in tools. */
@@ -1140,8 +1133,7 @@ class DesktopStack(
     /** The process-wide torrents provider (TORRENTS.md) — qBittorrent + the
      *  tracker; also served to the phone through the content host. */
     private val torrents: wm.damage.core.windows.torrents.TorrentsProvider? = null,
-    /** The process-wide music library (MUSIC.md) — the local window mirrors
-     *  the phone's player over the synced record; null in tools. */
+    /** The process-wide music library (MUSIC.md); null in tools. */
     private val music: wm.damage.core.windows.music.MusicLibrary? = null,
     /** The process-wide feed engine (FEED.md §3.6) — the local window reads
      *  it directly; the phone reads it over the window channel. Null in tools. */
@@ -1377,15 +1369,10 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     // modes (sim | ble | remote) disable it for the run of that mode
     val standbyOn = java.util.concurrent.atomic.AtomicBoolean(mode == "auto")
 
-    // The ONE process-wide state store (§19.2): the sync channel and every
-    // stack share it, so records agree by construction. Loaded now — standby
-    // must serve real records with no shell running.
+    // The ONE process-wide view store: every stack shares it. Loaded now, before the migrations read it and before
+    // any stack's shell starts.
     val store = Persistence(Path.of(cfg.dataDir).resolve("state.json"))
     store.load()
-    val syncPeer = wm.damage.core.sync.SyncPeer(store, applier = { k, v, t ->
-        val sh = stackRef.get()?.shell
-        if (sh == null || !sh.postSync(k, v, t)) store.tryApplyRemote(k, v, t)
-    })
 
     // The process-wide tmux provider: the local shell's window and the phone
     // (through the content host) both feed from it; it outlives stack switches.
@@ -1405,7 +1392,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val filesLocal = wm.damage.core.windows.files.LocalFilesProvider(
         Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), AwtImages())
 
-    // The PC always serves its library + tmux + sync + files + icons — the
+    // The PC always serves its library + tmux + files + icons — the
     // DATA PROVIDER role (§19.1) — whoever is driving the glasses.
     // The process-wide torrents provider (TORRENTS.md): the local window and
     // the phone's (over the win channel) share its poll loop and event log,
@@ -1470,22 +1457,17 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     readerCore.refreshLibrary()
     val readerSource = wm.damage.core.app.LocalWindowSource(readerCore,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
-    // build S1-2 (Q4): Torrents' rows from before its conversion become record items where the record holds none (a
-    // `migrate` note says so), before any presenter reads them; then its parts on the lane and its notices (`torrentsParts`), and
-    // the source every stack's glasses presenter reads (device `local`)
-    wm.damage.core.windows.torrents.TorrentsMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    // build S1-2 (Q4): Torrents' parts on the lane and its notices (`torrentsParts`), and the source every stack's
+    // glasses presenter reads (device `local`)
     val torrentsScopes = torrentsParts(appNet, appHost, torrentsProvider, noticeCore)
     val torrentsSource = wm.damage.core.app.LocalWindowSource(torrentsScopes.core,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
-    // build S1-3 (B7, B16): Feed's state from before its conversion becomes record items where the record holds none,
-    // before any presenter reads them; then its parts and notices (`feedParts`), and the source every stack's glasses read
-    wm.damage.core.windows.feed.FeedMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    // build S1-3 (B7, B16): Feed's parts and notices (`feedParts`), and the source every stack's glasses read
     val feedScopes = feedParts(appNet, appHost, feedEngine, noticeCore)
     val feedSource = wm.damage.core.app.LocalWindowSource(feedScopes.core,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
-    // build S1-3 (B15, B16): Tmux's rows from before its conversion (a `migrate` note), then its parts on the lane and its
-    // alerts (`tmuxParts`), and the source every stack's glasses presenter reads (device `local`)
-    wm.damage.core.windows.tmux.TmuxMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    // build S1-3 (B15, B16): Tmux's parts on the lane and its alerts (`tmuxParts`), and the source every stack's glasses
+    // presenter reads (device `local`)
     val tmuxScopes = tmuxParts(appNet, appHost, tmuxProvider, noticeCore)
     val tmuxSource = wm.damage.core.app.LocalWindowSource(tmuxScopes.core,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
@@ -1503,11 +1485,9 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val gamesSource = wm.damage.core.app.LocalWindowSource(gamesCore,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
 
-    // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
-    // Files on the PC record: the one job slot every PC caller meets (every stack's glasses, the phone's glasses
-    // through the window channel, the web's program ops), its scopes, ops, blobs and card on the lane; each stack's
-    // presenter reads Files' records through a source of its own (`SlottedFiles.pc`)
-    wm.damage.core.windows.files.FilesMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    // build S1-2 (Q5): Files on the PC record: the one job slot every PC caller meets (every stack's glasses, the
+    // phone's glasses through the window channel, the web's program ops), its scopes, ops, blobs and card on the lane;
+    // each stack's presenter reads Files' records through a source of its own (`SlottedFiles.pc`)
     val shellUploads = webUploads(cfg) { line ->
         Log.i("uploads", line)
         Journal.appendNote(journalFile, "uploads", line)
@@ -1518,7 +1498,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
 
     val health = startHealth(appNet, appHost, noticeCore, bastionWatcher, alertStore, readerCore, dataDir, tmuxScope)   // R-b H1
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
-        tmux = tmuxProvider, sync = syncPeer,
+        tmux = tmuxProvider,
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
             "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsProvider),
             "feed" to wm.damage.core.windows.feed.FeedService(feedEngine),

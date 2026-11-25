@@ -90,8 +90,10 @@ off the executor and swapped in whole, so no apply waits behind it (today one lo
    said. Another device's input never moves a glasses view he is reading (§2.6).
 4. **An op into an outside program** (tmux, the torrent client, the filesystem, the tracker, the hub) cannot apply
    locally: the first flush draws the level change and the op cell's "sent" (today's `setOperation` cell); the change
-   follows from the PC. With the PC out of reach (§9.3's paced ping) the action is dim and says "PC not answering since
-   14:02"; nothing is queued. One mode, as ruled (§14.3 #1): "out of reach" only means the PC has not answered yet.
+   follows from the PC. With the PC out of reach nothing is queued or lost: Tmux's keys and Torrents' actions are sent,
+   fail and say so ("sending y failed: …" in Tmux's title, "starting failed: …" in Torrents), with no dim state before;
+   Feed's refresh and browse say "PC not answering". One mode, as ruled (§14.3 #1): "out of reach" only means the PC
+   has not answered yet.
 
 Taking a Hold'em lease (§2.7) is the one gesture whose result waits on the PC, and it is new. No timeout enters a
 Bluetooth, render or input path: the ten-minute repeat, the paced ping and an approval request's life are pacing or
@@ -242,16 +244,14 @@ one copy (§14.2). The line, fixed here for every window (§12 gives each field)
 |---|---|---|
 | `id`, `name`, `icon` | string, string, icon name | each presenter maps the name (the glasses to today's `IconKind`) |
 | `title` | text | the short context line (`DESIGN.md` §4.1) |
-| `minLevel` | view · control · full | the level a device needs to open the window at all (Tmux full, Files full), checked by the PC (§10.5) |
+| `min` | view · control · full | the level a device needs to open the window at all (Tmux full, Files full), checked by the PC (§10.5) |
 | `summary` | Summary (§3.2) | staleness as fields, not text (`BASTION.md` F18) |
-| `attention` | `{count, reason}` or none | replaces `dirty` (`S/WindowContract.kt:47`) |
-| `availability` | `live` · `stale{since}` · `unavailable{reason}` | replaces `needs` (`:63,200`) |
+| `availability` | `live` · `loading` · `waiting` · `away` · `unavailable`, with a `reason` when not live | replaces `needs` (`S/WindowContract.kt`); the glasses' tick stays `dirty` |
 | `levels` | kinds `collection` · `document` · `canvas` · `form` · `actions` | instances fetched by address (§5); each names its `rest` row, the harmless cursor rest (`DESIGN.md` §1.7) |
 | `current`, `settings`, `jobs`, `search` | anchor · rows (§6) · Job (§3.2) · index name | `current` is the shared item where one exists (the book read most recently, now playing); `jobs` replaces `setOperation`'s text; `search` serves `INTERFACES.md` W-05 |
 
-As built (S1-1 to S1-3): the level field is `min`; `availability` is `live` or `unavailable` (Reader, Files; Reader
-also `loading`) and `live`, `waiting` or `away` (Torrents, Feed, Tmux), with a `reason` when not live; no window sends
-`stale{since}` or `attention` (`C/app/PcScopes.kt`, each `XCore`'s describe).
+Which window sends which (`C/app/PcScopes.kt`, each `XCore`'s describe): Reader and Files `live` or `unavailable`
+(Reader also `loading`); Torrents, Feed and Tmux `live`, `waiting` or `away`; Games and Settings `live`.
 
 ### 3.2 Content kinds
 
@@ -300,8 +300,8 @@ Damage's own extraction (`W/reader/Epub.kt:373-417`), so its anchor carries the 
 Feed's blocks dropped emphasis and links: S1-3 added spans, links and the source URL without changing the extracted
 text (a golden file of every fixture page holds it), so saved offsets keep their meaning · an album is name + artist (today it filters by name,
 `W/music/MusicWindow.kt:616,974`) · a per-output setting is keyed by name + kind, never Android's per-connection device
-id (`W/music/MusicModel.kt:168-173`) · Settings' navigation is per interface (today it syncs,
-`S/SettingsWindow.kt:363-367`) · `notifySms`/`notifyMail` have no row or producer (`S/ShellSettings.kt:123-124`): dropped.
+id (`W/music/MusicModel.kt:168-173`) · Settings' navigation is per device, in its own store
+(`S/SettingsWindow.kt`) · `notifySms`/`notifyMail` had no row or producer: dropped (S1-5).
 
 ## 4. Actions
 
@@ -389,14 +389,16 @@ percent-encoded. Cursors and scroll are stored only as anchors, never as indices
 | Bastion | `sys:<kind>`, `alert:<rule>#<episode>`, `cam:<n>`, `series:<key>@<span>` | — |
 | any | `notice:<id>` | — |
 
-Identities: Reader's book id hashes the PC path (`C/content/Content.kt:94-97`) and a moved file keeps its records
-through a content-hash alias recorded at rescan (§14 (b); not built: a moved book gets a new id, `HANDOFF.md` §80.8);
+Identities: Reader's book id hashes the PC path (`C/content/Content.kt:94-97`): a book file moved or renamed gets a new
+id and starts at its beginning, its old place staying under the old id (§14 (b));
 Files rows are folder + name; Tmux sessions (host, name); Torrents the hash; Feed items the 16-hex hash of source +
 guid (`W/feed/FeedModel.kt:151`); queue entries `<stream>.<n>.<k>`.
 
 ## 6. Settings
 
-A row: `{id, label, category, scope, type choice · number · bool · text, options[{id, label}], value, level, tags}`.
+A row: `{id, label, category, scope, type, options[{id, label}], value, default, level, tags}`; `type` is `choice` ·
+`number` (with its range `from`, `to`, `step`) · `bool` · `set` (several of its options at once, its value a list: a
+transition tier's checked effects) · `text`.
 
 | scope | one copy where | examples |
 |---|---|---|
@@ -417,8 +419,9 @@ A row: `{id, label, category, scope, type choice · number · bool · text, opti
 - **Power-saving rows** (§14.1 R12: nice by default, power saving as settings) are ordinary rows tagged `power`, kept
   with what they slow — the glasses' under Glasses, a device's under that device, an app's (Tmux pace, Torrents poll,
   Feed images) under the app. A "Power saving" view lists every tagged row; every default is the nicer value.
-- Today `shell.settings` mixes glasses rows with shared ones in one synced record (`S/ShellSettings.kt:13-131`) and each
-  window keeps its rows in its whole-window blob; S1 splits both by scope (§9.7).
+- The shell's settings are the PC record's items, one per stored field (`rec.settings.<field>`, each app's style
+  `rec.settings.app.<id>`; `S/SettingsCore.kt`), and each converted window's rows are its own record items; with one
+  phone the scope is a tag on the row, not a separate store (S1-5).
 
 ## 7. Notices
 
@@ -465,8 +468,9 @@ companion's menu since buttons vanish under do-not-disturb (`INTERFACES.md` X-08
 by an urgent record until acknowledged and by a camera on a detection outside quiet hours (§15 C3). A client pops only
 records raised after its **notice cursor** — a cursor of its own, apart from the record's `seq` and the sources'
 versions (§9.3); on first contact it adopts and lists, never pops old ones (the Torrents rule,
-`W/torrents/TorrentsNet.kt:229-247`). **Quiet hours** (one shared row, §6) hold `NORMAL` records and release them
-together at the end; `URGENT` passes. As built in W (APK 0.66, the watcher's notices and "home unreachable" only): each
+`W/torrents/TorrentsNet.kt:229-247`). **Quiet hours** (one shared row, §6) hold the `NORMAL` records the PC raises
+and release them together at the end; `URGENT` passes. A notice the phone raises itself (Music, Reader, Games, the
+shell's own) shows on the glasses only and is not held: the glasses are in their case overnight. As built in W (APK 0.66, the watcher's notices and "home unreachable" only): each
 still-raised alert is released once, its text saying since when; a `NORMAL` clear inside the hours is dropped and its
 phone notification cancelled silently; a phone restart releases at its first answer from the PC. **An urgent alert repeats every ten minutes until acknowledged** (§15 D4); a
 repeat schedule on the PC is pacing, not a timeout. No rule depends on which interface he is using. A window's
@@ -489,7 +493,7 @@ PC raises the record right after the status push that carries the waiting sessio
   schedule, not a timeout. The occurrence id is deterministic, so the PC's raise lands on the same record; the phone
   sends `delivered(id, occurrence, at)` and the PC does not deliver it again. A duplicate is said, never a miss (L-47).
   Every "PC out of reach" decision rests on §9.3's paced ping, never on a failed write (a half-open link goes unnoticed
-  for "the hours TCP keepalive takes", `C/sync/SyncNet.kt:301-302`).
+  for the hours TCP keepalive takes).
 - Bus alerts are the PC's alone: the phone shows its last table with its age and offers no action (`BASTION.md` B-49).
 
 ## 8. Live values and viewers
@@ -626,34 +630,30 @@ record, persists `snap` and changes, and sends its queue as ordinary `op`s after
 S1, §8), its `iface` reports for the glasses and the app screen, and its live subscriptions (Tmux frames, the PC
 player's position).
 
-### 9.7 What replaces today's stamped-store sync, and when
+### 9.7 The record's store, the migrations and each device's own store
 
-Today two stamped stores sync per key, last write wins, the loser refused with no word outside a 2 s tolerance
-(`S/Persistence.kt:190-215`; `HANDOFF.md` §19.1 rule 5), retired for the design by §14.2; each store is one JSON file
-written whole and asynchronously (`S/Persistence.kt:290-315`), 2 s after an input (`S/Shell.kt:2459-2462`). In S1:
+Each device keeps its own view store (`state.json`, `S/Persistence.kt`: cursors, levels, local caches and the shell's
+copy of its settings), one JSON file written whole and asynchronously, 2 s after an input; nothing in it travels
+between devices. Shared state is the PC record:
 
-1. **The first piece** builds the PC record (`record.json`, written by the record's saver only through `Persistence`'s
-   atomic write; `{v, epoch, items, covered}`, keys `rec.<window>.<item>` holding `v` or `gone`, `by`, `at`) behind an
-   **append-only operation journal** (`oplog.jsonl`): one line per op `{seq, op, eff, ans}`, written before the answer
-   and before the change is published; the whole store saved from it on pacing (temp-and-move); a start replays only the
-   lines past `covered` (a line's effect only), and `oplog.jsonl` is set aside whole at a process start once a save
-   covers it and it is past 64 MiB or holds a bad line, never deleted. A 0.67 file is read as it stands (its `streams`,
-   `colls`, `rev`, `na`, `hw`, `expect` and `base` passed over); `record.seq` is no longer read or written (left on
-   disk). `record.json` and `devices.json` are in the nightly copy, `oplog.jsonl` never; the core executor, §9.2's
-   wire, the device table, and the phone's working-copy store with its queue file (§2.3).
-2. **Each window's conversion** takes its keys off the sync channel (`syncable()`, `S/Persistence.kt:335-336`, stops
-   matching `window.<id>`). `hello` carries a contract version per window; while PC and phone differ for a window, Main
-   and the window's status line say "PC and phone on different builds for Reader", and the window waits until both
-   match (its subscriptions and ops are refused `contract`; each host runs it from its own copy). Nothing more is built
-   for different builds, downgrades or deploy orders: a conversion is deployed as one of his sittings, the PC deploy and
-   the APK install together. Torrents', Files', Feed's, Tmux's and Music's rows (Music's queue and place too, the
-   place stopped) from before their conversion are written once,
-   on the PC, where the record holds none, from the PC store's
-   synced `window.<id>` records, as ops of device `migration` stamped with the record's time (L1);
-   no ledger, no phone half. Unconverted windows sync as today; nothing new is built into the sync channel.
-3. **The last conversion** removes `SyncNet`, `RemoteSync` and the stamps; `shell.settings` is split by scope (§6) and
-   `shell.state` is the glasses' interface row (§2.6). `SyncTest`, `SyncToleranceTest` and the stamp parts of
-   `SubstrateTest` retire with what they pin, replaced by tests of §2.4.
+1. **The record** (`record.json`, written by the record's saver only through `Persistence`'s atomic write; `{v, epoch,
+   items, covered}`, keys `rec.<window>.<item>` holding `v` or `gone`, `by`, `at`) behind an **append-only operation
+   journal** (`oplog.jsonl`): one line per op `{seq, op, eff, ans}`, written before the answer and before the change is
+   published; the whole store saved from it on pacing (temp-and-move); a start replays only the lines past `covered` (a
+   line's effect only), and `oplog.jsonl` is set aside whole at a process start once a save covers it and it is past
+   64 MiB or holds a bad line, never deleted. A 0.67 file is read as it stands (its `streams`, `colls`, `rev`, `na`,
+   `hw`, `expect` and `base` passed over); `record.seq` is no longer read or written (left on disk). `record.json` and
+   `devices.json` are in the nightly copy, `oplog.jsonl` never; the core executor, §9.2's wire, the device table, and
+   the phone's working-copy store with its queue file (§2.3).
+2. **Each window's contract version** travels in `hello`; while PC and phone differ for a window, Main and the window's
+   status line say "PC and phone on different builds for Reader", and the window waits until both match (its
+   subscriptions and ops are refused `contract`; each host runs it from its own copy). Nothing more is built for
+   different builds, downgrades or deploy orders: a build is deployed as one of his sittings, the PC deploy and the APK
+   install together.
+3. **The migrations.** A window's rows from before its conversion are written once, on the PC, where the record holds
+   none, from the PC store's `window.<id>` blob and its sub-keys (`shell.settings` for Settings), as ops of device
+   `migration` at the PC's clock; no ledger, no phone half (`C/app/Migrate.kt`). Music's, Settings' and Games' stay
+   until they have run on his PC; Torrents', Files', Feed's and Tmux's have run and are removed.
 
 ## 10. Access — one model, stated once
 
@@ -739,7 +739,7 @@ nothing guards read-only, low-value content, and no new account, token or step i
 
 | listener (role) | host | reach after §15 A1 (built in W for the rows that exist today) | credential |
 |---|---|---|---|
-| the content port: book, icon, tmux, sync and window lanes (`bastion` among them), and the new `app` lane | PC | loopback, tailnet, bus network | the shared token, as today (its holder is his phone, at full); on loopback the local secret for `local` |
+| the content port: book, icon, tmux and window lanes (`bastion` among them), and the `app` lane | PC | loopback, tailnet, bus network | the shared token, as today (its holder is his phone, at full); on loopback the local secret for `local` |
 | the music media endpoint | PC | loopback, tailnet, bus network | the shared token, as today |
 | the setup page | PC | the gate's reach first, then its own tailnet-or-loopback check, as today | none for the page; the shared token on its APK route, as today |
 | the browser replica, with its input, probe, journal and log routes | PC and phone | the host's reach | the shared token, as today (the tools carry it unchanged) |
@@ -784,7 +784,6 @@ window through `tools/glassdrive.py` when he is there (`REMINDER.md`: every glas
 | the index-to-anchor resolution | K's list presenter | one shared helper for every glasses presenter, so K removes one thing |
 | menus and confirms fed from actions into `MenuSurface` and today's confirm shapes | K's popover family (`POPOVER.md` §4) | the actions and confirm specs are final; only the drawing goes |
 | glasses renditions as named blobs | K may keep or move them | today's code behind a name; nothing new |
-| the sync channel, kept for unconverted windows | removed at S1's end | nothing new built into it, and no bridge between old and new keys (§9.7) |
 | the watcher's phone half (`RemoteBastion`, its Android reconcile), built before S1 | the generic mirror and notice delivery | the watcher is built to this contract's rules where they are already fixed: its table, notification tags and `ack{id, episode}` as an action on the alert in §7.1's shape; its epoch kept in the alert store, never the process start (§9.3); the phone's rows (`Phone · alerts`, `Home unreachable`, and from package F `Presence · location`) in the phone's own preferences from the start (§6); the one shared Quiet hours row (§6), built once, in Global beside `Notify · Damage` — so S1 swaps the carrier and keeps the model (built in W, APK 0.66, `HANDOFF.md` §79) |
 | the web client, window by window | S2 lays it out for the TV and the phone screen | one client rendering the vocabulary kind by kind, its data behind the `WindowSource` seam (§9.1); per-window code only for canvases |
 
@@ -795,7 +794,7 @@ Every converted window draws through its `XGlasses` adapter and menus through `M
 | today | stays with the glasses presenter | moves to the core | replaced by |
 |---|---|---|---|
 | `DamageWindow.id`, `name`, `title()`, `summary(): Summary` | | ✓ | `WindowDesc.id`, `name`, `title`; Summary with `asOf`, `counts`, `availability` (§3.2) |
-| `icon: IconKind`, `dirty`, `needs: Set<Need>` | the drawn kind; the drawn tick | ✓ | an `icon` name, `attention`, `availability` (§3.1) |
+| `icon: IconKind`, `dirty`, `needs: Set<Need>` | the drawn kind; the drawn tick | ✓ | an `icon` name, `availability` (§3.1); the tick stays `dirty` |
 | `view(): WindowView` | ✓ built from the source + view state | | |
 | `styleTransform`, `styledText()`, `preferredHeight`, `contentPlanes()`, `onLayoutChanged()`, `onFontScaleChanged()`, `paintExclusive()`, `onExclusive()` | ✓ (`preferredHeight` becomes a glasses-scope row) | | |
 | `appSettings(): List<HostSetting>` | `HostSetting` as the glasses' drawing of a row | ✓ | `SettingRow` with id and scope (§6) |
@@ -828,12 +827,12 @@ glasses-scope (§6).
 
 | window | owner · copy · away | levels · items | actions | settings | notices · health |
 |---|---|---|---|---|---|
-| **Main** | PC; working copy; away: the working copies' summaries and the PC windows' last ones with their ages — today's "unavailable offline" becomes the last state with its age, his ruling (§14.3 #2), not a regression | one collection: item `{window id, name, icon, summary, attention, availability}`, plus the Reminders headline (`INTERFACES.md` W-28); cursor = window id (an index today, `S/Shell.kt:6262`) | open (v) | Presence, rest, lens (glasses) | — |
+| **Main** | PC; working copy; away: the working copies' summaries and the PC windows' last ones with their ages — today's "unavailable offline" becomes the last state with its age, his ruling (§14.3 #2), not a regression | one collection: item `{window id, name, icon, summary, availability}`, plus the Reminders headline (`INTERFACES.md` W-28); cursor = window id (an index today, `S/Shell.kt:6262`) | open (v) | Presence, rest, lens (glasses) | — |
 | **Settings** | PC; working copy; away: every row | categories → rows → adjust (staging per interface); anchors `cat:`, `row:` | set a row (r, C; ⏸ for shared and glasses rows; device rows stay local); action rows become actions | — | — |
 | **Reader** | PC, which parses books to serve blocks and percent (it serves bytes only today, `C/content/Content.kt:270-307`); working copy with the whole shelf; away: full | shelf (folders nest) → chapters → book (document) → actions; book `{id, title, author, bytes, folder, fraction}`, folder, chapter `{title, anchor}`; as built (S1-1), the PC's reader index (`reader-index.json`, a cache read one book at a time with no image bytes) gives each card its `fraction` and `cover`, and the book's level its chapters `{title, anchor}` | open (v; sets the book read most recently), the place (r, ⏸, position, level view as built; written only by input), bookmark here (r, C as built, ⏸; it gains a book id, `W/reader/ReaderGlasses.kt:199,1007`), jump (v), rescan (r), reset progress (i, C, ⏸, cancel first as built) | Scroll step, Scroll accel, Size (glasses) | answers only |
-| **Tmux** | PC; **min F** (§15 A2); as built (S1-3) the record holds only `alerts` (absent = on), `mute.<host>/<name>`, `glasses.size` (absent = 480, 0 = global) and `glasses.context`; sessions, windows, host health and the served keys are the PC's source state; frames, the stream and history are live or one-shot (§3.4); the phone keeps the last list and frame in memory (no disk mirror: S1-5); away: that state with its age, keys dim with the reason, a mute applies and queues | sessions → live (terminal) ⇄ history → keys · snippets · windows · session actions; `desc/tmux` `{summary, sessions[{host, name, windows, attached, activity (PC ms), waiting, lastLine, muted}], hosts[{name, health{state ok · quiet · failing, error?, lastOkMs}}], keys{quick, snippets}, actions, settings, asOf}`; a device below full gets nothing of a session (Main's card, any level, carries the summary line: session names) | all F; program ops, never queued, on ONE thread per PC so they reach tmux in arrival order: `key{key}` (a served name), `snippet{snippet}`, `line{text}` (text then Enter; the typed-line confirm is the interface's), `raw{data}` (the desk terminal's bytes: printable runs `send-keys -l --`, the rest `-H`, one exec), `new` (targets `[host]`, answers `{name}`), `rename{text}` (answers `renamed{from, to}`), `end`, `select{window}`; every `send-keys` argument's final `;` escaped once for tmux and key names after `--`; record ops `mute` (r, ⏸) and `set` (the rows). Fit pane stays the glasses' | Alerts (shared), Context rows, Size (glasses); Update (the glasses' own, one capture pace per PC) | the waiting edge, raised once on the PC by the status poll that runs with no viewer, thread `host/session`, gated by Alerts and the mute; its body carries no pane content (§7.3); host health as a value (§8) |
+| **Tmux** | PC; **min F** (§15 A2); as built (S1-3) the record holds only `alerts` (absent = on), `mute.<host>/<name>`, `glasses.size` (absent = 480, 0 = global) and `glasses.context`; sessions, windows, host health and the served keys are the PC's source state; frames, the stream and history are live or one-shot (§3.4); the phone keeps the last list and frame in memory (no disk mirror: S1-5); away: that state with its age; a key is sent, fails and says so in the title ("sending y failed: …"), nothing queued; a mute applies and queues | sessions → live (terminal) ⇄ history → keys · snippets · windows · session actions; `desc/tmux` `{summary, sessions[{host, name, windows, attached, activity (PC ms), waiting, lastLine, muted}], hosts[{name, health{state ok · quiet · failing, error?, lastOkMs}}], keys{quick, snippets}, actions, settings, asOf}`; a device below full gets nothing of a session (Main's card, any level, carries the summary line: session names) | all F; program ops, never queued, on ONE thread per PC so they reach tmux in arrival order: `key{key}` (a served name), `snippet{snippet}`, `line{text}` (text then Enter; the typed-line confirm is the interface's), `raw{data}` (the desk terminal's bytes: printable runs `send-keys -l --`, the rest `-H`, one exec), `new` (targets `[host]`, answers `{name}`), `rename{text}` (answers `renamed{from, to}`), `end`, `select{window}`; every `send-keys` argument's final `;` escaped once for tmux and key names after `--`; record ops `mute` (r, ⏸) and `set` (the rows). Fit pane stays the glasses' | Alerts (shared), Context rows, Size (glasses); Update (the glasses' own, one capture pace per PC) | the waiting edge, raised once on the PC by the status poll that runs with no viewer, thread `host/session`, gated by Alerts and the mute; its body carries no pane content (§7.3); host health as a value (§8) |
 | **Files** | PC; **min F** (§10.4); mirror (today's ≤200 listings); away: cached with age; the clipboard, sort and hidden apply and queue | locations → browse (paged) → view (document, or images) · trash; location `{path, label, kind, total, free}`, entry `{name, dir, size, mtime}`, trash entry `{id, name, origPath, size, at, missing?}` (`missing`: its file is not in the trash — a trash cut off before the file arrived; Restore refuses it with the reason, Delete forever clears it, and the page offers only Delete forever) | open, open in Reader (v; answers an address), open on the desk (send-to the companion), copy and cut (r, ⏸; the clipboard is shared), sort and hidden (r, ⏸; shared, `INTERFACES.md` §3), paste, rename, new folder, upload (jobs; never replaces, §9.4), to trash and restore (r), delete forever (i, double confirm), download (v), stats (a job). **One job at a time per PC**, with progress; a busy refusal names the job that holds the slot and, once its last progress is a minute old, "no progress for N min". **The supervisor** (on the PC's 2 s pacing tick) ends a job that writes nothing and has made no progress — an upload ticket whose body has not begun after 2 min (its ticket goes with it), a stats after 10 min — as failed, "ended by the supervisor: no progress for N min", and frees the slot and the surface that asked; **a job that moves, copies, trashes, restores, deletes or renames is never ended by it**. An upload's body bytes are its progress. **The trash folder** is written only by trash, restore and delete forever: rename, a move in or out, a copy into, a new folder and an upload at or under it are refused with the reason ("use Restore or Delete forever"); listing it is served. **Trash** writes its manifest row (forced to disk) before it moves the file; a failed move takes the row away again. A manifest that cannot be read refuses trash, restore and delete forever with the reason and is never overwritten or set aside. **A file moved across volumes** is copied to a hidden temporary name beside its destination, forced to disk, placed under its real name without replacing anything (a hard link that refuses an existing name), and only then is its source deleted; a failure deletes only what the move made. A single file's copy goes through the same temporary name. A folder copy makes its destination itself first, so its failure deletes only what it made. A file-system check that cannot tell whether a name exists refuses, never reads as "absent" | Size (glasses) | answers |
-| **Torrents** | PC; mirror (the cached snapshot); away: snapshot with age, actions dim, its recents apply and queue | transfers (cursor follows the hash) → details · categories → listing (paged, count unknown) → torrent page (NFO mono) → add; transfer (23 typed fields, `W/torrents/TorrentsModel.kt:13-57`), tracker item, category, file | start, stop, recheck (r, C, many), delete keeping files (i, C, confirm), delete with files (i, F, double), search, browse, account (o, F; search unconfirmed, its recorded exemption, `TORRENTS.md` §3.1), add, add stopped (o, F, confirm), open in Files (v; dim below full), open on the desk (r, F; send-to; full because it opens a file with the desktop's own opener); a fast poll for any `focus` viewer, and in S1 the idle snapshots go on feeding the speed sparkline (§8) | Notify · done, · errors (shared), Poll (device), Size (glasses) | done and error, raised once on the PC, thread = hash; the torrent client's reach as a value (§8) |
+| **Torrents** | PC; mirror (the cached snapshot); away: snapshot with age; an action is sent, fails and says so ("starting failed: …"), nothing queued; its recents apply and queue | transfers (cursor follows the hash) → details · categories → listing (paged, count unknown) → torrent page (NFO mono) → add; transfer (23 typed fields, `W/torrents/TorrentsModel.kt:13-57`), tracker item, category, file | start, stop, recheck (r, C, many), delete keeping files (i, C, confirm), delete with files (i, F, double), search, browse, account (o, F; search unconfirmed, its recorded exemption, `TORRENTS.md` §3.1), add, add stopped (o, F, confirm), open in Files (v; dim below full), open on the desk (r, F; send-to; full because it opens a file with the desktop's own opener); a fast poll for any `focus` viewer, and in S1 the idle snapshots go on feeding the speed sparkline (§8) | Notify · done, · errors (shared), Poll (device), Size (glasses) | done and error, raised once on the PC, thread = hash; the torrent client's reach as a value (§8) |
 | **Music** | PC; working copy (queue, catalog, prefetched and pinned tracks); away: the phone's player, then Spotify after the tracks run out | now playing (canvas) → queue, browse, artists, albums, vocab, playlists, folder, recent, results, YouTube, seek (the catalog paged) · info (document); queue entry `{entry id, track}`, track `{id, title, artist, album, durMs, genre, hasLyrics}`, artist, album (name + artist), playlist `{id, name, origin, adaptive, count, updatedAt}`, term, YouTube result | play, pause, seek, volume (r, C; ⏸ only when the output is this device's own player, else they need the PC), next, previous (r, C; the active player's host advances, §2.7), boost, sleep (r, C, the active output), move output (r, C; §2.7), add, play next, move, remove (r, C, ⏸; program ops applied by the host that plays, play next at its current entry), play now, replace, clear (i, C, ⏸; the same; confirms as built), playlist save, rename, delete (i, C; delete double), Ask, YouTube, lyrics search (o, F), lyric offset (r, per output), pre-transcode, rescan (r, jobs) | six Notify rows, default mode, lyric sources (shared); output rows (§6); visualizer, Music Mode, Size (glasses) | raised by the glasses' presenter from its player's events, as built (the track notice keeps working away from home; `W/music/MusicGlasses.kt`), and shown only when Music is not in front there; the PC raises one of its own, "the PC output played until 15:10" |
 | **Games** | PC; working copy; the table leased (§2.7); away: a table the phone holds | games → tables → table (canvas) · standings → character · bankroll · history (documents); table kind `{id, label, entry, fee, blinds}` (dim when unaffordable), character `{id, name, worth, state, career}` | sit down (i, C, ⏸, confirm; a table started away is held by the device that started it), check, fold, call, bet, raise, all-in (i, C, holder only, log kind, confirm per the device's Confirm row), deal, skip the pace (holder), the economy's character and bankroll writes (log kind, holder), cash out, refill (i, confirm), continue here (C; takes the lease; its confirm says what is dropped if the holder is out of reach) | Confirm, Bot pace, Deal animation (device); archetype labels, three Notify rows (shared); Size (glasses) | bust, won, return, raised by the holder |
 | **Feed** | PC (one engine; the phone's own fetching retired in S1-3, §14 (a) row 1); the phone keeps what it loaded in memory (no disk cache: S1-5); away: that state under "PC unreachable since H:MM", reads, flags, pins and places apply and queue, refresh, browse and anything not loaded say "PC not answering" | sources → items (paged, 50 rows, cursor by id) → article, comments (documents, §3.2) · comic · binge (paged sequence) · actions · flagged; as built the record holds `read.<src>` (the source's read ids, the 600 newest, one register), `flag.<item>` (`{t, l, s, p, k, a}`, so a pruned item still lists), `seen.<src>`, `place` (`{item, b, o, v}`: the open article, block, offset, extractor version — one register), `binge.<src>` (`{ep, f, s, w}`; `s` the glasses' strip, used only at `w`), `pin.<src>`, `recent.reddit`, `recent.slashdot`; source `{id, kind, name, binge, transient, pinned, count, newCount, version, lastOkMs, lastFetchMs, health{state ok · limited · failing, host?, failLine?, failSinceMs?, retryAtMs?}, bingeTotal?}` | `read`, `seen`, `place`, `binge` (v; a read carries the time he opened the item; a place written only by input), mark read, unread, mark all read (C; each writes the source's whole list), flag, unflag, pin, unpin, `set` (C, ⏸), `recent` (F), refresh, browse (o, F, program ops, never queued), the original page's link (v, big screens, §15 B5; http or https only) | Fetch, Keep, three Notify rows (shared); Images (device); xkcd, SMBC and 8-Bit art, Comic levels, Size (glasses) | new items per source (§7.3), raised once by the PC's core from the engine's changes; a fetch in flight 5 min is ended, said on the source's health and tried again at its next due time; health per source, as values (§8) |
@@ -963,7 +962,8 @@ succeeds · (c) the guard's identity · (d) other tasks reaching it · (e) one r
   approves itself on loopback (L1); every other first approval comes from it or the command line — not trust on first
   use from any network.
 - Torrents' delete keeping files at control — not full (no account, no file write).
-- A moved book keeps its records through a content-hash alias — not a new book identity (every record would move).
+- A moved or renamed book gets a new id and starts at its beginning, its old place under the old id — not a
+  content-hash alias (rare in real use; the cost is finding a page again).
 - "Open on PC" as send-to the companion — not the headless service setting `DISPLAY` itself.
 - The web terminal attaches with `ignore-size` — not `window-size manual` (a change to his tmux setup).
 - Tmux quick keys stay unconfirmed on the glasses, as built — a change is K's verdict, not S1's.

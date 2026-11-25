@@ -81,29 +81,17 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
     abstract fun saveState(): JsonObject
     abstract fun restoreState(state: JsonObject)
 
-    /** The LIVE-sync arrival of this window's main record — same contract as
-     *  [restoreState] (the default delegates), but the window may treat the
-     *  incoming record as the NEWER authority where boot restore must not
-     *  (R2#7: Reader's transitional legacy-offsets merge needs skip-if-present
-     *  at boot and overwrite on live apply — LWW already ruled the incoming
-     *  record newer than the stored main key). */
-    open fun restoreStateLive(state: JsonObject) = restoreState(state)
-
     /**
      * Per-ITEM state records (EXPLOSION §16.4a, agreed 2026-09-01): sub-key →
-     * blob, saved and SYNCED individually as `window.<id>.<subKey>` so two
-     * drivers touching DIFFERENT items (two books, two games) never clobber
-     * each other under last-write-wins — a whole-blob record would. Sub-keys
-     * are stable item identifiers ("book.<id>"). The shell writes a TOMBSTONE
-     * (an empty object) for any stored sub-key this map no longer contains, so
-     * removals (a progress reset) sync too; [restoreSubState] receiving an
-     * empty object treats it as removal. Keep it cheap — called on every save.
+     * blob, saved individually as `window.<id>.<subKey>` in this device's
+     * store. Sub-keys are stable item identifiers ("book.<id>"). The shell
+     * removes any stored sub-key this map no longer contains (and that it
+     * reported this session). Keep it cheap — called on every save.
      */
     open fun saveSubState(): Map<String, JsonObject> = emptyMap()
 
-    /** One sub-record arriving — at restore (before the loop runs) or LIVE
-     *  from sync (on the loop; the shell repaints after when this window is
-     *  focused). An empty [state] is the removal tombstone. */
+    /** One sub-record at restore (before the loop runs). An empty [state] is
+     *  the removal mark an older build left in the store: treat it as removed. */
     open fun restoreSubState(subKey: String, state: JsonObject) {}
 
     /**

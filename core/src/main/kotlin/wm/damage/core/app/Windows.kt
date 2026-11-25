@@ -9,7 +9,7 @@ import wm.damage.core.windows.torrents.TorrentsCore
  * Each entry is what every host knows of a window without its running parts — its id and title, its contract version,
  * the actions the record judges, the level each action needs, the level the window needs, and which of its actions go
  * into an outside program (never queued, `(conn, k)`). `AppHost.WINDOWS`/`LEVELS`/`minLevel`, `Contracts.MINE` and
- * the mismatch line's titles, and `Persistence`'s converted windows (their keys leave the sync channel) read it.
+ * the mismatch line's titles read it.
  *
  * The running half of a window on the PC — its PC-served scopes, its program handler and its card on Main — is handed
  * to the `app` lane by the host builders (`AppNet.serve`), as those parts are made from the host's providers.
@@ -73,9 +73,6 @@ object Windows {
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }
 
     fun entry(window: String): Entry? = BY_ID[window]
-
-    /** True when [window] is converted: its keys never sync, its state is the PC record's. */
-    fun converted(window: String): Boolean = window in BY_ID
 
     /** Each converted window's contract version (the `app` lane's `hello` and `welcome`). */
     val VERSIONS: Map<String, Int> = ALL.associate { it.id to it.version }

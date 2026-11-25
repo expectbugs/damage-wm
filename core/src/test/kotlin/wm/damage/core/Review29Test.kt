@@ -116,6 +116,9 @@ class Review29Test {
             val text = ScaledFake()
             val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
             val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope, HELD_CLOCK)
+            // the settings through a record in memory (the phone's arrangement): the scale is set there, as a page sets it
+            val settingsRecord = wm.damage.core.app.MemoryRecord(wm.damage.core.shell.SettingsCore.ACTIONS)
+            shell.settingsSource = wm.damage.core.app.LocalWindowSource(wm.damage.core.shell.SettingsCore(), settingsRecord)
             val win = RowsWindow(text)
             shell.register(win)
             shell.start()
@@ -124,7 +127,10 @@ class Review29Test {
             assertEquals(Layout.ROW_H, shell.layout.rowH)
             assertEquals(Layout.LENS_H, shell.layout.lensH)
 
-            assertTrue(shell.postSync("shell.settings", ShellSettings(fontScale = 1.3).toJson(), System.currentTimeMillis()))
+            settingsRecord.executor.call {
+                for (d in wm.damage.core.shell.SettingsCore.diff(ShellSettings(), ShellSettings(fontScale = 1.3)))
+                    settingsRecord.submit(wm.damage.core.shell.SettingsCore.WINDOW, d)
+            }
             await("130 % applied") { shell.settings.fontScale == 1.3 }
             shell.postGesture(EvenHubMsg.EV_CLICK)                 // Main row 0 = the window
             await("the window opens") { shell.currentWindowId() == "rows" }

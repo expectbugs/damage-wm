@@ -935,23 +935,6 @@ class TmuxGlasses(
         put("paceMs", paceMs)
     }
 
-    /** A LIVE-synced record needs the activation follow-up boot gets from
-     *  onActivate (R3d#2): a target swap without resubscribe() leaves the
-     *  frame listener filtering every push — the pane freezes on the old
-     *  target's last frame under the new session's title. Only while FOCUSED
-     *  (R4#2): a parked window resubscribing is the orphan capture poll —
-     *  1 Hz ssh execs all day for a pane nobody on this machine watches;
-     *  onActivate re-asserts on focus. And the frame blanks only when the
-     *  TARGET changed — every peer-side save otherwise flashed a watched
-     *  pane to "capturing…". */
-    override fun restoreStateLive(state: JsonObject) {
-        val before = target
-        restoreState(state)
-        if (target != before) frame = null
-        if (active && target != null) resubscribe()   // the R6#1 rule (post-restore: LIVE or SESSIONS only)
-        services?.requestRender(this)
-    }
-
     override fun restoreState(state: JsonObject) {
         paceMs = ((state["paceMs"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 1_000L)
             .coerceIn(250, 30_000)

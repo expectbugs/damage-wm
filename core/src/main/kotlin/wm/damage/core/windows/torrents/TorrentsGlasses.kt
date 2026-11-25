@@ -1631,35 +1631,6 @@ class TorrentsGlasses(
         fromSource(source.state())
     }
 
-    /** A live-synced record (§16.4; S1-2 Q4: no longer called in a host — Torrents' keys left the sync channel —
-     *  kept for a shell that applies a record directly): the same restore, then the reload the
-     *  boot path leaves to activation happens NOW — the window may be the
-     *  focused one and would otherwise sit on a header with no file list
-     *  until the user leaves and returns (review 2026-09-01 W2). */
-    override fun restoreStateLive(state: JsonObject) {
-        val keepDetail = detail?.takeIf { it.hash == state["openHash"]?.jsonPrimitive?.contentOrNull }
-        val keepPage = tlDetail?.takeIf { it.fid == state["openFid"]?.jsonPrimitive?.contentOrNull }
-        restoreState(state)
-        // a snapshot is already at hand: resolve the restored cursor NOW, not
-        // on the next changed snapshot — on the phone that can be minutes (R3-P4)
-        snap?.let { s -> if (s.transfers.isNotEmpty()) resolvePendingCursor(s) }
-        if (active) provider.setFocused(true, pollMs)            // a synced Poll change applies now (R2-W15)
-        // the same item's content survives the apply: only the position moves
-        if (keepDetail != null) { detail = keepDetail; detailState = ""; applyPendingDocTop() }
-        if (keepPage != null) { tlDetail = keepPage; tlDetailState = ""; pendingTlDocTop?.let { tlDocModel.topLine = it; pendingTlDocTop = null } }
-        // an UNFOCUSED window reloads on its next activation, not on every
-        // peer save (R2-W5): a tracker page per save, and op words painted
-        // onto whoever is focused, were the cost of reloading blind
-        if (services == null || !active) return
-        needsReload = false
-        when (level) {
-            Level_.DETAILS -> if (keepDetail == null) openHash?.let { loadDetail(it) }
-            Level_.LISTING -> loadNextPage()
-            Level_.TORRENT -> if (keepPage == null) openFid?.let { loadTorrent(it) }
-            else -> {}
-        }
-    }
-
     companion object {
         const val HIST = 8
         const val RECENTS = 10

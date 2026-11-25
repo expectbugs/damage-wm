@@ -469,32 +469,25 @@ def check(root=ROOT, say=print):
     line('BastionService(alerts, watcher::stateLine, scope, presence)' in host,
          'hostOnly: the bastion channel carries the phone\'s presence reports to damage.phone', 'its BastionService(…) is not given presence')
 
-    # build S1-2 (Q5): Files on the PC record in both builders — its old records migrated first, then one FilesPc whose
-    # slotted provider every PC caller receives (the window channel's FilesService, the stacks' glasses), its parts
+    # build S1-2 (Q5): Files on the PC record in both builders — one FilesPc whose slotted provider every PC caller receives (the window channel's FilesService, the stacks' glasses), its parts
     # served on the lane before the web listener starts, its blobs and its upload op on the listener's uploads
     def files_in_builder(body, uploads):
         b = body or ''
-        order = ['FilesMigration.onHost(appHost, store)', 'FilesPc(appHost, filesLocal, cfg.booksDir, %s, FilesThumbs::jpeg)' % uploads,
+        order = ['FilesPc(appHost, filesLocal, cfg.booksDir, %s, FilesThumbs::jpeg)' % uploads,
                  'filesPc.serveOn(appNet)', 'val filesProvider = filesPc.slotted', 'ContentHostServer(', 'startWeb(']
         at = [b.find(s) for s in order]
         i = b.find('startWeb(')
         args = call_args(b, i + len('startWeb')) if i >= 0 else ''
         return (all(x >= 0 for x in at) and at == sorted(at) and '"files" to wm.damage.core.windows.files.FilesService(filesProvider)' in b
                 and bool(args) and (', %s,' % uploads) in args and 'FilesBlobs.PREFIX to filesPc.blobs' in args)
-    line(files_in_builder(run, 'shellUploads'), 'runShell: Files migrated, then on the PC record behind its one slot (window channel, stacks, lane, blobs, uploads)',
-         'the FilesMigration.onHost → FilesPc(…) → serveOn → filesProvider = filesPc.slotted → ContentHostServer → startWeb(… uploads, blobs) chain is broken')
-    line(files_in_builder(host, 'hostUploads'), 'hostOnly: Files migrated, then on the PC record behind its one slot (window channel, lane, blobs, uploads)',
-         'the FilesMigration.onHost → FilesPc(…) → serveOn → filesProvider = filesPc.slotted → ContentHostServer → startWeb(… uploads, blobs) chain is broken')
+    line(files_in_builder(run, 'shellUploads'), 'runShell: Files on the PC record behind its one slot (window channel, stacks, lane, blobs, uploads)',
+         'the FilesPc(…) → serveOn → filesProvider = filesPc.slotted → ContentHostServer → startWeb(… uploads, blobs) chain is broken')
+    line(files_in_builder(host, 'hostUploads'), 'hostOnly: Files on the PC record behind its one slot (window channel, lane, blobs, uploads)',
+         'the FilesPc(…) → serveOn → filesProvider = filesPc.slotted → ContentHostServer → startWeb(… uploads, blobs) chain is broken')
     line('files = filesProvider' in run and '(it as? wm.damage.core.windows.files.SlottedFiles)?.pc' in stack_init
          and 'pc.glassesSource()' in stack_init and 'filesGlasses?.detach()' in stack_init and 'filesSource?.close()' in stack_init,
          'DesktopStack: Files\' glasses on the PC record through the slotted provider runShell hands it, left at the stop',
          'no files = filesProvider in runShell, or no SlottedFiles.pc / pc.glassesSource() / filesGlasses?.detach() / filesSource?.close() in DesktopStack')
-    # L1 M1: the migration runs on the PC only
-    got = callers(root, 'FilesMigration', 'onHost')
-    line(got == sorted([('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
-                        ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')]),
-         'FilesMigration.onHost is called from the two PC starts (runShell, hostOnly) only',
-         'called from ' + (', '.join('%s (%s)' % c for c in got) or 'nowhere'))
 
     # 5. who calls the two start-only functions
     want = {('Journal', 'rotateAtStart'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell'),
@@ -524,23 +517,16 @@ def check(root=ROOT, say=print):
             # PC, never once per stack or from a tool); the phone raises nothing into the record
             ('NoticeCore', 'atProcessStart'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
                                                ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
-            # build S1-2 (Q4): Torrents' records from before its conversion migrate at the PC's two starts, before any
-            # presenter reads them; its parts on the lane and its notices (raised once per PC process, from the
-            # provider's events, its ring replayed) are made there too — never per stack, never from a tool
-            ('TorrentsMigration', 'onHost'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
-                                              ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            # build S1-2 (Q4): Torrents' parts on the lane and its notices (raised once per PC process, from the
+            # provider's events, its ring replayed) are made at the PC's two starts — never per stack, never from a tool
             ('Main', 'torrentsParts'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
                                         ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
-            # build S1-3 (B7, B16): Feed's state from before its conversion migrates at the PC's two starts, before any
-            # presenter reads it; its core, scopes and notices are made there too — never per stack, never from a tool
-            ('FeedMigration', 'onHost'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
-                                          ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            # build S1-3 (B7, B16): Feed's core, scopes and notices are made at the PC's two starts — never per stack,
+            # never from a tool
             ('Main', 'feedParts'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
                                     ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
-            # build S1-3 (B15, B16): Tmux's rows from before its conversion migrate at the PC's two starts, and its parts
-            # (scopes, keys, live sources, the alerts raised once per PC process) are made there — never per stack or tool
-            ('TmuxMigration', 'onHost'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
-                                          ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            # build S1-3 (B15, B16): Tmux's parts (scopes, keys, live sources, the alerts raised once per PC process) are
+            # made at the PC's two starts — never per stack or tool
             ('Main', 'tmuxParts'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
                                     ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
             ('LocalSecret', 'ensure'): [('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'atProcessStart')],
@@ -549,9 +535,7 @@ def check(root=ROOT, say=print):
             ('DeviceCli', 'run'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'main')]}
     said_as = {'InstanceLock': 'two PC starts (runShell, hostOnly)', 'AppHost': 'two PC starts (runShell, hostOnly)',
                'WebAccess': 'two PC starts (runShell, hostOnly)', 'Main': 'two PC starts (runShell, hostOnly)',
-               'NoticeCore': 'two PC starts (runShell, hostOnly)', 'TorrentsMigration': 'two PC starts (runShell, hostOnly)',
-               'FeedMigration': 'two PC starts (runShell, hostOnly)',
-               'TmuxMigration': 'two PC starts (runShell, hostOnly)',
+               'NoticeCore': 'two PC starts (runShell, hostOnly)',
                'LocalSecret': 'start\'s access state (and the device commands\' client)', 'DeviceCli': 'command line\'s main'}
     for (owner, name), expect in want.items():
         got = callers(root, owner, name)

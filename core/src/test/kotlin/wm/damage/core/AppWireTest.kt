@@ -28,8 +28,6 @@ import wm.damage.core.app.Cursor
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
 import wm.damage.core.net.WinService
-import wm.damage.core.shell.Persistence
-import wm.damage.core.sync.SyncPeer
 import wm.damage.core.util.Log
 
 /**
@@ -207,15 +205,15 @@ class AppWireTest {
         assertEquals("err", AppWire.type(keep(RawLane(on.port, token = "", local = "local-secret-test", lane = false)).next()))
     }
 
-    /** An old client never asks for the lane: every other lane answers on a host that serves it, as before. */
+    /** An old client never asks for the lane: every other lane answers on a host that serves it, as before. Since S1's
+     *  close the old sync lane is gone: a 0.84 phone's first sync frame is refused in band ("unknown request"), which
+     *  its client takes as a host without the lane (it says so once, then asks again at its pacing). */
     @Test
     fun theOtherLanesStillAnswerOnTheSameHost() {
         val echo = object : WinService {
             override fun request(op: String, args: JsonObject) = WinService.Answer(buildJsonObject { put("op", op) })
         }
-        val rec = RecordRig()
-        val store = Persistence(rec.dir.resolve("state.json"))
-        val rig = keep(AppLaneRig(rec, sync = SyncPeer(store), win = mapOf("echo" to echo)))
+        val rig = keep(AppLaneRig(RecordRig(), win = mapOf("echo" to echo)))
         fun lane(vararg frames: JsonObject): JsonObject = loopback(rig.port).use { s ->
             val o = DataOutputStream(s.getOutputStream().buffered())
             val i = DataInputStream(s.getInputStream().buffered())
@@ -227,9 +225,9 @@ class AppWireTest {
         val miss = lane(buildJsonObject { put("t", "get"); put("id", "no-such-book") })
         assertEquals("err", AppWire.type(miss))
         assertTrue((miss["detail"] as JsonPrimitive).content.startsWith("book no-such-book"), "$miss")
-        assertEquals("syncok", AppWire.type(lane(buildJsonObject {
-            put("t", "sync"); put("clock", 1L); put("stamps", buildJsonObject {})
-        })))
+        val sync = lane(buildJsonObject { put("t", "sync"); put("clock", 1L); put("stamps", buildJsonObject {}) })
+        assertEquals("err", AppWire.type(sync))
+        assertTrue((sync["detail"] as JsonPrimitive).content.startsWith("unknown request 'sync'"), "$sync")
         assertEquals("wup", AppWire.type(lane(buildJsonObject { put("t", "win"); put("win", "echo") })))
         assertEquals("welcome", AppWire.type(lane(AppWire.hello("s1", mapOf("t" to 1)))))
     }
