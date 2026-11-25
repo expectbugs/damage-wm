@@ -2192,7 +2192,9 @@ and aux1 must be 0 (5). The source is then the record's rows aux0 .. aux0 + aux1
 record's row aux0 + r — drawn at (x, y) as any source, its height h = aux1 for the row map and the anchors (§6.6's H
 rule does not read h). The read range is the
 whole record's (§5.6). With a kind-2 parameter (c'·pitch + arg, §6.2) substituted into aux0 (pref 16), a bound program
-draws one row of a strip — the leaving or entering row of a list, scaled or not (Flip and Crush on any list).
+draws one row of a strip — the leaving or entering row of a list, scaled or not (Main's Crush, its leaving row parked
+and then grown from one pixel row; a window's list for every effect, its leaving and entering rows in the band,
+unscaled, §7.11). Flip draws no source window: on Main it turns the band forms, and a window's list plays Depth for it.
 
 No immediate mode for the two-axis draw or the window is added (mode 28 stands as §6.6 has it).
 
@@ -2653,18 +2655,18 @@ the largest period; the phone may refuse more than it does, from field 34 per ve
 | Main's pan, strip 30 KB | 2.21 M | 2.41 M | 2.60 M | 2.79 M | 65 % |
 | Main's Crush (the strip windows counted whole) | 2.19 M | 2.46 M | 2.72 M | 2.99 M | 62 % |
 | Main's Crush, strip 30 KB | 2.66 M | 2.92 M | 3.19 M | 3.46 M | 56 % |
-| a window list's pan, today's form, strip 40 KB | 3.94 M | 4.15 M | 4.35 M | 4.56 M | 43 % |
+| a window list's pan in Main's form (the strip walked whole; a window's list is never staged so), strip 40 KB | 3.94 M | 4.15 M | 4.35 M | 4.56 M | 43 % |
 | a window list's pan, window form | 1.81 M | 2.22 M | 2.64 M | 3.05 M | 61 % |
-| a window list's Crush (window form) | 2.33 M | 2.82 M | 3.32 M | 3.81 M | 52 % |
+| a window list's Crush in the window form (none is made: asked for Crush, a window's list plays Slide, §7.11) | 2.33 M | 2.82 M | 3.32 M | 3.81 M | 52 % |
 | Warp out (SHRINK both axes) / in (DRAW `new`, two axes) | 2.40 / 2.03 M | 2.93 / 2.48 M | 3.46 / 2.93 M | 3.99 / 3.38 M | 50 % |
 | Encode out (dim + cells) / in (cells over `new`) | 1.37 / 1.00 M | 1.70 / 1.25 M | 2.03 / 1.49 M | 2.35 / 1.74 M | 70 % |
 | Encode out at 512 cells | 3.17 M | 3.29 M | 3.41 M | 3.54 M | 55 % |
 | Matrix out / in (53 × 8) | 2.35 M | 2.39 M | 2.43 M | 2.47 M | 69 % |
 
 Every designed program keeps at least 20 % of the cap at every height. A transition's two halves count as the larger
-(the chain rule above); summed, Warp at 480 would be 7.37 M, 8 % short of the cap. Today's form of a window list's pan
-(the strip walked whole) keeps 20 % up to a strip of ≈ 64 KB at 480; the window form's cost does not grow with the
-list's length.
+(the chain rule above); summed, Warp at 480 would be 7.37 M, 8 % short of the cap. A window list's pan in Main's form
+(the strip walked whole) would keep 20 % up to a strip of ≈ 64 KB at 480; the window form, the one a window's list is
+staged in, does not grow in cost with the list's length.
 
 **What a step costs (modeled from the measured figures above):**
 
