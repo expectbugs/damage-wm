@@ -58,7 +58,8 @@ class WindowListShellTest {
          *  stays light while the strip passes the space below the wheel's block: refused for its space. */
         @Volatile var ink = false
         /** K1-2 stage 4i: these rows drawn as noise in runs of ONE pixel across their whole rect (neighbours always differ:
-         *  the level's parity follows x + y) — strip rows the segment padding cannot pad. */
+         *  the level's parity follows x + y), from the rect's corner as a real row's paint is — so a row painted where the
+         *  phone shows it draws what its row form drew — strip rows the segment padding cannot pad. */
         @Volatile var ink1: IntRange = IntRange.EMPTY
         /** Its own rows in its Settings category (beside the shell's style rows), each an On/Off row of a real-looking name. */
         @Volatile var appRows = 0
@@ -79,8 +80,8 @@ class WindowListShellTest {
                 val k0 = order?.getOrNull(i) ?: i
                 if (ink && i in 10 until 20) for (y in r.y until r.y + r.h) for (x in r.x until r.x + r.w)
                     g[x, y] = (((k0 * 73856093) xor ((x shr 1) * 19349663) xor (y * 83492791)) ushr 5 and 15) * 17
-                else if (i in ink1) for (y in r.y until r.y + r.h) for (x in r.x until r.x + r.w)
-                    g[x, y] = ((((k0 * 73856093) xor (x * 19349663) xor (y * 83492791)) ushr 5 and 7) * 2 + ((x + y) and 1)) * 17
+                else if (i in ink1) for (y in 0 until r.h) for (x in 0 until r.w)
+                    g[r.x + x, r.y + y] = ((((k0 * 73856093) xor (x * 19349663) xor (y * 83492791)) ushr 5 and 7) * 2 + ((x + y) and 1)) * 17
                 else for (k in 0..(k0 % 5)) g.fillRect(r.x + 12 + k * 22 + (k0 * 7) % 40, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
             { g, r, i -> g.fillRect(r.x + 4, r.y + 4, 8 + (i * 13) % 200, r.h - 8, 255) }, {})
         override fun summary() = if (heavy) Summary("M@W#".repeat(24), detail = "detail of $name", more = true) else Summary("summary of $name", detail = "detail")
