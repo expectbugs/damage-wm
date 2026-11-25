@@ -1,6 +1,7 @@
 package wm.damage.core
 
 import java.nio.file.Files
+import org.junit.Rule
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -36,6 +37,8 @@ import wm.damage.core.wire.EvenHubMsg
  * sweep's everReported guard.
  */
 class ReviewRound1Test {
+    /** Stage OP: the "Open on PC" of every real provider here — a test opens nothing on the PC. */
+    @get:Rule val pc = NoPcOpen()
 
     private suspend fun awaitTrue(what: String, ms: Long = 20_000, cond: () -> Boolean) {
         waitUntil(ms, 25, { "did not converge: $what" }) { cond() }
@@ -47,7 +50,7 @@ class ReviewRound1Test {
     fun readTextNeverSplitsAUtf8Character(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-utf8")
         try {
-            val p = LocalFilesProvider(tmp.resolve("b"), tmp.resolve("t"), null,
+            val p = LocalFilesProvider(tmp.resolve("b"), tmp.resolve("t"), opener = pc, decoder = null,
                 mountsFile = tmp.resolve("nm"))
             // 3-byte chars (€, U+20AC): any maxBytes not divisible by 3 lands
             // mid-character without the boundary trim

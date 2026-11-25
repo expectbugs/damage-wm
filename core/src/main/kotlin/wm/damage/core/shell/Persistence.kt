@@ -31,23 +31,27 @@ class Persistence(private val file: Path) {
 
     private val lock = Any()
     private var loaded: MutableMap<String, Rec> = HashMap()
-    /** The first [load]'s verdict; null until it ran. */
-    private var loadVerdict: Boolean? = null
-    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+    /** True once the first [load] ran. */
+    private var loadedOnce = false
 
     /**
      * Reads the file into memory, at the first call only: the hosts load at their start, before anything writes. A
      * later call (the shell loads at every session start, over the same store) keeps memory — it holds every write,
-     * landed on disk or not — and answers the first call's verdict. No file: false, memory empty. A file that does not
-     * parse is kept beside it as `.bad`, loudly, and memory starts empty; the next save writes a new file.
+     * landed on disk or not. No file: memory empty. A file that does not parse is kept beside it as `.bad`, loudly,
+     * and memory starts empty; the next save writes a new file.
      */
-    fun load(): Boolean = synchronized(lock) {
-        loadVerdict ?: readFile().also { loadVerdict = it }
+    fun load() {
+        synchronized(lock) {
+            if (loadedOnce) return
+            loadedOnce = true
+            readFile()
+        }
     }
 
     /** The first [load]: the file's records into memory. Under the lock. */
-    private fun readFile(): Boolean {
-        val verdict = if (!Files.exists(file)) false else try {
+    private fun readFile() {
+        if (!Files.exists(file)) return
+        try {
             val root = json.parseToJsonElement(Files.readString(file)).jsonObject
             check(root["__v"]?.jsonPrimitive?.longOrNull == 2L) { "not a version-2 state store" }
             val recs = root["records"]?.jsonObject ?: JsonObject(emptyMap())
@@ -55,7 +59,6 @@ class Persistence(private val file: Path) {
                 val o = e.jsonObject
                 Rec(o["v"]!!.jsonObject, o["t"]?.jsonPrimitive?.longOrNull ?: 0L)
             }
-            true
         } catch (e: Exception) {
             // an unreadable store must not stop boot — but it must be LOUD, and the bad file is kept for post-mortem
             Log.e("persist", "state store unreadable — kept as .bad; this start begins from defaults", e)
@@ -65,9 +68,7 @@ class Persistence(private val file: Path) {
             } catch (m: Exception) {
                 Log.e("persist", "could not preserve corrupt store", m)
             }
-            false
         }
-        return verdict
     }
 
     fun get(key: String): JsonObject? = synchronized(lock) { loaded[key]?.value }
@@ -77,32 +78,17 @@ class Persistence(private val file: Path) {
     fun keysWithPrefix(prefix: String): List<String> =
         synchronized(lock) { loaded.keys.filter { it.startsWith(prefix) } }
 
-    /** Local write. Notifies ONLY when the value changed. */
+    /** Local write; an equal value keeps its record (and its time). */
     fun put(key: String, state: JsonObject) {
-        val changed = synchronized(lock) {
-            val old = loaded[key]
-            if (old != null && old.value == state) return@synchronized false
-            loaded[key] = Rec(state, System.currentTimeMillis())
-            true
+        synchronized(lock) {
+            if (loaded[key]?.value != state) loaded[key] = Rec(state, System.currentTimeMillis())
         }
-        if (changed) notify(key)
     }
 
-    /** Removes [key] (a sub-record its window no longer holds, S1-5 §4.8); notifies when it was held. */
+    /** Removes [key] (a sub-record its window no longer holds, S1-5 §4.8). */
     fun remove(key: String) {
-        val removed = synchronized(lock) { loaded.remove(key) != null }
-        if (removed) notify(key)
+        synchronized(lock) { loaded.remove(key) }
     }
-
-    private fun notify(key: String) {
-        for (l in listeners) try { l(key) } catch (e: Exception) {
-            Log.e("persist", "change listener for '$key' failed", e)
-        }
-    }
-
-    /** [l] fires with the key after every value change and removal. Called on the writer's thread — keep it cheap. */
-    fun addListener(l: (String) -> Unit) { listeners.add(l) }
-    fun removeListener(l: (String) -> Unit) { listeners.remove(l) }
 
     /** Every write goes through ONE thread in submission order, so an
      *  asynchronous save and a later synchronous one land in order per

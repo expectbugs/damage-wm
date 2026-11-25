@@ -189,9 +189,8 @@ data class SpotifyNow(val title: String = "", val artist: String = "", val album
 
 /**
  * The player's whole state (§6.2). Volatile fields (position, outputs, link
- * age) are refreshed on ticks; [persistable] strips them for the synced
- * sub-record `window.music.player`, so the desktop mirror and a re-installed
- * APK resume the same queue. Never auto-plays on boot (verdict 9).
+ * age) are refreshed on ticks; [persistable] is the state without them.
+ * Never auto-plays on boot (verdict 9).
  */
 @Serializable
 data class PlayerState(
@@ -229,8 +228,7 @@ data class PlayerState(
     val entry: QueueEntry? get() = queue.getOrNull(index)
     val track: TrackRef? get() = entry?.track
 
-    /** The synced record: everything but the volatile fields. Position is
-     *  kept coarse (every 10 s and on every change — the player's rule). */
+    /** Everything but the volatile fields. */
     fun persistable(): JsonObject {
         val slim = copy(outputs = emptyList(), pcLink = PcLink(), spotify = null, problem = "", listenerGranted = false)
         return musicJson.encodeToJsonElement(serializer(), slim) as JsonObject

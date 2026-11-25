@@ -66,7 +66,9 @@ class WheelResidentTest {
 
     /** One act's record: its label, each lens's content rows at its end (CRC-32 of the rows between the bars, 4bpp), and —
      *  not compared, for the report — the bytes and images each lens took in it (the wheel's own writes apart). */
-    private class Act(val label: String, val endL: Long, val endR: Long, val bytes: Int, val images: Int, val wheel: List<String>, val kinds: Set<String>) {
+    private class Act(val label: String, val endL: Long, val endR: Long, val bytes: Int, val images: Int, val wheel: List<String>, val kinds: Set<String>,
+                      /** C3 DW-1b-1: a SET of list 2 in the act; the lists other SETs named; the entries CLEARed. */
+                      val sets2: Boolean = false, val otherSets: Set<Int> = emptySet(), val clears: Set<Int> = emptySet()) {
         val line: String get() = "# $label: end L %08x R %08x".format(endL, endR)
     }
 
@@ -130,7 +132,10 @@ class WheelResidentTest {
             val kinds = ls.filter { !wheelWrite(it) }.flatMap { subs(it) }
                 .filter { s -> !(s.size == 10 && s[0].toInt() == 26 && s[1].toInt() == 5 && s[5] == 0xFF.toByte()) }
                 .map { s -> (s[0].toInt() and 0x7F).let { m -> if (m == 26 || m == 27) "$m/${s[1]}" else "$m" } }.toSortedSet()
-            out += Act(label, l, r, ls.filter { !wheelWrite(it) }.sumOf { it.size }, ls.count { !wheelWrite(it) }, ls.filter { wheelWrite(it) }.map { "${it.size} B" }, kinds)
+            val table = ls.filter { !wheelWrite(it) }.flatMap { subs(it) }.filter { (it[0].toInt() and 0x7F) == 27 }
+            out += Act(label, l, r, ls.filter { !wheelWrite(it) }.sumOf { it.size }, ls.count { !wheelWrite(it) }, ls.filter { wheelWrite(it) }.map { "${it.size} B" }, kinds,
+                sets2 = table.any { it[1].toInt() == 0 && it[5].toInt() == 2 }, otherSets = table.filter { it[1].toInt() == 0 && it[5].toInt() != 2 }.map { it[5].toInt() }.toSet(),
+                clears = table.filter { it[1].toInt() == 1 }.map { it[2].toInt() and 0xFF }.toSet())
         }
         act("open (the chord)", EvenHubMsg.EV_RING_LONG_PRESS, EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, EvenHubMsg.EV_DOUBLE_CLICK)
         assertTrue(shell.switcherIsOpen, "$height: the chord opens the wheel")
@@ -163,13 +168,14 @@ class WheelResidentTest {
     }
 
     /**
-     * DW-1a's "nothing bound": at stage 5 with the block resident, the switcher's open, turns, commit and cancel leave each
-     * lens's content rows as they left them on the base before DW-1a (`wheelwire/stage5-h<height>.txt`, recorded on the base
-     * `fe1a7b93` by this test's first run there: a missing file is written under `build/wheelwire/` and the test fails), and
-     * nothing in them binds the wheel — no message of the bound lists' (mode 27) or the engine's (mode 26) that the base's
-     * acts did not send either, and of the block's writes none while the wheel is open; after the commit (a new order) the
-     * item table's only. (The messages themselves are not compared byte for byte: on this paced link two runs of the base
-     * differed in how the flushes fell and where the atlas placed a glyph — the session's history, not the switcher's.)
+     * DW-1a's acts at stage 5, re-pointed by DW-1b-1 (the wheel bound): with the block resident the switcher's open, turns,
+     * commit and cancel leave each lens's content rows as they left them on the base before DW-1a (`wheelwire/stage5-h<height>.txt`,
+     * recorded on the base `fe1a7b93` by this test's first run there: a missing file is written under `build/wheelwire/` and
+     * the test fails) — the turns here are the shell's own (stock messages no lens reported: applied as today, a phone spin
+     * over the bound wheel) — while each open binds list 2 in its own act, no SET names another list until the close, the
+     * commit and the cancel CLEAR entries 6 and 7, and of the block's writes none while the wheel is open; after the commit
+     * (a new order) the item table's only. (The messages themselves are not compared byte for byte: on this paced link two
+     * runs of the base differed in how the flushes fell and where the atlas placed a glyph — the session's history.)
      */
     @Test
     fun theSwitcherAtStage5DoesWhatItDidOnTheBaseWithTheBlockResident_DW1a(): Unit = runBlocking {
@@ -189,12 +195,13 @@ class WheelResidentTest {
             }
             val ends = want.filter { ": end " in it }
             assertEquals(ends, acts.map { it.line }, "$h: each act's end on both lenses' content rows, against the base's")
-            // the engine's and the bound lists' messages: none the base's acts did not send
+            // DW-1b-1: each open binds list 2; nothing of Main's or a window's list is SET while the wheel is open; the commit
+            // and the cancel CLEAR the wheel's scroll entries
             for ((i, a) in acts.withIndex()) {
-                val baseKinds = want.firstOrNull { it.startsWith("# ${a.label}: kinds") }?.substringAfter("kinds ")?.removeSurrounding("[", "]")
-                    ?.split(", ")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
-                val mine = a.kinds.filter { it.startsWith("26") || it.startsWith("27") }.toSet()
-                assertTrue(baseKinds.containsAll(mine), "$h act $i '${a.label}': mode-26/27 messages the base's act did not send: ${mine - baseKinds}")
+                val close = a.label == "commit" || a.label == "cancel"
+                if (a.label.startsWith("open")) assertTrue(a.sets2, "$h act $i '${a.label}': list 2 bound in the open's act")
+                if (!close) assertEquals(emptySet(), a.otherSets, "$h act $i '${a.label}': a SET of another list while the wheel is open")
+                if (close) assertTrue(a.clears.containsAll(listOf(6, 7)), "$h act $i '${a.label}': entries 6 and 7 CLEARed (${a.clears})")
                 // while the wheel is open nothing of the block is written; after the commit (a new order) the item table alone
                 if (a.label != "commit") assertEquals(emptyList(), a.wheel, "$h: a wheel write inside the act '${a.label}'")
             }
@@ -369,8 +376,9 @@ class WheelResidentTest {
     }
 
     /**
-     * DW-1a binds nothing, so nothing of the block goes while the wheel is open: a dirty flip on a window behind the open
-     * wheel writes nothing until the wheel closes; at the cancel that window's cell alone goes.
+     * Nothing of the block goes while the wheel is bound (re-pointed by DW-1b-1: the open's entries are a snapshot, the
+     * amendment's §3.4): the wheel bound at the open, a dirty flip on a window behind it writes nothing until the wheel
+     * closes; at the cancel that window's cell alone goes.
      */
     @Test
     fun nothingOfTheBlockGoesWhileTheWheelIsOpen_DW1a(): Unit = runBlocking {
@@ -380,6 +388,7 @@ class WheelResidentTest {
             r.open("w0"); r.open("w1")
             for (g in listOf(EvenHubMsg.EV_RING_LONG_PRESS, EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, EvenHubMsg.EV_DOUBLE_CLICK)) r.shell.postGesture(g)
             r.until("the wheel open") { r.shell.switcherIsOpen && r.shell.isQuiescent() }
+            r.until("the wheel bound") { r.onLoop { r.shell.slot0ForTest() } == "wheel" }
             val from = r.images.size
             r.shell.services.runOnShell { r.rows[2].dirty = true; r.shell.services.requestRender(r.rows[2]) }
             delay(1_500)

@@ -7,6 +7,7 @@ import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
+import org.junit.Rule
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -59,6 +60,8 @@ import wm.damage.core.wire.EvenHubMsg
  * provider through a real loopback content host.
  */
 class TorrentsTest {
+    /** Stage OP: the "Open on PC" of every real provider here — a test opens nothing on the PC. */
+    @get:Rule val pc = NoPcOpen()
 
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
@@ -383,7 +386,7 @@ SHA256: abc</pre>
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             FakeQbt().use { q ->
-                val p = LocalTorrentsProvider(QbtClient(q.base), null, tmp, scope, idlePaceMs = 3_600_000)
+                val p = LocalTorrentsProvider(QbtClient(q.base), null, tmp, scope, opener = pc, idlePaceMs = 3_600_000)
                 val c = Collect()
                 p.addListener(c)
                 p.pollNow()
@@ -428,7 +431,7 @@ SHA256: abc</pre>
                     q.torrents[0].toMutableMap().also { it["state"] = "uploading" },
                     FakeQbt.row("cc03", "new.iso", "stalledUP", 1.0, 3_000, completion = 1_800_000_100, seeding = 9),
                 )
-                val p2 = LocalTorrentsProvider(QbtClient(q.base), null, tmp, scope, idlePaceMs = 3_600_000)
+                val p2 = LocalTorrentsProvider(QbtClient(q.base), null, tmp, scope, opener = pc, idlePaceMs = 3_600_000)
                 val c2 = Collect()
                 p2.addListener(c2)
                 p2.pollNow()
@@ -439,7 +442,7 @@ SHA256: abc</pre>
 
                 // qBittorrent gone: the state line says so with a duration, no events
                 q.close()
-                val p3 = LocalTorrentsProvider(QbtClient(q.base), null, tmp, scope, idlePaceMs = 3_600_000)
+                val p3 = LocalTorrentsProvider(QbtClient(q.base), null, tmp, scope, opener = pc, idlePaceMs = 3_600_000)
                 val c3 = Collect()
                 p3.addListener(c3)
                 p3.pollNow()

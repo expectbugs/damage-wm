@@ -17,8 +17,8 @@ import wm.damage.core.util.Log
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-1, package P1 (`CONTRACT.md` §9.7 item 1, §13 (b) "PC record and seq"; dec. A.12): `record.json` in the
  * data directory — the whole record and the `seq` it covers, saved on pacing by temp-and-move
- * through `Persistence`'s atomic write (forced to disk first). Never `state.json`: that file is also written by sync
- * applies and `saveAll` from other threads. Written by this saver only, from a snapshot the core executor takes in
+ * through `Persistence`'s atomic write (forced to disk first). Never `state.json`: that file is also written by the
+ * shell's `saveAll` from other threads. Written by this saver only, from a snapshot the core executor takes in
  * one step, so the covered `seq` is exactly the last line whose effect the snapshot holds; it is written last.
  */
 class RecordStore(

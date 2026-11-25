@@ -117,6 +117,17 @@ class Switcher(
         spinFrame = 0
     }
 
+    /** C3 DW-1b-1 (the wheel bound on the glasses, `C3-DW1-amendment.md` §4.1's `setRow`): the cursor set to [row] (modulo
+     *  the entries) and the drum stopped there — no spin and so no phone frames: the lens drew the notch (an adoption, P3)
+     *  or the tap rule moved the row to the lens's. */
+    fun setCursor(row: Int) {
+        if (entries.isEmpty()) return
+        cursor = row.mod(entries.size)
+        spinPos = cursor.toDouble()
+        spinFrom = spinPos
+        spinFrame = spinFrames
+    }
+
     /** Advance one animation frame; true while more frames remain. */
     fun stepSpin(): Boolean {
         if (spinFrame >= spinFrames) { spinPos = cursor.toDouble(); return false }

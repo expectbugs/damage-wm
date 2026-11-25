@@ -21,8 +21,8 @@ import wm.damage.core.util.Log
  * Threading: every call here blocks and is made OFF the shell loop; the
  * pacer runs one coroutine per due source so a stalled host holds up only
  * its own source. Pacing and liveness, never timeouts. Reading state (read
- * marks, positions) is NOT here — it lives in the shell's synced store so
- * both engines see one truth (§3.5).
+ * marks, positions) is NOT here — it lives in the PC's record (`FeedCore`)
+ * so every surface sees one truth (§3.5).
  */
 class FeedEngine(
     configured: List<SourceCfg>,

@@ -23,7 +23,9 @@ internal class FilesTree : AutoCloseable {
     val home: Path = Files.createDirectories(root.resolve("home"))
     val books: Path = Files.createDirectories(root.resolve("books"))
     val trash: Path = root.resolve("trash")
-    val local = LocalFilesProvider(books, trash, decoder = null, mountsFile = root.resolve("no-mounts"))
+    /** Stage OP: the providers' "Open on PC" — a test opens nothing on the PC; [close] fails the test that reached it. */
+    val pc = NoPcOpen()
+    val local = LocalFilesProvider(books, trash, opener = pc, decoder = null, mountsFile = root.resolve("no-mounts"))
     val files = SafeFiles(root, local, listOf(FLocation("Home", home.toString(), "home", 1_000_000, 400_000),
         FLocation("Books", books.toString(), "books", 1_000_000, 400_000)))
 
@@ -39,6 +41,7 @@ internal class FilesTree : AutoCloseable {
 
     override fun close() {
         root.toFile().deleteRecursively()
+        pc.assertNone()
     }
 }
 

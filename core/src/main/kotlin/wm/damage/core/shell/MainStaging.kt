@@ -704,6 +704,10 @@ class MainStaging private constructor(
         var next = 0
             private set
         val done: Boolean get() = next >= n
+        /** K1-2 stage 4a, for the staging's note: the time its rows took (the loop's, row by row) and the rows painted while
+         *  a transition was in hand. */
+        var ns = 0L
+        var underRun = 0
         fun step(relay: (Gray8, () -> Unit) -> Unit) {
             rowForms[next] = paintStripRow(view, layout, next, relay)
             if (bands) bandForms[next] = paintBandForm(view, kit, layout, next, relay)
@@ -853,6 +857,18 @@ class MainStaging private constructor(
         /** DM-0 (S2, decisions AD): whether Main's rows at [layout] take the ring form at stage 5 — only where its own paint
          *  wraps, more rows ([rows]) than it shows (`ContentKit.wrapIndex`): 8 rows at 288 and 352, never at 416 and 480. */
         fun ringFits(layout: Layout, rows: Int): Boolean = rows > layout.rowsAbove + layout.rowsBelow + 1
+
+        /** K1-2 stage 4a (decisions DE, the second review's finding 2): why [n] rows at [l] can never be a window list,
+         *  whatever they draw — one row (a notch has nowhere to go), more than a bound list holds, or a strip (its rows and
+         *  margins, [assembleWindow]'s) past a record's height — or null. The shell asks it before any row is painted;
+         *  [assembleWindow] asks it again. */
+        fun windowCountRefusal(l: Layout, n: Int): String? {
+            if (n < 2) return "a list of $n row(s) is not bound: a notch has nowhere to go (the K1-2 spec §1)"
+            if (n > CfwModes.LIST_MAX) return "$n rows are more than a bound list holds"
+            val stripRows = l.rowsAbove + l.rowsBelow + n + (if (ringFits(l, n)) 2 else 0)
+            if (stripRows * l.rowH > CfwModes.MAX_IMAGE2_H) return "a window list's strip of $stripRows rows is taller than a record (${CfwModes.MAX_IMAGE2_H})"
+            return null
+        }
 
         /**
          * [paint]'s pictures laid out from [regionStart] and refused past [regionEnd], with the programs of [widths] (the
@@ -1091,13 +1107,11 @@ class MainStaging private constructor(
                 throw LintError("no window-list space $floor..$top in a $cacheSize B cache")
             if (!paint.done) throw LintError("a window list's staging assembled before its ${paint.n} rows were painted (${paint.next} so far)")
             val n = paint.n
-            if (n < 2) throw LintError("a list of $n row(s) is not bound: a notch has nowhere to go (the K1-2 spec §1)")
-            if (n > CfwModes.LIST_MAX) throw LintError("$n rows are more than a bound list holds")
+            windowCountRefusal(l, n)?.let { throw LintError(it) }
             val mA = l.rowsAbove; val mB = l.rowsBelow
             val ring = ringFits(l, n)                                   // `ContentKit.wrapIndex`: the list's paint wraps
             val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)
             val stripRows = sA + n + sB
-            if (stripRows * l.rowH > CfwModes.MAX_IMAGE2_H) throw LintError("a window list's strip of $stripRows rows is taller than a record (${CfwModes.MAX_IMAGE2_H})")
             val sl = stripOf(paint, n, ring, sA, sB, room)
             val specs = intArrayOf(1, -1).map { PanSpec(WHOLE, mA, mB, it, 0) }
             fun stripAt(off: Int) = Picture("strip", sl.g, sl.levels, sl.encoded, off, sl.slot, sl.segOff, sl.segLen)

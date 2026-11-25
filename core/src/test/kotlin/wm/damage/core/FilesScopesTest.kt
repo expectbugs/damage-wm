@@ -162,7 +162,7 @@ class FilesScopesTest {
         assertEquals(18L, c["bytesRead"]!!.jsonPrimitive.content.toLong())
         assertNull(pc.scopes.describe("files/text:relative/at:0"), "an address that is not an absolute path names nothing")
         // the PDF's facts through the provider's own runner (a stand-in: no program is run)
-        val pdfProvider = LocalFilesProvider(tree.books, tree.trash, mountsFile = tree.root.resolve("no-mounts")) { cmd ->
+        val pdfProvider = LocalFilesProvider(tree.books, tree.trash, opener = tree.pc, mountsFile = tree.root.resolve("no-mounts")) { cmd ->
             LocalFilesProvider.ExecResult(0, if (cmd[0] == "pdfinfo") "Pages: 3\n".toByteArray() else "some text".toByteArray(), "")
         }
         val pdfPc = FilesPc(host(), SafeFiles(tree.root, pdfProvider, emptyList()), tree.books.toString(), null, null)

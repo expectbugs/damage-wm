@@ -559,10 +559,10 @@ class ReaderGlasses(
                     // (round 3 R1: first-completion-wins kept the stale wrap)
                     if (book !== b || gen != layoutGen) return@runOnShell
                     book = re
-                    // the CURRENT offset, not the pre-wrap capture: a synced
-                    // position applied mid-wrap must survive the completion
-                    // (review 2026-09-01 F8 — the stale capture then
-                    // out-stamped the peer's progress via rememberPosition)
+                    // the CURRENT offset, not the pre-wrap capture: a place
+                    // from the record applied mid-wrap must survive the
+                    // completion (review 2026-09-01 F8 — the stale capture
+                    // then wrote over the newer place via rememberPosition)
                     docModel.topLine = re.lineAtOffset(offsets[b.meta.id] ?: keep)
                     // fix round 1, ruling 1.2: the new line's start is not a place he made — a relayout sends nothing
                     seat(re)
@@ -1284,7 +1284,7 @@ class ReaderGlasses(
         return out
     }
 
-    /** A per-book record at a session start (the local copy; Reader's keys no longer sync, S1-1). An empty blob is
+    /** A per-book record at a session start (this device's own copy; Reader's places are the PC's record). An empty blob is
      *  the removal tombstone: the map entry goes, and the OPEN book closes so it counts as a first open again. The
      *  `conv` record S1-1 wrote beside them (the migration's ledger) is no longer read. */
     override fun restoreSubState(subKey: String, state: JsonObject) {
@@ -1393,7 +1393,7 @@ class ReaderGlasses(
         // the Tmux failure class §9.1 #1 names).
         if (!id.isNullOrEmpty() && (lvl == "BOOK" || lvl == "ACTIONS")) {
             // §72 (2026-11-08): ONE book restore in flight. A newer restore (the next session's,
-            // a keeper retry's, a live sync apply's) cancels this one between its steps, and a
+            // a keeper retry's) cancels this one between its steps, and a
             // result that finished anyway is dropped by generation. Every failed start of the
             // PC's standby used to leave one more whole laid-out book queued behind a loop that
             // never ran (5.4 MB a time in the measurement; the PC's heap was gone in 845).

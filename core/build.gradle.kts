@@ -33,6 +33,16 @@ tasks.test {
         events("failed", "skipped")
         showStandardStreams = false
     }
+    // The test JVM's temp folders live under this module's build directory, never /tmp (stage TMP, 2026-11-25: the
+    // runs had left 10,002 folders there in nine days). Emptied at each run's start, so a stopped run's folders go with
+    // the next run and two trees never share one; set as the task runs, so the path stays out of its cache key.
+    val testTmp = layout.buildDirectory.dir("test-tmp")
+    doFirst {
+        val d = testTmp.get().asFile
+        if (!d.deleteRecursively()) logger.warn("test-tmp: $d could not be emptied; what is left stays beside this run")
+        d.mkdirs()
+        systemProperty("java.io.tmpdir", d.absolutePath)
+    }
 }
 
 // Build S1-2 Q2 (S1-2 R0 §1, the real-server look; test code only): the test runtime classpath written to a file, so

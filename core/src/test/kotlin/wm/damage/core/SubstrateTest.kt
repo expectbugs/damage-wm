@@ -124,7 +124,8 @@ class SubstrateTest {
         try {
             val f = tmp.resolve("state.json")
             val store = Persistence(f)
-            assertFalse(store.load(), "no file: nothing loaded")
+            store.load()
+            assertTrue(store.keysWithPrefix("").isEmpty(), "no file: nothing loaded")
             val sh = itemsShell(store, scope)
             sh.start()
             awaitTrue("running") { sh.isQuiescent() }

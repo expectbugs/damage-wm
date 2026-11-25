@@ -91,7 +91,11 @@ export function settingsView(ctx) {
       }
       draw();
     }, { need: row.level || 'control' });
-    if (!sent) pend.delete(k);
+    // not sent (out of reach): the control the browser already changed is drawn again from the description
+    if (!sent) {
+      pend.delete(k);
+      if (box) box.dataset.sig = '';
+    }
     draw();
   }
 

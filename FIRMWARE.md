@@ -1421,7 +1421,9 @@ is stated there.
   first notch after the wake is local once that flush has landed (APK 0.83; his first notches after a session start
   were phone-drawn for 12 s on 0.82, `HANDOFF.md` §99.3); its bytes are journaled (`mainstage` notes). **A change of a row's form in the strip** (its text or icon as
   every row shows it): at every cache size the list is withdrawn (CLEAR), the row written and the list bound again
-  (about two flushes unbound; the return names the row, above) — one strip (decisions BC O1). On a 256 KiB session
+  (about two flushes unbound; the return names the row, above) — one strip (decisions BC O1). A window's list (§7.11)
+  has no band forms: its row whose form changes goes the same way, its strip segments alone (every strip row that
+  shows the row), its mark kept. On a 256 KiB session
   the atlas keeps 96 KiB, less the 4 KiB transition region with EFFECTS in force; the bound lists' region is 128 KiB,
   the stage reserve 32 (decisions AU.1); Main's band slots are sized per row, with two spare slots of the largest size. At stage 5 the
   switcher's wheel keeps its pictures and programs resident as the region's first tenant from its end (at most 20 KiB,
@@ -1682,7 +1684,11 @@ its return), at 256 KiB in a region of Main's own below the reserve (bytes [98,3
 96 KiB below it, decisions AU.1, `CfwModes.mainRegion`; an atlas made before BIND was armed leaves Main in the shared
 reserve). The list is offered — its
 SETs sent — only after field 17 counts every write; the first staging is about 44 KB, about 5–6 s on the phone's link
-before the first local notch (I). Rows are kept current as P9 says.
+before the first local notch (I). Rows are kept current as P9 says. **A window's list** (glasses list 1, §7.11; ladder
+stage 5 on a 256 KiB session only) lies in the same region above Main's records: its strip, then its pan slots, laid
+out downward so that its last byte is the base of the wheel's block (P9; the region's end, byte 229,376, where no block
+is placed) and refused where its first byte would lie below the end of Main's staging (the region's start where Main
+has none there) — Main wins an overlap, and with Main in the shared reserve no window's list is staged.
 
 ### 6.10 Vectors, and what only the glasses can show
 
@@ -2186,7 +2192,9 @@ and aux1 must be 0 (5). The source is then the record's rows aux0 .. aux0 + aux1
 record's row aux0 + r — drawn at (x, y) as any source, its height h = aux1 for the row map and the anchors (§6.6's H
 rule does not read h). The read range is the
 whole record's (§5.6). With a kind-2 parameter (c'·pitch + arg, §6.2) substituted into aux0 (pref 16), a bound program
-draws one row of a strip — the leaving or entering row of a list, scaled or not (Flip and Crush on any list).
+draws one row of a strip — the leaving or entering row of a list, scaled or not (Main's Crush, its leaving row parked
+and then grown from one pixel row; a window's list for every effect, its leaving and entering rows in the band,
+unscaled, §7.11). Flip draws no source window: on Main it turns the band forms, and a window's list plays Depth for it.
 
 No immediate mode for the two-axis draw or the window is added (mode 28 stands as §6.6 has it).
 
@@ -2427,9 +2435,43 @@ one-period wait; with this it is drawn a few ms late.
   EFFECTS is armed at the session start, before any PLAY, so every instance the phone opens at stage 5 runs the fast
   DRAW path (§7.12).
 - **A transition's records' and lists' writes are cache writes under §6.7 P9's count rule.**
-- **A list whose programs use a source window** (Crush, Flip) stages with pitch = +row height and draws its strip tracks
-  as windows at fixed y's; the strip carries margins (blank rows, or on a ring list the other end's rows, §7.8) so that no
-  window leaves the record (5). The pitch follows the list's Scroll effect: changing the effect re-stages the list.
+- **A list whose programs use a source window** (Main's while Crush plays; a window's list for every effect, below)
+  stages with pitch = +row height and draws its strip tracks as windows at fixed y's; the strip carries margins (blank
+  rows, or on a ring list the other end's rows, §7.8) so that no window leaves the record (5). Main's other effects
+  stage with pitch = −row height. **An effect change keeps the list's staging:** its programs alone are re-made into
+  the spare pan slot, counted (field 17) and then SET; where the change moves Main between the two pitches its LIST
+  carries the new pitch ahead of those SETs (the pitch switch, S6, below); a window's list keeps +row height for every
+  effect, so its SETs go alone. A staging with no spare pan slot is staged again whole.
+- **A window's list** (decisions BC, CV, DA): a window's list of two rows or more is staged and bound only at stage 5
+  on a 256 KiB session — at 160 KiB and below stage 5 nothing of it is sent — as glasses list 1 in slot 0, entries
+  3–5 (Main's list is list 0, entries 0–2, in the same slot: the list in front holds it, §6.7). A list of more rows
+  than a list holds, or whose strip would be taller than a record (2,048 px), is not bound, and its notches go as
+  today. Its staging is the strip — one fixed segment per strip row and, past each end, the list's own paint: k + 1
+  rows of the other end where it wraps (LIST-RING), k blank rows where it does not — and two pan slots (one where the
+  space is short), laid out as §6.9 says; no band forms, no item table (LIST's items 0xFFFF), no press (its tap entry
+  is report-only under `report` and `glasses`), no wrap record. Pitch +row height, every track drawing the strip as a
+  source window: P0 the first strip row of the window both row tracks draw (kind 2, argument (M − k − 1) × rowH a
+  notch down, (M − k) × rowH up; M the strip's rows before row 0, k the rows shown above the band), P1 the entering
+  row (kind 2, M × rowH), P2 the leaving row (kind 2, (M − step) × rowH), each read into its DRAW's aux0; P3 kind 0.
+  The band tracks' area is the band less its two 2-px rules; they draw the leaving and the entering row's row form
+  (None the entering one alone) 4 px below the band's top, so at END the band area holds the entering row's row
+  form, and the band itself goes with the cells P3 holds to the motion's end. It plays None, Depth, Slide and Fall;
+  asked for Crush or Flip it plays Slide or Depth. It is kept while Main, the clock or a screen that is not a list is
+  in front — the batch that brings it back carries its SETs and §6.7's DISCARD naming the row, no LIST and no record —
+  and is replaced when another window's list is in front; a change of its own view's row count, of the layout or of
+  its planes makes a new staging with a new mark. A staging of Main's that reaches into its space drops it (Main
+  wins); one already staged where the wheel's block is laid out yields: its entries are CLEARed in a flush before any
+  write of the block's, and it is staged again below the block.
+- **A window's list under a transition** (decisions DA (c) 1 and 3, DK 1): from the act to the run's end a window's
+  list that has no staging yet is only painted, a row per idle turn (the atlas takes the characters its rows draw
+  under the Pacing rule above); its records, its count reading, its LIST and its SETs follow the run's end, and
+  nothing of a staged one is written before it either. **A Select from a bound list into a new level:** the CLEARs of
+  entries 3–5 ride the out half's batch (the cover's CLEAR, above) and nothing of list 1 is SET before the run's end,
+  so a notch in the in half matches no entry — the stock path (§6.2), no 115 — and the phone applies it as today,
+  shown as any write under the in half is (above); the new level is staged after the run and bound at the phone's row
+  (§6.7's return rule). **An arrival at a kept staging** (Settings → Main → Settings): its SETs ride the held frame,
+  so a notch in the in half fires on list 1, is refused 19 (the in half's owner, §7.14) and is applied as today; the
+  staging and its mark are kept. Both are modeled (the simulator's rules).
 
 **Phone rules added or changed on 2026-11-21** (`HANDOFF.md` §101; the stages' reports carry the detail):
 - **The transitions' backstop counts from what RIGHT reported.** Once RIGHT's out-half body is in, the phone ends a
@@ -2449,7 +2491,7 @@ one-period wait; with this it is drawn a few ms late.
 - **The pitch switch (S6).** A change between a scroll effect of pitch −rowH and one of pitch +rowH (Crush) goes as
   the programs-only re-make with the LIST (LIST-RING on a ring list) carrying the new pitch ahead of the SETs in
   one image; the fresh mark and the report's own program and parameters both refuse a report computed at the old
-  pitch. Crush on any list; Flip on a list with no band forms.
+  pitch. The switch is Main's alone: a window's list is at +rowH for every effect (above).
 
 ### 7.12 Costs, the step budget and the fast DRAW path
 
@@ -2556,8 +2598,9 @@ pixel of a byte fill or copy, about eight times the measured copy's rate (I); 3 
 its four figures is a rate of this budget — the rates above are upper bounds, not a step's time): for a list's bound
 programs staged with EFFECTS in force, the phone takes a step's drawing time as **0.5 ms + 0.036 µs a pixel of the
 tracks' areas + 0.156 µs a pixel written a pixel at a time + 0.20 µs a byte the step decodes** (k + 1 strip rows a
-row track, one band form a band track; a pixel at a time is a draw whose width scales, Flip's turn — Depth, Slide,
-Fall, None and Crush have none, C3 DM-1), then the period P = ⌈⌈ms × 1.024⌉ × 1.10⌉ ticks inside 16..128 (the
+row track, one band form a band track — on a window's list one strip row, its row form, a band track, whose area is
+the band less its two rules; a pixel at a time is a draw whose width scales, Flip's turn — Depth, Slide, Fall, None
+and Crush have none, C3 DM-1), then the period P = ⌈⌈ms × 1.024⌉ × 1.10⌉ ticks inside 16..128 (the
 phone's rule since the first trial at stage 4: the fitted step plus 10 %, as on C2's path, §6.9) and, for `Scroll
 frames` Auto, ⌊length × 1.024 / P⌋ steps. All four figures are modeled (I: calibrated on the table's one modeled
 figure below, Main's pan at 352 ≈ 8 ms; the third is C2's measured step slope). With
@@ -2612,18 +2655,18 @@ the largest period; the phone may refuse more than it does, from field 34 per ve
 | Main's pan, strip 30 KB | 2.21 M | 2.41 M | 2.60 M | 2.79 M | 65 % |
 | Main's Crush (the strip windows counted whole) | 2.19 M | 2.46 M | 2.72 M | 2.99 M | 62 % |
 | Main's Crush, strip 30 KB | 2.66 M | 2.92 M | 3.19 M | 3.46 M | 56 % |
-| a window list's pan, today's form, strip 40 KB | 3.94 M | 4.15 M | 4.35 M | 4.56 M | 43 % |
+| a window list's pan in Main's form (the strip walked whole; a window's list is never staged so), strip 40 KB | 3.94 M | 4.15 M | 4.35 M | 4.56 M | 43 % |
 | a window list's pan, window form | 1.81 M | 2.22 M | 2.64 M | 3.05 M | 61 % |
-| a window list's Crush (window form) | 2.33 M | 2.82 M | 3.32 M | 3.81 M | 52 % |
+| a window list's Crush in the window form (none is made: asked for Crush, a window's list plays Slide, §7.11) | 2.33 M | 2.82 M | 3.32 M | 3.81 M | 52 % |
 | Warp out (SHRINK both axes) / in (DRAW `new`, two axes) | 2.40 / 2.03 M | 2.93 / 2.48 M | 3.46 / 2.93 M | 3.99 / 3.38 M | 50 % |
 | Encode out (dim + cells) / in (cells over `new`) | 1.37 / 1.00 M | 1.70 / 1.25 M | 2.03 / 1.49 M | 2.35 / 1.74 M | 70 % |
 | Encode out at 512 cells | 3.17 M | 3.29 M | 3.41 M | 3.54 M | 55 % |
 | Matrix out / in (53 × 8) | 2.35 M | 2.39 M | 2.43 M | 2.47 M | 69 % |
 
 Every designed program keeps at least 20 % of the cap at every height. A transition's two halves count as the larger
-(the chain rule above); summed, Warp at 480 would be 7.37 M, 8 % short of the cap. Today's form of a window list's pan
-(the strip walked whole) keeps 20 % up to a strip of ≈ 64 KB at 480; the window form's cost does not grow with the
-list's length.
+(the chain rule above); summed, Warp at 480 would be 7.37 M, 8 % short of the cap. A window list's pan in Main's form
+(the strip walked whole) would keep 20 % up to a strip of ≈ 64 KB at 480; the window form, the one a window's list is
+staged in, does not grow in cost with the list's length.
 
 **What a step costs (modeled from the measured figures above):**
 

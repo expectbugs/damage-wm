@@ -35,6 +35,14 @@ application {
 
 tasks.test {
     useJUnit()
+    // The test JVM's temp folders under this module's build directory, never /tmp: as in core/build.gradle.kts
+    val testTmp = layout.buildDirectory.dir("test-tmp")
+    doFirst {
+        val d = testTmp.get().asFile
+        if (!d.deleteRecursively()) logger.warn("test-tmp: $d could not be emptied; what is left stays beside this run")
+        d.mkdirs()
+        systemProperty("java.io.tmpdir", d.absolutePath)
+    }
 }
 
 // A runnable fat jar so `damage` works without gradle in the loop.

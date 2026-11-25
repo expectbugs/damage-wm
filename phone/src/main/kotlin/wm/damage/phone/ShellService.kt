@@ -623,7 +623,7 @@ class ShellService : Service() {
         )
         // Build W (the spec's §2(d), the lead's decision B.3): the Settings category "Bastion", built ONCE per stack —
         // Settings matches a staged row by identity. `Phone · alerts` and `Home unreachable` are the phone's own rows,
-        // kept in [Prefs] (never in ShellSettings, never synced); the shared rows and Acknowledge are BastionRows'.
+        // kept in [Prefs] only (never in ShellSettings); the shared rows and Acknowledge are BastionRows'.
         sh.hostCategories = listOf(BastionRows.category(sh, listOf(
             HostSetting("Phone · alerts", listOf("on", "off"),
                 current = { if (prefs.phoneAlerts) "on" else "off" },
@@ -1402,7 +1402,7 @@ class Prefs(context: Context) {
     fun setDozeAsked() = p.edit().putBoolean("dozeAsked", true).apply()
 
     /** Build W (the spec's §2(d), the lead's decision B.3): the phone's own rows of the Settings category "Bastion" —
-     *  kept here, never in ShellSettings, never synced. `Phone · alerts`: the bus alerts in the phone's shade. */
+     *  kept here only, never in ShellSettings. `Phone · alerts`: the bus alerts in the phone's shade. */
     val phoneAlerts: Boolean get() = p.getBoolean("phoneAlerts", true)
     fun setPhoneAlerts(on: Boolean) = p.edit().putBoolean("phoneAlerts", on).apply()
 
