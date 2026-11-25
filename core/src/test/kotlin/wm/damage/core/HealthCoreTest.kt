@@ -226,7 +226,7 @@ class HealthCoreTest {
         r.core.phone(listOf(reach, notMine), now)
         drain(r.h)
         val l = r.line(HealthCore.REACH)
-        assertEquals(Triple("PC answering", HealthCore.LIVE, now), Triple(l.text, l.state, l.receivedAt))
+        assertEquals(Triple("PC answering", HealthCore.LIVE, now), Triple(l.text, l.state, l.asOf), "read at its arrival")
         assertEquals("PC reach", l.label, "the PC's label")
         assertEquals("not read yet", r.line(HealthCore.DISK).text, "the PC's own line is never the phone's")
         now += 60_000

@@ -29,7 +29,7 @@ enum class HealthBand(val wire: String) { NORMAL("normal"), ATTENTION("attention
 
 /** One line of the health record (§4.1). [since]: when its state began — the source's own instant when it has one,
  *  else when its band last changed. [asOf]: when what it shows last changed (a line is read again at its pace and
- *  published only on a change; `state` live says those reads succeed). [receivedAt]: a phone line's arrival. */
+ *  published only on a change; `state` live says those reads succeed). */
 data class HealthLine(
     val id: String,
     val label: String,
@@ -43,10 +43,9 @@ data class HealthLine(
     val reason: String? = null,
     val tag: String? = null,
     val alert: String? = null,
-    val receivedAt: Long? = null,
 ) {
-    /** True when [o] shows the same as this: everything but the two instants of reading. */
-    fun sameAs(o: HealthLine): Boolean = copy(asOf = 0, receivedAt = null) == o.copy(asOf = 0, receivedAt = null)
+    /** True when [o] shows the same as this: everything but the instant of reading. */
+    fun sameAs(o: HealthLine): Boolean = copy(asOf = 0) == o.copy(asOf = 0)
 
     fun json(): JsonObject = buildJsonObject {
         put("id", id)
@@ -55,7 +54,6 @@ data class HealthLine(
         put("band", band.wire)
         put("since", since)
         put("asOf", asOf)
-        receivedAt?.let { put("receivedAt", it) }
         put("source", source)
         put("state", state)
         reason?.let { put("reason", it) }
@@ -72,8 +70,7 @@ data class HealthLine(
             fun n(k: String) = (o[k] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
             val band = HealthBand.entries.firstOrNull { it.wire == s("band") } ?: return null
             return HealthLine(s("id") ?: return null, s("label") ?: "", s("text") ?: "", band, n("since") ?: return null,
-                n("asOf") ?: 0L, s("source") ?: "", s("state") ?: "", s("doing") ?: "", s("reason"), s("tag"), s("alert"),
-                n("receivedAt"))
+                n("asOf") ?: 0L, s("source") ?: "", s("state") ?: "", s("doing") ?: "", s("reason"), s("tag"), s("alert"))
         }
     }
 }
@@ -147,16 +144,16 @@ class HealthCore(
         put(old.copy(state = STALE, reason = "the read failed: $why"), host.clock())
     }
 
-    /** The phone's own lines as it reported them, [receivedAt] on the PC's clock (any thread). A line of another id is
+    /** The phone's own lines as it reported them, arrived [at] on the PC's clock (any thread). A line of another id is
      *  said and left out. */
-    fun phone(reported: List<HealthLine>, receivedAt: Long) = onExecutor("health phone") {
+    fun phone(reported: List<HealthLine>, at: Long) = onExecutor("health phone") {
         for (l in reported) {
             val old = lines[l.id]
             if (old == null || old.source != PHONE) {
                 Log.w(TAG, "the phone reported a health line '${l.id}' that is not one of its own: left out")
                 continue
             }
-            put(l.copy(label = old.label, source = PHONE, receivedAt = receivedAt), receivedAt)
+            put(l.copy(label = old.label, source = PHONE), at)
         }
     }
 

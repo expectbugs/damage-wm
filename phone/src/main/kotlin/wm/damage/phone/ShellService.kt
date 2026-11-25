@@ -934,15 +934,15 @@ class ShellService : Service() {
         return { stream -> AppClient(link.first, link.second, AppClient.Credential.Token(link.third), stream, wc, serviceScope) }
     }
 
-    /** At the service's end, after the last stack: the lane ends, the copy saves what it has not and its writers
-     *  finish what they were handed, then the executor and the service's scope end. */
     /** R-b H2: one snapshot of the running stack's glasses side for [PhoneHealth] (volatile fields only). */
     private fun glassesNow(): PhoneHealth.Glasses {
         val sh = shell
-        return PhoneHealth.Glasses(sh?.statusWordNow, runningTarget != Prefs.Target.GLASSES, sh?.glassesBatteryPct,
+        return PhoneHealth.Glasses(sh?.statusLine, runningTarget != Prefs.Target.GLASSES, sh?.glassesBatteryPct,
             (transport as? wm.damage.core.transport.CfwTransportBase)?.ladder)
     }
 
+    /** At the service's end, after the last stack: the lane ends, the copy saves what it has not and its writers
+     *  finish what they were handed, then the executor and the service's scope end. */
     private fun closeWorkingCopy() {
         val wc = workingCopy
         workingCopy = null
@@ -1298,6 +1298,7 @@ class ShellService : Service() {
             .setSmallIcon(R.drawable.ic_damage)
             .setContentTitle("Damage")
             .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))     // R-b F: the health sentence, never cut to one line
             .setOngoing(true)
             .build()
     }

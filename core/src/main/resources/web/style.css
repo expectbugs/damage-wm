@@ -239,7 +239,7 @@ body.away .toast.notice .act { opacity: .45; }
 .home-health.band-attention, .home-health.band-alarm { border-color: var(--band); color: var(--band); font-weight: 600; }
 .hl-summary { font-size: 1.1rem; font-weight: 600; margin: 0 0 .4rem; }
 .hl-summary.band-attention, .hl-summary.band-alarm { color: var(--band); }
-.hl-age { color: var(--muted); margin: 0 0 .6rem; }
+.hl-summary a { color: inherit; }
 .hlines { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
 .hl { display: flex; flex-wrap: wrap; gap: .1rem 1rem; padding: .5rem .2rem .5rem .6rem; border-bottom: 1px solid var(--line); border-left: .25rem solid transparent; }
 .hl.band-attention, .hl.band-alarm { border-left-color: var(--band); }

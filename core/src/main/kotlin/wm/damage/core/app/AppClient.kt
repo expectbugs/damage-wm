@@ -117,8 +117,8 @@ class AppClient(
     @Volatile var stateLine: String = "connecting to $host…"
         private set
 
-    /** R-b H2: the PC answered but refused this device (its credential, or no lane this build speaks) — [stateLine] says
-     *  which; cleared by the next `welcome`. */
+    /** R-b H2: the PC answered but refused this device (its credential, no lane this build speaks, or its record not
+     *  open) — [stateLine] says which; cleared by the next `welcome`. */
     @Volatile var refused: Boolean = false
         private set
 
@@ -251,10 +251,13 @@ class AppClient(
                                 val reason = text(f, "reason") ?: "no reason"
                                 val detail = text(f, "detail")
                                 Log.w(TAG, "the PC ended the app lane: $reason${detail?.let { " ($it)" } ?: ""}")
-                                if (reason == AppWire.END_PROTO) {
+                                // R-b F: a PC whose record did not open refuses every lane until its next start —
+                                // said as a refusal ("PC no" on the glasses), not as a PC out of reach
+                                if (reason == AppWire.END_PROTO || reason == AppWire.END_NOT_OPEN) {
                                     pacing = refusedPacingMs
                                     refused = true
-                                    setState("the PC speaks another app lane (${detail ?: reason})")
+                                    setState(if (reason == AppWire.END_PROTO) "the PC speaks another app lane (${detail ?: reason})"
+                                        else detail ?: "the PC's record is not open")
                                 }
                                 say { listener.ended(reason) }
                                 return@use

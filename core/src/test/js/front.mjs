@@ -239,21 +239,32 @@ export function realScenes(book) {
     // the PC out of reach with the last state's age, back in reach with what changed meanwhile and no reload; home's
     // line, well and in alarm. Each word sets every line.
     'real-health': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-well' }, { wait: '.hl-summary.band-normal' },
-      { wait: '.hl[data-key="health:reach"]:not(.not-live)' }, { wait: '.hview dl.facts' }] },
+      { wait: '.hl[data-key="health:reach"]:not(:has(.hl-why))' }, { wait: '.hview dl.facts' }] },
     'real-health-attention': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-attention' }, { wait: '.hl-summary.band-attention' },
-      { wait: '.hl[data-key="health:reach"]:not(.not-live)' }, { wait: '.hview dl.facts' }] },
+      { wait: '.hl[data-key="health:reach"]:not(:has(.hl-why))' }, { wait: '.hview dl.facts' }] },
     'real-health-alarm': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
-      { wait: '.hl[data-key="health:reach"].not-live' }, { wait: '.hview dl.facts' }] },
+      { wait: '.hl[data-key="health:reach"] .hl-why' }, { wait: '.hview dl.facts' }] },
     'real-health-away': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
-      { wait: '.hview dl.facts' }, { fetch: '/__cut' }, { wait: '#reach:not([hidden])' }, { wait: '.hl-age' }] },
+      { wait: '.hview dl.facts' }, { fetch: '/__cut' }, { wait: '#reach:not([hidden])' }, { wait: '[data-key="diag:again"].dim' }] },
     'real-health-back': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
-      { fetch: '/__cut' }, { wait: '.hl-age' }, { fetch: '/__ctl?health-attention' }, { fetch: '/__wait?ms=1000' }, { fetch: '/__mend' },
-      reach, { wait: '.hl-summary.band-attention' }, { gone: '.hl-age' }, { wait: '.hview dl.facts' }] },
+      { fetch: '/__cut' }, { wait: '#reach:not([hidden])' }, { fetch: '/__ctl?health-attention' }, { fetch: '/__wait?ms=1000' }, { fetch: '/__mend' },
+      reach, { wait: '.hl-summary.band-attention' }, { gone: '[data-key="diag:again"].dim' }, { wait: '.hview dl.facts' }] },
     // the lower rows (a long error wraps at 390 px) and the diagnosis, the page scrolled
     'real-health-alarm-mid': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
       { wait: '.hview dl.facts' }, { scroll: ['main', 1100] }] },
     'real-health-alarm-end': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
       { wait: '.hview dl.facts' }, { scroll: ['main', 6000] }] },
+    // R-b F (Part F item 6): the log box scrolled to its newest lines keeps its place through a line's change (the
+    // page's own words print its place before and after); the summary leads to the worst row; out of reach "Read
+    // again" is dim, and a press says why and keeps the diagnosis shown
+    'real-health-logkeep': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-well' }, { wait: '.hl-summary.band-normal' },
+      { wait: '.hview dl.facts' }, { scroll: ['main', 6000] }, { scroll: ['pre.log', 100000] }, { place: 'pre.log' },
+      { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' }, { place: 'pre.log' }] },
+    'real-health-worst': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm a' },
+      { click: '.hl-summary a' }, { fetch: '/__wait?ms=500' }, { place: 'main' }] },
+    'real-health-away-again': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hview dl.facts' }, { fetch: '/__cut' }, { wait: '[data-key="diag:again"].dim' }, { scroll: ['main', 6000] },
+      { click: '[data-key="diag:again"]' }, { wait: '.toast' }, { wait: '.hview dl.facts' }] },
     'real-home-well': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__ctl?health-well' }, { wait: '.home-health.band-normal' }] },
     'real-home-alarm': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.home-health.band-alarm' }] },
     // L1: Settings with a look picked (it stays on this browser)

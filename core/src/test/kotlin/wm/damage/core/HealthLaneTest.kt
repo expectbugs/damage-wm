@@ -87,7 +87,6 @@ class HealthLaneTest {
         val got = core.line(HealthCore.REACH)
         assertEquals(Triple("answering on a", HealthCore.LIVE, HealthCore.PHONE), Triple(got.text, got.state, got.source))
         assertEquals("PC reach", got.label, "the PC's own label, whatever the phone sent")
-        assertNotNull(got.receivedAt, "stamped on the PC's clock")
         // a reconnect whose new connection reports before the old one's end is seen
         val b = RawLane(rig.port).also { closing += it }
         b.welcome()
@@ -199,9 +198,11 @@ class HealthLaneTest {
         assertEquals(HealthBand.ATTENTION, p.last(HealthCore.GLASSES_STAGE).band, "a hold-back")
     }
 
-    /** A send lost on a new connection (its welcome came while the copy's lane still named the connection before, a
-     *  race seen by reading, not observed) is made again at the next pass. Watched failing with the connection left out
-     *  of the comparison. */
+    /** The send rule by connection: what a connection is owed stays owed until a send on it has succeeded. A failed
+     *  send on an unchanged connection is not a state the real code reaches (a failed write closes the socket, and the
+     *  copy's lane names the new connection before its welcome arrives); the behaviour that matters, a new connection
+     *  sent the lines whatever they hold, is [thePhoneSendsOnAChangeAndAtAWelcomeOnly]'s. Watched failing with the
+     *  connection left out of the comparison. */
     @Test
     fun aSendLostWithItsConnectionIsMadeAgainAtTheNextPass() {
         val p = phone()
