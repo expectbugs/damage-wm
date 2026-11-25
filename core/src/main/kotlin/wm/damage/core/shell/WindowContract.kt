@@ -139,6 +139,14 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
      */
     open fun contentPlanes(content: Rect): List<Pair<Rect, Int>> = emptyList()
 
+    /**
+     * Music's motion update, stage L (`WindowLanes.kt`): the held lanes this window wants the glasses to animate now —
+     * rects inside [content] it keeps painting as today while the glasses draw them on their own clock — or null. Called
+     * on the loop at each pump while this window is in front (WINDOW mode focused, or exclusive), no overlay, list or
+     * transition over it, and [ShellServices.lanesInForce]. Only Music implements it in this update.
+     */
+    open fun lanes(content: Rect): LaneSpec? = null
+
     /** The shell layout changed (size mode / safe rect): re-derive any cached
      *  wraps — stale widths would overrun line rects (§2.2b, NO TRUNCATION). */
     open fun onLayoutChanged() {}
@@ -250,6 +258,11 @@ class DocModel {
 interface ShellServices {
     fun requestRender(window: DamageWindow)
     fun setOperation(op: String)
+
+    /** Music's motion update, stage L: true while this session can run held lanes ([DamageWindow.lanes]) — ladder stage 5
+     *  on a bit-11 build, the 256 KiB session's slice, the cache count readable, a mirror that models the engine, and the
+     *  lanes not off for the session. A window paints the look its lanes draw while it is; otherwise as below stage 5. */
+    fun lanesInForce(): Boolean = false
 
     /** Raise an internal notification (§4.5). The §16.5 signature (2026-09-01):
      *  [thread] is the coalescing key (same source+thread replaces/merges),

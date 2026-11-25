@@ -445,18 +445,54 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     fun assembleFlush(rectBudget: Int): Assembled? {
-        if (deferL.isNotEmpty()) {
-            // a keyframe or a reseed writes the whole model and closes every instance: nothing waits behind it
-            if (needsKeyframe || needsReseed) { deferL = emptyList(); deferR = emptyList() }
-            else {
-                // what the hold loop grew (a sub spanning the areas, held whole) waits with them and is made dirty at the
-                // release (decisions AL.2: dropped, its cells outside the areas were never sent)
-                val hl = ArrayList(deferL); val hr = ArrayList(deferR)
-                return assembleHolding(rectBudget, hl, hr, emptyList()).also { deferL = hl.distinct(); deferR = hr.distinct() }
-            }
-        }
-        return assembleFlushOnce(rectBudget, endFrame = true)
+        // a keyframe or a reseed writes the whole model and closes every instance: nothing waits behind it (a held lane's
+        // chain ends with it — the shell drops the chain when the flush is a keyframe)
+        val regrounds = needsKeyframe || needsReseed
+        if (deferL.isNotEmpty() && regrounds) { deferL = emptyList(); deferR = emptyList() }
+        if (regrounds) { laneGrownL = emptyList(); laneGrownR = emptyList() }
+        val laneL = if (regrounds) emptyList() else laneHold.map { it.first } + laneGrownL
+        val laneR = if (regrounds) emptyList() else laneHold.map { it.second } + laneGrownR
+        if (deferL.isEmpty() && laneL.isEmpty()) return assembleFlushOnce(rectBudget, endFrame = true)
+        // what the hold loop grew (a sub spanning the areas, held whole) waits with them and is made dirty at the
+        // release (decisions AL.2: dropped, its cells outside the areas were never sent) — a held lane's growth with the
+        // lane ([laneRelease])
+        val hl = ArrayList((deferL + laneL).distinct()); val hr = ArrayList((deferR + laneR).distinct())
+        val a = assembleHolding(rectBudget, hl, hr, emptyList())
+        val laneSetL = laneHold.map { it.first }.toSet(); val laneSetR = laneHold.map { it.second }.toSet()
+        if (deferL.isNotEmpty()) { deferL = hl.filter { it !in laneSetL && it !in laneGrownL }.distinct(); deferR = hr.filter { it !in laneSetR && it !in laneGrownR }.distinct() }
+        else if (laneHold.isNotEmpty()) { laneGrownL = hl.filter { it !in laneSetL }.distinct(); laneGrownR = hr.filter { it !in laneSetR }.distinct() }
+        return a
     }
+
+    /**
+     * Music's motion update, stage L (`shell/WindowLanes.kt`, `MM-lean-spec.md` §4.1): a window's held lanes, per lens,
+     * while their chain is open on the glasses — set by the shell at each pump (empty otherwise; never while a bound list
+     * is in front, whose deferral this sits beside). Their cells are held as a bound list's deferred cells are: never
+     * dirty, never sent, a sub that still meets them held whole and the frame planned again ([assembleHolding]) — so no
+     * write meets an owning lane, and belief keeps there the picture the glasses' shadow holds under the owner, while
+     * the window's own paint goes on into [composed] as today. [laneRelease] makes them dirty again; a keyframe or a
+     * reseed writes everything (and closes every instance on the glasses).
+     */
+    var laneHold: List<Pair<Rect, Rect>> = emptyList()
+    private var laneGrownL: List<Rect> = emptyList()
+    private var laneGrownR: List<Rect> = emptyList()
+
+    /** The lane's chain ended (or was cancelled): its [areas] and what the hold loop grew with them are unknown and go
+     *  into the next assemble's scan, written from the truth whether or not the truth differs from belief there — so a
+     *  write always meets the lane's meeting box, and the transport's CLOSE-before-a-write rule closes whatever of the
+     *  chain the mirror still holds open (`FIRMWARE.md` §7.11). As [cutDeferral] does for the bound list's cells. */
+    fun laneRelease(areas: List<Pair<Rect, Rect>>) {
+        for ((l, r) in areas) { markUnknown(unknownL, l); markUnknown(unknownR, r); pendingDamage.add(widen(l)); pendingDamage.add(widen(r)) }
+        for (r in laneGrownL) { markUnknown(unknownL, r); pendingDamage.add(widen(r)) }
+        for (r in laneGrownR) { markUnknown(unknownR, r); pendingDamage.add(widen(r)) }
+        laneGrownL = emptyList(); laneGrownR = emptyList()
+    }
+
+    /** The disparity of the plane region holding [r] (0 outside every region): a held lane's per-lens rects. */
+    fun laneDisparity(r: Rect): Int = disparityAt(r)
+
+    /** Whether [r] lies wholly inside one plane region or inside none (a lane across two planes has no one pair of rects). */
+    fun laneInOnePlane(r: Rect): Boolean = splitByPlanes(r).size == 1
 
     private fun assembleFlushOnce(rectBudget: Int, endFrame: Boolean): Assembled? {
         compressCache.clear()          // `composed` may have changed since the last assemble
