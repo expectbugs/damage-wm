@@ -43,14 +43,26 @@ object MusicMotion {
     /**
      * The song's place standing still while it plays (the second review's finding 3): the phone's stream waiting for data,
      * or the PC's player buffering (`PlayerCore.follow` maps its BUFFERING to PLAYING). [stalled] is true once the place
-     * has not moved for more than [slackMs]; not playing, the watch starts again. `MusicGlasses.lanes` asks it at every
-     * pump (no lanes while it stands, so the chain ends once and the bar stands); the lane rig asks it too.
+     * has not moved for more than [slackMs], counted from where it stopped: a sample that finds it moved by less than the
+     * clock since the last one puts the stop there — the song's zero grows by the same amount, so the pump that would see
+     * the zero moved past the slack sees the stall first. A place that kept up or jumped (a seek), or not playing, starts
+     * the watch again. `MusicGlasses.lanes` asks it at every pump (no lanes while it stands, so the chain ends once and
+     * the bar stands); the lane rig asks it too.
      */
     class StillPlace(private val slackMs: Long) {
         private var place = Long.MIN_VALUE
+        private var at = 0L
         private var since = 0L
+        private var was = false
         fun stalled(now: Long, playing: Boolean, place: Long): Boolean {
-            if (!playing || place != this.place) { this.place = place; since = now }
+            val moved = place - this.place
+            since = when {
+                !playing || !was || moved < 0 -> now
+                moved == 0L -> since
+                moved >= now - at -> now
+                else -> at + moved
+            }
+            this.place = place; at = now; was = playing
             return now - since > slackMs
         }
     }

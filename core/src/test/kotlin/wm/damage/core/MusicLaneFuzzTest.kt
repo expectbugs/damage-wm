@@ -174,6 +174,22 @@ class MusicLaneFuzzTest {
         assertEquals(areas, r.lanes.takeRelease(), "the dropped chain's cells are released")
     }
 
+    /** The stall rule (`MusicMotion.StillPlace`, the second review's finding 3) counts from where the place stopped: a
+     *  pump a second after the last finds the place moved 100 ms and then still — 900 ms of stall, seen at once (the
+     *  song's zero has grown as much, and a paint then would restart the chain on it). Two samples in one ms keep the
+     *  watch; a place a little slower than the clock, a seek back and a resume are no stall. */
+    @Test
+    fun aStallIsCountedFromWhereThePlaceStopped() {
+        val s = wm.damage.core.windows.music.MusicMotion.StillPlace(250)
+        assertTrue(!s.stalled(1_000, true, 10_000) && !s.stalled(2_000, true, 11_000), "playing")
+        assertTrue(s.stalled(3_000, true, 11_100), "moved 100 ms in a second, then stood: 900 ms of stall")
+        assertTrue(s.stalled(3_000, true, 11_100) && s.stalled(3_400, true, 11_100), "still, in one ms and after")
+        assertTrue(!s.stalled(4_400, true, 12_100), "moving with the clock again")
+        assertTrue(!s.stalled(5_400, true, 13_090) && !s.stalled(6_400, true, 14_080), "a place 1 % slow")
+        assertTrue(!s.stalled(7_400, true, 2_000), "a seek back")
+        assertTrue(!s.stalled(8_000, false, 2_000) && !s.stalled(20_000, true, 2_005), "a resume after a long pause")
+    }
+
     // ------------------------------------------------------------------------------------------------- the walk
     @Test
     fun theCancelEnvelopeAtThreeTimings() {
