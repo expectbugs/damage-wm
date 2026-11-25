@@ -11,6 +11,7 @@ import wm.damage.core.gfx.IconKind
 import wm.damage.core.gfx.IconSource
 import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
+import wm.damage.core.local.BoundList
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.MainLocalCheck
 import wm.damage.core.shell.MainStaging
@@ -223,6 +224,155 @@ object WheelCheck {
             "(the ring's least gap, 224 ms), a pause of $PAUSE_TICKS ticks, six up", 1, burst)
         table += "his nine windows' cells (the drawn icons): ${rig.cells().joinToString { "${it.entry.name} ${it.encoded.size} B" }}"
         return out to table
+    }
+
+    // ------------------------------------------------------------------------------- `--local-check`'s bound cases
+    /**
+     * C3 DW-1b-2 (the DW spec §7.2; decisions DA (d) 1, (d) 2): the wheel BOUND on the firmware model as the shell binds it —
+     * `desktop --local-check`'s wheel cases, at [heights], d in [ds], n in [ns], on a bit-11 build at stage 5 with his 256
+     * KiB cache. The block ([Rig.block]) written, then list [Shell.WHEEL_LIST] in the contract's order (its LIST-RING, then
+     * its SETs: [Wheel.Block.boundList]'s entries 6 and 7 and the report-only tap at the number the rules give it,
+     * `LocalRules.tapEntry`). Then at EVERY cursor, both ways, each notch fired through the input hook on both lenses from
+     * the switcher's paint at rest there (a keyframe) and the slot's DISCARD naming the cursor:
+     * - RIGHT's report is [BoundList.predict]'s — the cursor modulo n, the program and P0..P3, field 18 = 1 exactly where it
+     *   wrapped (down from the last row, up from row 0);
+     * - after the last step each lens holds the switcher's paint at the new cursor over the wheel's area, and nothing outside
+     *   the area changed; nothing is sent at HOLD;
+     * - the answer (the riding LIST-RING and the COMMIT of the report's own parameters) writes END into the shadow — what
+     *   belief takes from [BoundList.paintEnd] — and the lens shows its shadow.
+     * And a report-only tap at both ends (under `Taps · report` and `glasses` alike, S-W2): a report with no fields 10–14,
+     * nothing drawn. The table line per case: the block's bytes and place. Then "not offered" with its reason, the shell's
+     * own words: two entries ([Wheel.refusal]) and a 160 KiB session (`WheelResident.sessionRefusal`).
+     */
+    fun localCases(text: TextRasterizer, heights: List<Int> = wm.damage.core.shell.ShellSettings.HEIGHTS, ds: List<Int> = listOf(0, 8),
+                   ns: List<Int> = listOf(3, 5, 9)): MainLocalCheck.Result {
+        val cases = ArrayList<MainLocalCheck.Case>()
+        val table = ArrayList<String>()
+        for (h in heights) for (d in ds) for (n in ns) localOne(text, h, d, n).let { (c, l) -> cases += c; table += l }
+        // "not offered", with the shell's reasons
+        for (d in ds) {
+            val l = Layout().withHeightMode(352, VPos.TOP)
+            val sw = Switcher(text, { null })
+            val w0 = MainLocalCheck.SampleRow("w0", WINDOWS[0].first, WINDOWS[0].second, DamageWindow.Summary(WINDOWS[0].first))
+            sw.openWith(w0, listOf(w0))
+            val why = Wheel.refusal(Wheel.geo(sw, l, d), sw.entryCount)
+            cases += MainLocalCheck.Case("wheel-n2-d$d", "the wheel of two entries at 352, d $d: not offered, with its reason", Rect(0, 0, 1, 1), emptyList(),
+                listOf("${sw.entryCount} entries: not offered — ${why ?: "OFFERED"}"), listOfNotNull("two entries are offered".takeIf { why == null }))
+        }
+        val kib160 = 160 * 1024
+        val why160 = wm.damage.core.shell.WheelResident.sessionRefusal(kib160, CfwModes.mainRegion(kib160, bind = true).last + 1)
+        cases += MainLocalCheck.Case("wheel-160k", "the wheel on a 160 KiB session: not offered, with its reason", Rect(0, 0, 1, 1), emptyList(),
+            listOf("160 KiB: not offered — ${why160 ?: "OFFERED"}"), listOfNotNull("a 160 KiB session offers the wheel".takeIf { why160 == null }))
+        return MainLocalCheck.Result(cases, table)
+    }
+
+    private fun localOne(text: TextRasterizer, h: Int, d: Int, n: Int): Pair<List<MainLocalCheck.Case>, String> {
+        val rig = Rig(text, h, n, d)
+        val block = rig.block()
+        val listNo = Shell.WHEEL_LIST
+        val slot = MainStaging.SLOT
+        var image: ByteArray? = null
+        val list = block.boundList(listNo, slot, Shell.WHEEL_ENTRIES, 1) { image ?: block.cache(CACHE).also { image = it } }
+        val rules = wm.damage.core.local.LocalRules()
+        val tap = rules.tapEntry(list)
+        rules.taps(wm.damage.core.local.Taps.GLASSES)
+        val tapGlasses = rules.tapEntry(list)
+        val tag = "wheel-h$h-d$d-n$n"
+        val g = block.geo
+        val end = CfwModes.mainRegion(CACHE, bind = true).last + 1
+        val line = "$tag: ${block.describe()}; at ${block.base}..${block.end} of Main's region's end $end (${end - block.base} B from it); " +
+            "list $listNo entries ${list.entries.joinToString { "${it.entry}" }} and the tap ${tap?.entry}; ${g}"
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = FEATURES; it.clockIsOsTick = true }
+        val lens = MainLocalCheck.Lens(sim, CACHE)
+        val setup = ArrayList<String>()
+        if (tap == null || !tap.reportOnly) setup += "the wheel's tap entry under Taps report is not report-only: $tap"
+        if (tapGlasses == null || !tapGlasses.reportOnly || tapGlasses.entry != tap?.entry) setup += "under Taps glasses the wheel's tap is not the same report-only entry (S-W2): $tapGlasses"
+        if (Shell.WHEEL_ENTRIES.any { e -> list.entries.none { it.entry == e } } || (tap != null && tap.entry in Shell.WHEEL_ENTRIES.toList())) setup += "the entries ${list.entries.map { it.entry }} and the tap ${tap?.entry}"
+        for (arm in Arm.entries) {
+            sim.conformanceLease(arm, true, lens.now)
+            sim.conformanceControl(arm, DamageMsg.OP_CACHE_SIZE, CACHE / 1024, lens.now)
+            sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, FLAGS, lens.now)
+        }
+        for ((off, bytes) in block.writes()) lens.write(off, bytes, "the block's write", setup)
+        lens.send("the LIST-RING", list.listMessage(0), setup)
+        for (s in list.sets()) lens.send("a SET", s, setup)
+        if (tap != null) lens.send("the tap's SET", list.set(tap), setup)
+        for (arm in Arm.entries) if (!sim.bindForTest(arm).lists[listNo].ring) setup += "$arm: list $listNo's RING flag is not set after the LIST-RING"
+        if (setup.isNotEmpty()) return listOf(MainLocalCheck.Case("$tag-setup", "the block written and list $listNo bound", Rect(0, 0, 1, 1), emptyList(), emptyList(), setup)) to line
+
+        var s = 0
+        val cases = ArrayList<MainLocalCheck.Case>()
+        fun outside(panel: ByteArray, want: Gray8, left: Boolean): Int =
+            MainLocalCheck.differ(panel, want, null) - MainLocalCheck.differ(panel, want, listOf(g.area(left)))
+        for ((eventId, name) in listOf(CfwModes.EV_UPROLL to "down", CfwModes.EV_DOWNROLL to "up")) {
+            val e = list.entryFor(eventId)!!
+            val fails = ArrayList<String>(); val lines = ArrayList<String>()
+            for (c in 0 until n) {
+                val what = "$name from $c"
+                lens.now += 1_000
+                lens.keyframe(rig.truth(c, true), rig.truth(c, false))
+                lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(slot, 1, listNo, c), fails)
+                lens.notifies()
+                val a = lens.fire(CfwModes.DEV_RING, e.eventId)
+                s++
+                if (a == null) { fails += "$what: RIGHT sent no report"; continue }
+                if (a.s != s || a.mark != list.mark || a.list != listNo) fails += "$what: the report's S ${a.s} mark ${a.mark} list ${a.list}, not $s, ${list.mark}, $listNo"
+                val f = list.predict(c, e)
+                if (f !is BoundList.Fire.Drew || f.p == null) { fails += "$what: predicted $f on a ring list (${a.describe()})"; continue }
+                val wraps = c + e.step !in 0 until n
+                if (a.outcome != DamageMsg.APPLIED_DREW || a.cursor != f.cursor) { fails += "$what: predicted drew to ${f.cursor}, the lens said ${a.describe()}"; continue }
+                if (a.field18 != (if (wraps) 1L else null)) fails += "$what: field 18 ${a.field18}, a fire that ${if (wraps) "wrapped" else "did not wrap"}"
+                if (a.prog != f.prog4 || !a.params.contentEquals(f.p)) { fails += "$what: predicted prog ${f.prog4} P ${f.p.joinToString(",")}, the lens said ${a.describe()}"; continue }
+                val prog = block.program(e.step)
+                val steps = prog.stepsWith(f.p)
+                val t0 = lens.now
+                for (k in 1..steps) lens.wake(t0 + (k - 1).toLong() * e.period)
+                lens.wake(t0 + steps.toLong() * e.period)
+                val held = lens.notifies()
+                if (held.isNotEmpty()) fails += "$what: a local instance at HOLD owes no notify, RIGHT sent ${held.map { it.describe() }}"
+                for (arm in Arm.entries) {
+                    val left = arm == Arm.LEFT
+                    val panel = lens.panel(arm)
+                    MainLocalCheck.differ(panel, rig.truth(f.cursor, left), listOf(g.area(left))).let { if (it > 0) fails += "$what $arm: $it px of the area are not the switcher's paint at ${f.cursor} after the last step" }
+                    outside(panel, rig.truth(c, left), left).let { if (it > 0) fails += "$what $arm: $it px outside the area changed" }
+                }
+                lens.send("the riding LIST-RING and COMMIT S $s", CfwModes.batch(listOf(list.listMessage(0), Motion.commit(prog, slot, s, listNo, f.cursor, f.p)), engine = true, bind = true), fails)
+                for (arm in Arm.entries) {
+                    val left = arm == Arm.LEFT
+                    val belief = rig.truth(c, left).copy().also { list.paintEnd!!(left, f.prog4, f.p, it) }
+                    MainLocalCheck.differ(lens.shadow(arm), belief, null).let { if (it > 0) fails += "$what $arm: $it px where COMMIT's END in the shadow is not what belief takes" }
+                    if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) fails += "$what $arm: after the COMMIT the lens does not show its shadow"
+                    if (!sim.bindForTest(arm).lists[listNo].ring) fails += "$what $arm: list $listNo's RING flag is not set after the answer"
+                }
+                val bodies = lens.notifies()
+                if (bodies.none { it.outcome == DamageMsg.OUTCOME_COMMITTED } || bodies.any { it.outcome == 2 }) fails += "$what: RIGHT's notifies after the COMMIT ${bodies.map { it.describe() }}"
+                lines += "$what → ${f.cursor}${if (wraps) " (the wrap, field 18 = 1)" else ""}: prog ${f.prog4} P ${f.p.joinToString(",")}, $steps step(s) at P ${e.period}"
+            }
+            cases += MainLocalCheck.Case("$tag-$name", "every notch $name at every cursor, bound as list $listNo: the report as predicted, the last step the switcher's paint " +
+                "over the area and nothing outside it, COMMIT's END belief's", Rect(0, 0, 1, 1), emptyList(), lines, fails)
+        }
+        // the report-only tap at both ends
+        val fails = ArrayList<String>(); val lines = ArrayList<String>()
+        if (tap != null) for (c in listOf(0, n - 1)) {
+            lens.now += 1_000
+            lens.keyframe(rig.truth(c, true), rig.truth(c, false))
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(slot, 1, listNo, c), fails)
+            lens.notifies()
+            val a = lens.fire(CfwModes.DEV_RING, CfwModes.EV_TAP)
+            s++
+            if (a == null) { fails += "tap at $c: RIGHT sent no report"; continue }
+            if (a.s != s || a.list != listNo || a.cursor != c || a.outcome != DamageMsg.APPLIED_DREW) fails += "tap at $c: the report ${a.describe()}"
+            if (a.params != null || a.prog != null) fails += "tap at $c: a report-only entry's report carries fields 10–14 (${a.describe()})"
+            lens.wake(lens.now + 200)
+            for (arm in Arm.entries) {
+                MainLocalCheck.differ(lens.panel(arm), rig.truth(c, arm == Arm.LEFT), null).let { if (it > 0) fails += "tap at $c $arm: $it px changed (a report-only entry draws nothing)" }
+                if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) fails += "tap at $c $arm: the lens does not show its shadow"
+            }
+            lines += "tap at $c: ${a.describe()}"
+        }
+        cases += MainLocalCheck.Case("$tag-tap", "the report-only tap (entry ${tap?.entry}, under Taps report and glasses) at both ends: a report with no fields 10–14, nothing drawn",
+            Rect(0, 0, 1, 1), emptyList(), lines, fails)
+        return cases to line
     }
 
     /** His nine windows' [cells] (the switcher's order) and the block's bytes with them: [block] as built (a quarter's slack

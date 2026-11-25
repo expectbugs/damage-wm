@@ -27,9 +27,9 @@ import wm.damage.core.wire.DamageMsg
  * app categories — a ring list at 288, 352 and 416, a plain one at 480), Global's rows (the window's and the shell's own,
  * as on the glasses: a ring list at every height) and a three-row app category (Bastion's size: a plain list
  * everywhere). At each of the four heights, on a bit-11 build at stage 5 with a 256 KiB cache, the list is laid out
- * where stage 3 lays it: from the wheel block's base ([WHEEL_BLOCK]
- * below the end of Main's region, until the wheel's stage DW-1a names the function that gives that base) down, over Main's
- * staging of its eight sample rows (its end is the floor). Bound as glasses list 1, entries 3–5 (decisions BD), slot 0.
+ * where stage 3 lays it: from the wheel block's base ([top]: the shell's own `wheelBase`, [WheelResident.baseIn], over the
+ * fixture's block of nine cells at that height and depth) down, over Main's staging of its eight sample rows (its end is the
+ * floor). Bound as glasses list 1, entries 3–5 (decisions BD), slot 0.
  * Then for each of the form's effects ([ScrollEffects.WINDOW_EFFECTS]), at EVERY cursor and both directions, the notch
  * fired through the simulator's input hook on both lenses:
  * - RIGHT's report (field 115) is what [BoundList.predict] says (the edge at a plain list's ends; on a ring list the wrap
@@ -42,9 +42,6 @@ import wm.damage.core.wire.DamageMsg
  * And per list and height the tap entry, report-only under `Taps · glasses` too (no press on a window list).
  */
 object WindowListCheck {
-    /** The wheel's block as measured with his theme's icons (decisions BQ (3), M-PC): the bytes left above a window list
-     *  until DW-1a's function gives the block's base. */
-    const val WHEEL_BLOCK = 17_728
     /** Decisions BD: a window's list is glasses list 1, its entries 3 (down), 4 (up) and 5 (the tap). */
     const val LIST = 1
     val ENTRIES: IntArray get() = intArrayOf(3, 4, 5)
@@ -167,8 +164,12 @@ object WindowListCheck {
             .staging(cache, CfwModes.mainRegion(cache, bind = true), MainStaging.ScrollMotion.DEFAULT, stage5 = true).end
     }
 
-    /** The window list's top: the end of Main's region less the wheel's block. */
-    fun top(): Int = CfwModes.mainRegion(CfwModes.CACHE2_MAX_RIDERS, bind = true).last + 1 - WHEEL_BLOCK
+    /** The window list's top at [height] and Global `Depth` [depth] (C3 DW-1b-2, decisions DA (c) 3: one source, no
+     *  constant): the shell's own base ([WheelResident.baseIn], what `Shell.wheelBase` reads) with the fixture's block placed
+     *  — nine cells (Main's entry and eight windows), laid out as the shell lays it (`WheelResident.baseFor`). */
+    fun top(text: TextRasterizer, height: Int, depth: Int): Int =
+        WheelResident().also { it.block = wm.damage.core.motion.WheelCheck.Rig(text, height, 9, depth).block() }
+            .baseIn(CfwModes.mainRegion(CfwModes.CACHE2_MAX_RIDERS, bind = true).last + 1)
 
     /** Every case at [heights] for every list and the form's effects; [frames] keeps one notch's frames a case. */
     fun run(text: TextRasterizer, heights: List<Int> = ShellSettings.HEIGHTS, depth: Int = 8, frames: Boolean = true): MainLocalCheck.Result {
@@ -176,8 +177,9 @@ object WindowListCheck {
         val table = ArrayList<String>()
         for (h in heights) {
             val floor = mainEnd(text, h, depth)
+            val top = top(text, h, depth)
             for (sample in Sample.entries) for (e in ScrollEffects.WINDOW_EFFECTS) {
-                val r = runOne(text, h, sample, e, depth, floor, frames, tapCase = e == ScrollEffect.DEPTH)
+                val r = runOne(text, h, sample, e, depth, floor, top, frames, tapCase = e == ScrollEffect.DEPTH)
                 cases += r.first
                 table += r.second
             }
@@ -194,8 +196,9 @@ object WindowListCheck {
         val table = ArrayList<String>()
         for (h in heights) {
             val floor = mainEnd(text, h, depth)
+            val top = top(text, h, depth)
             for (e in ScrollEffects.WINDOW_EFFECTS) {
-                val r = runOne(text, h, Sample.GLOBAL, e, depth, floor, true, midOnly = true)
+                val r = runOne(text, h, Sample.GLOBAL, e, depth, floor, top, true, midOnly = true)
                 for (c0 in r.first) {
                     val dir = c0.name.substringAfterLast('-')
                     val c = MainLocalCheck.Case("scroll-list-${e.id}-h$h-$dir", "a window's list (Settings' Global) in the window form, ${e.word}: ${c0.about}",
@@ -208,11 +211,10 @@ object WindowListCheck {
         return MainLocalCheck.Result(cases, table)
     }
 
-    private fun runOne(text: TextRasterizer, height: Int, sample: Sample, effect: ScrollEffect, depth: Int, floor: Int, keepFrames: Boolean,
+    private fun runOne(text: TextRasterizer, height: Int, sample: Sample, effect: ScrollEffect, depth: Int, floor: Int, top: Int, keepFrames: Boolean,
                        midOnly: Boolean = false, tapCase: Boolean = false): Pair<List<MainLocalCheck.Case>, String> {
         val rig = WindowRig(text, height, sample, depth)
         val cacheSize = CfwModes.CACHE2_MAX_RIDERS
-        val top = top()
         val ms = rig.staging(effect, floor, top)
         val list = ms.boundList(1, list = LIST, entryIds = ENTRIES)
         val tag = "list-${sample.id}-h$height-${effect.id}"
@@ -241,7 +243,8 @@ object WindowListCheck {
             "${"%.0f".format(ms.strip.encoded.size.toDouble() / stripRows)} B written), programs ${ms.blobs[1].bytes.size} B" +
             (ms.progSlots?.let { " (pan slots of ${ms.progSlot} B at ${it[0]} and ${it[1]})" } ?: " (no spare pan slot)") +
             "; ${whole.program.tracks.size} tracks, ${whole.areaPx} px a step, P ${ms.period} T ${ms.t}; " +
-            "Main's end $floor (its eight sample rows), the window list's top $top (the region's end less the wheel's $WHEEL_BLOCK B): $avail B — " +
+            "Main's end $floor (its eight sample rows), the window list's top $top (the wheel's block's base, the shell's own: " +
+            "${CfwModes.mainRegion(cacheSize, bind = true).last + 1 - top} B below the region's end): $avail B — " +
             "rows of this size that fit there ≈ $fits"
         val cases = ArrayList<MainLocalCheck.Case>()
         if (setup.isNotEmpty()) { cases += MainLocalCheck.Case("$tag-setup", "the staging written and the list SET", Rect(0, 0, 1, 1), emptyList(), emptyList(), setup); return cases to tableLine }

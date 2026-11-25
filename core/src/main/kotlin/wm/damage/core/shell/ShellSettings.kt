@@ -130,6 +130,10 @@ data class ShellSettings(
     val popupUnfurl: Boolean = true,
     val popupFade: Boolean = false,
     val popupSlide: Boolean = false,
+    /** C3 DW-1b-2 (the DW spec §6; decisions BD O4, DA (d) 4): `Switcher` on the main `Animations` page — `drum` (the
+     *  default: the wheel turns between detents) or `none` (the one-step programs: the detent lands at once, still drawn by
+     *  the glasses). Its length and frames are the Scroll tier's. Shown at ladder stage 5 only. Additive, as `scrollLength`. */
+    val switcher: String = "drum",
 
     /** Build C3, stage DP2 (`MOTION.md` §7): the full-screen transitions' tiers — Select (a tap that opens), Back (a
      *  window or a level left; Select's effects reversed in time) and Lock (the shell's silent clock entered and left) —
@@ -257,6 +261,7 @@ data class ShellSettings(
         scrollEffect = if (scrollEffect in SCROLL_EFFECTS) scrollEffect else "depth",
         popupLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - popupLength) } ?: 300,
         popupFrames = if (popupFrames in FRAME_COUNTS) popupFrames else 0,
+        switcher = if (switcher in SWITCHERS) switcher else "drum",
         selectLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - selectLength) } ?: 450,
         selectFrames = if (selectFrames in FRAME_COUNTS) selectFrames else 10,
         selectEffects = storedEffects(wm.damage.core.motion.Transitions.Tier.SELECT, selectEffects),
@@ -304,6 +309,10 @@ data class ShellSettings(
         /** Build ANIM (AV): the `Scroll length` ladder (ms) and the `Frames` choices (0 = Auto). */
         val SCROLL_LENGTHS = listOf(225, 300, 450, 600, 800)
         val FRAME_COUNTS = listOf(0, 4, 6, 8, 10, 12, 16)
+        /** C3 DW-1b-2: the `Switcher` row's values, in its order (the stored ids). */
+        val SWITCHERS = listOf("drum", "none")
+        /** The `Switcher` row's word for a stored id ("Drum", "None"). */
+        fun switcherWord(id: String): String = id.replaceFirstChar { it.uppercase() }
         /** K1-1: the `Scroll effect` row's order (the stored ids). */
         val SCROLL_EFFECTS: List<String> = wm.damage.core.motion.ScrollEffect.entries.map { it.id }
         /** K1-2 stage 3c (decisions CV): an app's `Scroll effect` as stored — "default", then what a window's list plays

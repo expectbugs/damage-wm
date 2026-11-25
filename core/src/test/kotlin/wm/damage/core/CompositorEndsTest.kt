@@ -219,4 +219,31 @@ class CompositorEndsTest {
             assertTrue("\"why\":\"the first cause\"" in java.nio.file.Files.readString(f), java.nio.file.Files.readString(f))
         } finally { java.nio.file.Files.deleteIfExists(f) }
     }
+
+    /** Music's stage L (`MM-decisions.md` "Stage L, the focused read: ruled" item 2): a delta the planner spans across a
+     *  held lane (two cells either side of it, unioned — nothing keeps the lane out here) is held whole, so the lane grows;
+     *  the grown cells keep that delta's pixels in belief, never sent, until the lane's release. The shell's agreement
+     *  check skips [Compositor.heldRects], which names them as it names the bound list's deferral with its growth. */
+    @Test
+    fun aHeldLanesGrownCellsAreAmongTheHeldRects() {
+        val c = fresh()
+        val sides = listOf(Rect(band.x - 8, band.y, 4, 2), Rect(band.right + 4, band.y, 4, 2))
+        val before = listOf(true, false).associateWith { c.unknownForTest(it).copyOf() }
+        c.laneHold = listOf(band to band)
+        for (s in sides) { c.composed.fillRect(s, 12 * 17); c.damage(s) }
+        c.assembleFlush(Geometry.rectBudget(1))
+        for (left in listOf(true, false)) {
+            val u = c.unknownForTest(left); val was = before.getValue(left); val w = c.cellsWForTest
+            val grown = u.indices.filter { u[it] && !was[it] }
+                .map { Rect((it % w) * Geometry.X_STEP, (it / w) * Geometry.Y_STEP, Geometry.X_STEP, Geometry.Y_STEP) }
+                .filter { !it.overlaps(band) }
+            assertTrue(grown.isNotEmpty(), "the lane grew on the ${if (left) "left" else "right"} lens: a delta across it was held (else this proves nothing)")
+            val held = c.heldRects(left)
+            val bare = grown.filter { g -> held.none { it.overlaps(g) } }
+            assertTrue(bare.isEmpty(), "every grown cell is in the held rects on the ${if (left) "left" else "right"} lens: " +
+                "${bare.size} of ${grown.size} not (first ${bare.firstOrNull()}; held $held)")
+        }
+        c.laneRelease(c.laneHold); c.laneHold = emptyList()
+        assertTrue(c.heldRects(true).isEmpty() && c.heldRects(false).isEmpty(), "the release clears them")
+    }
 }

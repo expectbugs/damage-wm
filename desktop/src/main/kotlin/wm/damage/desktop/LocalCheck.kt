@@ -24,6 +24,10 @@ import wm.damage.core.shell.WindowListCheck
  * K1-2 stage 2: and a window's list in the window form ([WindowListCheck]: Settings' categories, Global and a three-row
  * category at the four heights, stage 5, 256 KiB, every effect of the form at every cursor both ways, the report-only
  * tap) — `DIR/list-<list>-h<height>-<effect>-<down|up|tap>` beside `DIR/list-staging.txt`.
+ * C3 DW-1b-2: and the switcher's wheel bound as list 2 (`WheelCheck.localCases`: the four heights, d 0 and 8, n 3, 5 and
+ * 9, every notch at every cursor both ways, the wrap, the report-only tap at both ends; not offered at n 2 and 160 KiB) —
+ * `DIR/wheel-h<height>-d<d>-n<n>-<down|up|tap>.txt`, `DIR/wheel-n2-d<d>.txt`, `DIR/wheel-160k.txt` beside
+ * `DIR/wheel-bound.txt` (the block's bytes and place per case).
  *
  * The bounds (decisions B.11, C1's A.15 form): `main` hands this the directory before the config is read, so nothing
  * under `~/.damage` is read; no stack, transport, shell or scope is made, so no port is bound and no window opens (the
@@ -50,8 +54,16 @@ object LocalCheck {
         for (c in w.cases) writeCase(outDir, c, out)
         Files.writeString(outDir.resolve("list-staging.txt"), w.table.joinToString("\n", postfix = "\n"))
         for (l in w.table) out.println("  $l")
-        val failures = r.failures + w.failures
-        out.println("local-check: ${r.cases.size} case(s) of Main's and ${w.cases.size} of a window's list into $outDir")
+        // C3 DW-1b-2 (the DW spec §7.2): the switcher's wheel bound as list 2
+        val k = try { wm.damage.core.motion.WheelCheck.localCases(AwtText()) } catch (e: Exception) {
+            out.println("local-check: the wheel FAILED to run: ${e.javaClass.simpleName}: ${e.message}")
+            return 1
+        }
+        for (c in k.cases) writeCase(outDir, c, out)
+        Files.writeString(outDir.resolve("wheel-bound.txt"), k.table.joinToString("\n", postfix = "\n"))
+        for (l in k.table) out.println("  $l")
+        val failures = r.failures + w.failures + k.failures
+        out.println("local-check: ${r.cases.size} case(s) of Main's, ${w.cases.size} of a window's list and ${k.cases.size} of the wheel into $outDir")
         if (failures.isEmpty()) { out.println("local-check: ALL HOLD"); return 0 }
         out.println("local-check: ${failures.size} FAILURE(S):")
         for (f in failures.take(60)) out.println("  - $f")

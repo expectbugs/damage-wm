@@ -529,8 +529,9 @@ to him at the sitting before it (the previous deploy), so a "go" costs no sittin
 `HANDOFF.md` §79) · S1-1 (0.67, §80) · L0 and L1 with S1-2 inside it (0.68, §84) · C1 (flashed 11-18, §88) · S1-3
 (0.70, §89, §91) · C2 (flashed 11-19, §94) · C3, the effects build of §17.3 item 8 (flashed 11-20, §99; not the
 offline-home C3 of row G). **In progress:** K1, the motion kit's shell part (§17.3 items 6 and 8; from APK 0.83,
-§100, §101) · S1-4's first half (Music) built, reviewed and on `main`, not deployed (§97) · Music's motion update
-planned (`MUSIC.md` §14, §17.3 item 9). **Not started:** S1-5, S2, K2–K4, Reminders, S3, G.
+§100, §101) · S1-4's first half (Music) and S1-5 (Games, Main and Settings on the PC's record, the Settings page, the
+sync channel removed) built, reviewed and on `main`, not deployed (§97) · R-b's health view and Music's motion update
+(`MUSIC.md` §14, §17.3 item 9) in work. **Not started:** S2, K2–K4, Reminders, S3, G.
 
 | build | contains | he sees in daily use | needs from him (sittings) | before it starts | gate |
 |---|---|---|---|---|---|

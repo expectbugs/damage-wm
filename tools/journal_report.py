@@ -74,6 +74,9 @@ against its end (the step method carries up to 1 % at each boundary of a state).
 the atlas read-back (subject "the atlas check") are left out — and names a shortfall of staged strips
 alone; the `cached text:` line says what its reasons count since 0.64 and prints no zero entry. Read a
 journal that spans the upgrade to 0.64 with `--since` (the two builds count in different units).
+C3 DW-1b-2: the switcher's wheel per open from the `wheel` notes (bound at the open and how soon after the chord, bound
+late with the reason the open was not offered, never bound and why; the notches the glasses drew against the phone's),
+and field 38 of RIGHT's telemetry (reports the glasses could not send) counted from the `local` notes.
 `--selftest` runs the report's own checks over the synthetic journals in tools/fixtures/journal_report/.
 
     python3 tools/journal_report.py journal.json --since 2026-09-14 --glasslog
@@ -276,6 +279,7 @@ def main(paths, since_ms=0, glasslog=False):
         for n in notes: start_note(n)
         loop_report(notes)
         local_report(notes)
+        wheel_report(notes)
         refusal_report(notes)
         present_report(presents)
         battery_report(notes)
@@ -362,6 +366,7 @@ def main(paths, since_ms=0, glasslog=False):
         print('\nno handleMs/assembleMs in this journal (written before §32)')
     loop_report(notes)
     local_report(notes)
+    wheel_report(notes)
     whole_report(joined, notes)
     # §41: the cache's account — rects shipped as draws, and why the rest
     # were pixels (the compositor's own reasons, per flush)
@@ -992,6 +997,63 @@ def local_report(notes):
     if rp: print('  repair by object: ' + ', '.join(f'{c} {v}' for c, v in rp.most_common()))
     if last_local: print(f'  last local note: {last_local}')
 
+WHEEL_AT_OPEN = re.compile(r'^closed — bound at the open \((\d+) ms after the chord\)')
+WHEEL_LATE = re.compile(r'^closed — bound (\d+) ms after the chord, mid-open \(at the open: (.*?)\); \d+ notch\(es\) drawn by the glasses')
+WHEEL_NEVER = re.compile(r'^closed — never bound \((.*?)\); \d+ notch\(es\) drawn by the glasses')
+WHEEL_NOTCHES = re.compile(r'(\d+) notch\(es\) drawn by the glasses, (\d+) by the phone')
+LOCAL_38 = re.compile(r'(?:^| )38=(\d+)\b')
+
+def wheel_report(notes):
+    """C3 DW-1b-2 (decisions DA (c) 6, DF finding 3): the switcher's wheel per open, from the `wheel` note the shell writes
+    at each close (`Shell.wheelOfferPoll`): bound at the open (after how long from the chord), bound late — mid-open, with
+    the reason the open was not offered at its first poll (CK A2's late binds: the programs' geometry and timing among
+    them) — or never bound and why; the notches drawn by the glasses against those drawn by the phone; and the block's own
+    notes (placed, counted, dropped, rewritten in place). Beside it, field 38 of RIGHT's telemetry (the reports whose send
+    returned non-zero, a counter since the glasses' boot) from the `local` notes: the rises between readings, a fall read as
+    the counter starting again from 0. Prints nothing without either."""
+    at_open, late, never = [], [], []
+    late_why, never_why = collections.Counter(), collections.Counter()
+    glasses = phone = phone_late = 0
+    block = collections.Counter()
+    r38, prev, restarts, first38 = 0, None, 0, None
+    for n in notes:
+        k, d = n.get('kind'), n.get('detail', '')
+        if k == 'wheel':
+            m = WHEEL_NOTCHES.search(d)
+            g, p = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+            if (m2 := WHEEL_AT_OPEN.match(d)):
+                at_open.append(int(m2.group(1))); glasses += g; phone += p
+            elif (m2 := WHEEL_LATE.match(d)):
+                late.append((n.get('t', 0), int(m2.group(1)), m2.group(2))); late_why[m2.group(2)] += 1; glasses += g; phone += p; phone_late += p
+            elif (m2 := WHEEL_NEVER.match(d)):
+                never.append((n.get('t', 0), m2.group(1))); never_why[m2.group(1)] += 1; glasses += g; phone += p; phone_late += p
+            else:
+                for w in ('placed', 'counted', 'dropped', 'kept', 'not placed'):
+                    if d.startswith(w + ' —'): block[w] += 1
+        elif k == 'local' and (m := LOCAL_38.search(d)):
+            v = int(m.group(1))
+            if prev is None: first38 = v
+            elif v >= prev: r38 += v - prev
+            else: r38 += v; restarts += 1
+            prev = v
+    opens = len(at_open) + len(late) + len(never)
+    if opens or block:
+        def ms(v): return f'median {med(v):,} ms after the chord, max {max(v):,}' if v else ''
+        print(f'\nthe switcher\'s wheel (C3 DW-1b, the `wheel` notes): {opens} open(s) — {len(at_open)} bound at the open'
+              + (f' ({ms(at_open)})' if at_open else '') + f', {len(late)} bound late (mid-open'
+              + (f': {ms([x[1] for x in late])}' if late else '') + f'), {len(never)} never bound')
+        if late_why: print('  late binds by the reason at the open: ' + ', '.join(f'{w} {c}' for w, c in late_why.most_common()))
+        if never_why: print('  never bound by reason: ' + ', '.join(f'{w} {c}' for w, c in never_why.most_common()))
+        if opens: print(f'  notches: {glasses} drawn by the glasses, {phone} by the phone ({phone_late} of them in opens bound late or never)')
+        for t, after, why in late:
+            print(f'    {datetime.datetime.fromtimestamp(t / 1000):%m-%d %H:%M:%S}  bound {after:,} ms after the chord (at the open: {why})')
+        for t, why in never:
+            print(f'    {datetime.datetime.fromtimestamp(t / 1000):%m-%d %H:%M:%S}  never bound ({why})')
+        if block: print('  the block: ' + ', '.join(f'{c} {w if w != "kept" else "rewritten in place"}' for w, c in block.items()))
+    if prev is not None:
+        print(f'\nfield 38 (reports the glasses could not send, since their boot): +{r38} over the journal\'s `local` readings'
+              f' (the first read {first38}; {restarts} restart(s) of the counter seen)')
+
 def selftest():
     """The report's own checks (0.64 R1; review 1a, RD-1 and RD-2): `main` run over the synthetic journals
     under tools/fixtures/journal_report/ and its text read. Every fixture line was written by hand from
@@ -1126,6 +1188,19 @@ def selftest():
          and 'tapdrop under Taps report: moved 1' in lc
          and sorted(line(lc, 'repair by object:').partition(': ')[2].split(', ')) == ['Set 1', 'batch 1']
          and 'last local note: 35=16' in lc, line(lc, 'local input') + ' / ' + line(lc, 'snapback by') + ' / ' + line(lc, 'repair by object:'))
+    # C3 DW-1b-2: the `wheel` notes per open and field 38's rises. Synthetic notes written from `Shell.wheelOfferPoll`'s and
+    # `LocalRules.localNote`'s strings, values made up by hand — no line of a real journal.
+    wh = run(['wheel-dw1b2.jsonl'])[1]
+    case('DW-1b-2: opens counted by how they bound, the late binds by their reason, the notches by who drew them',
+         "4 open(s) — 2 bound at the open (median 140 ms after the chord, max 160), 1 bound late (mid-open: median 1,180 ms after the chord, max 1,180), 1 never bound" in wh
+         and "late binds by the reason at the open: the programs are not this open's geometry and timing 1" in wh
+         and 'never bound by reason: the block is not placed (yet) 1' in wh
+         and 'notches: 9 drawn by the glasses, 5 by the phone (5 of them in opens bound late or never)' in wh
+         and 'the block: 1 placed, 1 counted, 1 rewritten in place' in wh,
+         line(wh, "the switcher's wheel") + ' / ' + line(wh, 'late binds') + ' / ' + line(wh, 'notches:') + ' / ' + line(wh, 'the block:'))
+    case('DW-1b-2: field 38 counts its rises across the readings, a fall read as the counter starting again (+2 +1 after a restart = +3)',
+         "field 38 (reports the glasses could not send, since their boot): +3 over the journal's `local` readings (the first read 1; 1 restart(s) of the counter seen)" in wh,
+         line(wh, 'field 38'))
     i3 = run(['inwait-e3.jsonl'])[1]
     case('G §3: a gesture that waited 2,000 ms in the shell for a slot reads input->done 2900 beside its wait of 900',
          line(i3, 'WINDOW ').split()[5:9] == ['900', '/', '900', '2900'], line(i3, 'WINDOW '))

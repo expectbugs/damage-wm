@@ -270,6 +270,106 @@ class MusicLaneShellTest {
         } finally { r.stop() }
     }
 
+    /** Music Mode at a chain restart (the second review's finding 1, `MM-decisions.md` "Stage L, review pass 2" item 1).
+     *  While the chain runs, the window's own bar (the truth) moves on each second with the time line, and no byte goes
+     *  into the lane — RIGHT's shadow under it stays the chain's start. Then a seek to 0:30 of 0:40 arrives as one from
+     *  another surface does: the player moves on its own thread and the window hears of it a message later, so a pump can
+     *  come between (here the seek runs inside a message on the loop, whose own pump follows before the window's state
+     *  message). Once the new chain is open, RIGHT's shadow under the bar — what the chain's end wrote, which the new chain
+     *  plays over — holds the seek's place, not the card's paint at the song's start nor the place before the seek. */
+    @Test
+    fun aChainRestartInMusicModeWritesTheCurrentPlaceUnderTheLane(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.up()
+            r.menuPick("Music Mode")
+            r.until("Music Mode") { r.shell.exclusiveMode && r.shell.isQuiescent() }
+            r.until("Music Mode's chain open on the glasses") { r.laneTagIn(Arm.RIGHT) != null && r.laneTagIn(Arm.LEFT) != null &&
+                r.onLoop { r.shell.comp.laneHold.isNotEmpty() } }
+            val (barL, bar) = r.onLoop { r.shell.comp.laneHold.first() }
+            val y = bar.y + bar.h / 2
+            val nominalX = (barL.x + bar.x) / 2
+            fun truthLit() = r.onLoop { (0 until bar.w).takeWhile { Pack.level(r.shell.comp.composed[nominalX + it, y]) == 6 }.count() }
+            val shadow0 = r.sim.right.shadow.copyOf()
+            val truth0 = truthLit()
+            delay(2_600)                                         // a 40-s song: ≈ bar.w / 40 px a second, two time lines
+            val shadow1 = r.sim.right.shadow.copyOf()
+            for (x in bar.x until bar.right) assertEquals(lv(shadow0, x, y), lv(shadow1, x, y), "no write into the lane at x $x while it is held")
+            val truth1 = truthLit()
+            assertTrue(truth1 >= truth0 + bar.w / 40, "the window's own bar moved on with the time line: $truth0 px lit, $truth1 px 2.6 s on (bar ${bar.w} px)")
+            val tagBefore = r.laneTagIn(Arm.RIGHT)
+            val chainsBefore = r.notes("lane").count { "a chain starts" in it }
+            r.onLoop { r.player.seekTo(30_000) }
+            r.until("a new chain after the seek", maxMs = 3_000) { r.notes("lane").count { "a chain starts" in it } > chainsBefore &&
+                r.laneTagIn(Arm.RIGHT).let { it != null && it != tagBefore } }
+            val under = litRun(r.sim.right.shadow.copyOf(), bar.x, bar.w, y, 6)
+            assertTrue(under >= bar.w * 7 / 10, "under the new chain RIGHT's shadow holds the seek's place: $under px lit of ${bar.w} " +
+                "(0:30 of 0:40 is ${bar.w * 3 / 4}; before the seek ${truth1}) — lane ${r.notes("lane").takeLast(4)}")
+        } finally { r.stop() }
+    }
+
+    /** A stall while the song plays (the second review's finding 3, `MM-decisions.md` "Stage L, review pass 2" item 3): the
+     *  PC stops giving the stream data, so the place stands while the state stays PLAYING. The chain ends once and none
+     *  starts over 5 s of it (each start is a release frame and a PLAY); when the place moves again the chain starts. */
+    @Test
+    fun aStallWhilePlayingStartsNoChainUntilThePlaceMoves(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.up()
+            r.until("a chain open on the glasses") { r.laneTagIn(Arm.RIGHT) != null }
+            delay(1_200)
+            val ends0 = r.notes("lane").count { "the chain ends" in it }
+            r.player.pcStopsServing()
+            assertEquals(PlayState.PLAYING, r.player.state.play, "the song still plays")
+            delay(1_500)                                         // a pump has seen the place stand (the time line each second)
+            val starts0 = r.notes("lane").count { "a chain starts" in it }
+            delay(5_000)
+            val starts = r.notes("lane").count { "a chain starts" in it } - starts0
+            val ends = r.notes("lane").count { "the chain ends" in it } - ends0
+            assertEquals(0, starts, "no chain starts over 5 s of the stall — lane ${r.notes("lane").takeLast(6)}")
+            assertTrue(ends <= 1, "the chain ended once at most: $ends — lane ${r.notes("lane").takeLast(6)}")
+            assertFalse(r.onLoop { r.shell.lanesOpenForTest }, "no chain open while the place stands")
+            r.player.pcServes = true                             // data again: the place moves
+            r.until("a chain again once the place moves", maxMs = 3_000) { r.notes("lane").count { "a chain starts" in it } > starts0 && r.laneTagIn(Arm.RIGHT) != null }
+            // once: not a chain on the zero before the stall and a second at the next paint (the time line's each second)
+            val after = r.notes("lane").count { "a chain starts" in it }
+            delay(2_500)
+            assertEquals(after, r.notes("lane").count { "a chain starts" in it }, "one start when the place moves — lane ${r.notes("lane").takeLast(6)}")
+        } finally { r.stop() }
+    }
+
+    /** The release's write (`MM-decisions.md` "Stage L, the focused read: ruled" item 1; the pin of `MML-release-cells`):
+     *  a seek on a stream whose data stops at the seek — the place stands where the seek put it, so the chain the seek
+     *  starts is ended by the stall rule with the window's bar exactly the picture under the lane (no cell differs). Only
+     *  the release's own write then meets the chain's instance: with it, nothing of the chain stays open and the panel
+     *  under the bar is belief; without it the instance keeps drawing the bar on past the place that stands (measured in
+     *  the focused read: 1.5 s on, the chain open on both lenses and RIGHT's bar 20 px past belief). */
+    @Test
+    fun aStallAtASeekIsClosedOnBothLensesByTheReleasesWrite(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.up()
+            r.until("a chain open on the glasses") { r.laneTagIn(Arm.RIGHT) != null && r.laneTagIn(Arm.LEFT) != null }
+            val bar = assertNotNull(r.onLoop { r.shell.comp.laneHold.firstOrNull() }, "the compositor holds the lane").second
+            val y = bar.y + bar.h / 2
+            val starts0 = r.notes("lane").count { "a chain starts" in it }
+            r.player.pcStopsServing()
+            r.player.seekTo(30_000)
+            r.until("a chain starts after the seek", maxMs = 3_000) { r.notes("lane").count { "a chain starts" in it } > starts0 }
+            val ends0 = r.notes("lane").count { "the chain ends" in it }
+            r.until("the stall ends that chain", maxMs = 4_000) { r.notes("lane").count { "the chain ends" in it } > ends0 && !r.onLoop { r.shell.lanesOpenForTest } }
+            r.until("settled") { r.shell.isQuiescent() }
+            delay(1_500)
+            val tagR = r.laneTagIn(Arm.RIGHT); val tagL = r.laneTagIn(Arm.LEFT)
+            val panel = r.sim.right.panel.copyOf()
+            val belief = r.onLoop { r.shell.comp.expectedLens(false).copy() }
+            val off = (bar.x until bar.right).count { belief[it, y] / 17 != lv(panel, it, y) }
+            assertTrue(tagR == null && tagL == null && off == 0, "1.5 s into the stall — lane tag on RIGHT $tagR, LEFT $tagL; " +
+                "$off px of the bar's row differ from belief on RIGHT's panel (lit: panel ${litRun(panel, bar.x, bar.w, y, 8)}, " +
+                "belief ${(0 until bar.w).takeWhile { belief[bar.x + it, y] / 17 == 8 }.count()}) — lane ${r.notes("lane").takeLast(6)}")
+        } finally { r.stop() }
+    }
+
     /** Stage 4 (no EFFECTS): nothing of the lanes — not in force, no lane tag ever, Music's blocks as before. */
     @Test
     fun belowStage5NothingOfTheLanesRuns(): Unit = runBlocking {

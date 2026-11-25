@@ -2379,9 +2379,9 @@ peer is in-process or across a network. No configuration is a special case.
 > 🔴 **Row 1's placement, as Adam ruled it** (2026-08-31, `HANDOFF.md` §19; 2026-11-12, `REPLAN.md` §14.1 R3,
 > §14.3 #1, §14.4): in the default configuration the **phone shell drives** the glasses and **the PC owns every
 > window's state** — every interface connects to it; the phone keeps a working copy, draws the glasses and carries on
-> when the PC is out of reach. PC-direct BLE is a manual choice, never automatic (`HANDOFF.md` §79). A window on the
-> PC's record (`core/…/app/Windows.kt`'s `ALL`; `CONTRACT.md` §2, §9.7) no longer syncs most-recent-wins (§19.2);
-> the others do until their steps.
+> when the PC is out of reach. PC-direct BLE is a manual choice, never automatic (`HANDOFF.md` §79). Every window is
+> on the PC's record (`core/…/app/Windows.kt`'s `ALL`; `CONTRACT.md` §2, §9.7): nothing syncs most-recent-wins any
+> more.
 
 ### 10.2 What this forces on the runtime
 
