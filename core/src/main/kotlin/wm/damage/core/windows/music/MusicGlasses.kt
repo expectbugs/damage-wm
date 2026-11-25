@@ -1824,7 +1824,8 @@ class MusicGlasses(
                     if (gen != mmVizGen) break
                     // KEYED (P7 item 3, OS-4; §72's rule, as the 1 Hz tick): a stop leaves `exclusive` and the
                     // generation as they were, and an unkeyed post queued 8 messages a second while the shell was down
-                    onShell("vizframe") { if (exclusive && gen == mmVizGen && st.play == PlayState.PLAYING) { mmVizDue = true; render() } }
+                    // stage S: not while Scope's chain is open — the glasses draw the strip; it repaints once a second (ruling 8)
+                    onShell("vizframe") { if (exclusive && gen == mmVizGen && st.play == PlayState.PLAYING && !scopeHeld()) { mmVizDue = true; render() } }
                 }
             }
         } else {
@@ -1865,6 +1866,10 @@ class MusicGlasses(
     /** The song's zero when the bar's truth was last painted with held lanes (Now Playing's paint, Music Mode's card or
      *  its bar alone). */
     private var barZero = Long.MIN_VALUE
+    /** Stage S: the song's zero when Scope's strip was last painted as its lane's truth ([scopeTruth]), and the second of
+     *  the song that paint showed (while the chain is open the strip repaints once a second, ruling 8). */
+    private var stripZero = Long.MIN_VALUE
+    private var mmVizSecond: Long? = null
     /** [lanes]' last answer was a spec: while the paint is behind the place an open chain is kept, and none is offered
      *  once there was none (after a pause or a stall). */
     private var lanesAnswered = false
@@ -1903,7 +1908,14 @@ class MusicGlasses(
         val t = st.track ?: return null
         val dur = st.durMs.takeIf { it > 0 } ?: t.durMs.toLong()
         if (dur <= 0) return null
+        // stage S: Scope is Music Mode's lane once its data is in hand — the strip ALONE: one program holding the bar and the
+        // strip would own the box between them (`FIRMWARE.md` §7.3: an owner's rect is its tracks' bounding box), and the
+        // lyrics and the peek there would reach the shadow but not the panel while chains run (`MM-S-built.md` §0). The bar
+        // is then the window's own, painted each second with the time line
+        val strip = mmLayoutCache?.viz
+        val scope = if (exclusive && strip != null && scopeTruth()) scopeData() else null
         val (bar, lit) = when {
+            scope != null -> strip!! to 0
             exclusive -> (mmBar ?: return null) to MM_BAR_LIT
             active && top.kind == Kind.NOWPLAYING && stack.size == 1 -> (npBar ?: return null) to NP_BAR_LIT
             else -> return null
@@ -1912,16 +1924,21 @@ class MusicGlasses(
         // and the bar stands; back when the place moves (a zero moving with the stall restarted it each pump)
         if (stalled) return null
         val off = lyricsOffset().toLong()
-        fun keyNow() = listOf(st.entry?.qid, st.play, laneGen, st.output, exclusive, off, bar, lit, dur)
+        // ruling 9: the visualizer, Music Mode's switch for it, the strip and whether its data is in hand
+        fun keyNow() = listOf(st.entry?.qid, st.play, laneGen, st.output, exclusive, off, bar, lit, dur, vizName, mmViz, strip, scope != null)
         // finding 1's class: the key moves with the zero the bar's truth was PAINTED at, so a chain that ends on it is written
         // from a truth that shows the new place — a seek reaches the player a message before the window hears of it, and a
         // pump can come between. Until the paint that move brings, an open chain goes on and none starts
-        if (barBehind()) return laneSpec?.takeIf { lanesAnswered && it.first == keyNow() }?.second
-        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(barZero - laneZero) > SEEK_SLACK_MS) { laneZero = barZero; laneGen++ }
+        // Scope's truth is its strip, keyed on the zero the strip was painted at (none painted yet: no lane)
+        val zero = if (scope != null) stripZero else barZero
+        if (scope != null && zero == Long.MIN_VALUE) return null
+        if (behind(zero)) return laneSpec?.takeIf { lanesAnswered && it.first == keyNow() }?.second
+        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(zero - laneZero) > SEEK_SLACK_MS) { laneZero = zero; laneGen++ }
         val key = keyNow()
         // asked at every pump: made again only when its key moved (the bar's record is a picture of its width)
         laneSpec?.takeIf { it.first == key }?.let { return it.second }
-        return MusicMotion.barLanes(key, bar, lit, BAR_UNLIT, dur) { t1 -> MusicMotion.heardAt(t1, clock(), player.positionMs(), true, off) }
+        val heard = { t1: Long -> MusicMotion.heardAt(t1, clock(), player.positionMs(), true, off) }
+        return (if (scope != null) MusicMotion.scopeLanes(key, bar, scope, heard) else MusicMotion.barLanes(key, bar, lit, BAR_UNLIT, dur, heard))
             .also { laneSpec = key to it }
     }
     private var laneSpec: Pair<List<Any?>, LaneSpec>? = null
@@ -1963,8 +1980,16 @@ class MusicGlasses(
 
     /** The song's zero has moved past the one the bar's truth was painted at ([barZero]): a seek, a correction, the end
      *  of a stall. */
-    private fun barBehind(): Boolean =
-        barZero != Long.MIN_VALUE && kotlin.math.abs(clock() - player.positionMs() - barZero) > SEEK_SLACK_MS
+    private fun barBehind(): Boolean = behind(barZero)
+    /** ... past [zero], one a truth was painted at (the bar's, or Scope's strip's: [stripZero]). */
+    private fun behind(zero: Long): Boolean = zero != Long.MIN_VALUE && kotlin.math.abs(clock() - player.positionMs() - zero) > SEEK_SLACK_MS
+
+    /** Stage S: Music Mode paints Scope's strip as its lane's truth — held lanes in force, Scope chosen and on. */
+    private fun scopeTruth(): Boolean = exclusive && vizName == "Scope" && mmViz && lanesOn()
+    /** The playing track's RMS envelope, when it is in hand. */
+    private fun scopeData(): VizData? = st.track?.id?.let { vizCache[it] }?.takeIf { it.rmsCount > 0 }
+    /** Scope's chain is open on the glasses: the strip is held, its truth painted once a second. */
+    private fun scopeHeld(): Boolean = scopeTruth() && services?.lanesHeld() == true
 
     override fun paintExclusive(g: Gray8, safe: Rect, full: Boolean): List<Rect> {
         val l = mmLayout(safe)
@@ -2011,12 +2036,18 @@ class MusicGlasses(
         // queue peek
         val peekKey = st.queue.drop(st.index + 1).take(2).map { it.qid }
         if (l.peek != null && (full || peekKey != mmPeekKey)) { mmPeekKey = peekKey; paintMmPeek(g, l); out.add(l.peek) }
-        // the visualizer: one rect per frame, on its own pacing
-        if (l.viz != null && (full || mmVizDue)) {
-            mmVizDue = false
+        // the visualizer: one rect per frame, on its own pacing. Stage S: Scope's strip is its lane's truth — at the place
+        // the time line shows, its zero kept — and while its chain is open on the glasses it repaints once a second and as
+        // soon as the song's zero moves past it (ruling 8; the compositor holds the cells, so no byte goes)
+        val held = scopeHeld()
+        val second = if (held) Math.floorDiv(shownPos(), 1000L) else null
+        if (l.viz != null && (full || mmVizDue || (held && (second != mmVizSecond || behind(stripZero))))) {
+            mmVizDue = false; mmVizSecond = second
             val r = Viz.byName(vizName)
             if (r != null) {
-                val painted = try { r.paint(g, l.viz, vizCache[st.track?.id ?: -1], player.positionMs()) } catch (e: Exception) {
+                val truth = scopeTruth()
+                if (truth) stripZero = clock() - player.positionMs()
+                val painted = try { r.paint(g, l.viz, vizCache[st.track?.id ?: -1], if (truth) shownPos() else player.positionMs()) } catch (e: Exception) {
                     Log.e("music", "visualizer $vizName failed", e); l.viz
                 }
                 out.add(painted)

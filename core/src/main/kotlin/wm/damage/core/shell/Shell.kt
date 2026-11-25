@@ -466,6 +466,7 @@ class Shell(
 
         /** Stage L: read at a paint, on the loop (the transport's state one read). */
         override fun lanesInForce(): Boolean = lanesInForce(transport.state.value)
+        override fun lanesHeld(): Boolean = lanes.open
 
         override fun noticeFormatter(app: String, format: ((wm.damage.core.app.NoticeRecord) -> String)?) {
             if (format == null) noticeFormatters.remove(app) else noticeFormatters[app] = format

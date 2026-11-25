@@ -2,6 +2,7 @@ package wm.damage.core
 
 import java.nio.file.Files
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -58,11 +59,15 @@ class MusicLaneShellTest {
         override fun renamePlaylist(id: Int, name: String) {}
         override fun deletePlaylist(id: Int) {}
         override fun setPlaylistTracks(id: Int, trackIds: List<Int>) {}
-        override fun lyrics(trackId: Int): wm.damage.core.windows.music.Lyrics? = null
+        /** Stage S: the lyrics and the RMS envelope a test hands the window (none by default), and the listeners it told. */
+        @Volatile var lyricsFor: (Int) -> wm.damage.core.windows.music.Lyrics? = { null }
+        @Volatile var vizFor: (Int) -> wm.damage.core.windows.music.VizData? = { null }
+        val listeners = java.util.concurrent.CopyOnWriteArrayList<wm.damage.core.windows.music.MusicLibrary.Listener>()
+        override fun lyrics(trackId: Int): wm.damage.core.windows.music.Lyrics? = lyricsFor(trackId)
         override fun searchLyrics(trackId: Int, query: String) = emptyList<wm.damage.core.windows.music.Lyrics>()
         override fun setLyrics(trackId: Int, choice: wm.damage.core.windows.music.Lyrics) {}
         override fun art(trackId: Int, px: Int): ByteArray? = ByteArray(px * px / 2) { 0x77 }
-        override fun viz(trackId: Int): wm.damage.core.windows.music.VizData? = null
+        override fun viz(trackId: Int): wm.damage.core.windows.music.VizData? = vizFor(trackId)
         override fun ytSearch(q: String) = emptyList<wm.damage.core.windows.music.YtResult>()
         override fun ytGrab(id: String) = "j"
         override fun ytStatus(job: String) = wm.damage.core.windows.music.YtJob(job)
@@ -70,8 +75,8 @@ class MusicLaneShellTest {
         override fun streamUrl(trackId: Int, profile: wm.damage.core.windows.music.AudioProfile) = "sim://$trackId"
         override fun pretranscode(profile: wm.damage.core.windows.music.AudioProfile) = ""
         override fun rescan() = ""
-        override fun addListener(l: wm.damage.core.windows.music.MusicLibrary.Listener) {}
-        override fun removeListener(l: wm.damage.core.windows.music.MusicLibrary.Listener) {}
+        override fun addListener(l: wm.damage.core.windows.music.MusicLibrary.Listener) { listeners += l }
+        override fun removeListener(l: wm.damage.core.windows.music.MusicLibrary.Listener) { listeners -= l }
         override fun setFocused(focused: Boolean, paceMs: Long) {}
     }
 
@@ -152,6 +157,28 @@ class MusicLaneShellTest {
             return n
         }
 
+        /** Stage S: Music Mode with Scope as its visualizer, from Now Playing. */
+        suspend fun scopeMode() {
+            onLoop { for ((row, v) in listOf("Visualizer" to "Scope", "Music Mode · visualizer" to "on")) win.appSettings().first { it.name == row }.apply(v) }
+            menuPick("Music Mode")
+            until("Music Mode") { shell.exclusiveMode && shell.isQuiescent() }
+        }
+
+        fun setRow(row: String, v: String) = onLoop { win.appSettings().first { it.name == row }.apply(v) }
+
+        /** The held lane's rects now (left, right), or null. */
+        fun held(): Pair<Rect, Rect>? = onLoop { shell.comp.laneHold.singleOrNull() }
+
+        /** How many times RIGHT's panel inside [box] changed in [ms]. */
+        suspend fun changes(box: Rect, ms: Long): Int {
+            var last = cut(sim.right.panel.copyOf(), box); var n = 0
+            val end = System.currentTimeMillis() + ms
+            while (System.currentTimeMillis() < end) { delay(10); val c = cut(sim.right.panel.copyOf(), box); if (!c.contentEquals(last)) { n++; last = c } }
+            return n
+        }
+
+        fun starts() = notes("lane").count { "a chain starts" in it }
+
         suspend fun stop() { shell.stop(); scope.cancel(); tmp.toFile().deleteRecursively() }
     }
 
@@ -165,6 +192,14 @@ class MusicLaneShellTest {
                 surface.fillRect(x + i * 8, y + 12 - h, 6, h, level)
             }
         }
+    }
+
+    /** A packed lens buffer's bytes inside [box] (whole bytes: two pixels each). */
+    private fun cut(packed: ByteArray, box: Rect): ByteArray {
+        val stride = (Geometry.PANEL_W + 1) / 2
+        val o = java.io.ByteArrayOutputStream()
+        for (y in box.y until box.bottom) o.write(packed, y * stride + box.x / 2, (box.w + 1) / 2)
+        return o.toByteArray()
     }
 
     /** The decoded level at (x, y) of a packed lens buffer. */
@@ -367,6 +402,139 @@ class MusicLaneShellTest {
             assertTrue(tagR == null && tagL == null && off == 0, "1.5 s into the stall — lane tag on RIGHT $tagR, LEFT $tagL; " +
                 "$off px of the bar's row differ from belief on RIGHT's panel (lit: panel ${litRun(panel, bar.x, bar.w, y, 8)}, " +
                 "belief ${(0 until bar.w).takeWhile { belief[bar.x + it, y] / 17 == 8 }.count()}) — lane ${r.notes("lane").takeLast(6)}")
+        } finally { r.stop() }
+    }
+
+    // ------------------------------------------------------------------------------------------------ stage S: Scope
+    /** A made-up RMS envelope (40 s: loud and quiet passages and a silence) — never a file of his. */
+    private val SCOPE_DATA = wm.damage.core.windows.music.ScopeRehearsal.envelope(IntArray(2_000) { i -> if (i % 500 in 400..449) 0 else 1 + (i * 7 + i / 25) % 15 })
+    /** Synced lyrics whose line changes every 400 ms, each line digits (so [DigitText] draws it differently). */
+    private val LYRICS = wm.damage.core.windows.music.Lyrics("test", (0 until 100).joinToString("\n") { i ->
+        "[%02d:%02d.%02d]%s".format(i * 400 / 60_000, i * 400 / 1000 % 60, i * 400 % 1000 / 10, "$i".repeat(4)) })
+
+    /** Stage S: in Music Mode with Scope and its data, the strip ALONE is the held lane (not the card's bar), the glasses
+     *  pan it while the phone writes nothing into it, a new area is written at each link through the ring in turn with
+     *  nothing closed, and a notice — whose box, in the content's middle, does not meet the strip — leaves the chain
+     *  running beside it. **The pin of `MM-S-built.md` §0:** the lyrics between the card and the strip move on on RIGHT's
+     *  panel while the chain runs (one program holding the bar and the strip owns the box between them, and the panel then
+     *  never shows a lyric change there). */
+    @Test
+    fun scopeIsMusicModesHeldLaneTheGlassesPanItAndTheLyricsMoveOn(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.lib.vizFor = { SCOPE_DATA }; r.lib.lyricsFor = { LYRICS }
+            r.up()
+            r.scopeMode()
+            r.until("Scope's chain open on the glasses") { r.laneTagIn(Arm.RIGHT) != null && r.laneTagIn(Arm.LEFT) != null && r.held()?.second?.h == 64 }
+            val strip = r.held()!!.second
+            val starts0 = r.starts(); val notes0 = r.notes("lane").size
+            val shadow0 = cut(r.sim.right.shadow.copyOf(), strip)
+            val panned = r.changes(strip, 2_000)
+            assertContentEquals(shadow0, cut(r.sim.right.shadow.copyOf(), strip), "no write into the strip while it is held")
+            assertTrue(panned >= 20, "the glasses moved the strip: RIGHT's panel there changed $panned times in 2 s")
+            val lyrics = Rect(strip.x, 160, strip.w, strip.y - 160 - 16)
+            val moved = r.changes(lyrics, 2_500)
+            assertTrue(moved >= 3, "the lyrics between the card and the strip changed $moved time(s) on RIGHT's panel in 2.5 s while Scope's chain ran " +
+                "(held ${r.held()}; lane ${r.notes("lane").takeLast(4)})")
+            delay(3_500)
+            val areas = r.notes("lane").filter { "written for its programs" in it }.map { it.substringAfter("area ").substringBefore(" ").toInt() }
+            assertTrue(areas.size >= 3, "an area a link: ${r.notes("lane")}")
+            assertEquals(areas.indices.map { (areas[0] + it) % WindowLanes.AREAS }, areas, "the areas in turn")
+            assertEquals(starts0, r.starts(), "the chain ran on: ${r.notes("lane").drop(notes0)}")
+            assertTrue(r.notes("lane").drop(notes0).none { "ends" in it || "strike" in it }, "nothing ended it: ${r.notes("lane").drop(notes0)}")
+            // a notice: its box does not meet the strip; the chain runs on beside it
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
+            delay(2_000)
+            assertEquals(starts0, r.starts(), "the chain ran on beside the notice: ${r.notes("lane").drop(notes0)}")
+            assertTrue(r.notes("lane").none { "a notice box over a lane" in it } && r.laneTagIn(Arm.RIGHT) != null, "the notice did not end it: ${r.notes("lane").takeLast(4)}")
+        } finally { r.stop() }
+    }
+
+    /** Stage S: Scope's chain at a seek (a new chain at once from the new place), a pause (nothing of it open on either
+     *  lens, the panel under the strip the truth), the play again, and a stall (none while the place stands; one when it
+     *  moves). */
+    @Test
+    fun scopesChainEndsAtASeekAPauseAndAStallAndStartsAgain(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.lib.vizFor = { SCOPE_DATA }
+            r.up()
+            r.scopeMode()
+            r.until("Scope's chain open") { r.laneTagIn(Arm.RIGHT) != null && r.held()?.second?.h == 64 }
+            val strip = r.held()!!.second
+            val tagBefore = r.laneTagIn(Arm.RIGHT); val starts0 = r.starts()
+            r.onLoop { r.player.seekTo(20_000) }
+            r.until("a new chain after the seek", maxMs = 3_000) { r.starts() > starts0 && r.laneTagIn(Arm.RIGHT).let { it != null && it != tagBefore } }
+            assertTrue(r.notes("lane").any { "its key changed" in it }, "the seek changed the key: ${r.notes("lane").takeLast(4)}")
+            r.player.pause()
+            r.until("the chain closed on both lenses") { r.laneTagIn(Arm.RIGHT) == null && r.laneTagIn(Arm.LEFT) == null && !r.onLoop { r.shell.lanesOpenForTest } }
+            r.until("settled") { r.shell.isQuiescent() }
+            delay(300)
+            val panel = r.sim.right.panel.copyOf()
+            val belief = r.onLoop { r.shell.comp.expectedLens(false).copy() }
+            val off = (strip.y until strip.bottom).sumOf { y -> (strip.x until strip.right).count { x -> belief[x, y] / 17 != lv(panel, x, y) } }
+            assertEquals(0, off, "paused: RIGHT's panel under the strip is belief")
+            val starts1 = r.starts()
+            r.player.play()
+            r.until("a chain again", maxMs = 3_000) { r.starts() > starts1 && r.laneTagIn(Arm.RIGHT) != null }
+            delay(800)
+            r.player.pcStopsServing()
+            delay(1_500)
+            val starts2 = r.starts()
+            delay(4_000)
+            assertEquals(starts2, r.starts(), "no chain starts while the place stands — lane ${r.notes("lane").takeLast(6)}")
+            assertFalse(r.onLoop { r.shell.lanesOpenForTest }, "none open during the stall")
+            r.player.pcServes = true
+            r.until("a chain once the place moves", maxMs = 3_000) { r.starts() > starts2 && r.laneTagIn(Arm.RIGHT) != null }
+        } finally { r.stop() }
+    }
+
+    /** Stage S: what the lane set is as things change in Music Mode — before Scope's data is in hand the card's bar is the
+     *  lane and the strip is the window's; its arrival (the host's `vizReady`) makes the strip the lane; Bars puts the bar
+     *  back and Scope the strip again; with the card off the strip stays the lane and runs, and on again; leaving Music Mode
+     *  ends Scope's chain (nothing of it open on either lens) and Now Playing's bar is the lane again. */
+    @Test
+    fun scopesLaneFollowsItsDataTheVisualizerTheCardAndMusicMode(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.up()
+            r.scopeMode()
+            r.until("the bar's chain (no data yet)") { r.laneTagIn(Arm.RIGHT) != null && r.held()?.second?.h == 6 }
+            r.lib.vizFor = { SCOPE_DATA }
+            val id = r.onLoop { r.player.state.track!!.id }
+            for (l in r.lib.listeners) l.vizReady(id)
+            r.until("the data arrived: Scope's chain") { r.laneTagIn(Arm.RIGHT) != null && r.held()?.second?.h == 64 }
+            fun endedOpen(before: Set<Int>) = listOfNotNull(r.laneTagIn(Arm.RIGHT), r.laneTagIn(Arm.LEFT)).filter { it in before }
+            for ((row, v, h) in listOf(Triple("Visualizer", "Bars", 6), Triple("Visualizer", "Scope", 64), Triple("Music Mode · card", "off", 64), Triple("Music Mode · card", "on", 64))) {
+                val tags = setOfNotNull(r.laneTagIn(Arm.RIGHT), r.laneTagIn(Arm.LEFT))
+                val starts = r.starts()
+                r.setRow(row, v)
+                r.until("$row $v: a chain on the ${if (h == 6) "bar" else "strip"}", maxMs = 5_000) { r.shell.isQuiescent() && r.held()?.second?.h == h && r.laneTagIn(Arm.RIGHT) != null }
+                if (r.starts() > starts) assertEquals(emptyList(), endedOpen(tags), "$row $v: the ended chain's instances are closed")
+                delay(600)
+                assertTrue(r.laneTagIn(Arm.RIGHT) != null, "$row $v: running")
+            }
+            val tags = setOfNotNull(r.laneTagIn(Arm.RIGHT), r.laneTagIn(Arm.LEFT))
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("Now Playing") { !r.shell.exclusiveMode && r.shell.isQuiescent() }
+            r.until("Now Playing's bar chain") { r.held()?.second?.h == 10 && r.laneTagIn(Arm.RIGHT) != null }
+            assertEquals(emptyList(), endedOpen(tags), "Scope's chain is closed on both lenses")
+        } finally { r.stop() }
+    }
+
+    /** Stage S below stage 5: Scope in Music Mode paints as today — no lane, its frames at the visualizer's rate. */
+    @Test
+    fun belowStage5ScopePaintsItsOwnFrames(): Unit = runBlocking {
+        val r = Rig(stage = 4)
+        try {
+            r.lib.vizFor = { SCOPE_DATA }
+            r.up()
+            r.scopeMode()
+            delay(1_000)
+            val strip = Rect(0, 400, Geometry.PANEL_W, 76)          // the strip's band at 480 on either lens (no lyrics or peek there)
+            val frames = r.changes(strip, 2_000)
+            assertTrue(frames >= 8, "Scope's own frames on RIGHT's panel: $frames in 2 s")
+            assertTrue(r.onLoop { r.shell.comp.laneHold.isEmpty() && !r.shell.lanesOpenForTest } && r.notes("lane").isEmpty(), "nothing of the lanes: ${r.notes("lane")}")
         } finally { r.stop() }
     }
 

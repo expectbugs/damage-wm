@@ -263,6 +263,8 @@ interface ShellServices {
      *  on a bit-11 build, the 256 KiB session's slice, the cache count readable, a mirror that models the engine, and the
      *  lanes not off for the session. A window paints the look its lanes draw while it is; otherwise as below stage 5. */
     fun lanesInForce(): Boolean = false
+    /** Stage S: the window in front's lanes are open on the glasses now (their cells held): read at a paint, on the loop. */
+    fun lanesHeld(): Boolean = false
 
     /** Raise an internal notification (§4.5). The §16.5 signature (2026-09-01):
      *  [thread] is the coalescing key (same source+thread replaces/merges),

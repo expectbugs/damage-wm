@@ -945,7 +945,7 @@ class ConformanceVectorTest {
         /** Music's motion update, stage L (`private/build085/MM-L-built.md`): the bar's shape and a three-link chain of
          *  it, written by `MusicLaneVectorsTest` from the shell's own builder, not filled until the fork's runner fills them
          *  in a later lane (never by hand). */
-        val MML_UNFILLED = setOf("v5-mml-bar", "v5-mml-chain")
+        val MML_UNFILLED = setOf("v5-mml-bar", "v5-mml-chain", "v5-mml-scope", "v5-mml-scope-chain")
         val K12S3A_MOVED = setOf("v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-glasses-last-288",
             "v5-ship-ring-tap-report-last-352", "v5-ship-ring-tap-glasses-last-352")
     }
