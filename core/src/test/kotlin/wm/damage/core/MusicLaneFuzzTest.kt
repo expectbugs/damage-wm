@@ -15,7 +15,9 @@ import wm.damage.core.transport.Arm
  * What every sequence must hold: no lane instance open on either lens once the release that ended its chain has landed
  * (unless a newer chain opened it); every stretch RIGHT says drew its last step was drawn or folded whole (drawn + folded
  * = T: no seam lost); a notice's timer is never closed by a lane; no chain starts in the pump that ended one (that
- * pump's frame writes the ended chain's cells holding nothing); and with nothing in the way the chain runs again. The
+ * pump's frame writes the ended chain's cells holding nothing); none starts while the song's place stands still though it
+ * plays (a stall: the window's own rule, the second review's finding 3) once a pump has seen it stand; and with nothing in
+ * the way the chain runs again. The
  * rig's frames apply the transport's CLOSE rule with the slots the chain holds (`FlushRequest.held`), and its time text
  * each second reaches Now Playing's bar as the transport reads a glyph run.
  */
@@ -180,37 +182,40 @@ class MusicLaneFuzzTest {
         val figures = StringBuilder()
         for (t in Timing.entries) {
             var stretches = 0; var seams = 0; var restarts = 0; var strikesOff = 0; var events = 0
-            var samePump = 0; var nextPumpSeqs = 0; var nextPump = 0; var splits = 0; var leftOpen = 0
+            var samePump = 0; var nextPumpSeqs = 0; var nextPump = 0; var splits = 0; var leftOpen = 0; var stallSeqs = 0; var stalls = 0
             val why = HashMap<String, Int>()
             for (seed in 1..n.toLong()) {
                 val f = walk(seed * 7919 + t.ordinal, t)
                 fails += f.fails.map { "${t.name} seed $seed: $it" }
                 stretches += f.stretches; seams += f.seams; restarts += f.restarts; strikesOff += f.off; events += f.events
                 samePump += f.samePump; nextPump += f.nextPump; if (f.nextPump > 0) nextPumpSeqs++; splits += f.splits
+                stalls += f.stalls; if (f.stalls > 0) stallSeqs++
                 leftOpen += f.fails.count { "are open on a lens" in it }
                 for (w in f.strikes) why.merge(if ("reason" in w) w else w.replace(Regex("[0-9]+"), "N"), 1, Int::plus)
             }
             figures.append("${t.name} (P ${t.period}, T ${t.steps}): $n sequences, $events events, $stretches stretches drawn, $seams seams checked whole, " +
                 "$restarts chain ends, $strikesOff sequences off for strikes; a chain started in the pump that ended one: $samePump; " +
-                "started at the next pump with no area written ($nextPump, in $nextPumpSeqs sequences); releases a later frame wrote: $splits; an ended chain's instance found open: $leftOpen\n" + why.entries.sortedByDescending { it.value }.joinToString("") { "    strike ×${it.value}: ${it.key}\n" })
+                "started at the next pump with no area written ($nextPump, in $nextPumpSeqs sequences); releases a later frame wrote: $splits; an ended chain's instance found open: $leftOpen; " +
+                "stalls of 1-6 s: $stalls in $stallSeqs sequences\n" + why.entries.sortedByDescending { it.value }.joinToString("") { "    strike ×${it.value}: ${it.key}\n" })
         }
         println("MusicLaneFuzzTest (modeled, the firmware model on a virtual clock):\n$figures")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }
 
     private class Walk(val fails: List<String>, val stretches: Int, val seams: Int, val restarts: Int, val off: Int, val events: Int,
-                       val strikes: List<String>, val samePump: Int, val nextPump: Int, val splits: Int)
+                       val strikes: List<String>, val samePump: Int, val nextPump: Int, val splits: Int, val stalls: Int)
 
     private fun walk(seed: Long, t: Timing): Walk {
         val r = LaneRig(seed, t.period, t.steps)
         val fails = ArrayList<String>()
         val len = lenMs(t)
         var events = 0
+        var stalls = 0
         r.pump()
         r.runUntil(r.nowMs + minOf(len, 2_000))
         repeat(12) {
             events++
-            when (r.rnd.nextInt(10)) {
+            when (r.rnd.nextInt(11)) {
                 0 -> r.seek(r.rnd.nextInt(60_000) - 20_000L)
                 1 -> { r.pause(); r.runUntil(r.nowMs + 50 + r.rnd.nextInt(400)); r.play() }
                 2 -> r.track()
@@ -229,7 +234,18 @@ class MusicLaneFuzzTest {
                 6 -> r.session()
                 7 -> r.upExtraNext = len / 2 + r.rnd.nextInt(len.toInt() + 1)     // a stalled link holds the next message (and all after it)
                 8 -> r.layout()                          // Now Playing <-> Music Mode
-                else -> { r.splitNext = true; r.layout() }   // the same, the ended chain's cells written by a later frame
+                9 -> { r.splitNext = true; r.layout() }      // the same, the ended chain's cells written by a later frame
+                else -> {                                // a stall: the place stands 1-6 s while the song plays, then moves on
+                    stalls++
+                    val from = r.nowMs; val seen = r.notes.size
+                    r.stall()
+                    r.runUntil(from + 1_000 + r.rnd.nextInt(5_000))
+                    // a pump sees it stand within a time text and the slack (the time text pumps each whole second)
+                    val during = r.notes.drop(seen).filter { "a chain starts" in it && it.substringAfter("[").substringBefore("]").toLong() >= from + 1_250 }
+                    if (during.isNotEmpty()) fails += "[${r.nowMs}] ${during.size} chain(s) started during a stall from $from: ${during.take(2)}"
+                    if (r.nowMs - from >= 1_500 && r.lanes.open) fails += "[${r.nowMs}] a chain open ${r.nowMs - from} ms into a stall — ${r.notes.takeLast(3)}"
+                    r.unstall()
+                }
             }
             // once the uplink has drained (a held link lands the release late), what an ended chain left open is gone
             r.runUntil(r.nowMs + 150)
@@ -249,7 +265,7 @@ class MusicLaneFuzzTest {
         fails += r.noticeClosedByLane
         if (r.startsInTheEndingPump > 0) fails += "${r.startsInTheEndingPump} chain(s) started in the pump that ended one (its frame held the slots)"
         val strikes = r.notes.filter { "a strike" in it }.map { it.substringAfter("this session): ").take(90) }
-        return Walk(fails, r.lanes.stretchesDrawn, drew.size, r.notes.count { "the chain ends" in it }, if (r.lanes.off != null) 1 else 0, events, strikes,
-            r.startsInTheEndingPump, r.startsAtTheNextPump, r.splits)
+        return Walk(fails, r.notes.count { "drew its last step" in it }, drew.size, r.notes.count { "the chain ends" in it }, if (r.lanes.off != null) 1 else 0, events, strikes,
+            r.startsInTheEndingPump, r.startsAtTheNextPump, r.splits, stalls)
     }
 }

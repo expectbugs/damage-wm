@@ -228,4 +228,37 @@ class MpvSinkTest {
         nowNs += 40_000_000L
         assertEquals(3_050L, sink.positionMs())
     }
+
+    /** The second review's finding 2 (`MM-decisions.md` "Stage L, review pass 2" item 2): a `time-pos` that comes while
+     *  paused — mpv's word on a seek made while paused, or one already on its way when the pause went — is not aged by the
+     *  pause at the resume. The resume's `now` is written from this place (`PlayerCore.play` → `changed` → `writeNow` →
+     *  `positionMs`), and the phone carries it forward until the next state change: aged, it would be up to AGE_MAX_MS
+     *  ahead for the rest of the track. */
+    @Test fun `a place said while paused is not aged by the pause at the resume`() {
+        sink.open("/music/a.flac", 0, true, track)
+        waitUntil("entry 1 known") { server.received.size == 3 }
+        server.emit("""{"event":"playback-restart"}""")
+        server.emit("""{"event":"property-change","id":1,"name":"time-pos","data":1.000000}""")
+        waitUntil("the place") { sink.positionMs() == 1_000L }
+        // paused, then a seek, and mpv says the new place while still paused
+        sink.pause()
+        sink.seekTo(3_000)
+        server.emit("""{"event":"property-change","id":1,"name":"time-pos","data":3.001000}""")
+        waitUntil("the seek's place said while paused") { sink.positionMs() == 3_001L }
+        nowNs += 500_000_000L                                    // paused for half a second
+        sink.play()
+        assertEquals(3_001L, sink.positionMs(), "the resume's place is the paused place, not aged by the pause")
+        // from mpv's first place after the resume, aged as before
+        server.emit("""{"event":"property-change","id":1,"name":"time-pos","data":3.020000}""")
+        waitUntil("the place after the resume") { sink.positionMs() >= 3_020L }
+        nowNs += 40_000_000L
+        assertEquals(3_060L, sink.positionMs())
+        // a plain pause with a place on its way: it lands after the pause
+        sink.pause()
+        server.emit("""{"event":"property-change","id":1,"name":"time-pos","data":3.070000}""")
+        waitUntil("the late place") { sink.positionMs() == 3_070L }
+        nowNs += 300_000_000L
+        sink.play()
+        assertEquals(3_070L, sink.positionMs(), "a late place is not aged by the pause either")
+    }
 }

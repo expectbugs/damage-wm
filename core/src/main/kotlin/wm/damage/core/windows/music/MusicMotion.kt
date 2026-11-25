@@ -40,6 +40,21 @@ object MusicMotion {
     fun heardAt(t: Long, now: Long, posNow: Long, playing: Boolean, offsetMs: Long): Long =
         LyricsSync.heardPos(if (playing) posNow + (t + DISPLAY_MS - now) else posNow, offsetMs)
 
+    /**
+     * The song's place standing still while it plays (the second review's finding 3): the phone's stream waiting for data,
+     * or the PC's player buffering (`PlayerCore.follow` maps its BUFFERING to PLAYING). [stalled] is true once the place
+     * has not moved for more than [slackMs]; not playing, the watch starts again. `MusicGlasses.lanes` asks it at every
+     * pump (no lanes while it stands, so the chain ends once and the bar stands); the lane rig asks it too.
+     */
+    class StillPlace(private val slackMs: Long) {
+        private var place = Long.MIN_VALUE
+        private var since = 0L
+        fun stalled(now: Long, playing: Boolean, place: Long): Boolean {
+            if (!playing || place != this.place) { this.place = place; since = now }
+            return now - since > slackMs
+        }
+    }
+
     /** The bar's lit pixels for a song place: [w] · pos / dur, within 0..w (rounded half up). */
     fun litPx(w: Int, posMs: Long, durMs: Long): Int =
         if (durMs <= 0) 0 else ((w.toLong() * posMs.coerceIn(0, durMs) * 2 + durMs) / (2 * durMs)).toInt().coerceIn(0, w)

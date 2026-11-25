@@ -3985,12 +3985,7 @@ abstract class CfwTransportBase(
         val open = synchronized(mirrorSim) { Arm.entries.associateWith { mirrorSim.motionWindows(it) } }
         if (open.values.all { it.isEmpty() }) return image
         if (image[0].toInt() == 6 || req.ops.any { it is DisplayOp.Keyframe }) return image
-        val writes = motionWriteRects(req.ops)
-        val slots = java.util.TreeSet<Int>()
-        for (arm in Arm.entries) {
-            val left = arm == Arm.LEFT
-            for (w in open.getValue(arm)) if (w.slot !in req.held && w.areas.any { a -> writes.any { (l, r) -> (if (left) l else r).overlaps(a) } }) slots += w.slot
-        }
+        val slots = motionClosesMet(open, motionWriteRects(req.ops), req.held)
         if (slots.isEmpty()) return image
         val subs = ArrayList<ByteArray>()
         var i = 2
@@ -4661,6 +4656,19 @@ abstract class CfwTransportBase(
         /** Decisions AZ.3: the lease ticks the reset check must still show past the time since it was asked for S_heard to
          *  be seeded from it — the acquire's delivery to the lens on a busy link, with room: 2 s (2,048 OS ticks). */
         const val SEED_SPARE_TICKS = 2_048L
+
+        /** [withMotionCloses]' meet rule alone: the slots of the instances [open] on each lens whose areas one of [writes]
+         *  (per lens: left, right) meets on that lens — none in [held]. The lane rig's frames call it too (`LaneRig.frame`;
+         *  Music's stage L, the second review's finding 4). */
+        fun motionClosesMet(open: Map<Arm, List<GlassFirmwareSim.MotionWindow>>, writes: List<Pair<wm.damage.core.geom.Rect, wm.damage.core.geom.Rect>>,
+                            held: Set<Int>): java.util.TreeSet<Int> {
+            val slots = java.util.TreeSet<Int>()
+            for ((arm, windows) in open) {
+                val left = arm == Arm.LEFT
+                for (w in windows) if (w.slot !in held && w.areas.any { a -> writes.any { (l, r) -> (if (left) l else r).overlaps(a) } }) slots += w.slot
+            }
+            return slots
+        }
 
         /** The rects each op of a batch writes, per lens (left, right) — [withMotionCloses]' bound. */
         fun motionWriteRects(ops: List<DisplayOp>): List<Pair<wm.damage.core.geom.Rect, wm.damage.core.geom.Rect>> {
