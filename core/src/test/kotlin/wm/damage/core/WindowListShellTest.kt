@@ -1493,37 +1493,4 @@ class WindowListShellTest {
             r.assertOracle("the list as the phone draws it")
         } finally { r.close() }
     }
-
-    /** K12S4I-MEASURE (temporary, item 3; removed once read): windowFront's evaluations a pump with Settings' Global level
-     *  in front and his app categories' row counts, over his sequence (six notches down, six up) and idle ticks. */
-    @Test
-    fun measureWindowFrontAPump_K12S4iTEMP(): Unit = runBlocking {
-        val r = Rig(names = HIS_APPS.map { it.first })
-        try {
-            r.up()
-            val style = r.onLoop { r.shell.settingsApps().first { it.first == "Reader" }.second.size }
-            for ((w, app) in r.rows.zip(HIS_APPS)) w.appRows = maxOf(0, app.second - style)
-            r.open("settings")
-            r.windowBound("Settings")
-            r.fire(CfwModes.EV_TAP)
-            r.until("into Global") { r.onLoop { r.shell.transitionPhaseForTest() } == null && r.shell.isQuiescent() }
-            r.done("Global"); r.windowBound("Global")
-            val rows = r.onLoop { r.shell.windowListBinding.staging?.rows }
-            val wait = r.motionMs() + r.q() + 300
-            for (round in 1..3) {
-                r.onLoop { with(r.shell) { frontCallsForTest = 0; frontNsForTest = 0; frontPumpsForTest = 0; frontMaxPerPumpForTest = 0; frontAtPumpForTest = 0
-                    frontMaxNsPerPumpForTest = 0; frontNsAtPumpForTest = 0 } }
-                repeat(6) { r.fire(CfwModes.EV_UPROLL); delay(wait) }
-                repeat(6) { r.fire(CfwModes.EV_DOWNROLL); delay(wait) }
-                repeat(20) { r.shell.postIdleTick(); delay(50) }
-                delay(500)
-                val m = r.onLoop { with(r.shell) { listOf(frontCallsForTest, frontNsForTest, frontPumpsForTest, frontMaxPerPumpForTest, frontMaxNsPerPumpForTest) } }
-                println("K12S4i item 3 round $round (FakeText, the PC; Global $rows rows): ${m[0]} evaluations in ${m[2]} pumps = %.1f a pump, at most ${m[3]} in one; ".format(m[0].toDouble() / m[2]) +
-                    "%.2f us an evaluation (in place); %.2f us a pump on average, at most %.2f us in one".format(m[1] / 1e3 / m[0], m[1] / 1e3 / m[2], m[4] / 1e3))
-            }
-            val per = r.onLoop { val n = 20_000; repeat(2_000) { r.shell.windowFrontForTest() }; val t0 = System.nanoTime(); repeat(n) { r.shell.windowFrontForTest() }; (System.nanoTime() - t0) / n.toDouble() }
-            println("K12S4i item 3: one evaluation, warm, %.0f ns (20,000 on the loop)".format(per))
-            assertEquals(emptyList(), r.notes("pump-error"))
-        } finally { r.close() }
-    }
 }

@@ -6208,20 +6208,7 @@ class Shell(
     private class FrontOfTurn(val front: WindowFront?)
     private var frontOfTurn: FrontOfTurn? = null
 
-    /** K12S4I-MEASURE (temporary, item 3): windowFront's evaluations and their time; the pumps they fell in. */
-    @Volatile internal var frontCallsForTest = 0L
-    @Volatile internal var frontNsForTest = 0L
-    @Volatile internal var frontPumpsForTest = 0L
-    @Volatile internal var frontMaxPerPumpForTest = 0L
-    @Volatile internal var frontAtPumpForTest = 0L
-    @Volatile internal var frontMaxNsPerPumpForTest = 0L
-    @Volatile internal var frontNsAtPumpForTest = 0L
     private fun windowFrontNow(): WindowFront? {
-        val t0 = System.nanoTime()
-        try { return windowFrontNow0() } finally { frontNsForTest += System.nanoTime() - t0; frontCallsForTest++ }
-    }
-    internal fun windowFrontForTest(): Any? = windowFrontNow0()
-    private fun windowFrontNow0(): WindowFront? {
         if (mode != Mode.WINDOW) return null
         val w = current ?: return null
         val v = w.view() as? WindowView.ListView ?: return null
@@ -8723,9 +8710,6 @@ class Shell(
     }
 
     private suspend fun pump() {
-        frontPumpsForTest++                              // K12S4I-MEASURE (temporary)
-        (frontCallsForTest - frontAtPumpForTest).let { if (it > frontMaxPerPumpForTest) frontMaxPerPumpForTest = it }; frontAtPumpForTest = frontCallsForTest
-        (frontNsForTest - frontNsAtPumpForTest).let { if (it > frontMaxNsPerPumpForTest) frontMaxNsPerPumpForTest = it }; frontNsAtPumpForTest = frontNsForTest
         frontOfTurn = FrontOfTurn(windowFrontNow())      // K1-2 stage 4i: the turn's front, once ([windowFront])
         try { pumpTurn() } finally { frontOfTurn = null }
     }
