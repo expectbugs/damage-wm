@@ -11430,5 +11430,23 @@
   ],
   "note": "spec §4.3: the PC–phone clock line is said once and again only when it moves",
   "from": "MML-L"
+ },
+ {
+  "id": "K12S4c-window-row-not-adopted",
+  "file": "shell/WindowListSurface.kt",
+  "edits": [
+   [
+    "    override fun setRow(row: Int) { front()?.model?.cursor = row }",
+    "    override fun setRow(row: Int) { }"
+   ]
+  ],
+  "tests": [
+   "*OracleWalkTest.localEventsOnWindowListsKeepTheOracleAtStage5_K12S4c"
+  ],
+  "expect": [
+   "localEventsOnWindowListsKeepTheOracleAtStage5_K12S4c"
+  ],
+  "note": "K1-2 stage 3a's adoption on list 1: an adopted report's row reaches the window's own cursor — removed, every list-1 notch snaps back (belief, glass and truth stay equal; the walk's row check sees it)",
+  "from": "K12S4c"
  }
 ]
