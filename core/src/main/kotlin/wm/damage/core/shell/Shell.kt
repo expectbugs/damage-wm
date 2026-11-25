@@ -397,7 +397,7 @@ class Shell(
      * alone, as before. With it: the start shows the local copy, then the record's values once the source has heard
      * Settings; [applySettings] sends one op per changed item; a record change made elsewhere is applied here.
      */
-    var settingsSource: wm.damage.core.app.WindowSource? = null
+    @Volatile var settingsSource: wm.damage.core.app.WindowSource? = null
         set(v) {
             field?.removeListener(settingsListener)
             field = v
