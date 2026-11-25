@@ -6203,8 +6203,19 @@ class Shell(
      *  its notch does nothing (the spec §1) — and what it is ([id]). */
     private class WindowFront(val w: DamageWindow, val v: WindowView.ListView, val id: WindowListView)
 
-    /** The window's list in front, or null (Main, the clock, an exclusive screen, any view that is not a list of 2+ rows). */
-    private fun windowFront(): WindowFront? {
+    /** The window's list in front, or null (Main, the clock, an exclusive screen, any view that is not a list of 2+ rows) —
+     *  inside a pump the turn's ([frontOfTurn]), elsewhere (a handler, a test's read) as it is now. */
+    private fun windowFront(): WindowFront? = frontOfTurn.let { if (it != null) it.front else windowFrontNow() }
+
+    /** K1-2 stage 4i (item 3; the first review of K1-2's finding D, measured: about 19 evaluations a pump with Settings'
+     *  Global in front, each the window's `view()`, `rowCount()` and `title()`, which Settings answers by building its rows
+     *  again): the window list in front worked out ONCE a pump, at its start — after the turn's message is handled — and
+     *  read by every holder, surface and rule the pump asks. The mode, the window and its list level change only in a
+     *  turn's handler, never inside its pump. Null outside a pump. */
+    private class FrontOfTurn(val front: WindowFront?)
+    private var frontOfTurn: FrontOfTurn? = null
+
+    private fun windowFrontNow(): WindowFront? {
         if (mode != Mode.WINDOW) return null
         val w = current ?: return null
         val v = w.view() as? WindowView.ListView ?: return null
@@ -6396,22 +6407,32 @@ class Shell(
 
     /** K1-2 stage 3: the window list's lane in idle, after the wheel's and before Page staging (decisions CK A3) — only at
      *  stage 5 on a 256 KiB session with a region of Main's own (decisions BC O2, O4): below that nothing of it is sent.
-     *  While a transition is in hand only the PAINT of the list that is arriving goes (K1-2 stage 4a; the K1-2 spec §5.3
-     *  and §6; decisions DA (c) 3): a row per loop turn as Main's paint (AF.8), in this lowest-priority step, which runs
-     *  only in a turn with nothing to send — ahead of [pumpMainBind]'s refusals of a flush in flight or pending, which a
-     *  run's frames meet for much of it. Every write (the records, LIST, the SETs, the count's reading) stays behind those
-     *  refusals, behind [cacheWritesHeld] and behind the run's end, so the level a Select brings is staged after the run
-     *  (pin 11), from rows already painted for its key. C3 DW-1b-1 (decisions DA (c) 4): nothing at all while the switcher
-     *  is open — an open wheel is a cover (its list is not in front), and a write then would sit ahead of the wheel's
-     *  answers and void the count reading an unbound open's bind waits for (P9). */
+     *  Under a transition [pumpLane]'s rule. C3 DW-1b-1 (decisions DA (c) 4): nothing at all while the switcher is open — an
+     *  open wheel is a cover (its list is not in front), and a write then would sit ahead of the wheel's answers and void
+     *  the count reading an unbound open's bind waits for (P9). */
     private suspend fun pumpWindowList(st: LinkState): Boolean {
         if (!st.effects || switcher.open || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || mainList.mainBindRegion(st).last + 1 >= st.cacheSize) return false
-        if (transition != null) return windowList.mainBindPaintUnderRun(st)
-        return windowList.pumpMainBind(st)
+        return windowList.pumpLane(st)
     }
 
-    /** K1-2 stage 4a: under a transition, one row of the arriving list's staging painted (loop work only) — never for a list
-     *  staged already (a kept staging's SETs ride the held frame; its rows' repaint and re-stage wait as today), never while
+    /** One rule for both lists' lanes while a transition is in hand (K1-2 stage 4a for the window list, 4i for Main: the
+     *  K1-2 spec §5.3, `FIRMWARE.md` §7.11; decisions DA (c) 3, DK 2): a list whose staging is not held and counted — a
+     *  level a Select brings, Main arriving with none (a session started inside a window, then Back) — is only PAINTED,
+     *  a row per loop turn as Main's paint (AF.8), in this lowest-priority step that runs only in a turn with nothing to
+     *  send, ahead of [pumpMainBind]'s refusals of a flush in flight or pending, which a run's frames meet for much of it.
+     *  Its layout and every write (the records, the count's reading, LIST, the SETs) follow the run's end, so it is staged
+     *  after the run from rows already painted for its key. A held, counted staging goes as it does with no run: Main's
+     *  (its SETs ride the held frame, a changed row re-staged), the window list's nothing (its rows' repaint and re-stage
+     *  wait for the run's end). */
+    private suspend fun ListBind.pumpLane(st: LinkState): Boolean = when {
+        transition == null -> pumpMainBind(st)
+        !mainBind.counted -> mainBindPaintUnderRun(st)
+        this === mainList -> pumpMainBind(st)
+        else -> false
+    }
+
+    /** K1-2 stage 4a: under a transition, one row of the arriving list's staging painted (loop work only, [pumpLane]) — never
+     *  for a list staged already (a laid-out one waits for the run's end, as its writes do), never while
      *  [mainBindBlocked] gives a reason or for a key refused, and, as Main's paint, not while the atlas is being written
      *  (§73: the atlas goes first) — [mainBindStage] with `paintOnly` stops before the layout, after which the records are
      *  wanted. True when a row was painted. */
@@ -6433,6 +6454,9 @@ class Shell(
     /** K1-2 stage 4a, tests (on the loop): the window list's paint in hand — rows painted, rows in all, rows painted under a
      *  transition — or null. */
     internal fun windowListPaintForTest(): Triple<Int, Int, Int>? = windowList.mainBindPaint?.let { Triple(it.next, it.n, it.underRun) }
+    /** K1-2 stage 4i, tests (on the loop): Main's paint in hand, as [windowListPaintForTest]; Main's region on this session. */
+    internal fun mainPaintForTest(): Triple<Int, Int, Int>? = mainList.mainBindPaint?.let { Triple(it.next, it.n, it.underRun) }
+    internal fun mainRegionForTest(): IntRange = mainList.mainBindRegion(transport.state.value)
     /** K1-2 stage 3b, tests (on the loop): the window list's refused stagings this process. */
     internal fun windowListRefusalsForTest(): Int = windowList.mainBindRefusals
     /** Tests (on the loop): a 114 body read as the transport hands one (the review's finding C pin: a body whose report was
@@ -8716,6 +8740,11 @@ class Shell(
     }
 
     private suspend fun pump() {
+        frontOfTurn = FrontOfTurn(windowFrontNow())      // K1-2 stage 4i: the turn's front, once ([windowFront])
+        try { pumpTurn() } finally { frontOfTurn = null }
+    }
+
+    private suspend fun pumpTurn() {
         // C3 X4T item 4: the first pump after a glyph hold's period is the one that lets its writes go
         if (glyphHoldPumpOwed && System.currentTimeMillis() >= glyphHoldUntilMs) glyphHoldPumpOwed = false
         val yieldReserve = reserveYield                 // P5 item 5: decided by this message's idle tick only
@@ -9048,7 +9077,7 @@ class Shell(
             //    the preview settle
             // the wheel's preview over Main before Main's staging step (decisions AL.1): a staging's paint turns are not
             // what the preview waits for
-            if (!animated && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !mainList.pumpMainBind(st) &&
+            if (!animated && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !mainList.pumpLane(st) &&
                 !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)
         }
         lanesAfter()                          // stage L: the chain's PLAY or PLAY-AFTER alone, after the frame

@@ -57,6 +57,10 @@ class WindowListShellTest {
          *  cannot pad — see the stage's report) — rows never on screen with the cursor near the top, so the phone's own frame
          *  stays light while the strip passes the space below the wheel's block: refused for its space. */
         @Volatile var ink = false
+        /** K1-2 stage 4i: these rows drawn as noise in runs of ONE pixel across their whole rect (neighbours always differ:
+         *  the level's parity follows x + y), from the rect's corner as a real row's paint is — so a row painted where the
+         *  phone shows it draws what its row form drew — strip rows the segment padding cannot pad. */
+        @Volatile var ink1: IntRange = IntRange.EMPTY
         /** Its own rows in its Settings category (beside the shell's style rows), each an On/Off row of a real-looking name. */
         @Volatile var appRows = 0
         override fun appSettings(): List<wm.damage.core.shell.HostSetting> = List(appRows) { i ->
@@ -76,6 +80,8 @@ class WindowListShellTest {
                 val k0 = order?.getOrNull(i) ?: i
                 if (ink && i in 10 until 20) for (y in r.y until r.y + r.h) for (x in r.x until r.x + r.w)
                     g[x, y] = (((k0 * 73856093) xor ((x shr 1) * 19349663) xor (y * 83492791)) ushr 5 and 15) * 17
+                else if (i in ink1) for (y in 0 until r.h) for (x in 0 until r.w)
+                    g[r.x + x, r.y + y] = ((((k0 * 73856093) xor (x * 19349663) xor (y * 83492791)) ushr 5 and 7) * 2 + ((x + y) and 1)) * 17
                 else for (k in 0..(k0 % 5)) g.fillRect(r.x + 12 + k * 22 + (k0 * 7) % 40, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
             { g, r, i -> g.fillRect(r.x + 4, r.y + 4, 8 + (i * 13) % 200, r.h - 8, 255) }, {})
         override fun summary() = if (heavy) Summary("M@W#".repeat(24), detail = "detail of $name", more = true) else Summary("summary of $name", detail = "detail")
@@ -1330,6 +1336,161 @@ class WindowListShellTest {
             assertEquals(row0 + 1, r.row(), "list 1 at the moved row")
             r.assertOracle("Settings after the run")
             notch(r, CfwModes.EV_UPROLL, "a notch on Settings after the run")
+        } finally { r.close() }
+    }
+
+    // ------------------------------------------------------------------ K1-2 stage 4i
+
+    /** What of Main's list 0 RIGHT took in images [from] until [to], one line each: a LIST or SET naming list 0 (its first
+     *  12 bytes), a cache write meeting [span] (Main's region). "#i" is the image's index in [Rig.right]. */
+    private fun list0Traffic(r: Rig, from: Int, to: Int, span: IntRange): List<String> = (from until to).flatMap { i ->
+        val img = r.right[i]
+        r.subs(img).filter { r.isSetOf(it, 0) || r.isListOf(it, 0) }
+            .map { s -> "#$i ${if (r.isSetOf(s, 0)) "SET" else "LIST"} " + s.take(12).joinToString(",") { "${it.toInt() and 0xFF}" } } +
+            writtenSpans(img).filter { it.first <= span.last && span.first <= it.last }.map { "#$i mode-${img[0].toInt() and 0x7F} write ${it.first}..${it.last + 1}" }
+    }
+
+    /** RIGHT's image-lane refusal record (`FIRMWARE.md` §4, fields 23–25): seen/mode/reason/seq. */
+    private fun refRecord(c: GlassFirmwareSim.LensCtx) = "${c.refSeen}/${c.refMode}/${c.refReason}/${c.refSeq}"
+
+    /**
+     * K1-2 stage 4i, item 1 (decisions DK 2; 4a's finding 2): a session started on a window — Main is staged only while it
+     * is in front, so it has no staging — then Back to Main with the run held in its frame phase: Main's staging is not held
+     * when it arrives. Under the run Main's lane only paints, as the window list's does (`FIRMWARE.md` §7.11, one rule for
+     * both lanes): Main's rows painted whole, nothing laid out, and nothing of list 0 on RIGHT from the act to the run's end
+     * — no write into Main's region, no LIST and no SET of list 0, no entry of it held. After the run Main is staged once,
+     * from those rows, counted and bound; belief equals both lenses and the next notch is local. Prints what of list 0 went
+     * on RIGHT with the run held, and what the model answered to each (the reproduction). Without the rule: laid out,
+     * written, counted and SET inside the run.
+     */
+    @Test
+    fun mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i(): Unit = runBlocking {
+        val r = Rig(startOn = "w0")
+        val answers = java.util.concurrent.ConcurrentHashMap<Int, MutableList<String>>()
+        val refBefore = java.util.concurrent.ConcurrentHashMap<Int, String>()
+        val readings = java.util.concurrent.CopyOnWriteArrayList<String>()
+        r.sim.attachListener(object : GlassFirmwareSim.SimDiag {
+            override fun event(kind: String, detail: String) {
+                if (kind == "bind" && detail.startsWith("RIGHT ")) answers.computeIfAbsent(r.right.size - 1) { java.util.concurrent.CopyOnWriteArrayList() } += detail.removePrefix("RIGHT ")
+            }
+            override fun notify(arm: Arm, packet: ByteArray) {}
+            override fun panelChanged(arm: Arm) {}
+        })
+        r.onImage = { _ -> refBefore[r.right.size] = refRecord(r.sim.right) }
+        r.t.onNotify = { a, p -> if (a == Arm.RIGHT) StartRig.telemetry(p)?.let { readings += "after #${r.right.size - 1}: cache generation ${it.cacheGen}" }; p }
+        class Held(val phase: String?, val paint: Triple<Int, Int, Int>?, val laid: String?, val counted: Boolean, val slot0: String?)
+        try {
+            r.up()
+            assertEquals("w0", r.onLoop { r.shell.currentWindowId() }, "the session started on a window")
+            assertEquals(null, r.onLoop { r.shell.mainBinding.staging }, "Main not staged while a window is in front")
+            val stagings = r.onLoop { r.shell.mainBinding.stagings }
+            val span = r.onLoop { r.shell.mainRegionForTest() }
+            val at = r.right.size
+            val readings0 = readings.size
+            r.shell.transitionHoldInHalfForTest = true
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("Main in front, its run held") { r.onLoop { r.shell.currentWindowId() == null && r.shell.transitionPhaseForTest() == "FRAME" } }
+            r.until("Main's rows painted whole, or laid out, with the run held", maxMs = 20_000) { r.onLoop {
+                r.shell.mainBinding.staging != null || r.shell.mainPaintForTest()?.let { it.first == it.second } == true } }
+            // idle turns with the run held — long enough for a lane that writes under a run to write, be counted and bound
+            var turns = 0
+            while (turns++ < 30 && !r.onLoop { r.shell.mainBinding.counted && r.shell.slot0ForTest() == "main" && r.shell.mainBoundForTest().first != null }) delay(100)
+            delay(300)
+            val held = r.onLoop { Held(r.shell.transitionPhaseForTest(), r.shell.mainPaintForTest(), r.shell.mainBinding.staging?.let { "${it.start}..${it.end}" },
+                r.shell.mainBinding.counted, r.shell.slot0ForTest()) }
+            val heldTo = r.right.size
+            val traffic = list0Traffic(r, at, heldTo, span)
+            val entries0 = r.entriesOn(Arm.RIGHT, 0)
+            val now = synchronized(r.sim) { refRecord(r.sim.right) }
+            println("K12S4i item 1 (the model; FakeText), the run held in its frame phase: phase ${held.phase}; Main's paint (painted, rows, under a run) ${held.paint}; " +
+                "laid out ${held.laid ?: "no"}; counted ${held.counted}; slot 0 ${held.slot0}; RIGHT's entries of list 0 $entries0; Main's region $span; " +
+                "count readings answered from the act: ${readings.drop(readings0)}; list 0 on RIGHT from the act (#$at..#${heldTo - 1}):" +
+                traffic.joinToString("") { line -> val i = line.substringAfter("#").substringBefore(" ").toInt()
+                    "\n  $line -> model: ${answers[i] ?: "no mode-27 answer"}; refusal record ${refBefore[i]} -> ${refBefore[i + 1] ?: now}" })
+            assertEquals("FRAME", held.phase, "the run still held in its frame phase")
+            assertEquals(null, held.laid, "nothing of Main laid out under the run")
+            val p = assertNotNull(held.paint, "Main's paint in hand")
+            assertTrue(p.first == p.second && p.third == p.second, "every row of Main painted under the run: $p")
+            assertEquals(emptyList(), traffic, "nothing of list 0 on RIGHT while the run is held")
+            assertEquals(emptyList(), entries0, "no entry of list 0 held on RIGHT under the run")
+            r.shell.transitionHoldInHalfForTest = false; r.shell.postIdleTick()
+            r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            val runTo = runEnd(r, at)
+            mainBound(r, "Main after the run")
+            assertEquals(emptyList(), list0Traffic(r, at, runTo, span), "nothing of list 0 from the act to the run's end")
+            assertEquals(stagings + 1, r.onLoop { r.shell.mainBinding.stagings }, "one staging of Main, after the run")
+            assertEquals(p.second, r.onLoop { r.shell.mainBinding.staging?.rows }, "laid out from the rows painted under the run")
+            r.assertOracle("Main after the run")
+            val row0 = r.onLoop { r.shell.mainBoundForTest().second }
+            assertTrue(row0 + 1 < p.second, "Main's cursor ($row0) has a row below it")
+            val at2 = r.right.size
+            mainTo(r, row0 + 1)
+            assertTrue(r.since(at2).any { ss -> ss.any { r.isSub(it, 26, 3) } }, "the notch played on the glasses and was COMMITted (local)")
+            r.assertOracle("a notch on Main after the run")
+        } finally { r.shell.transitionHoldInHalfForTest = false; r.close() }
+    }
+
+    /**
+     * K1-2 stage 4i, item 2 (decisions DK 3; 4a's finding 3): a window list whose rows 10–19 (off screen) draw noise in runs
+     * of one pixel — strip rows the segment padding cannot pad (it adds bytes by splitting runs; a run of one pixel has none
+     * to give). The staging is refused at its layout with one note naming the padding — no `pump-error` — and the list is
+     * drawn by the phone as today (unbound; belief equals both lenses). Not tried again while what it draws is the same;
+     * tried again (refused, no second note) when its rows on screen draw otherwise; bound once the noise is gone and they
+     * change again. Without: a NullPointerException in the pump at every layout, the list painted whole between them.
+     */
+    @Test
+    fun aStripRowThatCannotBePaddedIsRefusedWithItsNote_K12S4i(): Unit = runBlocking {
+        val win = Win("nw", "Noise", n = 20, list = true).also { it.ink1 = 10 until 20 }
+        val r = Rig(extra = listOf(win))
+        try {
+            r.up()
+            r.open("nw")
+            r.until("refused", maxMs = 20_000) { r.onLoop { r.shell.windowListRefusalsForTest() } >= 1 }
+            r.done("refused")
+            for (k in 1..2) { r.onLoop { r.shell.services.requestRender(win) }; delay(200); r.done("compose $k") }
+            assertEquals(emptyList(), r.notes("pump-error"), "no fault in the pump")
+            val refusal = r.notes("liststage").filter { "cannot be staged" in it }
+            println("K12S4i item 2 (the model): $refusal")
+            assertTrue(refusal.size == 1 && "cannot be padded" in refusal[0], "one note, the padding's: $refusal")
+            assertEquals(1, r.onLoop { r.shell.windowListRefusalsForTest() }, "not tried again while what it draws is the same")
+            assertEquals(null, r.onLoop { r.shell.slot0ForTest() }, "unbound: the phone draws it")
+            r.assertOracle("the list as the phone draws it")
+            win.order = IntArray(20) { it + 3 }                            // its rows on screen draw otherwise
+            r.onLoop { r.shell.services.requestRender(win) }
+            r.until("tried again on the content change", 20_000) { r.onLoop { r.shell.windowListRefusalsForTest() } == 2 }
+            r.done("refused again")
+            assertEquals(1, r.notes("liststage").count { "cannot be staged" in it }, "still one note: ${r.notes("liststage").takeLast(3)}")
+            win.ink1 = IntRange.EMPTY; win.order = IntArray(20) { it + 5 }   // the noise gone, its rows on screen changed again
+            r.onLoop { r.shell.services.requestRender(win) }
+            r.windowBound("bound once its rows can be padded")
+            assertEquals(emptyList(), r.notes("pump-error"), "no fault in the pump")
+            r.assertOracle("bound")
+        } finally { r.close() }
+    }
+
+    /** Item 2's class, the re-stage (`MainStaging.restage`'s tail laid out again): a bound window list whose row 1 (on
+     *  screen) starts drawing noise in one-pixel runs — the strip's tail cannot be padded. The staging is dropped with the
+     *  reason, and the next is refused at its layout with the padding's note — no `pump-error`; the list drawn by the phone
+     *  as today. Without: a NullPointerException in the pump at every turn, the row marked again each time. */
+    @Test
+    fun aRowThatTurnsToOnePixelNoiseIsDroppedAndRefusedWithItsNote_K12S4i(): Unit = runBlocking {
+        val win = Win("nw", "Noise", n = 20, list = true)
+        val r = Rig(extra = listOf(win))
+        try {
+            r.up()
+            r.open("nw")
+            r.windowBound("the list bound")
+            win.ink1 = 1..1
+            r.onLoop { r.shell.services.requestRender(win) }
+            r.until("refused after its drop", 20_000) { r.onLoop { r.shell.windowListRefusalsForTest() } >= 1 }
+            r.done("refused")
+            val notes = r.notes("liststage")
+            println("K12S4i item 2, the re-stage (the model): ${notes.takeLast(3)}")
+            assertEquals(emptyList(), r.notes("pump-error"), "no fault in the pump")
+            assertTrue(notes.any { it.startsWith("dropped") && "cannot be padded" in it }, "dropped with the reason: ${notes.takeLast(3)}")
+            assertEquals(1, notes.count { "cannot be staged" in it && "cannot be padded" in it }, "refused once, the padding's note: ${notes.takeLast(3)}")
+            assertEquals(null, r.onLoop { r.shell.slot0ForTest() }, "unbound: the phone draws it")
+            r.assertOracle("the list as the phone draws it")
         } finally { r.close() }
     }
 }
