@@ -225,6 +225,42 @@ object Wheel {
             return layOut(base, g, cells, order, effects, motion, none, ruleOff, itemsOff, itemSlot, cellOffs, cellSlots, progOff, progSlot)
         }
 
+        /**
+         * C3 DW-1b-1 (`C3-DW1-amendment.md` §4.1; decisions DA (d) 1): the block bound on the glasses as a ring list — list
+         * [list] in slot [slot], the item table's [n] entries at [itemsOff], pitch 0 — with two scroll entries at the block's
+         * period: [entryIds]`[0]` event 4 (UPROLL, step +1) [down], [entryIds]`[1]` event 5 (DOWNROLL, step −1) [up], each with
+         * `rules(±1)`. It stages no tap: `LocalRules.tapEntry` numbers the report-only tap the first entry the list does not use
+         * (the glasses hold entries 0..7, `FIRMWARE.md` §6.3). END comes from the block's own bytes on the model ([paintEnd]
+         * over [image]: a cache holding the block, made once by the caller when first asked for). [mark] is the staging's
+         * identity (a new one where the item table's order or n changed).
+         */
+        fun boundList(list: Int, slot: Int, entryIds: IntArray, mark: Int, image: () -> ByteArray): wm.damage.core.local.BoundList {
+            fun params(step: Int) = rules(step).map { CfwModes.BindParam(it.kind, it.arg) }
+            val entries = listOf(
+                wm.damage.core.local.BoundList.Entry(entryIds[0], CfwModes.EV_UPROLL, 1, period, down.at, params(1), down),
+                wm.damage.core.local.BoundList.Entry(entryIds[1], CfwModes.EV_DOWNROLL, -1, period, up.at, params(-1), up))
+            return wm.damage.core.local.BoundList(list, slot, n, 0, mark, itemsOff / 4, items4, entries,
+                paintEnd = { left, prog4, p, pic -> paintEnd(image(), prog4, p, left, pic) }, ring = true)
+        }
+
+        /** C3 DW-1b-1: END of the program at [prog4] with [p] on one lens's model [pic] (8 bits a pixel, the compositor's
+         *  shadow) inside the wheel's area, drawn by the simulator's renderers over [image] (a cache holding this block) as
+         *  the lens writes it at the COMMIT (`Motion.endOnModel`): the first track's level-0 backdrop covers the area, so
+         *  nothing under it is read. */
+        fun paintEnd(image: ByteArray, prog4: Int, p: IntArray, left: Boolean, pic: Gray8) {
+            val prog = if (prog4 == down.at) down else if (prog4 == up.at) up else throw LintError("the wheel's block holds no program at off4 $prog4")
+            val stride = wm.damage.core.geom.Geometry.PANEL_W / 2
+            val a = geo.area(left)
+            val x0 = maxOf(0, a.x); val x1 = minOf(pic.w, a.right, wm.damage.core.geom.Geometry.PANEL_W)
+            val y0 = maxOf(0, a.y); val y1 = minOf(pic.h, a.bottom, wm.damage.core.geom.Geometry.PANEL_H)
+            val base = ByteArray(stride * wm.damage.core.geom.Geometry.PANEL_H)
+            val out = Motion.endOnModel(prog, p, image, base, base, left)
+            for (y in y0 until y1) for (x in x0 until x1) {
+                val b = out[y * stride + (x shr 1)].toInt() and 0xFF
+                pic[x, y] = (if (x and 1 == 0) b shr 4 else b and 0x0F) * 17
+            }
+        }
+
         fun describe(): String = "the wheel's block at $base: $size B (cells ${cells.map { it.encoded.size }} B in slots of ${cellSlots.sum()} B, " +
             "the rule ${rule.size} B, the item table $n of ${cells.size} entries in a slot of $itemSlot B, programs ${down.bytes.size} + ${up.bytes.size} B and tables " +
             "${tables.sumOf { it.record.size }} B in a slot of $progSlot B); P $period T $t${if (none) " (None)" else ""}"
