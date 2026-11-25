@@ -704,6 +704,10 @@ class MainStaging private constructor(
         var next = 0
             private set
         val done: Boolean get() = next >= n
+        /** K1-2 stage 4a, for the staging's note: the time its rows took (the loop's, row by row) and the rows painted while
+         *  a transition was in hand. */
+        var ns = 0L
+        var underRun = 0
         fun step(relay: (Gray8, () -> Unit) -> Unit) {
             rowForms[next] = paintStripRow(view, layout, next, relay)
             if (bands) bandForms[next] = paintBandForm(view, kit, layout, next, relay)

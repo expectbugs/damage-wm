@@ -1021,4 +1021,192 @@ class WindowListShellTest {
             assertEquals(p0, r.onLoop { r.shell.periodInForceForTest() }, "Main's period unchanged")
         } finally { r.close() }
     }
+
+    // ------------------------------------------------------------------ K1-2 stage 4a: the paint under a transition
+
+    /** The cache spans (byte offsets, end exclusive) a mode-19 or mode-25 image writes; empty for any other image. */
+    private fun writtenSpans(img: ByteArray): List<IntRange> {
+        val list = when (img[0].toInt() and 0x7F) {
+            19 -> img.copyOfRange(1, img.size)
+            CfwModes.ZWRITE_MODE -> wm.damage.core.gfx.Zl.inflate(img.copyOfRange(1, img.size), CfwModes.ZWRITE_MAX)
+            else -> return emptyList()
+        }
+        val out = ArrayList<IntRange>()
+        var i = 0
+        while (i + 4 <= list.size) {
+            val off4 = (list[i].toInt() and 0xFF) or ((list[i + 1].toInt() and 0xFF) shl 8)
+            val n = (list[i + 2].toInt() and 0xFF) or ((list[i + 3].toInt() and 0xFF) shl 8)
+            out += off4 * 4 until off4 * 4 + n
+            i += 4 + n
+        }
+        return out
+    }
+
+    /** The window list's last `staged —` note's paint clause: rows, ms, rows painted under a transition. */
+    private fun paintClause(r: Rig): Triple<Int, Double, Int> {
+        val note = r.notes("liststage").last { it.startsWith("staged") }
+        val m = assertNotNull(Regex("its (\\d+) rows painted in ([\\d.]+) ms, one a loop turn, (\\d+) under a transition").find(note), note)
+        return Triple(m.groupValues[1].toInt(), m.groupValues[2].toDouble(), m.groupValues[3].toInt())
+    }
+
+    /** No LIST or SET naming list 1 in RIGHT's images [from] until [to], and no cache write meeting [span]. */
+    private fun noWriteOfList1(r: Rig, from: Int, to: Int, span: IntRange, what: String) {
+        val imgs = r.right.toList().subList(from, to)
+        assertTrue(imgs.none { img -> r.subs(img).any { r.isListOf(it, 1) || r.isSetOf(it, 1) } }, "$what: no LIST or SET of list 1")
+        val met = imgs.flatMap { writtenSpans(it) }.filter { it.first < span.last + 1 && span.first < it.last + 1 }
+        assertTrue(met.isEmpty(), "$what: no cache write meets list 1's records at $span: $met")
+    }
+
+    /**
+     * K1-2 stage 4a (the K1-2 spec §5.3, §6 row "the paint under a transition"; decisions DA (c) 3): a Select from the bound
+     * categories into Global with the run held in its frame phase (its PLAY-AFTER held back) — Global's rows are painted
+     * whole while the run is in hand and nothing is laid out or written: no LIST or SET of list 1 and no cache write into
+     * the span its records take after the run. Once the run ends the staging is laid out from those rows with no row
+     * painted again (the `staged —` note: every row painted under a transition), so the first write after the run goes
+     * at the first idle turn with nothing in flight. Without the lift no row is painted under the run; with the whole lane
+     * under it, Global is laid out (and written) inside it. Prints a loop turn's wait during the paint and after it.
+     */
+    @Test
+    fun theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up()
+            r.open("settings")
+            r.windowBound("Settings")
+            val stagings = r.onLoop { r.shell.windowListBinding.stagings }
+            val at = r.right.size
+            r.shell.transitionHoldInHalfForTest = true
+            r.fire(CfwModes.EV_TAP)
+            r.until("a transition in hand") { r.onLoop { r.shell.transitionPhaseForTest() } != null }
+            // each probe is one loop turn's wait — what a gesture arriving now would wait behind a slice
+            val during = ArrayList<Long>()
+            r.until("Global's rows painted whole, or laid out, with the run held", maxMs = 20_000) {
+                val t0 = System.nanoTime()
+                val s = r.onLoop { Triple(r.shell.transitionPhaseForTest(), r.shell.windowListPaintForTest(), r.shell.windowListBinding.staging) }
+                during += System.nanoTime() - t0
+                s.first == "FRAME" && (s.third != null || s.second?.let { it.first == it.second } == true)
+            }
+            delay(400)                                                      // idle turns with the run still held
+            val after = ArrayList<Long>()
+            repeat(50) { val t0 = System.nanoTime(); r.onLoop { }; after += System.nanoTime() - t0 }
+            val held = r.onLoop { Triple(r.shell.transitionPhaseForTest(), r.shell.windowListPaintForTest(), r.shell.windowListBinding.staging) }
+            assertEquals("FRAME", held.first, "the run still held in its frame phase")
+            assertTrue(held.third == null, "nothing laid out under the run: ${r.notes("liststage").takeLast(2)}")
+            val p = assertNotNull(held.second, "the arriving list's paint in hand")
+            assertTrue(p.first == p.second && p.third == p.second, "every row of the arriving list painted under the run: $p")
+            assertTrue(r.right.toList().subList(at, r.right.size).none { img -> r.subs(img).any { r.isListOf(it, 1) || r.isSetOf(it, 1) } },
+                "no LIST or SET of list 1 while the run is held")
+            r.shell.transitionHoldInHalfForTest = false; r.shell.postIdleTick()
+            r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            val runTo = r.right.size
+            r.done("Global"); r.windowBound("Global, after the run")
+            val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            assertEquals(stagings + 1, r.onLoop { r.shell.windowListBinding.stagings }, "one staging, of Global")
+            noWriteOfList1(r, at, runTo, ms.start until ms.end, "from the Select to the run's end")
+            val (n, paintMs, under) = paintClause(r)
+            assertEquals(n, under, "the staging laid out from rows all painted under the run (none painted again after it)")
+            val inRun = r.right.toList().subList(at, runTo).filter { r.cacheWrite(it) }
+            fun stats(xs: List<Long>) = xs.sorted().let { "median %.2f ms, max %.2f ms over %d".format(it[it.size / 2] / 1e6, it.last() / 1e6, it.size) }
+            println("K12S4a paint under the run (FakeText, the PC; modeled): $n rows in %.1f ms (%.2f ms a slice); a loop turn's wait during the paint ${stats(during)}, after it ${stats(after)}; ".format(paintMs, paintMs / n) +
+                "cache writes from the Select to the run's end: ${inRun.size} (${inRun.joinToString { w -> writtenSpans(w).joinToString("+") { "${it.first}..${it.last + 1}" } }}); list 1's records at ${ms.start}..${ms.end}")
+            notch(r, CfwModes.EV_UPROLL, "a notch on Global")
+        } finally { r.shell.transitionHoldInHalfForTest = false; r.close() }
+    }
+
+    /**
+     * Pin 11, act (i) (decisions DA (c) 1; the K1-2 spec §5.3, §8): a Select from the bound categories into a new level
+     * (Global), and a notch while RIGHT's in half draws. The out half's batch CLEARed entries 3–5 and nothing of list 1 is
+     * SET in the run, so the ring event matches no entry on the glasses: the model takes the stock path (`FIRMWARE.md`
+     * §6.2 step 3) — no 115 at all, its S unchanged — and the phone applies the notch as today (Global's row moves, its
+     * repaint held to the in half's next step or LAND). After the run Global is staged from rows painted under it (the
+     * paint advanced by the run's end), bound at the moved row, and the next notch is local.
+     */
+    @Test
+    fun aNotchInTheInHalfOfASelectIntoANewLevelGoesAsToday_K12S4a(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up()
+            r.open("settings")
+            r.windowBound("Settings")
+            val staged = r.notes("liststage").count { it.startsWith("staged") }
+            val at = r.right.size
+            r.fire(CfwModes.EV_TAP)
+            r.until("RIGHT's in half drawing") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" &&
+                synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 } == true } }
+            val applied = r.notes("applied").size
+            assertEquals(emptyList(), r.entriesOn(Arm.RIGHT, 1), "no entry of list 1 held on RIGHT in the in half")
+            val seq = synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).seq }
+            val row0 = r.onLoop { r.shell.focusedRowForTest() }
+            assertEquals(seq, r.fire(CfwModes.EV_UPROLL), "the notch matched no entry: the stock path, no S taken")
+            r.until("the notch applied as today") { r.onLoop { r.shell.focusedRowForTest() } == row0 + 1 }
+            assertTrue(synchronized(r.sim) { Arm.entries.all { r.sim.motionForTest(it).slots[3] != null } }, "the in half's slot was not emptied under the notch")
+            r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            val runTo = r.right.size
+            assertEquals(applied, r.notes("applied").size, "no report of the notch: ${r.notes("applied").drop(applied)}")
+            assertTrue(r.right.toList().subList(at, runTo).none { img -> r.subs(img).any { r.isSetOf(it, 1) || r.isListOf(it, 1) } }, "no LIST or SET of list 1 in the run")
+            r.done("Global"); r.windowBound("Global, after the run")
+            assertTrue(r.notes("liststage").count { it.startsWith("staged") } > staged, "the new level staged after the run")
+            val (n, _, under) = paintClause(r)
+            assertTrue(under >= 1, "the paint advanced by the run's end: $under of $n rows painted under it")
+            println("K12S4a pin 11 (i): $under of $n rows of Global painted under the run (the model; FakeText)")
+            assertEquals(row0 + 1, r.row(), "Global bound at the moved row")
+            r.assertOracle("Global after the run")
+            notch(r, CfwModes.EV_UPROLL, "a notch on Global after the run")
+        } finally { r.close() }
+    }
+
+    /**
+     * Pin 11, act (ii) (decisions DA (c) 1; the K1-2 spec §5.3, X2M0 B3's case for list 1): Settings → Main → a Select of
+     * Settings from Main — an arrival at the kept staging. Its SETs ride the held frame, so list 1 is bound on RIGHT while
+     * the in half draws; a notch then is refused 19 on RIGHT (the in half's owner in the fire's close set, §7.3) and applied
+     * as today; both halves land whole; the staging and its mark are kept; the next notch is local.
+     */
+    @Test
+    fun aNotchInTheInHalfOfAnArrivalAtAKeptStagingIsRefused19AndAppliedAsToday_K12S4a(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up()
+            r.open("settings")
+            r.windowBound("Settings")
+            val ms1 = r.onLoop { r.shell.windowListBinding.staging }
+            val mark = r.list().mark
+            val staged = r.notes("liststage").count { it.startsWith("staged") }
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            mainBound(r, "back on Main")
+            assertTrue(r.onLoop { r.shell.windowListBinding.staging } === ms1, "the window list's staging kept while Main is in front")
+            val last = r.rows.size                                          // Settings is Main's last row
+            repeat(r.rows.size + 1) {
+                val at0 = r.onLoop { r.shell.mainBoundForTest().second }
+                if (at0 == last) return@repeat
+                r.fire(CfwModes.EV_UPROLL)
+                r.until("Main's row ${at0 + 1}") { r.onLoop { r.shell.mainBoundForTest().second } == at0 + 1 }
+                delay(r.onLoop { r.shell.motionMsForTest() } + r.q() + 200); r.settle("Main at row ${at0 + 1}")
+            }
+            assertEquals(last, r.onLoop { r.shell.mainBoundForTest().second }, "Main's cursor on Settings")
+            mainBound(r, "on Settings' row")
+            r.fire(CfwModes.EV_TAP)
+            r.until("RIGHT's in half drawing") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" &&
+                synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 } == true } }
+            r.until("list 1 bound on RIGHT, or the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null ||
+                synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().count { it.list == 1 && !it.tap } == 2 } }
+            assertTrue(r.onLoop { r.shell.transitionPhaseForTest() } == "IN" && synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[3]?.drawing == true },
+                "list 1's SETs rode the held frame: bound on RIGHT while the in half draws")
+            val applied = r.notes("applied").size
+            val row0 = r.onLoop { r.shell.focusedRowForTest() }
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the notch applied as today") { r.onLoop { r.shell.focusedRowForTest() } == row0 + 1 }
+            r.until("RIGHT's report of the notch in the journal") { r.notes("applied").size > applied }
+            r.notes("applied").drop(applied).let { a -> assertTrue(a.size == 1 && a[0].contains("refused (fire-over-owner)") && " list 1 " in a[0],
+                "RIGHT refused the fire on list 1 19 under the in half's owner: $a") }
+            assertTrue(synchronized(r.sim) { Arm.entries.all { r.sim.motionForTest(it).slots[3] != null } }, "the in half's slot was not emptied under the notch")
+            r.until("both lenses' in halves landed whole") { synchronized(r.sim) { Arm.entries.all { r.sim.motionForTest(it).slots[3]?.let { s -> !s.drawing && s.d == s.T } == true } } }
+            r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.done("Settings"); r.windowBound("Settings, after the run")
+            assertTrue(r.onLoop { r.shell.windowListBinding.staging } === ms1 && r.list().mark == mark, "the same staging and mark")
+            assertEquals(staged, r.notes("liststage").count { it.startsWith("staged") }, "no staging of the window list")
+            assertEquals(row0 + 1, r.row(), "list 1 at the moved row")
+            r.assertOracle("Settings after the run")
+            notch(r, CfwModes.EV_UPROLL, "a notch on Settings after the run")
+        } finally { r.close() }
+    }
 }

@@ -6248,11 +6248,24 @@ class Shell(
 
     /** K1-2 stage 3: the window list's lane in idle, after the wheel's and before Page staging (decisions CK A3) — only at
      *  stage 5 on a 256 KiB session with a region of Main's own (decisions BC O2, O4): below that nothing of it is sent.
-     *  Nothing while a transition is in hand (the K1-2 spec §5.3: a new staging's writes wait for the run's end, and its
-     *  paint under the run is stage 4's), so the level a Select brings is staged after the run (pin 11). */
-    private suspend fun pumpWindowList(st: LinkState): Boolean =
-        st.effects && transition == null && st.cacheSize == CfwModes.CACHE2_MAX_RIDERS && mainList.mainBindRegion(st).last + 1 < st.cacheSize &&
-            windowList.pumpMainBind(st)
+     *  While a transition is in hand only the PAINT of the list that is arriving goes (K1-2 stage 4a; the K1-2 spec §5.3
+     *  and §6; decisions DA (c) 3): a row per loop turn as Main's paint (AF.8), in this lowest-priority step, which runs
+     *  only in a turn with nothing to send — ahead of [pumpMainBind]'s refusals of a flush in flight or pending, which a
+     *  run's frames meet for much of it. Every write (the records, LIST, the SETs, the count's reading) stays behind those
+     *  refusals, behind [cacheWritesHeld] and behind the run's end, so the level a Select brings is staged after the run
+     *  (pin 11), from rows already painted for its key. */
+    private suspend fun pumpWindowList(st: LinkState): Boolean {
+        if (!st.effects || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || mainList.mainBindRegion(st).last + 1 >= st.cacheSize) return false
+        if (transition != null) return windowList.mainBindPaintUnderRun(st)
+        return windowList.pumpMainBind(st)
+    }
+
+    /** K1-2 stage 4a: under a transition, one row of the arriving list's staging painted (loop work only) — never for a list
+     *  staged already (a kept staging's SETs ride the held frame; its rows' repaint and re-stage wait as today), never while
+     *  [mainBindBlocked] gives a reason or for a key refused ([mainBindStage] with `paintOnly`: it stops before the layout,
+     *  after which the records are wanted). True when a row was painted. */
+    private fun ListBind.mainBindPaintUnderRun(st: LinkState): Boolean =
+        mainBind.staging == null && mainBindBlocked(st) == null && mainBindStage(st, System.currentTimeMillis(), paintOnly = true)
 
     /** Test introspection, LOOP-ONLY (read inside [sampleIdle]): Main's staging and its counts; what Main offers and its row. */
     internal val mainBinding: MainBinding get() = mainList.mainBind
@@ -6262,6 +6275,9 @@ class Shell(
     internal val windowListBinding: MainBinding get() = windowList.mainBind
     internal fun windowBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = windowList.surface.bound() to windowList.surface.row()
     internal fun slot0ForTest(): String? = when (slot0()) { mainList -> "main"; windowList -> "window"; else -> null }
+    /** K1-2 stage 4a, tests (on the loop): the window list's paint in hand — rows painted, rows in all, rows painted under a
+     *  transition — or null. */
+    internal fun windowListPaintForTest(): Triple<Int, Int, Int>? = windowList.mainBindPaint?.let { Triple(it.next, it.n, it.underRun) }
     /** K1-2 stage 3b, tests (on the loop): the window list's refused stagings this process. */
     internal fun windowListRefusalsForTest(): Int = windowList.mainBindRefusals
     /** Tests (on the loop): a 114 body read as the transport hands one (the review's finding C pin: a body whose report was
@@ -6506,8 +6522,10 @@ class Shell(
         if (reason != mainBindRefusalSaid) { mainBindRefusalSaid = reason; this.note(note) }
     }
 
-    /** Paints Main's staging and puts its records in the registry at their offsets (WANTED). */
-    private fun ListBind.mainBindStage(st: LinkState, now: Long): Boolean {
+    /** Paints Main's staging and puts its records in the registry at their offsets (WANTED). [paintOnly] (K1-2 stage 4a,
+     *  under a transition): the rows painted, nothing laid out — the layout and its writes follow after the run, for the
+     *  same key. */
+    private fun ListBind.mainBindStage(st: LinkState, now: Long, paintOnly: Boolean = false): Boolean {
         val region = mainBindRegion(st)
         val (listD, bandD) = mainBindPlanes()
         val n = rows()
@@ -6530,14 +6548,18 @@ class Shell(
             MainStaging.Paint(lay, surface.view() ?: return false, kit, bands = form == wm.damage.core.motion.ListForm.MAIN_BANDS).also { mainBindPaint = it }
         }
         if (!pt.done) {
+            val t0 = System.nanoTime()
             try { pt.step(mainBindRelay()) } catch (e: wm.damage.core.geom.LintError) {
                 mainBindPaint = null
                 mainBindRefused(what, "$who's row ${pt.next} cannot be painted for staging: ${e.message} — the list stays unbound (its scrolls and taps go as today) until $who's layout, planes or rows change")
                 return false
             }
+            pt.ns += System.nanoTime() - t0
+            if (transition != null) pt.underRun++
             post(Msg.Pump)
             return true
         }
+        if (paintOnly) return false                      // K1-2 stage 4a: the layout and every write after the run
         mainBindPaint = null
         if (ct != null && mainBindPaintVersions != (ct.wantVersion to ct.seenVersion) && ++mainBind.paints <= MainBinding.PAINTS_MAX) {
             // §73, Page staging's rule: the atlas goes first, and Main is painted again once it holds what the paint drew
@@ -6586,7 +6608,7 @@ class Shell(
         stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: a staging starts from the fit
         mainBindRefusalSaid = null
         stageRecount()
-        note(if (form == wm.damage.core.motion.ListForm.STRIP_WINDOWS) windowStagedWords(ms, st, region) else "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
+        note(if (form == wm.damage.core.motion.ListForm.STRIP_WINDOWS) windowStagedWords(ms, st, region, pt) else "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
             "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B, ${ms.rows} band forms " +
             "${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots each its own size " +
             "(two spares of ${ms.free.values.max()} B, the largest; ${ms.bands.count { it.slot == ms.free.values.max() }} row(s) at that size), " +
@@ -6605,7 +6627,7 @@ class Shell(
 
     /** K1-2 stage 3: the window list's `staged —` note — what it takes of its space and what the space holds (decisions CT's
      *  reading: each list's real rows against the room for list 1). */
-    private fun ListBind.windowStagedWords(ms: MainStaging, st: LinkState, region: IntRange): String {
+    private fun ListBind.windowStagedWords(ms: MainStaging, st: LinkState, region: IntRange, pt: MainStaging.Paint): String {
         val m = mainList.mainBind.staging
         val top = region.last + 1
         return "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache: " +
@@ -6615,7 +6637,9 @@ class Shell(
             "to ${if (wheel.block?.base == top) "the wheel's block's base" else "the region's end"}), ${ms.start - region.first} B of it left below the list; " +
             "planes ${ms.listD}/${ms.bandD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process; " +
             "${ms.motion?.effect?.word} (${effectFrom()}), ${motionWords(ms)}" +
-            (if (ms.ring) "; a ring list (LIST-RING), the strip's margins ${ms.margin} rows of the other end" else "; a plain list, its staged edge")
+            (if (ms.ring) "; a ring list (LIST-RING), the strip's margins ${ms.margin} rows of the other end" else "; a plain list, its staged edge") +
+            // K1-2 stage 4a: what its paint cost the loop, and how much of it went while a transition was in hand
+            "; its ${pt.n} rows painted in ${"%.1f".format(pt.ns / 1e6)} ms, one a loop turn, ${pt.underRun} under a transition"
     }
 
     /** C3 DM-1: the gate's token ([wm.damage.core.motion.Motion.effects]) from [st] as it is now — null where version 2 is
