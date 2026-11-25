@@ -7,6 +7,7 @@ import { torrentsDesc, torrentsScope, torrentsRecord, torrentsSeries } from './t
 import { filesDesc, filesScope, filesRecord, folderRows, runningCopy, DL, EMPTY } from './files-fixtures.mjs';
 import { feedScope, feedRecord, feedBlobs, feedChange, itemId, F_NOW } from './feed-fixtures.mjs';
 import { tmuxScope, tmuxRecord, tmuxLive, streamData, OUTPUT } from './tmux-fixtures.mjs';
+import { healthDesc } from './health-fixtures.mjs';
 import { format } from '../../main/resources/web/js/address.mjs';
 
 const ME = 'web-a1b2c3';
@@ -118,6 +119,7 @@ export const fixtures = {
         { id: 'bookmark', kind: 'r', level: 'control', label: 'Bookmark' }, { id: 'reset', kind: 'i', level: 'control', label: 'Reset progress' }] },
     'desc/torrents': torrentsSeries(),
     'desc/files': filesDesc(),
+    'desc/health': healthDesc('well'),
     'reader/book:b1': { ...BOOKS[0], chapters: CHAPTERS },
     'reader/book:b1/part:0': part(0),
     'reader/book:b1/part:1': part(1),
@@ -146,7 +148,12 @@ export const SCENES = {
   devices: { path: '/w/devices', steps: [{ wait: '.devices .row-item' }] },
   away: { path: '/w/reader', steps: [{ wait: '.shelf .book' }, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
   settings: { path: '/w/settings', steps: [{ wait: '.looks' }] },
-  diag: { path: '/w/diag', steps: [{ wait: '.facts' }] },
+  // R-b H3: the Health page (the diagnosis its lower half at level full), a line in attention, one in alarm, and out of reach
+  health: { path: '/w/health', steps: [{ wait: '.facts' }] },
+  'health-attention': { path: '/w/health', descs: { 'desc/health': healthDesc('attention') }, steps: [{ wait: '.hl.band-attention' }] },
+  'health-alarm': { path: '/w/health', descs: { 'desc/health': healthDesc('alarm') }, steps: [{ wait: '.hl.band-alarm' }] },
+  'health-away': { path: '/w/health', descs: { 'desc/health': healthDesc('alarm') }, steps: [{ wait: '.hl.band-alarm' }, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
+  'home-health': { path: '/', descs: { 'desc/health': healthDesc('alarm') }, steps: [{ wait: '.home-health.band-alarm' }] },
   // S1-2 Q3w: notices raised while a page is open, as toasts over the shelf and over a book's text
   'notice-shelf': { path: '/w/reader', steps: [{ wait: '.shelf .book' }, { fetch: '/__raise?n=1' }, { wait: '.toast.notice' }] },
   'notices-shelf': { path: '/w/reader', steps: [{ wait: '.shelf .book' }, { fetch: '/__raise?n=3' }, { wait: '.toast.notice + .toast.notice + .toast.notice' }] },

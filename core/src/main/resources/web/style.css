@@ -206,7 +206,7 @@ body.away .toast.notice .act { opacity: .45; }
   .text { padding: var(--gap) var(--gap) 40vh; font-size: 1.05rem; }
 }
 
-/* ---- devices, diagnosis, settings ---- */
+/* ---- devices, health and its diagnosis, settings ---- */
 .rows { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .6rem; }
 .row-item { display: flex; flex-wrap: wrap; gap: .6rem; justify-content: space-between; padding: var(--pad); border: 1px solid var(--line); border-radius: .5rem; background: var(--card); }
 .row-main { display: flex; flex-direction: column; gap: .2rem; min-width: 14rem; flex: 1; }
@@ -231,6 +231,26 @@ body.away .toast.notice .act { opacity: .45; }
 .set-range { display: inline-flex; gap: .5rem; align-items: center; }
 .set-here { margin-top: calc(var(--gap) * 1.5); }
 .card.shown { cursor: default; }
+/* R-b H3: the Health page and home's line — quiet when all is well (no band word, no colour on a normal line); a
+   line in attention or alarm is marked by its band's colour and word; every text wraps, nothing is cut */
+.band-attention { --band: var(--warn); }
+.band-alarm { --band: var(--danger); }
+.home-health { display: inline-flex; gap: .5rem; align-items: center; margin: 0 0 var(--gap); padding: .4rem .8rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--card); color: var(--fg); text-decoration: none; }
+.home-health.band-attention, .home-health.band-alarm { border-color: var(--band); color: var(--band); font-weight: 600; }
+.hl-summary { font-size: 1.1rem; font-weight: 600; margin: 0 0 .4rem; }
+.hl-summary.band-attention, .hl-summary.band-alarm { color: var(--band); }
+.hl-age { color: var(--muted); margin: 0 0 .6rem; }
+.hlines { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+.hl { display: flex; flex-wrap: wrap; gap: .1rem 1rem; padding: .5rem .2rem .5rem .6rem; border-bottom: 1px solid var(--line); border-left: .25rem solid transparent; }
+.hl.band-attention, .hl.band-alarm { border-left-color: var(--band); }
+.hl-label { font-weight: 700; min-width: 10rem; }
+.hl-body { display: flex; flex-direction: column; gap: .1rem; flex: 1; min-width: 14rem; }
+.hl-band { display: inline-block; margin-right: .5rem; padding: 0 .4rem; border-radius: .3rem; background: var(--band); color: var(--bg); font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.hl-meta, .hl-why { color: var(--muted); font-size: .9rem; }
+.hl-why { font-style: italic; }
+.hl-diag-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin-top: calc(var(--gap) * 1.5); }
+.hl-diag-head h2 { margin: 0; }
+.hl-diag-why { margin-top: calc(var(--gap) * 1.5); }
 body.away .page.settings .set-cats { opacity: .55; filter: grayscale(1); }
 
 /* ---- S1-2 Q4w: Torrents ---- */
