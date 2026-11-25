@@ -237,9 +237,15 @@ class AppClient(
                             "chg" -> AppWire.parseChg(f).let { say { listener.change(it) } }
                             "ans" -> AppWire.parseAns(f).let { say { listener.answer(it) } }
                             "pong" -> {
-                                lastPong = AppWire.num(f, "k")
-                                (f["ms"] as? JsonPrimitive)?.longOrNull?.let { pc -> clockSample(lastPong, pc, clock()) }
+                                // the ping is answered before anything else is done with its pong, and [lastPong] is
+                                // written last: a tick that falls between the two (a test's, right after it has seen
+                                // the number; a real one, rarely) found the ping still unanswered and took the PC for
+                                // out of reach (2026-11-25: `PingTest` red once in a gate, the clock sample between them)
+                                val k = AppWire.num(f, "k")
+                                val got = clock()
                                 answered()
+                                (f["ms"] as? JsonPrimitive)?.longOrNull?.let { pc -> clockSample(k, pc, got) }
+                                lastPong = k
                             }
                             "end" -> {
                                 val reason = text(f, "reason") ?: "no reason"
