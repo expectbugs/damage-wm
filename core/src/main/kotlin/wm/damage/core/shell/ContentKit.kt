@@ -72,6 +72,15 @@ class ContentKit(private val comp: Compositor) {
         comp.damage(l.content)
     }
 
+    /** K1-2 stage 3b: the rows [paintList] paints beside the band for cursor [c] of [n] rows — each row's index and the rect
+     *  it was painted into, by the same slots and wrap — for the shell's compose compare of a bound window list. */
+    internal fun visibleRows(l: Layout, n: Int, c: Int, each: (Int, Rect) -> Unit) {
+        if (n == 0) return
+        val slots = l.rowsAbove + l.rowsBelow + 1
+        for (slot in 0 until l.rowsAbove) wrapIndex(c - l.rowsAbove + slot, n, slots)?.let { each(it, rowRect(l, slot, above = true)) }
+        for (slot in 0 until l.rowsBelow) wrapIndex(c + 1 + slot, n, slots)?.let { each(it, rowRect(l, slot, above = false)) }
+    }
+
     /** The lens band with row [c] in it, as [paintList] paints it — also Main's staged band forms (`MainStaging`). */
     internal fun paintLensBand(g: Gray8, l: Layout, v: WindowView.ListView, c: Int) {
         g.fillRect(l.lens, Level.BG)
