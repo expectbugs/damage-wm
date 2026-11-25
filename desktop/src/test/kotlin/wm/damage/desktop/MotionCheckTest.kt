@@ -108,7 +108,7 @@ class MotionCheckTest {
             val under = Files.walk(home).use { s -> s.filter { it != home }.map { home.relativize(it).toString() }.toList() }
             assertTrue(under.all { it == ".java" || it == ".java/fonts" || it.startsWith(".java/fonts/") },
                 "nothing under the home directory but the JDK's font cache: $under")
-            assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") && !it.startsWith("wheel-") }, "the strips in DIR, nothing else (and the scroll and wheel strips)")
+            assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") && !it.startsWith("wheel-") && !it.startsWith("music-") }, "the strips in DIR, nothing else (and the scroll, wheel and Scope strips)")
             assertTrue(files(dir).any { it.startsWith("scroll-") }, "the scroll strips in DIR")
         } finally { home.toFile().deleteRecursively(); dir.toFile().deleteRecursively() }
     }
