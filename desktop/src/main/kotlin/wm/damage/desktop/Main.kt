@@ -1199,9 +1199,10 @@ class DesktopStack(
     private var filesSource: wm.damage.core.app.LocalWindowSource? = null
     /** S1-5 G: this stack's Games presenter (it leaves its source at the stop). Declared before `init`, which sets it. */
     private var gamesWindow: wm.damage.core.windows.games.GamesGlasses? = null
-    /** This stack's Tmux, Torrents, Music and Feed presenters (each leaves its provider and source at the stop). S1-5 S:
-     *  declared before `init`, which sets them — declared after it, their `= null` ran after the `init` and the stop
-     *  detached nothing (`DesktopStackTest`). */
+    /** This stack's Tmux, Torrents, Music and Feed presenters (each leaves its provider and source at the stop), declared
+     *  before `init`, which sets them, as the Files and Games fields are. S1-5 S: where they stood, after the `init`, they
+     *  read as reset to null at the constructor's end; the compiler emits no store for a `= null` initializer (read in the
+     *  constructor's bytecode), and the stop did detach them. */
     private var tmuxWindow: wm.damage.core.windows.tmux.TmuxWindow? = null
     private var torrentsWindow: wm.damage.core.windows.torrents.TorrentsWindow? = null
     private var musicWindow: wm.damage.core.windows.music.MusicGlasses? = null
