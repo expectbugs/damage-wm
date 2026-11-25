@@ -196,12 +196,13 @@ class OracleWalkTest {
                     "wheel lane done ${shell.wheelLaneDoneForTest()}, cache work in flight ${shell.cacheWorkInFlight}, transition ${shell.transitionPhaseForTest()}; " +
                     "slot 0 ${shell.slot0ForTest()}, on screen ${surface()}, its row ${shell.focusedRowForTest()}; the window list: staging " +
                     "${b.staging?.let { "${it.rows} rows at ${it.start}..${it.end}" }}, counted ${b.counted}, list ${b.list?.let { "mark ${it.mark} count ${it.count}" }}, " +
-                    "records ${b.records.map { it.state }}, stagings ${b.stagings}, refusals ${shell.windowListRefusalsForTest()}"
+                    "records ${b.records.map { it.state }}, stagings ${b.stagings}, refusals ${shell.windowListRefusalsForTest()}; " +
+                    "the notice lane: ${shell.noticeLaneReportForTest()}"
             }
-            val notes = journalFile?.takeIf { Files.exists(it) }?.let { f ->
-                Files.readAllLines(f).filter { "\"kind\":\"liststage\"" in it }.takeLast(6).map { DETAIL_FIELD.find(it)?.groupValues?.get(1) ?: it }
+            fun notes(kind: String, n: Int) = journalFile?.takeIf { Files.exists(it) }?.let { f ->
+                Files.readAllLines(f).filter { "\"kind\":\"$kind\"" in it }.takeLast(n).map { DETAIL_FIELD.find(it)?.groupValues?.get(1) ?: it }
             }
-            return "$r; session effects ${st.effects} bind ${st.bind} cache ${st.cacheSize}; liststage notes $notes"
+            return "$r; session effects ${st.effects} bind ${st.bind} cache ${st.cacheSize}; liststage notes ${notes("liststage", 6)}; notice notes ${notes("notice", 4)}"
         }
 
         /** K1-2 stage 4c: who holds slot 0 ("main", "window" or null), the list it offers when that list's two notch
