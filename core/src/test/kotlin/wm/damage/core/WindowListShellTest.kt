@@ -58,20 +58,16 @@ class WindowListShellTest {
                 listOf("On", "Off"), { if (i % 2 == 0) "On" else "Off" }, {})
         }
         val model = ListModel()
-        /** K1-2 stage 3b: its own height (null: Global's); what row i draws — row [order]`[i]`'s marks (a reorder); and
-         *  [noisy]: every row a field of noise at all 16 levels, so its strip is far larger than the space (each pixel
-         *  from the row and its place in the row alone, so a row paints alike wherever it is put). */
+        /** K1-2 stage 3b: its own height (null: Global's); what row i draws — row [order]`[i]`'s marks (a reorder). */
         @Volatile var height: Int? = null
         override val preferredHeight: Int? get() = height
         @Volatile var order: IntArray? = null
-        @Volatile var noisy = false
         /** Decisions CY: its title (a window's 4-second notice is its title). */
         @Volatile var notice = ""
         override fun title(): String = notice
         override fun view(): WindowView = WindowView.ListView(model, { n },
             { g, i, r, _ ->
                 val k0 = order?.getOrNull(i) ?: i
-                if (noisy) for (y in 0 until r.h) for (x in 0 until r.w) g[r.x + x, r.y + y] = ((((x * 7919 + y * 104_729 + k0 * 31) * 0x9E3779B1.toInt()) ushr 13) and 0xF) * 17
                 for (k in 0..(k0 % 5)) g.fillRect(r.x + 12 + k * 22 + (k0 * 7) % 40, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
             { g, r, i -> g.fillRect(r.x + 4, r.y + 4, 8 + (i * 13) % 200, r.h - 8, 255) }, {})
         override fun summary() = if (heavy) Summary("M@W#".repeat(24), detail = "detail of $name", more = true) else Summary("summary of $name", detail = "detail")
@@ -752,13 +748,13 @@ class WindowListShellTest {
         } finally { r.close() }
     }
 
-    /** Pin 6's content half (the K1-2 spec §6; decisions AF.6, AL.1): a window list whose strip the space cannot hold (eight
-     *  rows of noise) stays unbound with one note through composes and a phone-drawn notch that change nothing it draws, and
-     *  is tried again when a row on screen draws otherwise — here it then fits, and is staged and bound. Without: never
-     *  tried again until its rows, layout, planes or space change. */
+    /** Pin 6's content half (the K1-2 spec §6; decisions AF.6, AL.1): a window list the window form refuses (70 rows at 352:
+     *  its strip past 2,048 px) stays unbound with one note through composes and a phone-drawn notch that change nothing it
+     *  draws, and is tried again — painted and refused once more, with no second note — when the rows on screen draw
+     *  otherwise. Without: never tried again until its rows, layout, planes or space change. */
     @Test
     fun aListThatDoesNotFitIsTriedAgainOnAContentChange_K12S3b(): Unit = runBlocking {
-        val win = Win("nw", "Noisy", n = 8, list = true).also { it.noisy = true }
+        val win = Win("nw", "Long", n = 70, list = true)
         val r = Rig(extra = listOf(win))
         try {
             r.up()
@@ -774,11 +770,14 @@ class WindowListShellTest {
             delay(300); r.done("a notch drawn by the phone")
             assertEquals(1, r.onLoop { r.shell.windowListRefusalsForTest() }, "not tried again while nothing it draws changed")
             assertEquals(null, r.onLoop { r.shell.slot0ForTest() }, "unbound")
-            win.noisy = false
+            win.order = IntArray(70) { it + 3 }                            // every row draws otherwise
             r.onLoop { r.shell.services.requestRender(win) }
-            r.windowBound("tried again on the content change: it fits")
-            assertEquals(1, r.notes("liststage").count { "cannot be staged" in it }, "still one note")
-            notch(r, CfwModes.EV_UPROLL, "a notch on the list staged")
+            r.until("tried again on the content change", 20_000) { r.onLoop { r.shell.windowListRefusalsForTest() } == 2 }
+            r.done("refused again")
+            assertEquals(1, r.notes("liststage").count { "cannot be staged" in it }, "still one note: ${r.notes("liststage")}")
+            assertEquals(null, r.onLoop { r.shell.slot0ForTest() }, "unbound")
+            for (k in 1..2) { r.onLoop { r.shell.services.requestRender(win) }; delay(200); r.done("compose again $k") }
+            assertEquals(2, r.onLoop { r.shell.windowListRefusalsForTest() }, "and not again while nothing changes")
         } finally { r.close() }
     }
 
