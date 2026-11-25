@@ -11936,5 +11936,41 @@
   ],
   "note": "K1-2 stage 4a: no atlas-first repaint under a run — rows whose paint met characters the atlas did not hold are painted again only after the run, so the paint made under it is thrown away and the first write waits a paint turn per row",
   "from": "K12S4a"
+ },
+ {
+  "id": "K12S4b-scroll-mark-of-list0",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "if (a.mark != wireMark[f.list]) return asToday(\"restaged\")",
+    "if (a.mark != wireMark[0]) return asToday(\"restaged\")"
+   ]
+  ],
+  "note": "P3 (pin 7's reader) with two lists: a scroll report's mark compared with Main's wire mark whatever list is in front — caught by the gate-sized fuzz (and at 8,000); not caught with list 1 off (K1-2 stage 4b, watched on d892c715)",
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "from": "K12S4b"
+ },
+ {
+  "id": "K12S4b-tap-mark-of-list0",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "if (a.mark != wireMark[f.list]) return drop(\"restaged\")",
+    "if (a.mark != wireMark[0]) return drop(\"restaged\")"
+   ]
+  ],
+  "note": "the tap rule (3) with two lists: a tap report's mark compared with Main's wire mark whatever list is in front — caught by the gate-sized fuzz (and at 8,000); not caught with list 1 off (K1-2 stage 4b, watched on d892c715)",
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "from": "K12S4b"
  }
 ]
