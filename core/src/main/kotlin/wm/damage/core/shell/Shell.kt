@@ -4285,6 +4285,7 @@ class Shell(
             // that differs is re-staged, by the paced re-stage path
             stagePagesClear("the live font set changed")
             for (h in lists) h.mainBind.recheckAll()
+            wheel.liveChanged()             // V1-DW1a F2: its cells are painted again, and only a part that differs is written
         }
         ct.live = specs
         ct.liveImages = images
@@ -6680,9 +6681,10 @@ class Shell(
      *  region the wheel's block holds this session, else — no block placed — the region's end. */
     private fun wheelBase(st: LinkState): Int = wheel.block?.base ?: (mainList.mainBindRegion(st).last + 1)
 
-    /** The disparity the wheel would open with now — [switcherMargin]'s; behind the shell's clock Main's, which its wake
-     *  brings. */
-    private fun wheelOpenD(st: LinkState): Int = if (!st.effects || mode == Mode.EXCLUSIVE) 0 else if (settings.depth != 0) settings.depth else contentDepth()
+    /** The disparity the wheel would open with next — [switcherMargin]'s; behind the shell's clock Main's, which its wake
+     *  brings; on an exclusive screen (where the chord never arms) its window's, which the double tap returns to (V1-DW1a F3). */
+    private fun wheelOpenD(st: LinkState): Int = if (!st.effects) 0 else if (settings.depth != 0) settings.depth
+        else (if (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) current?.let { appDepth(it) } else null) ?: settings.depth
 
     /** What one cell would be painted for now (no paint). */
     private fun wheelCellKey(w: DamageWindow?): WheelResident.CellKey {
@@ -6729,7 +6731,7 @@ class Shell(
             journal.note("wheel", "counted — the block's ${rec.encoded.size} B at ${b.base}..${b.end} proven on the glasses (field 17)")
         }
         val ms = mainList.mainBind.staging
-        if (ms != null && ms.regionEnd == wheel.regionEnd && ms.end > b.base)
+        if (ms != null && ms.end > b.base)
             wheelDrop("Main's staging ends at ${ms.end}, past the block's base ${b.base} (Main wins)", keepCells = true)
     }
 
@@ -6763,10 +6765,12 @@ class Shell(
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
         if (atlasResendMissing > 0L) return false
-        // CK A3, Main's staging first where Main stages: the chain's order — Main's lane runs before this one, shares every
-        // gate above, and does something in every pump while it owes a write (a row painted, the staging laid out, a base
-        // record written), so this lane goes only once Main's records are all on their way (then their count, the block's
-        // write ahead of it, as the amendment's §3.3 orders them)
+        // CK A3, Main's staging first where Main stages — the atlas, then its records, counted (P9): Main's lane runs before
+        // this one, shares every gate above and does something in every pump while it owes a write (a row painted, the
+        // staging laid out, a base record written); and while a base record of Main's is written and not yet counted this
+        // lane holds (V1-DW1a F1: in the pace after a pending reading the block's pieces went first, and the next reading
+        // waited for all of them). A record Main cannot write (a window in front) holds nothing.
+        if (mainList.mainBind.records.any { it.state == StagedRecord.State.SENT || it.state == StagedRecord.State.ACKED }) return false
         val w = wheelWant(st)
         if (w.face != wheel.face || w.regs != wheel.regs) {
             if (wheel.block != null) { wheelDrop(if (w.face != wheel.face) "the cells' face changed (${wheel.face} → ${w.face})" else "the registered windows changed", keepCells = false); return true }
@@ -6833,7 +6837,7 @@ class Shell(
         val size = wheel.sized?.takeIf { it.first == w.key }?.second ?: try {
             wm.damage.core.motion.Wheel.block(0, w.g, cells, fx, w.motion, order = w.order).size.also { wheel.sized = w.key to it }
         } catch (e: wm.damage.core.geom.LintError) { wheelNotPlaced("${e.message}", w.key); return false }
-        val ms = mainList.mainBind.staging?.takeIf { it.regionEnd == w.regionEnd }
+        val ms = mainList.mainBind.staging
         WheelResident.refusal(w.regionEnd, size, ms?.end)?.let { why ->
             // past the cap: not tried again until the want changes; met by Main: tried again as Main's staging changes
             wheelNotPlaced(why, if (size > WheelResident.CAP) w.key else null)
@@ -6851,7 +6855,7 @@ class Shell(
         val parts = b.parts()
         val writes = parts.flatMap { it.writes }
         val rec = StagedRecord(WheelStageKey(wheel, wheel.serial++, "block"), Gray8(1, 1), concat(writes)).also { it.off = base }
-        wheel.block = b; wheel.regionEnd = w.regionEnd; wheel.record = rec; wheel.wantFor = w.key; wheel.want = b
+        wheel.block = b; wheel.record = rec; wheel.wantFor = w.key; wheel.want = b
         for (p in parts) wheel.sent[p.name] = p
         wheel.notPlacedSaid = null; wheel.refusedFor = null
         wheel.placements++; wheel.placedBytes += rec.encoded.size

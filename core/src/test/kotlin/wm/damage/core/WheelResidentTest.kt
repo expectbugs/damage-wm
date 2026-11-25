@@ -232,7 +232,9 @@ class WheelResidentTest {
             if (current != null) p.put("shell.state", JsonObject(mapOf("mode" to kotlinx.serialization.json.JsonPrimitive("WINDOW"),
                 "current" to kotlinx.serialization.json.JsonPrimitive(current))))
         }
-        val shell = Shell(CachedText(text), t, p, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        /** The shell's cached-text recorder (DW-1aF's F2 pin draws a face through it). */
+        val ct = CachedText(text)
+        val shell = Shell(ct, t, p, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val kinds = listOf(IconKind.READER, IconKind.TERMINAL, IconKind.FILES, IconKind.MUSIC, IconKind.FEED, IconKind.TORRENTS, IconKind.GAMES)
         val rows = (0 until n).map { Row("w$it", name(it), kinds[it % kinds.size]) }
         /** Every top-level image a lens took, in order. */
@@ -616,6 +618,113 @@ class WheelResidentTest {
         val big = cells.toMutableList().also { it[1] = wm.damage.core.motion.Wheel.Cell(it[1].entry, it[1].pic, ByteArray(b.cellSlots[1] + 4) { 7 }) }
         assertEquals(null, b.rebuilt(rig.geo, big, b.order, fx, m), "a cell past its slot")
         assertEquals(null, b.rebuilt(rig.geo, cells + cells[1], b.order, fx, m), "a cell more")
+    }
+
+    // ------------------------------------------------------------------------------- DW-1aF: the first review's fixes
+    /**
+     * V1-DW1a F1: a session start in Main where the count's first reading after each write into Main's records comes back
+     * one short inside the settle window (pending, asked again half a second on — as the glasses' first reading after a
+     * write often does): Main is counted and offered before the block's first piece goes. Watched to fail on `5f21143c`: the
+     * wheel's lane placed the block in the pending pace, and the reading that counted Main waited for every piece of it.
+     */
+    @Test
+    fun mainIsOfferedBeforeTheBlocksFirstPieceWhenItsReadingIsPending_DW1aF(): Unit = runBlocking {
+        val r = Rig()
+        val mainLow = CfwModes.mainRegion(CfwModes.CACHE2_MAX_RIDERS, bind = true).first
+        val mainWrites = java.util.concurrent.atomic.AtomicInteger()   // cache writes LEFT took into Main's records (below the cap)
+        val askedAt = java.util.concurrent.atomic.AtomicInteger()      // [mainWrites] when the last count reading was asked
+        val shortFor = java.util.concurrent.atomic.AtomicInteger()     // the last [mainWrites] whose first reading was answered short
+        val shorted = java.util.concurrent.atomic.AtomicInteger()
+        val keep = r.sim.imageObserver
+        r.sim.imageObserver = { a, img ->
+            keep?.invoke(a, img)
+            if (a == Arm.LEFT && (img[0].toInt() and 0x7F) in setOf(19, 25) &&
+                ShipVectors.cacheWrites(img).any { (off, _) -> off >= mainLow && off < regionEnd - CAP }) mainWrites.incrementAndGet()
+        }
+        r.t.onWrite = { _, p -> if (StartRig.damageOp(p) == wm.damage.core.wire.DamageMsg.OP_TELEMETRY) askedAt.set(mainWrites.get()); p }
+        r.t.onNotify = { _, p ->
+            val g = StartRig.telemetry(p)?.cacheGen
+            val m = askedAt.get()
+            if (g != null && g > 0 && m > 0 && shortFor.getAndSet(m) != m) { shorted.incrementAndGet(); StartRig.withRecordField(p, 17, g - 1) } else p
+        }
+        try {
+            r.start()
+            val b = assertNotNull(r.block(), "the block placed: ${r.notes("wheel")}")
+            val all = r.allNotes()
+            val offered = all.indexOfFirst { it.first == "mainstage" && it.second.startsWith("offered") }
+            val staged = all.take(maxOf(offered, 0)).indexOfLast { it.first == "mainstage" && it.second.startsWith("staged") }
+            val placed = all.indexOfFirst { it.first == "wheel" && it.second.startsWith("placed") }
+            val pending = (maxOf(staged, 0) until maxOf(offered, 0)).filter { "pending" in all[it].second }
+            val seen = all.filter { it.first in setOf("wheel", "mainstage") || "pending" in it.second }
+            println("DW-1aF F1: $shorted reading(s) answered one short after $mainWrites write(s) into Main's records; $seen")
+            assertTrue(staged >= 0 && offered > staged && pending.isNotEmpty(),
+                "precondition: Main staged, a reading after its records pending, then Main offered: $seen")
+            assertTrue(placed > offered, "Main offered before the block's first piece: $seen")
+            assertTrue(r.onLoop { r.shell.wheelRecordsForTest() }.all { it.state == wm.damage.core.shell.StagedRecord.State.PROVEN })
+            r.assertOnTheLenses(b, "after Main's count")
+        } finally { r.close() }
+    }
+
+    /**
+     * V1-DW1a F2: a face drawn for the first time after the block is placed (in use: a window's or a notice's first face of
+     * the session; here a size nothing else draws, through the relay every staged picture is painted through) is packed by
+     * the atlas and changes the faces live on the glasses (`atlasLive`, which drops Page staging's strips and has Main's rows
+     * painted again): the wheel's cells are painted again too, the block is built anew from those paints (only a part whose
+     * bytes differ written in place), and both lenses hold it. Watched to fail on `5f21143c` (the cells kept their paints
+     * under the old set) and on the review's one line alone (the cells painted again, the block never rebuilt from them: its
+     * want was still current for the unchanged keys).
+     */
+    @Test
+    fun aChangeOfTheLiveFacesPaintsTheCellsAgain_DW1aF(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.start()
+            val b0 = assertNotNull(r.block())
+            val live0 = r.onLoop { r.shell.cachedFontsLive.toSet() }
+            val face = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 33)
+            assertTrue(face !in live0, "precondition: a face nothing has drawn: $live0")
+            val from = r.images.size
+            r.onLoop {
+                val g = wm.damage.core.gfx.Gray8(64, 24)
+                r.ct.via(g, 0, 0, wm.damage.core.geom.Rect(0, 0, 0, 0)) { r.ct.draw(g, 0, 0, "Wq", face, wm.damage.core.gfx.Level.BODY) }
+            }
+            r.shell.postIdleTick()
+            r.until("the new face live") { r.onLoop { face in r.shell.cachedFontsLive } }
+            r.done("the live faces changed")
+            val b = assertNotNull(r.block())
+            println("DW-1aF F2: live ${live0.size} -> ${r.onLoop { r.shell.cachedFontsLive.size }} face(s); wheel writes ${r.wheelWrites(from, b)}; ${r.notes("wheel").takeLast(3)}")
+            assertEquals(b0.base, b.base, "kept in place")
+            assertTrue(b.cells.indices.all { b.cells[it] !== b0.cells[it] }, "every cell painted again under the new live set, and the block built from those paints")
+            r.assertOnTheLenses(b, "after the live faces changed")
+        } finally { r.close() }
+    }
+
+    /**
+     * V1-DW1a F3: an exclusive screen (Music Mode's kind) at a non-zero Depth — the chord never arms there and the double tap
+     * returns to the window, so the wheel would open at that window's disparity: nothing of the block is written on entering
+     * it or on leaving it. Watched to fail on `5f21143c` (the programs' slot was rewritten for d 0 on entry and for d 8 on exit).
+     */
+    @Test
+    fun anExclusiveVisitWritesNothingOfTheBlock_DW1aF(): Unit = runBlocking {
+        val r = Rig(n = 3)
+        try {
+            r.start()
+            r.open("w1")
+            assertNotNull(r.block())
+            val kept0 = r.notes("wheel").size
+            val from = r.images.size
+            assertTrue(r.onLoop { r.shell.services.enterExclusive(r.rows[1]) }, "w1 takes the whole panel")
+            r.until("exclusive") { r.onLoop { r.shell.exclusiveMode } }
+            r.done("exclusive")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                     // the double tap returns to the window
+            r.until("back in w1") { r.onLoop { !r.shell.exclusiveMode && r.shell.currentWindowId() == "w1" } }
+            r.done("back in w1")
+            val b = assertNotNull(r.block())
+            val notes = r.notes("wheel").drop(kept0)
+            assertEquals(emptyList(), r.wheelWrites(from, b), "nothing of the block written across the visit: $notes")
+            assertTrue(notes.none { it.startsWith("kept") || it.startsWith("placed") }, "no write of the wheel's across the visit: $notes")
+            r.assertOnTheLenses(b, "back in w1")
+        } finally { r.close() }
     }
 
     private companion object {
