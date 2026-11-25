@@ -171,7 +171,7 @@ class StagePiecesTest {
             assertTrue(strip.size >= 2, "the strip went in pieces: ${strip.map { it.bytes }}")
             assertTrue(r.spy.sent.filter { it.label == "STAGE" }.all { it.bytes <= Shell.STAGE_CHUNK + 5 }, "every piece one chunk's message at most")
             val i0 = r.spy.sent.indexOf(strip[0]); val i1 = r.spy.sent.indexOf(strip[1])
-            val between = r.spy.sent.subList(i0 + 1, i1).filter { it.label != "STAGE" }
+            val between = r.spy.sent.toList().subList(i0 + 1, i1).filter { it.label != "STAGE" }
             val inputFlushes = r.lines().filter { "\"ev\":\"submit\"" in it && "\"in\":1" in it }.map { it.substringAfter("\"id\":").substringBefore(",").toLong() }.toSet()
             assertTrue(between.any { it.id in inputFlushes }, "the gesture's flush between the strip's first two pieces: between ${between.map { "${it.label}#${it.id}" }}, input flushes $inputFlushes")
             r.assertOracle("after the staging")

@@ -20,6 +20,7 @@ import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
 import wm.damage.core.local.BoundList
 import wm.damage.core.local.Taps
+import wm.damage.core.motion.ScrollEffect
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
 import wm.damage.core.shell.MainStaging
@@ -431,7 +432,7 @@ class WindowListShellTest {
             val runTo = r.right.size
             assertTrue((3..5).all { e -> r.since(at).take(runTo - at).any { ss -> ss.any { r.isClearOf(it, e) } } }, "the CLEARs of 3–5 by the run's end")
             fun words(ss: List<ByteArray>) = ss.filter { (it[0].toInt() and 0x7F) in setOf(26, 27) }.joinToString(" ") { "${it[0].toInt() and 0x7F}/${it[1]}:" + it.drop(2).take(6).joinToString(",") { b -> "${b.toInt() and 0xFF}" } }
-            assertTrue(r.right.subList(runFrom, runTo).none { img -> r.subs(img).any { r.isSetOf(it, 1) } }, "no SET of list 1 in the run: " +
+            assertTrue(r.right.toList().subList(runFrom, runTo).none { img -> r.subs(img).any { r.isSetOf(it, 1) } }, "no SET of list 1 in the run: " +
                 r.since(at).withIndex().joinToString(" | ") { (i, ss) -> "${if (i + at in runFrom until runTo) "RUN " else ""}${words(ss)}" } +
                 " — local ${r.notes("local").takeLast(6)}; liststage ${r.notes("liststage").takeLast(4)}")
             r.done("Global"); r.windowBound("Global, after the run")
@@ -539,6 +540,55 @@ class WindowListShellTest {
         } finally { r.close() }
     }
 
+    /**
+     * Pin 9 (the K1-2 spec §4, §8; decisions BC O8, CV; `MOTION.md` §7: one Scroll effect per app, in its own category):
+     * Files plays Slide while Main plays Depth — its `Scroll effect` row (default · None · Depth · Slide · Fall) set to Slide
+     * stages Files' list with Slide's pans while Main's staging stays Depth's; set back to "default" it follows `Animations`
+     * — Depth, then Fall, then Crush (which a window's list plays as Slide, the row saying so) — each change by the pans'
+     * re-make alone, the staging and its mark kept. Without the per-app effect: one effect everywhere.
+     */
+    @Test
+    fun filesPlaysSlideWhileMainPlaysDepth_K12S3c(): Unit = runBlocking {
+        val r = Rig(extra = listOf(Win("files", "Files", n = 6, list = true)))
+        try {
+            r.up()
+            val rows = r.onLoop { r.shell.settingsApps().first { it.first == "Files" }.second }
+            assertEquals(listOf("Font", "Font size", "Font style", "Depth", Shell.APP_SCROLL_ROW), rows.map { it.name }, "the row beside Font and Depth")
+            val row = rows.last()
+            assertEquals(listOf("default", "None", "Depth", "Slide", "Fall"), r.onLoop { row.options() })
+            assertEquals("default", r.onLoop { row.current() })
+            r.onLoop { row.apply("Slide") }                                    // as Settings' tap applies it, on the loop
+            assertEquals("Slide", r.onLoop { row.current() })
+            r.done("Files' row set to Slide")
+            val main = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+            assertEquals(ScrollEffect.DEPTH, r.onLoop { main.motion?.effect }, "Main plays Animations' Depth")
+            r.open("files")
+            r.windowBound("Files")
+            val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            assertEquals(ScrollEffect.SLIDE to ScrollEffect.SLIDE, r.onLoop { ms.motion?.effect to ms.plays.effect }, "Files' list plays its own Slide")
+            assertTrue(r.notes("liststage").any { it.startsWith("staged — ") && "Slide (the row of Files)" in it }, "the staged note names the effect: ${r.notes("liststage")}")
+            notch(r, CfwModes.EV_UPROLL, "a notch on Files")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging } === main && r.onLoop { main.motion?.effect } == ScrollEffect.DEPTH, "Main's staging still Depth's")
+            val mark = r.list().mark
+            suspend fun plays(what: String, asked: ScrollEffect, plays: ScrollEffect) {
+                r.until("$what: Files' pans re-made and switched") { r.onLoop { ms.motion?.effect == asked } }
+                r.done(what); r.windowBound(what)
+                assertTrue(r.onLoop { r.shell.windowListBinding.staging } === ms && r.list().mark == mark, "$what: the staging and its mark kept")
+                assertEquals(asked to plays, r.onLoop { ms.motion?.effect to ms.plays.effect }, what)
+                notch(r, CfwModes.EV_UPROLL, "$what: a notch")
+            }
+            r.onLoop { row.apply("default") }
+            plays("default with Animations at Depth", ScrollEffect.DEPTH, ScrollEffect.DEPTH)
+            assertTrue(r.notes("liststage").any { it.startsWith("pans re-made — ") && "the effect from Animations', the row of Files at default" in it }, "${r.notes("liststage").takeLast(4)}")
+            r.shell.updateSettings { it.copy(scrollEffect = "fall") }
+            plays("default with Animations at Fall", ScrollEffect.FALL, ScrollEffect.FALL)
+            r.shell.updateSettings { it.copy(scrollEffect = "crush") }
+            plays("default with Animations at Crush", ScrollEffect.CRUSH, ScrollEffect.SLIDE)
+            assertEquals("default (plays Slide)", r.onLoop { row.current() }, "the row says what a window's list plays for Crush")
+            assertTrue(r.notes("liststage").any { it.startsWith("Scroll effect Crush plays Slide") }, "${r.notes("liststage").takeLast(4)}")
+        } finally { r.close() }
+    }
+
     /** Below stage 5 nothing of the window list is sent: Settings at stage 4 on 256 KiB stages nothing, no SET names list 1,
      *  and no `liststage` note is written. */
     @Test
@@ -553,6 +603,11 @@ class WindowListShellTest {
             assertEquals(null, r.onLoop { r.shell.windowListBinding.staging })
             assertTrue(r.since(at).none { ss -> ss.any { r.isSetOf(it, 1) || r.isListOf(it, 1) } }, "nothing names list 1")
             assertEquals(emptyList(), r.notes("liststage"))
+            // K1-2 stage 3c: an app's `Scroll effect` row is not shown below stage 5, and its category's rows are the same
+            // objects at every read (Settings matches a staged row by identity)
+            val w0 = r.onLoop { r.shell.settingsApps().first { it.first == "W0" }.second }
+            assertEquals(listOf("Font", "Font size", "Font style", "Depth"), w0.map { it.name }, "no Scroll effect row below stage 5")
+            assertTrue(r.onLoop { r.shell.settingsApps().first { it.first == "W0" }.second }.zip(w0).all { (a, b) -> a === b }, "the same rows")
         } finally { r.close() }
     }
 

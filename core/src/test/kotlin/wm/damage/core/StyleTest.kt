@@ -63,6 +63,32 @@ class StyleTest {
         assertEquals(s.depth, s.appDepthOf("reader"), "and so its content depth IS the global depth")
     }
 
+    /** K1-2 stage 3c (the K1-2 spec §4, §6's row; decisions CV): an app's `Scroll effect` — additive (a record without it, or
+     *  with it at "default", reads and writes as before), clamped (an unknown id, and Crush or Flip, which a window's list does
+     *  not play itself yet, read "default"), and "default" follows `Animations`'. */
+    @Test
+    fun appScrollEffectIsAdditiveClampedAndDefaultFollowsAnimations_K12S3c() {
+        val old = ShellSettings(appStyles = mapOf("files" to ShellSettings.AppStyle(depth = 8)))
+        val json = old.toJson()
+        assertTrue("scrollEffect" !in (json["appStyles"] as kotlinx.serialization.json.JsonObject)["files"].toString(),
+            "an app at \"default\" writes no new key: the record as before: $json")
+        assertEquals(old.clamped(), ShellSettings.fromJson(json), "and reads back the same")
+        assertEquals("default", old.appStyle("files").scrollEffect)
+        assertEquals(wm.damage.core.motion.ScrollEffect.DEPTH, old.scrollEffectOf("files"), "default → Animations' (Depth by default)")
+        val s = ShellSettings(scrollEffect = "fall", appStyles = mapOf(
+            "files" to ShellSettings.AppStyle(scrollEffect = "slide"),
+            "tmux" to ShellSettings.AppStyle(scrollEffect = "crush"),
+            "reader" to ShellSettings.AppStyle(scrollEffect = "wobble"))).clamped()
+        assertEquals("slide", s.appStyle("files").scrollEffect)
+        assertEquals(wm.damage.core.motion.ScrollEffect.SLIDE, s.scrollEffectOf("files"), "the app's own")
+        assertEquals("default", s.appStyle("tmux").scrollEffect, "Crush has no window form yet: default")
+        assertEquals("default", s.appStyle("reader").scrollEffect, "an unknown id: default")
+        assertEquals(wm.damage.core.motion.ScrollEffect.FALL, s.scrollEffectOf("reader"), "default follows Animations'")
+        assertEquals(wm.damage.core.motion.ScrollEffect.FALL, s.scrollEffectOf("games"), "an app never set follows Animations'")
+        assertEquals(s, ShellSettings.fromJson(s.toJson()), "the record round-trips")
+        assertEquals(listOf("default", "none", "depth", "slide", "fall"), ShellSettings.APP_SCROLL_EFFECTS)
+    }
+
     @Test
     fun facesRoundTripTheirLabels() {
         for (label in Faces.LABELS) {

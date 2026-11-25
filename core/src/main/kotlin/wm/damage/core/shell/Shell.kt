@@ -935,9 +935,12 @@ class Shell(
      * no registered window's name, case-insensitive — the window wins.
      */
     internal fun settingsApps(): List<Pair<String, List<HostSetting>>> {
+        // K1-2 stage 3c: the app's `Scroll effect` row only at ladder stage 5, where a window's list is bound (DP2's rule: a
+        // row that does nothing is not shown) — left out of the same STABLE set below it, so every row keeps its identity
+        val stage5 = transport.state.value.effects
         val own = windows.mapNotNull { w ->
             val rows = w.appSettings() +
-                (if (w === settingsWindow) emptyList() else styleRowsFor(w.id))
+                (if (w === settingsWindow) emptyList() else styleRowsFor(w.id).let { s -> if (stage5) s else s.filter { it.name != APP_SCROLL_ROW } })
             rows.takeIf { it.isNotEmpty() }?.let { w.name to it }
         }
         val host = hostCategories.filter { (name, _) -> windows.none { it.name.equals(name, ignoreCase = true) } }
@@ -5961,6 +5964,9 @@ class Shell(
         fun note(text: String) = journal.note(stageTag, text)
         /** What a staging is made for beyond its rows' keys (a window list's view), part of its paint's and refusal's key. */
         open fun stagingOf(): Any? = null
+        /** K1-2 stage 3c, for its notes: whose row its effect comes from (a window list: the app's own, or `Animations'` at
+         *  "default"); null for Main, whose effect is always `Animations'`. */
+        open fun effectFrom(): String? = null
         /** A staging [ms] was laid out and begun. */
         open fun began(ms: MainStaging) {}
         /** The rows it lists now. */
@@ -6091,7 +6097,24 @@ class Shell(
         override fun mainBehindClock(): Boolean = false
         override fun mainBindLayout(): Layout = mainBind.staging?.takeIf { viewNow() == null }?.layout ?: layout
         override fun mainBindPlanes(): Pair<Int, Int> = viewNow()?.let { windowPlanes(it.w) } ?: mainBind.staging?.let { it.listD to it.bandD } ?: (0 to 0)
-        override fun motionInForce(): MainStaging.ScrollMotion = mainList.motionInForce()
+        /** K1-2 stage 3c (the K1-2 spec §4; decisions CV): `Animations`' length and frames, and the effect of the app whose
+         *  list it is — its own `Scroll effect` row, `Animations`' at "default"; Settings' own lists play `Animations`'. A
+         *  change re-makes the pans alone (the poll, [mainBindReprogram]): the staging is kept. */
+        override fun motionInForce(): MainStaging.ScrollMotion {
+            val g = mainList.motionInForce()
+            val id = appId()?.takeIf { it != settingsWindow.id } ?: return g
+            return g.copy(effect = settings.scrollEffectOf(id))
+        }
+
+        /** The window whose list it is: the view its staging is of (in front or kept), or the list in front before one is
+         *  made; null with neither. */
+        fun appId(): String? = viewNow()?.w?.id ?: stagedFor?.takeIf { it.first === mainBind.staging }?.second?.window
+
+        override fun effectFrom(): String {
+            val id = appId()?.takeIf { it != settingsWindow.id } ?: return "Animations'"
+            val name = windows.firstOrNull { it.id == id }?.name ?: id
+            return if (settings.appStyle(id).scrollEffect == "default") "Animations', the row of $name at default" else "the row of $name"
+        }
 
         /** From the wheel's block's base down to Main's staging's end in Main's own region (decisions CK A10, CU; Main wins,
          *  O4); the region's start where Main has no staging there, its end where no block is placed. Empty with no region
@@ -6480,7 +6503,8 @@ class Shell(
             "${ms.progSlots?.size ?: 1} pan slot(s) of ${ms.progSlot} B${if (ms.progSlots == null) " (no spare: an effect change is a full staging)" else ""}; " +
             "its space ${region.first}..$top (${top - region.first} B, from ${if (m != null && m.end == region.first) "Main's staging's end" else "the region's start"} " +
             "to ${if (wheel.block?.base == top) "the wheel's block's base" else "the region's end"}), ${ms.start - region.first} B of it left below the list; " +
-            "planes ${ms.listD}/${ms.bandD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process; ${motionWords(ms)}" +
+            "planes ${ms.listD}/${ms.bandD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process; " +
+            "${ms.motion?.effect?.word} (${effectFrom()}), ${motionWords(ms)}" +
             (if (ms.ring) "; a ring list (LIST-RING), the strip's margins ${ms.margin} rows of the other end" else "; a plain list, its staged edge")
     }
 
@@ -6537,7 +6561,7 @@ class Shell(
         stageSubmit(rec, st, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() })
         note("pans re-made — ${p.why}: ${p.motion.effect.word}, ${p.t} frames × ${"%.0f".format(p.periodInForce * 1000.0 / 1024)} ms, " +
             "${p.bytes.size} B into the free slot at ${p.off}; the entries are SET to them once counted (no strip written); " +
-            "${b.reprogramCount} re-make(s), ${b.reprogramBytes} B this process")
+            "${b.reprogramCount} re-make(s), ${b.reprogramBytes} B this process" + (effectFrom()?.let { "; the effect from $it" } ?: ""))
         if (rec.state != StagedRecord.State.SENT) b.reprogramLost()
         return true
     }
@@ -7604,7 +7628,25 @@ class Shell(
                 { settings.appStyle(id).depth.let { if (it < 0) "global" else "$it" } },
                 { v -> applySettings(settings.withAppStyle(id) {
                     it.copy(depth = v.toIntOrNull() ?: ShellSettings.GLOBAL_DEPTH) }) }),
+            // K1-2 stage 3c (the K1-2 spec §4; decisions BC O8, CV; MOTION.md §7: one Scroll effect per app, in its own
+            // category): what this app's list plays on the glasses — "default" is `Animations`' choice, and where that is
+            // Crush or Flip the row says what a window's list plays instead, as Main's row says its fallback. Shown only at
+            // ladder stage 5 ([settingsApps]): below it no window list is bound, so the row would do nothing
+            HostSetting(APP_SCROLL_ROW, { appScrollOptions() },
+                { settings.appStyle(id).scrollEffect.let { v -> if (v == "default") appScrollDefault() else wm.damage.core.motion.ScrollEffect.byId(v)?.word ?: appScrollDefault() } },
+                { v -> applySettings(settings.withAppStyle(id) { s ->
+                    s.copy(scrollEffect = wm.damage.core.motion.ScrollEffects.WINDOW_EFFECTS.firstOrNull { it.word == v }?.id ?: "default") }) }),
         )
+    }
+
+    /** K1-2 stage 3c: the per-app `Scroll effect` row's name, its options (the "default" option first, then what a window's
+     *  list plays itself) and its "default" option's words — "default", or "default (plays Slide)" where `Animations`' Crush
+     *  or Flip plays its fallback on a window's list (decisions CV). */
+    private fun appScrollOptions(): List<String> = listOf(appScrollDefault()) + wm.damage.core.motion.ScrollEffects.WINDOW_EFFECTS.map { it.word }
+    private fun appScrollDefault(): String {
+        val g = wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT
+        val w = wm.damage.core.motion.ScrollEffects.playsFor(g, wm.damage.core.motion.ListForm.STRIP_WINDOWS, null).words(g)
+        return if (w.isEmpty()) "default" else "default ($w)"
     }
 
     private fun applySettings(s: ShellSettings, persist: Boolean = true) {
@@ -9448,6 +9490,8 @@ class Shell(
     }
 
     companion object {
+        /** K1-2 stage 3c: the per-app `Scroll effect` row's name (shown only at ladder stage 5, [settingsApps]). */
+        const val APP_SCROLL_ROW = "Scroll effect"
         /** Pack.level for every 8-bit value — the emitter's quantiser, tabled. */
         private val LEVEL = IntArray(256) { Pack.level(it) }
         /** Above this measured transfer term the link counts as slow (§32):

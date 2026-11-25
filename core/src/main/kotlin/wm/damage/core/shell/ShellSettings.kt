@@ -185,21 +185,31 @@ data class ShellSettings(
     enum class LongPress { OFF, SWITCHER }
 
     /** One app's typography + depth overrides ("default" = the app's own
-     *  design; scale 0.0 = follow the global scale). */
+     *  design; scale 0.0 = follow the global scale). K1-2 stage 3c (the K1-2 spec §4; decisions BC O8, CV): [scrollEffect],
+     *  the app's own `Scroll effect` — "default" follows `Animations`' ([scrollEffect] of the record), else one of the
+     *  effects a window's list plays itself ([APP_SCROLL_EFFECTS]); any other value reads "default". */
     @Serializable
     data class AppStyle(
         val face: String = "default",
         val scale: Double = 0.0,
         val style: String = "default",
         val depth: Int = GLOBAL_DEPTH,
+        val scrollEffect: String = "default",
     ) {
         fun clamped(): AppStyle = copy(
             face = if (face == "default" || wm.damage.core.text.Faces.byLabel(face) != null) face else "default",
             scale = if (scale == 0.0) 0.0 else SCALES.minByOrNull { kotlin.math.abs(it - scale) } ?: 0.0,
             style = if (style in STYLES) style else "default",
             depth = if (depth < 0) GLOBAL_DEPTH else ((depth / 4).coerceIn(0, 4)) * 4,
+            scrollEffect = if (scrollEffect in APP_SCROLL_EFFECTS) scrollEffect else "default",
         )
     }
+
+    /** K1-2 stage 3c: the effect app [id]'s list plays — its own `Scroll effect`, or at "default" `Animations`' (MOTION.md
+     *  §7: one effect per app, never random). */
+    fun scrollEffectOf(id: String): wm.damage.core.motion.ScrollEffect =
+        appStyle(id).scrollEffect.takeIf { it != "default" }?.let { wm.damage.core.motion.ScrollEffect.byId(it) }
+            ?: wm.damage.core.motion.ScrollEffect.byId(scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT
 
     /** The per-app depth that means "follow the Global row" (§3.1, 2026-09-06). */
     fun appDepthOf(id: String): Int = appStyle(id).depth.let { if (it < 0) depth else it }
@@ -306,6 +316,9 @@ data class ShellSettings(
         val FRAME_COUNTS = listOf(0, 4, 6, 8, 10, 12, 16)
         /** K1-1: the `Scroll effect` row's order (the stored ids). */
         val SCROLL_EFFECTS: List<String> = wm.damage.core.motion.ScrollEffect.entries.map { it.id }
+        /** K1-2 stage 3c (decisions CV): an app's `Scroll effect` as stored — "default", then what a window's list plays
+         *  itself (None, Depth, Slide, Fall); Crush and Flip on the window form are a later stage. */
+        val APP_SCROLL_EFFECTS: List<String> = listOf("default") + wm.damage.core.motion.ScrollEffects.WINDOW_EFFECTS.map { it.id }
         /** Build C3 (DP2): a tier's checked effects as stored — the ids that tier offers, once each, in its rows' order. */
         fun tierEffects(t: wm.damage.core.motion.Transitions.Tier, ids: List<String>): List<String> =
             wm.damage.core.motion.Transitions.effectsOf(t).map { it.id }.filter { it in ids }
