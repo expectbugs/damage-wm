@@ -417,25 +417,38 @@ class BastionWatcher(
             "Put a new token in the token file: it is read again every minute.", "", builtIn = true)
     }
 
+    /** R-b H1: the hub's side of the watcher in one read under its lock — the health record's `hub` line and the head
+     *  of [stateLine] are made from it, so the two never differ. [inFlightSince]: when the oldest round in flight
+     *  started; [configured]: an `haUrl` is set; [rereads]: the token file is read again while off or refused. */
+    data class Hub(
+        val on: Boolean, val offReason: String?, val configured: Boolean, val rereads: Boolean, val refused: Int,
+        val answeredOnce: Boolean, val lastGoodAt: Long, val problem: String?, val failingSince: Long?,
+        val inFlightSince: Long?, val pollMs: Long, val silentMs: Long,
+    )
+
+    fun hub(): Hub = synchronized(lock) {
+        Hub(reader != null, offReason, haUrl.isNotEmpty(), tokenFile != null, refusedStatus, answeredOnce, lastGoodAt,
+            hubProblem, hubFailingSince, inFlight.values.minOrNull(), pollMs, silentMs)
+    }
+
     /** One line for the `table` answer and the PC's own surfaces. Never carries the token or a hub body. */
     fun stateLine(): String {
-        if (reader == null) return "bus watcher off: $offReason" + (if (tokenFile != null) " (read again every minute)" else "") +
+        val h = hub()
+        if (!h.on) return "bus watcher off: ${h.offReason}" + (if (h.rereads) " (read again every minute)" else "") +
             (presence?.let { " · ${it.stateLine()}" } ?: "")
-        val status = refusedStatus
-        if (status != 0) return "bus watcher stopped: the hub refused its token (HTTP $status) - " +
+        if (h.refused != 0) return "bus watcher stopped: the hub refused its token (HTTP ${h.refused}) - " +
             "the token file is read again every minute"
         val now = clock()
         val parts = ArrayList<String>()
         parts += "${rules.size} rule(s)"
-        inFlight.values.minOrNull()?.let { if (now - it >= STUCK_MS) parts += "hub request in flight ${(now - it) / 1000}s" }
+        h.inFlightSince?.let { if (now - it >= STUCK_MS) parts += "hub request in flight ${(now - it) / 1000}s" }
+        val problem = h.problem
+        when {
+            problem != null && h.failingSince != null -> parts += "hub not answering since ${hhmm(h.failingSince)} ($problem)"
+            h.answeredOnce -> parts += "hub answered ${hhmm(h.lastGoodAt)}"
+            else -> parts += "waiting for the hub's first answer"
+        }
         synchronized(lock) {
-            val problem = hubProblem
-            val since = hubFailingSince
-            when {
-                problem != null && since != null -> parts += "hub not answering since ${hhmm(since)} ($problem)"
-                answeredOnce -> parts += "hub answered ${hhmm(lastGoodAt)}"
-                else -> parts += "waiting for the hub's first answer"
-            }
             for ((e, p) in entityProblem) parts += "$e: $p"
             for (r in rules) {
                 val ev = evals[r.id] ?: continue
