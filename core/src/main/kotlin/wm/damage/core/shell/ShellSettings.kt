@@ -156,7 +156,7 @@ data class ShellSettings(
 
     /** Build W (the lead's decision B.3): the bus alert watcher's glasses notices — `Notify · alerts` (a raise and
      *  its repeats) and `Notify · cleared` — rows of the host category "Bastion" (`bastion/BastionRows.kt`), SHARED
-     *  (synced as `shell.settings`). The phone's own `Phone · alerts` and `Home unreachable` rows are the phone's
+     *  (Settings' record items, `CONTRACT.md` §6). The phone's own `Phone · alerts` and `Home unreachable` rows are the phone's
      *  preferences, never here. Additive: an old record reads the defaults. */
     val notifyAlerts: Boolean = true,
     val notifyCleared: Boolean = true,

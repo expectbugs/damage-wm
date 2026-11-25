@@ -188,7 +188,11 @@ class WebProtocolTest {
         assertTrue(tmux.take(3).all { it.str("window") == "tmux" && it.str("item") == it.str("id") })
         assertEquals(listOf("face", "scale", "style", "depth", "scrollEffect"), tmux.drop(3).map { it.str("field") }, "then its style rows")
         assertTrue(rows("Torrents").none { it.str("scope") == "device" }, "Torrents' Poll is each device's own")
-        assertTrue(rows("Music").all { it["field"] != null }, "Music's core describes no rows of its own: its style rows only")
+        val music = rows("Music")
+        val ownMusic = wm.damage.core.windows.music.MusicCore.ROWS.map { it.id }
+        assertEquals(ownMusic, music.take(ownMusic.size).map { it.str("id") }, "Music's own rows first (S1-5 F)")
+        assertTrue(music.take(ownMusic.size).all { it.str("window") == "music" && it.str("item") == it.str("id") && it["field"] == null })
+        assertTrue(music.drop(ownMusic.size).let { it.isNotEmpty() && it.all { r -> r["field"] != null } }, "then its style rows")
         val reader = rows("Reader").filter { it["field"] == null }
         assertEquals(listOf("choice", "bool", "choice"), reader.map { it.str("type") }, "Reader's rows carry their type")
         assertEquals("8 lines", reader[0]["options"]!!.jsonArray.last().jsonObject.str("label"))
@@ -214,8 +218,9 @@ class WebProtocolTest {
         val scopes = PcScopes(rig.host, rig.core, rig.docs)
         fun moves(key: String) = scopes.follows(PcScopes.SETTINGS, Change(1, 1, wm.damage.core.app.Effect(mapOf(key to
             wm.damage.core.app.Item(JsonPrimitive(1), "web", 1)))))
-        assertTrue(moves("rec.settings.depth") && moves("rec.settings.app.tmux") && moves("rec.tmux.alerts") && moves("rec.games.glasses.size"))
-        assertFalse(moves("rec.reader.place.${rig.book}") || moves("rec.games.world") || moves("rec.tmux.mute.pc/build"))
+        assertTrue(moves("rec.settings.depth") && moves("rec.settings.app.tmux") && moves("rec.tmux.alerts") && moves("rec.games.glasses.size")
+            && moves("rec.music.glasses.viz"))
+        assertFalse(moves("rec.reader.place.${rig.book}") || moves("rec.games.world") || moves("rec.tmux.mute.pc/build") || moves("rec.music.q"))
     }
 
     @Test

@@ -21,8 +21,10 @@ import wm.damage.core.app.Migrate
 import wm.damage.core.app.Peer
 import wm.damage.core.app.Record
 import wm.damage.core.app.RecordView
+import wm.damage.core.app.StoredRow
 import wm.damage.core.app.WindowCore
 import wm.damage.core.app.WindowState
+import wm.damage.core.shell.ShellSettings
 
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
@@ -234,5 +236,43 @@ class MusicCore : WindowCore {
         /** A Music Mode surface row; absent = its default (card, lyrics, clock and PC link on). */
         fun mm(rec: RecordView, surface: String): Boolean = bool(live(rec, MM + surface))
             ?: (surface in setOf("card", "lyrics", "clock", "link"))
+
+        // ---- the rows in the record, as the glasses and the Settings page show them (C§6) ----
+
+        val LYRICS_SOURCES = listOf("lrclib+local", "+netease", "+musixmatch")
+        val VIZ_NAMES = listOf("Off", "Bars", "Scope", "Pulse", "Meter")
+
+        private fun texts(xs: List<String>) = xs.map { JsonPrimitive(it) to it }
+        private fun onOff(item: String, label: String, scope: String, on: Boolean) =
+            StoredRow(item, label, scope, StoredRow.onOff(true), JsonPrimitive(on))
+
+        /** Music's rows that are record items, in the glasses' order (`MusicGlasses`' settings), each default what an
+         *  absent item reads as above. Not here: the player's rows (Volume, Output, Quality, …: the playing host's own)
+         *  and the lyric offset (an item per output, the one in use). */
+        val ROWS: List<StoredRow> = listOf(
+            onOff(NOTIFY_TRACK, "Notify · track change", "shared", true),
+            onOff(NOTIFY_QUEUE, "Notify · queue end", "shared", true),
+            onOff(NOTIFY_ROUTE, "Notify · route loss", "shared", true),
+            onOff(NOTIFY_PC, "Notify · PC unreachable", "shared", false),
+            onOff(NOTIFY_YT, "Notify · YouTube", "shared", true),
+            onOff(NOTIFY_PLAYLIST, "Notify · playlist saved", "shared", false),
+            StoredRow(DEFAULT_MODE, "Default mode", "shared", Mode.entries.map { JsonPrimitive(it.name) to it.label },
+                JsonPrimitive(Mode.SHUFFLE.name)),
+            StoredRow(LYRIC_SOURCES, "Lyrics sources", "shared", texts(LYRICS_SOURCES), JsonPrimitive("lrclib+local")),
+            StoredRow(VIZ, "Visualizer", "glasses", texts(VIZ_NAMES), JsonPrimitive("Off")),
+            StoredRow(VIZ_RATE, "Visualizer rate", "glasses", listOf(4, 8, 12).map { JsonPrimitive(it) to "$it" }, JsonPrimitive(8)),
+            onOff(MM + "card", "Music Mode · card", "glasses", true),
+            onOff(MM + "lyrics", "Music Mode · lyrics", "glasses", true),
+            onOff(MM + "viz", "Music Mode · visualizer", "glasses", false),
+            onOff(MM + "peek", "Music Mode · queue peek", "glasses", false),
+            onOff(MM + "clock", "Music Mode · clock", "glasses", true),
+            onOff(MM + "link", "Music Mode · PC link", "glasses", true),
+            // 0 = the Global size; absent = 480, Music's own
+            StoredRow(SIZE, "Size", "glasses", listOf(JsonPrimitive(0) to "global") + ShellSettings.HEIGHTS.map { JsonPrimitive(it) to "$it" },
+                JsonPrimitive(480)),
+        )
+
+        /** The rows (C§6) as the record holds them: `desc/settings` carries them in Music's category. */
+        fun settings(state: WindowState): JsonArray = StoredRow.describe(ROWS, state)
     }
 }

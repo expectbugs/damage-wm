@@ -2278,8 +2278,8 @@ class MusicGlasses(
         const val LYRIC_DISPLAY_MS = 70L
         val BOOSTS = listOf(100, 150, 200, 300, 400)
         val PREFETCHES = listOf(1, 2, 3, 5, 10)
-        val LYRICS_SOURCES = listOf("lrclib+local", "+netease", "+musixmatch")
-        val VIZ_NAMES = listOf("Off", "Bars", "Scope", "Pulse", "Meter")
+        val LYRICS_SOURCES = MusicCore.LYRICS_SOURCES
+        val VIZ_NAMES = MusicCore.VIZ_NAMES
         val SEEK_ROWS = listOf("-5 min" to -300_000L, "-30 s" to -30_000L, "-10 s" to -10_000L, "+10 s" to 10_000L, "+30 s" to 30_000L, "+5 min" to 300_000L, "Restart" to Long.MIN_VALUE)
     }
 }

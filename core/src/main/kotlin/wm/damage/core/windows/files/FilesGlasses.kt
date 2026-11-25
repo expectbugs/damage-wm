@@ -353,7 +353,7 @@ class FilesGlasses(
         Level_.VIEW -> {
             viewer = null
             level = Level_.BROWSE
-            // a restored/synced viewer's cwd may never have been listed
+            // a restored viewer's cwd may never have been listed
             // (safe-empty rows + a "listing" note with nothing in flight —
             // R7#1): list it now
             if (entries.isEmpty()) refreshList()

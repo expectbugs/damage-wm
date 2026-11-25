@@ -6,7 +6,7 @@ import java.time.ZonedDateTime
 /**
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own
  * network. Quiet hours (build W, the lead's decision B.2; `CONTRACT.md` §7.3, §14 (b)): the ONE shared
- * notice-policy row, in Global beside `Notify · Damage` ([ShellSettings.quietHours], synced as `shell.settings`).
+ * notice-policy row, in Global beside `Notify · Damage` ([ShellSettings.quietHours], Settings' record item `quietHours`).
  *
  * In this build it governs the bus alert watcher's notices and "home unreachable" only (`bastion/AlertDelivery.kt`):
  * inside the window a NORMAL raise, repeat or clear is not delivered, and a raise still up at the end is delivered
