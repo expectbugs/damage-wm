@@ -9,7 +9,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import wm.damage.core.geom.Rect
@@ -115,8 +114,10 @@ class KeptLinkTest {
 
     /** The fallback (his word, Part D): on an ADOPTED link a CREATE re-asked twice with no answer fails the start with
      *  words that say the kept link did not answer; the rollback ends the link and the next attempt connects afresh —
-     *  and there, on a link connected afresh, the re-asks go on as before: no fallback over a bounded 7 s (three and a
-     *  half re-ask ticks), then the answer comes and the session drives.
+     *  and there, on a link connected afresh, the re-asks go on as before: the CREATE is sent at least twice more than
+     *  the kept link's give-up allows, on that one start (no second failure, no third connect), then the answer comes
+     *  and the session drives. (The count is taken from the moment the fresh connect is seen, which on the instant sim
+     *  may already include that start's first CREATE: four more is past the give-up either way.)
      *  Mutations watched: the give-up never firing (the kept start re-asks with no end); firing on a fresh link too. */
     @Test
     fun aKeptLinkThatDoesNotAnswerTheCreateFallsBackToAFreshConnect(): Unit = runBlocking {
@@ -132,9 +133,12 @@ class KeptLinkTest {
             rig.until("the fallback fails the kept start", maxMs = 20_000) { rig.statuses.any { it.startsWith(failed) } }
             rig.until("the rollback ended the link and the next start connected afresh") { rig.st.disconnects == 1 && rig.st.connects == 2 }
             val createsAtFresh = rig.sim.createsSeen
-            delay(7_000)                                           // an absence over a bounded wait: 3.5 of the gate's ticks
+            val pastGiveUp = wm.damage.core.transport.CfwTransportBase.KEPT_LINK_REASKS + 2
+            rig.until("the fresh link's CREATE is re-asked past the kept link's give-up", maxMs = 15_000) {
+                rig.sim.createsSeen - createsAtFresh >= pastGiveUp
+            }
             assertEquals(1, rig.statuses.count { it.startsWith("start failed") }, "no fallback on a fresh link: ${rig.statuses}")
-            assertTrue(rig.sim.createsSeen - createsAtFresh >= 4, "the fresh link's CREATE is re-asked as before: ${rig.sim.createsSeen - createsAtFresh}")
+            assertEquals(2, rig.st.connects, "the re-asks were on the one fresh start")
             assertFalse(rig.driving())
             rig.st.notifyFilter = null                             // the glasses answer again
             rig.until("the fresh session drives") { rig.driving() }
