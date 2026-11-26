@@ -36,10 +36,13 @@ import wm.damage.core.wire.EvenHubMsg
  * A shell on a bit-11 build (DamageCaps 0xdff) held at ladder stage 4, Global `Depth` 8, at heights 352 and 480, five
  * windows open: the wheel opened by the chord, a notch down, a notch up, three notches up (the third wraps), the commit,
  * the wheel opened again and cancelled — each act settled before the next. Every image message either lens took from the
- * open on (but the rules' idle SETTLE, whose count rides on how long an act waits) is compared, in order, with
+ * open on (but the rules' idle SETTLE, whose count rides on how long an act waits) is compared with
  * `wheelwire/stage4-h<height>.txt`, recorded on the integration head before DW-0 (`b5a7bdfb`) by this test's first run (a
  * missing file is written under `build/wheelwire/` and the test fails), over a paced link so the flushes fall alike at
- * every run (with instant acks they did not: the preview's flush and a spin frame raced).
+ * every run (with instant acks they did not: the preview's flush and a spin frame raced). Act by act ([byAct]): its frames
+ * in order, and its cache writes (modes 19 and 25) in order among themselves — an idle lane's write goes only with nothing
+ * in flight, so where it falls among an act's frames is the loop's timing against the acks (C3 DW-F item 12: the atlas's
+ * write and the preview's frame seen changing places between runs on an unchanged tree).
  */
 class WheelStage4Test {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -144,14 +147,41 @@ class WheelStage4Test {
                 got
             }
             assertTrue(got.count { !it.startsWith("#") } > 20, "$h: the acts sent images (${got.size} lines)")
-            if (want != got) {
-                val i = want.indices.firstOrNull { it >= got.size || want[it] != got[it] } ?: got.size
-                fail("$h: the switcher's messages at stage 4 are not the tree's before DW: first difference at line ${i + 1} of ${want.size} " +
-                    "(recorded ${want.getOrNull(i)?.take(120)}, now ${got.getOrNull(i)?.take(120)})")
-            }
-            assertEquals(want, got)
+            difference(want, got)?.let { fail("$h: the switcher's messages at stage 4 are not the tree's before DW: $it") }
         }
         if (missing.isNotEmpty()) fail(missing.joinToString("\n"))
+    }
+
+    companion object {
+        /** A cache write (modes 19 and 25): an idle lane's, not the switcher's own message. */
+        private fun isCacheWrite(line: String): Boolean = line.substringAfter(' ').take(2).toInt(16).let { (it and 0x7F) == 19 || (it and 0x7F) == 25 }
+
+        /** The lines act by act: its label, its frames in order, its cache writes in order among themselves. */
+        internal fun byAct(lines: List<String>): List<Triple<String, List<String>, List<String>>> {
+            val out = ArrayList<Triple<String, List<String>, List<String>>>()
+            var label = ""; var frames = ArrayList<String>(); var writes = ArrayList<String>()
+            fun close() { if (label.isNotEmpty() || frames.isNotEmpty() || writes.isNotEmpty()) out += Triple(label, frames, writes) }
+            for (l in lines) {
+                if (l.startsWith("#")) { close(); label = l; frames = ArrayList(); writes = ArrayList() }
+                else if (isCacheWrite(l)) writes += l else frames += l
+            }
+            close()
+            return out
+        }
+
+        /** Where [got] first differs from [want], act by act ([byAct]); null when they agree. */
+        internal fun difference(want: List<String>, got: List<String>): String? {
+            val w = byAct(want); val g = byAct(got)
+            for (i in 0 until maxOf(w.size, g.size)) {
+                val a = w.getOrNull(i); val b = g.getOrNull(i)
+                if (a?.first != b?.first) return "act ${i + 1}: recorded \"${a?.first}\", now \"${b?.first}\""
+                for ((part, x, y) in listOf(Triple("frame", a!!.second, b!!.second), Triple("cache write", a.third, b.third))) {
+                    val k = (0 until maxOf(x.size, y.size)).firstOrNull { x.getOrNull(it) != y.getOrNull(it) } ?: continue
+                    return "${a.first}: $part ${k + 1} of ${x.size} (recorded ${x.getOrNull(k)?.take(120)}, now ${y.getOrNull(k)?.take(120)})"
+                }
+            }
+            return null
+        }
     }
 
     /** A window whose content is rows across the whole content width (so the columns beside the wheel's panel hold ink). */
