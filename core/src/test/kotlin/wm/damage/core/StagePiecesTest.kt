@@ -199,6 +199,26 @@ class StagePiecesTest {
         } finally { r.close() }
     }
 
+    /** OM-1 (spec §5 pin 4): every piece of a record goes deflated (ZWRITE is in force at stage 4) — each STAGE flush's
+     *  bytes on the wire (the journal's `done`) below its list's bytes (`submit`), Main's strip in two pieces or more; a
+     *  list of 64 B or less may not shrink (the stream's own bytes) and goes plain under any rule. Until OM-1 only a run's
+     *  first piece did: the one compressed slot stayed taken until a read judged it, and S4 reads at the record's end.
+     *  Prints the session start's cache writes for the stage's report (the rig's text, which deflates far better than
+     *  real text: no time on the glasses follows from it). */
+    @Test
+    fun everyPieceOfARecordGoesDeflated_OM(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.start()
+            r.bound("staged and bound")
+            assertTrue(stripFlushes(r).size >= 2, "the strip went in pieces: ${stripFlushes(r).map { it.bytes }}")
+            for (label in listOf("ATLAS", "STAGE")) rawAndWire(r.lines(), label).let { w -> println("OM-1 rig, session start, $label: " +
+                "${w.size} messages, ${w.count { (raw, wire) -> wire != null && wire < raw }} deflated, list ${w.sumOf { it.first }} B, wire ${w.sumOf { it.second ?: 0 }} B") }
+            val sent = rawAndWire(r.lines(), "STAGE")
+            assertTrue(sent.size >= 2 && sent.filter { it.first > 64 }.all { (raw, wire) -> wire != null && wire < raw }, "every STAGE flush over 64 B deflated (list B to wire B): $sent")
+        } finally { r.close() }
+    }
+
     /** A record is not named before its last piece's ack: Main's list is offered only after every base record's last
      *  piece was acknowledged and counted; the journal's order says so. */
     @Test
@@ -314,4 +334,13 @@ class StagePiecesTest {
             } finally { r.close() }
         }
     }
+}
+
+/** OM-1: each [label] flush of one mode-19 cache write in the journal [lines], in submit order, as (its list's bytes, the
+ *  bytes the transport put on the wire for it — the `done` record's; null: no `done`). */
+internal fun rawAndWire(lines: List<String>, label: String): List<Pair<Int, Int?>> {
+    val done = lines.mapNotNull { Regex("\"ev\":\"done\",\"id\":(\\d+),.*?\"bytes\":(\\d+)").find(it) }
+        .associate { it.groupValues[1].toLong() to it.groupValues[2].toInt() }
+    return lines.mapNotNull { Regex("\"ev\":\"submit\",\"id\":(\\d+),.*\"label\":\"$label\",.*\"ops\":\\[\\{\"op\":\"cachewrite2\",\"bytes\":(\\d+)\\}\\]").find(it) }
+        .map { it.groupValues[2].toInt() to done[it.groupValues[1].toLong()] }
 }
