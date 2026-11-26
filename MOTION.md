@@ -435,7 +435,9 @@ is built, the transition tiers shown at ladder stage 5 only. Scroll's effect is 
 category ("default" follows the Global row). Main's bound list plays the Global choice; a window's own list, bound at
 stage 5 on a 256 KiB session, plays its app's — None, Depth, Slide or Fall, and asked for Crush or Flip it plays Slide
 or Depth, the row saying so (`FIRMWARE.md` §7.11). Glitch, Scramble/Encode and Matrix are not built as scroll effects. Popups: Unfurl (the phone's frames), Fade and Slide (drawn by the glasses), and the focus timer as
-one engine program (`PopupPrograms.kt`). The wheel is still phone-drawn; the glasses' form of its drum exists as
-records and programs not yet placed (`Wheel.kt`, C3 DW-0). Measured since the modeled ≈ 50 ms a step above: Warp's
+one engine program (`PopupPrograms.kt`). At ladder stage 5 the wheel's drum is drawn by the glasses: its pictures and
+programs are resident in Main's region and bound as a list while the switcher is open (`Wheel.kt`; C3 DW-1a, DW-1b);
+the `Switcher` row on the main `Animations` page (Drum, None) chooses the drum or the one-step programs, at the Scroll
+tier's length and frames. Below stage 5, and in an open before its offer holds, the phone draws the wheel. Measured since the modeled ≈ 50 ms a step above: Warp's
 and Flip's out halves took 58.6 and 60.3 ms a step on his glasses, and their fit was raised to that (`HANDOFF.md`
 §101.2).
