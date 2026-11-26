@@ -83,6 +83,9 @@ class BleTransport(
     /** Build C1-P R1 §1: the last run ended on an uncaught error — a stored stage steps down to 0 (the first stack
      *  only; no default, as above). */
     c1StageStepDown: Boolean,
+    /** Stage BW (Part E item 1): the link notices' record and the scan's count, for the process's life
+     *  ([LinkNotices.watch]); no default, as above. */
+    private val watch: PairWatch,
 ) : CfwTransportBase(scope, "ble", c1StageFile = c1StageFile, c1StageStepDown = c1StageStepDown) {
 
     data class Remembered(
@@ -578,43 +581,16 @@ class BleTransport(
      *  completes, the scan sees that lens advertise or Bluetooth goes off. */
     private val heldFailed = java.util.concurrent.ConcurrentHashMap.newKeySet<Arm>()
 
-    /** Stage BLF: what the scan's decision reads — the phone's link notices for
-     *  the transport's life, one scan's sightings and asks ([PairWatch]). Every
-     *  call is made under this object's lock: the notices' receiver (main
-     *  thread), the scan's callback (a binder thread) and the asker. */
-    private val watch = PairWatch()
-
-    /** Stage BLF: the phone's LE link-up and link-down notices (they see a link
-     *  whoever holds it, where the GATT list sees only an app's) and Bluetooth
-     *  turning off, for the transport's life — registered and unregistered in
-     *  the `init` at the end of this class. */
+    /** Stage BLF: the hand recovery's words end with the Bluetooth toggle they asked for — this transport's own
+     *  receiver, registered and unregistered in the `init` at the end of this class. The link notices themselves are
+     *  recorded for the process ([LinkNotices], stage BW) and reach the scan through [watch]. */
     private val linkReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
-            when (i?.action) {
-                BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                    if (i.getIntExtra(BluetoothDevice.EXTRA_TRANSPORT, BluetoothDevice.TRANSPORT_LE) != BluetoothDevice.TRANSPORT_LE) return
-                    val dev = deviceOf(i) ?: run { Log.w("ble", "link notice ${i.action} with no device — not recorded"); return }
-                    val up = i.action == BluetoothDevice.ACTION_ACL_CONNECTED
-                    synchronized(watch) { watch.linkNotice(dev.address, up, System.currentTimeMillis()) }
-                    val known = remembered()
-                    val tag = when { dev.address.equals(known.leftAddress, true) -> "L"; dev.address.equals(known.rightAddress, true) -> "R"; else -> null }
-                    if (tag != null) Log.i("ble", "$tag ${dev.address}: link-${if (up) "up" else "down"} notice")
-                }
-                BluetoothAdapter.ACTION_STATE_CHANGED -> {
-                    val st = i.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)
-                    if (st == BluetoothAdapter.STATE_TURNING_OFF || st == BluetoothAdapter.STATE_OFF) {
-                        synchronized(watch) { watch.bluetoothOff() }
-                        heldFailed.clear()        // the hand recovery's words end with the toggle they asked for
-                    }
-                }
-            }
+            if (i?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            val st = i.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)
+            if (st == BluetoothAdapter.STATE_TURNING_OFF || st == BluetoothAdapter.STATE_OFF) heldFailed.clear()
         }
     }
-
-    @Suppress("DEPRECATION")
-    private fun deviceOf(i: Intent): BluetoothDevice? =
-        if (android.os.Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-        else i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
 
     /** What the scan settled on: each lens's device and where it came from. */
     private class Found(val left: BluetoothDevice, val right: BluetoothDevice, val decision: PairFind.Decision.Connect) {
@@ -857,23 +833,19 @@ class BleTransport(
         const val HELD_ASK_MS = 5_000L
     }
 
-    // Stage BLF: the link notices' receiver for the transport's life — last in the class, so every field it reaches is
+    // Stage BLF: the Bluetooth-off receiver for the transport's life — last in the class, so every field it reaches is
     // set before a notice can arrive. Unregistered when the stack's scope ends (`ShellService.stopStack` cancels the
-    // scope the transport was built with). A register that fails leaves the record empty: unknown counts as not held.
+    // scope the transport was built with). A register that fails leaves the hand recovery's words until a connect.
     init {
         try {
-            context.registerReceiver(linkReceiver, IntentFilter().apply {
-                addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
-                addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
-                addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
-            })
+            context.registerReceiver(linkReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
             val job = scope.coroutineContext[Job]
-            if (job == null) Log.w("ble", "link notices: the transport's scope has no job — the receiver stays for the process")
+            if (job == null) Log.w("ble", "Bluetooth-off receiver: the transport's scope has no job — it stays for the process")
             else job.invokeOnCompletion {
                 try { context.unregisterReceiver(linkReceiver) } catch (e: Exception) { Log.w("ble", "link notices receiver: ${e.message}") }
             }
         } catch (e: Exception) {
-            Log.w("ble", "link notices not registered (${e.javaClass.simpleName}: ${e.message}) — a lens counts as held only on the phone's GATT list")
+            Log.w("ble", "Bluetooth-off receiver not registered (${e.javaClass.simpleName}: ${e.message}) — the hand recovery's words stay until a connect")
         }
     }
 }
