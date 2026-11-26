@@ -665,10 +665,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         return when {
             y < 18 -> { cancelWheel(); "cancel the wheel" }
             y < 36 -> { gesture(0); "a tap in the wheel" }
+            // a notch in flight at the close: after the tap that commits (the notch's 115 answered once the tap's report has
+            // closed the wheel), or before a cancel (the phone's own close). Never a tap 0–40 ms after a notch: RIGHT takes it
+            // inside its own motion of that notch, before the panel shows the row the cursor names (the act is on that row,
+            // the picture up to a motion late — class A's shape before the notch's report; his taps come ≥ 696 ms after a
+            // scroll message, [LocalSequenceFuzzTest.A_KEY]'s note)
             y < 50 -> { val kind = 1 + r.nextInt(2); val d = r.nextInt(41).toLong(); val tap = r.nextBoolean()
-                gesture(kind)
-                at(now + d) { if (wheelOpen) { reach2("a notch racing the close (0–40 ms before it)"); if (tap) gesture(0) else cancelWheel() } }
-                "a notch, then ${if (tap) "a tap" else "a cancel"} +$d ms" }
+                if (tap) { gesture(0); at(now + d) { reach2("a notch racing the close (0–40 ms after the tap that commits)"); gesture(kind) }
+                    "a tap, then a notch +$d ms" }
+                else { gesture(kind); at(now + d) { if (wheelOpen) { reach2("a notch racing the close (0–40 ms before a cancel)"); cancelWheel() } }
+                    "a notch, then a cancel +$d ms" } }
             y < 60 -> { val a = arms[r.nextInt(3)]
                 lose27 = "clear" to a; reach2("a close with its CLEARs lost on ${a.joinToString("+")}")
                 if (r.nextBoolean()) { gesture(0); "a tap in the wheel, its close's CLEARs lost" } else { cancelWheel(); "cancel the wheel, its CLEARs lost" } }
