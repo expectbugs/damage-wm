@@ -764,7 +764,8 @@ class WheelBindTest {
                 synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).entries[0]?.list == 0 } }
             r.settle("the repair")
             assertTrue(r.since(at).any { ss -> ss.any { r.isSetOf(it, 0) && r.setEntry(it) == 0 } }, "a SET of entry 0 for list 0 after the tap")
-            assertTrue(r.notes("repair").any { "entry 0" in it && "list 2" in it }, "the repair's note names the evidence: ${r.notes("repair").takeLast(2)}")
+            val repairs = Files.readAllLines(r.journal).filter { "\"ev\":\"note\",\"kind\":\"repair\"" in it }
+            assertTrue(repairs.any { "entry 0 held for list 0, reported for list 2" in it && "Set(entry=0)" in it }, "the repair's note names the evidence: ${repairs.takeLast(2)}")
             assertEquals(null, r.onLoop { r.shell.currentWindowId() }, "the stale tap was not acted on")
             val s2 = r.fire(CfwModes.EV_TAP)
             r.until("the next tap acts on Main's row", maxMs = 10_000) { r.onLoop { r.shell.currentWindowId() } != null }

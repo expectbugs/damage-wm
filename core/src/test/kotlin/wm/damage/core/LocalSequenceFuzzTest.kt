@@ -130,6 +130,7 @@ class LocalSequenceFuzzTest {
             "unreported" -> "$staleKey an unreported stock message$via"
             "as-today" -> "$staleKey a report P3 applied as today$via"
             "refused" -> "$staleKey a refused fire applied as today$via"
+            "cross" -> "$staleKey a report of Main's list P3 applied as today to another front"
             else -> "$staleKey a tap's DISCARD that set RIGHT back"
         }
     }
@@ -167,6 +168,11 @@ class LocalSequenceFuzzTest {
                 if (h.phoneMoves.any { it.list == 0 && it.t in (before + 1)..decided && it.v is LocalRules.Verdict.Act }) return "tap"
             }
         }
+        // C3 DW-2c (`C3-DW2c-built.md` §5, seed 100101313): RIGHT's cursor moved alone — a report RIGHT drew on Main's list
+        // that the phone applied as today to another front (the wheel, the window list: P3's "otherwise", field 7 not the
+        // list in front) after the last reset decided before the fire. Read last, so every root found before stays as it was
+        if (h.phoneMoves.any { it.list != 0 && it.by115 && it.t > decided && it.n < untilN && it.v is LocalRules.Verdict.Apply &&
+                it.outcome == DamageMsg.APPLIED_DREW && h.fires[it.g]?.let { f -> f.sR != null && f.listR == 0 } == true }) return "cross"
         return null
     }
 

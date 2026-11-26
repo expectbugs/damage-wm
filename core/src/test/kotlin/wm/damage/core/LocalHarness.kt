@@ -1221,7 +1221,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if ((list1 && l1 || l2) && v is LocalRules.Verdict.Apply && fires[g]?.listR == 0 && fires[g]?.sR != null) crossHeld = true
         if (l2 && v is LocalRules.Verdict.Apply) reach2(if (st.click) "a click applied as today with the wheel open (a commit)" else "a notch applied as today with the wheel open (the phone's spin)")
         if (rules.owesAny < oa) stockPaidAny += g
-        trace?.invoke("[$now] phone stock g$g $st row $row → $v (carried $carried)")
+        val mover = if (st.click) g else creditFor(g, v, os, oa)
+        trace?.invoke("[$now] phone stock g$g $st row $row → $v (carried $carried)" + if (mover != g) " (counted for (8) on g$mover, whose message paid g$g's owe)" else "")
         verdicts += g to v
         // invariant (10): a front's own notch, its message reaching the phone while that front still stands, is applied
         // there — or carries decisions BQ's declaration
@@ -1237,9 +1238,27 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                 }
             }
         }
-        apply(v, g, null)
+        apply(v, mover, null)
         record(g, false, v, before, carried, null, onL1 = l1, before1 = before1, onL2 = l2, before2 = before2)
         pumpSoon()
+    }
+
+    /** C3 DW-2c ((8)'s attribution follows P5's, `C3-DW2c-built.md` §5, seed 100100672): a scroll message pays an owe of its
+     *  direction whoever sent it — messages carry no gesture. The message of a notch whose 115 the phone never heard that
+     *  paid such an owe paid the owe of the earliest heard notch of that direction whose message had not come; when that
+     *  notch's own message is applied later it is the unreported one in the rules' account, and its move is the paying
+     *  notch's. Only (8)'s count reads this ([apply]'s gesture); the phone's moves ([record]) keep each message's own. */
+    private val paidFor = HashMap<Int, Int>()
+    /** The notches whose own scroll message the phone has handled. */
+    private val messageHandled = HashSet<Int>()
+    private fun creditFor(g: Int, v: LocalRules.Verdict, owesScroll0: Int, owesAny0: Int): Int {
+        messageHandled += g
+        if (v == LocalRules.Verdict.Nothing && g !in reportHeardAt && rules.owesScroll == owesScroll0 - 1 && rules.owesAny == owesAny0) {
+            reportHeardAt.entries.filter { (gk, _) -> gk != g && ringStep[gk] == ringStep[g] && gk !in messageHandled && gk !in paidFor }
+                .minByOrNull { it.value }?.let { paidFor[it.key] = g }
+            return g
+        }
+        return if (v is LocalRules.Verdict.Apply) paidFor.remove(g) ?: g else g
     }
 
     private fun apply(v: LocalRules.Verdict, g: Int, a: DamageMsg.Applied?) {
