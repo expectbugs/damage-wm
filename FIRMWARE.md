@@ -2471,7 +2471,9 @@ one-period wait; with this it is drawn a few ms late.
   rows, or on a ring list the other end's rows, §7.8) so that no window leaves the record (5). Main's other effects
   stage with pitch = −row height. **An effect change keeps the list's staging,** except into or out of Matrix, whose
   records are part of the staging: that change is staged again whole — with Main in front (made while Settings covers
-  Main it waits for the return, so a pass through Matrix to another effect re-makes the programs alone). Otherwise its
+  Main it waits for the return, so a pass through Matrix to another effect re-makes the programs alone). A staging that
+  gave Matrix's records up (Matrix then plays Depth, said) keeps Depth's pans while Matrix is asked: Auto's re-makes
+  re-make its programs alone, and a change of the effect asked stages again. Otherwise its
   programs alone are re-made into the spare pan slot, counted (field 17) and then SET; where the change moves Main
   between the two pitches its LIST carries the new pitch ahead of those SETs (the pitch switch, S6, below); a window's
   list keeps +row height for every effect, so its SETs go alone. A staging with no spare pan slot is staged again whole.

@@ -652,12 +652,24 @@ class ListStaging private constructor(
 
     /** C3 DM-2a, the records rule (decisions DV 2, DW 1): an effect's records are part of the staging, so a change into or
      *  out of one is staged again whole — never pans re-made beside records that are not there, or left behind. Why pans
-     *  for [want] (with [fx], the gate's token now) break it here, or null. */
+     *  for [want] (with [fx], the gate's token now) break it here, or null. C3 DM-2aF (decisions EP 2): what [want] plays
+     *  is [playsHere]'s, so a staging that gave its records up re-makes its fallback's pans alone. */
     fun recordsRule(want: ScrollMotion, fx: Motion.Effects?): String? {
-        val wantRecords = ScrollEffects.playsFor(want.effect, form, fx).effect.takeIf { ScrollEffects.hasRecords(it) }
+        val wantRecords = playsHere(want, fx).effect.takeIf { ScrollEffects.hasRecords(it) }
         if (wantRecords != recordEffect) return "${(wantRecords ?: recordEffect)!!.word}'s records are staging records " +
             "(${if (wantRecords != null) "this staging holds none" else "this staging holds them"}): a change into or out of it is staged again whole"
         return null
+    }
+
+    /** C3 DM-2aF (decisions EP 2; `C3-DM2b-V1-a.md` §3): what [want] plays on this staging — [ScrollEffects.playsFor]'s
+     *  answer, except where this staging gave the asked effect's records up (they did not fit, or could not be made:
+     *  [recordEffect] null while that effect draws records): it keeps its fallback ([plays], its reason with it) while
+     *  the same effect is asked, so Auto's re-makes are the fallback's pans alone, as Depth's are. A change of the effect
+     *  asked, the rows or the cache stages again. Without it every slow notch's re-make was a full staging that gave the
+     *  records up again. */
+    private fun playsHere(want: ScrollMotion, fx: Motion.Effects?): ScrollEffects.Plays {
+        val p = ScrollEffects.playsFor(want.effect, form, fx)
+        return if (ScrollEffects.hasRecords(p.effect) && recordEffect == null && want.effect == motion?.effect) plays else p
     }
 
     /** Why the pans in force are not what [want] asks — the scroll rows changed, or under Auto the period in force gives
@@ -680,7 +692,7 @@ class ListStaging private constructor(
         val reset = motion != want
         val to = 1 - activeProgs
         val specs = pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }
-        val asked = ScrollEffects.playsFor(want.effect, form, fx)
+        val asked = playsHere(want, fx)
         recordsRule(want, fx)?.let { return Remake.NoRoom(it, records = true) }
         // DM-0: the rules' P0 and P3 by the strip's own margin (k + 1 on a ring strip; `layout.rowsAbove` was one row short there)
         val made = lay(staged, asked, fx, slots[to], specs, margin, rows, ring, itemOffs, { recordOf(it) }) { pl ->
