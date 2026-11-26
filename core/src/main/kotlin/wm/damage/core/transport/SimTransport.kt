@@ -33,7 +33,23 @@ class SimTransport(
     /** The physical link ends out from under the session, as BlueZ's `Connected=false` does: the
      *  seam a test uses to make the keeper rebuild. `ClockedTransport` in the tests has had the
      *  same one-liner; this puts it where every sim-backed rig can reach it. */
-    fun endLink(reason: String) = onLinkDown(reason)
+    fun endLink(reason: String) { linkUp = false; onLinkDown(reason) }
+
+    /** Stage BW: the sim's radio link, modelled as the phone's is — up from a connect to a disconnect or an end; a
+     *  deliberate restart keeps it ([linkKeepable]) and the next start adopts it while it is up. [connects] and
+     *  [disconnects] count the link's own connects and ends, for the pins. */
+    @Volatile private var linkUp = false
+    @Volatile var connects = 0
+        private set
+    @Volatile var disconnects = 0
+        private set
+
+    /** Stage BW test seam: the link ends while no session runs (an arm that drops in the gap after a kept restart,
+     *  which the phone's observer marks without a session end) — the next start's adoption refuses it. */
+    fun linkEndsInGap() { linkUp = false }
+
+    override fun linkKeepable(): Boolean = linkUp
+    override suspend fun adoptLink(): String? = if (linkUp) null else "the sim's link ended in the gap"
 
     /** 0.64: `sim = …` moves the firmware MODEL's knobs — it exists so the low-battery notice and every
      *  new wear / case note can be driven on the SIM target (the phone's included) with nothing on a
@@ -100,9 +116,13 @@ class SimTransport(
 
     override suspend fun connectLink() {
         // the sim is always in range; nothing to negotiate
+        connects++
+        linkUp = true
     }
 
     override suspend fun disconnectLink() {
+        disconnects++
+        linkUp = false
         sim.linkReset()        // a new session sends a new prelude and CREATE
     }
 

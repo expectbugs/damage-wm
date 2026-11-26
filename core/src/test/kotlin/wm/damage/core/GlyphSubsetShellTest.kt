@@ -228,8 +228,8 @@ class GlyphSubsetShellTest {
          *  the shell journals the refusal and stays in the session it has. */
         @Volatile var refuseRestart = false
         val restartsRefused = AtomicInteger(0)
-        override suspend fun restartSession(reason: String): Boolean =
-            if (refuseRestart) { restartsRefused.incrementAndGet(); false } else inner.restartSession(reason)
+        override suspend fun restartSession(reason: String, endLink: Boolean): Boolean =
+            if (refuseRestart) { restartsRefused.incrementAndGet(); false } else inner.restartSession(reason, endLink)
         /** "count" when a count reading is answered, "atlas" when an ATLAS flush is submitted — in order. */
         private val traceLog = java.util.concurrent.CopyOnWriteArrayList<String>()
         fun trace(): List<String> = traceLog.toList()

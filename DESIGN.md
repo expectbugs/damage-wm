@@ -212,8 +212,11 @@ every image** and says so with a push. The shell treats it as the glasses being 
 composing, stops sending, drops the lease so the stock firmware owns the display and the temples,
 tells the phone once (naming the gesture that wakes them), and when the glasses report awake it
 **rebuilds the session** (`HANDOFF.md` §38): leaving Silent Mode ends the firmware's EvenHub page,
-so the wake is a fresh connect, CREATE and keyframe through the session keeper — never a keyframe
-into the old session. The shell's own silent mode (§1.5) is a black surface the shell keeps
+so the wake asks the start gates again through the session keeper — prelude, READ, CREATE, warmup
+and a keyframe — over both radio links, which it keeps; never a keyframe into the old session. A
+gate the kept links leave unanswered (five re-asks; two re-sends of the warmup) ends them and the
+next start connects afresh, and the rebuild paced while the glasses refuse frames without saying
+Silent Mode ends the link. The shell's own silent mode (§1.5) is a black surface the shell keeps
 painting.
 
 ### 1.6 There is no quit

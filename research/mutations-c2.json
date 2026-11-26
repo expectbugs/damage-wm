@@ -4486,24 +4486,6 @@
   "from": "B083-fix"
  },
  {
-  "id": "B083F-3-path-not-marked",
-  "file": "transport/PathTransport.kt",
-  "edits": [
-   [
-    "TransportEvent.Input(type, EvenHubMsg.SRC_RING, injected = true)",
-    "TransportEvent.Input(type, EvenHubMsg.SRC_RING)"
-   ]
-  ],
-  "tests": [
-   "*PathTransportTest*"
-  ],
-  "expect": [
-   "theFirstPathToStartWinsAndTheOtherIsCancelled"
-  ],
-  "note": "item 3: the path transport's injectInput leaves the flag off",
-  "from": "B083-fix"
- },
- {
   "id": "B083F-4-any-direction-at-arrival",
   "from": "B083-fix, changed by B083-v2",
   "file": "local/LocalRules.kt",
@@ -12501,5 +12483,203 @@
   ],
   "note": "C3 DW-2 (decisions DP 9: the block never waits for a strip that will not come): the hold stands for any document in front, not only one Page staging stages — behind a document with no content key the block is never placed",
   "from": "DW-2b"
+ },
+ {
+  "id": "BW-keep-decision",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val keep = !endLink && linkKeepable()",
+    "val keep = false"
+   ]
+  ],
+  "note": "the restart's keep decision: every restart ends the link as before (the pin: the wake shows a disconnect and a second connect)",
+  "tests": [
+   "*SilentGlassesTest.thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "expect": [
+   "thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-watchdog-ends",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(watchdog)\", endLink = true)",
+    "(watchdog)\", endLink = false)"
+   ]
+  ],
+  "note": "the watchdog's restart keeps a link that has gone quiet instead of ending it",
+  "tests": [
+   "*WatchdogTest.aSessionThatStopsAnsweringIsProbedThenRebuilt"
+  ],
+  "expect": [
+   "aSessionThatStopsAnsweringIsProbedThenRebuilt"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-adopt-refusal",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (refused == null) adopted = true",
+    "if (true) adopted = true"
+   ]
+  ],
+  "note": "the start adopts a kept link whatever the adoption check says (an arm down in the gap is not connected afresh)",
+  "tests": [
+   "*KeptLinkTest.anArmDownInTheGapTakesTheFullConnect"
+  ],
+  "expect": [
+   "anArmDownInTheGapTakesTheFullConnect"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-start-clears-mark",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val kept = synchronized(stateLock) { _state.value.linkKept.also { if (it) _state.value = _state.value.copy(linkKept = false) } }",
+    "val kept = _state.value.linkKept"
+   ]
+  ],
+  "note": "the start reads the mark and leaves it set: a later link loss in that session would be read as kept",
+  "tests": [
+   "*SilentGlassesTest.thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "expect": [
+   "thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-fallback-fires",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!rec.kept || gate.reasks < limit) return null",
+    "return null"
+   ]
+  ],
+  "note": "the fallback never gives up: a kept link that does not answer the CREATE is re-asked with no end",
+  "tests": [
+   "*KeptLinkTest.aKeptLinkThatDoesNotAnswerTheCreateFallsBackToAFreshConnect"
+  ],
+  "expect": [
+   "aKeptLinkThatDoesNotAnswerTheCreateFallsBackToAFreshConnect"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-fallback-fresh",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!rec.kept || gate.reasks < limit) return null",
+    "if (gate.reasks < limit) return null"
+   ]
+  ],
+  "note": "the fallback fires on a link connected afresh too (today's re-asks cut to two)",
+  "tests": [
+   "*KeptLinkTest.aKeptLinkThatDoesNotAnswerTheCreateFallsBackToAFreshConnect"
+  ],
+  "expect": [
+   "aKeptLinkThatDoesNotAnswerTheCreateFallsBackToAFreshConnect"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-keeper-yield",
+  "file": "shell/ShellKeeper.kt",
+  "edits": [
+   [
+    "stopShell(\"stop after link end\", stopTransport = !kept)",
+    "stopShell(\"stop after link end\")"
+   ]
+  ],
+  "note": "the keeper stops the transport after a kept restart (its stop ends the link; the next start connects afresh)",
+  "tests": [
+   "*SilentGlassesTest.thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "expect": [
+   "thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-prelude-giveup",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!awaitingPrelude) break\n                        if (keptLinkGiveUp(rec, gate, KEPT_LINK_REASKS, CAPABILITY_REASK_MS, keptLinkSilent) != null) break",
+    "if (!awaitingPrelude) break"
+   ]
+  ],
+  "note": "the prelude's give-up on a kept link removed: a kept start whose prelude is never acked asks again with no end",
+  "tests": [
+   "*KeptLinkTest.aKeptLinkThatDoesNotAckThePreludeFallsBackToAFreshConnect"
+  ],
+  "expect": [
+   "aKeptLinkThatDoesNotAckThePreludeFallsBackToAFreshConnect"
+  ],
+  "from": "BWF"
+ },
+ {
+  "id": "BW-read-giveup",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!awaitingCapability) break\n                        if (keptLinkGiveUp(rec, gate, KEPT_LINK_REASKS, CAPABILITY_REASK_MS, keptLinkSilent) != null) break",
+    "if (!awaitingCapability) break"
+   ]
+  ],
+  "note": "the capability READ's give-up on a kept link removed",
+  "tests": [
+   "*KeptLinkTest.aKeptLinkThatDoesNotAnswerTheReadFallsBackToAFreshConnect"
+  ],
+  "expect": [
+   "aKeptLinkThatDoesNotAnswerTheReadFallsBackToAFreshConnect"
+  ],
+  "from": "BWF"
+ },
+ {
+  "id": "BW-warmup-giveup",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val silent = keptLinkGiveUp(rec, warmupGate, KEPT_LINK_WARMUP_RESENDS, STALL_REPORT_MS, keptLinkSilent)",
+    "val silent: String? = null"
+   ]
+  ],
+  "note": "the warmup's give-up on a kept link removed: a kept LEFT that delivers nothing re-sends with no end (Part G item 3)",
+  "tests": [
+   "*KeptLinkTest.aKeptLinkThatDoesNotAckTheWarmupFallsBackToAFreshConnect"
+  ],
+  "expect": [
+   "aKeptLinkThatDoesNotAckTheWarmupFallsBackToAFreshConnect"
+  ],
+  "from": "BWF"
+ },
+ {
+  "id": "BW-silent-tick-ends",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "refused the last frames ($why)\", endLink = true)",
+    "refused the last frames ($why)\")"
+   ]
+  ],
+  "note": "the paced rebuild of a shell asleep on refused frames keeps the link (Part G item 1): kept again at every pacing",
+  "tests": [
+   "*SilentGlassesTest.aKeptLinkWhoseFramesAreRefusedIsEndedByThePacedRebuild"
+  ],
+  "expect": [
+   "aKeptLinkWhoseFramesAreRefusedIsEndedByThePacedRebuild"
+  ],
+  "from": "BWF"
  }
 ]

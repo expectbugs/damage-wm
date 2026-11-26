@@ -48,15 +48,16 @@ object PairFind {
 /**
  * Stage BLF: everything [PairFind.decide] reads. Two signals that the phone holds a link to a lens: its GATT list
  * (links an app has on record with the phone's Bluetooth service) and its link notices (up and down, whoever holds
- * the link — kept per address for the transport's life). A lens counts as held at an ask when either says so; a
- * lens with no notice in this record is unknown and counts as not held. Not thread-safe: the glue calls it under
- * one lock (the notices' receiver, the scan's callback and the asker).
+ * the link — kept per address for the process's life: stage BW, one instance per process, handed to each transport,
+ * its per-scan part reset at each scan's start). A lens counts as held at an ask when either says so; a lens with
+ * no notice in this record is unknown and counts as not held. Not thread-safe: the glue calls it under one lock (the
+ * notices' receiver, the scan's callback and the asker).
  */
 class PairWatch {
     /** The last link notice for an address: up or down, and when (the glue's wall clock). */
     data class Notice(val up: Boolean, val atMs: Long)
 
-    private val notices = HashMap<String, Notice>()        // by address, upper case: the transport's life
+    private val notices = HashMap<String, Notice>()        // by address, upper case: the process's life (stage BW: one PairWatch per process)
     private val address = arrayOfNulls<String>(2)           // this scan's remembered addresses, by Arm.ordinal
     private val seen = BooleanArray(2)
     private val asks = IntArray(2)
@@ -91,7 +92,7 @@ class PairWatch {
         asks[i] = if (held) asks[i] + 1 else 0
     }
 
-    /** The record for this scan's remembered lens (null: no notice in this transport's life). */
+    /** The record for this scan's remembered lens (null: no notice in this process's life since Bluetooth last went off). */
     fun notice(arm: Arm): Notice? = address[arm.ordinal]?.let { notices[it] }
 
     fun heldAsks(arm: Arm): Int = asks[arm.ordinal]

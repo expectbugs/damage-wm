@@ -268,8 +268,10 @@ class RemoteTransportClient(
     /** Forwarded (t="restart", 2026-09-05 §37.0): the owner's transport ends
      *  its session and its keeper-side link end reaches this driver as the
      *  usual `started` false, so the same reconnect dance a lost link runs
-     *  follows. Unverified on hardware over the seam — the dev override only. */
-    override suspend fun restartSession(reason: String): Boolean {
+     *  follows. Unverified on hardware over the seam — the dev override only. [endLink] does not ride the seam:
+     *  the owner's transport keeps its link where it can (a kept link over the seam was declined, `BL-decisions.md`
+     *  Part G). */
+    override suspend fun restartSession(reason: String, endLink: Boolean): Boolean {
         val o = out ?: return false
         if (!state.value.started) return false
         return try {

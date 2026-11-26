@@ -22,7 +22,7 @@ import wm.damage.core.wire.EvenHubMsg
  * B083 fix stage (item 3; the focused read of 0.83's scroll items, finding 3): a gesture made on a screen — the phone's
  * mirror, the PC's preview — enters through [Transport.injectInput] stamped as the ring's, and is marked `injected` so the
  * shell's local rules leave it alone (no lens fired for it; no report will come). The class: every `injectInput` — the
- * CFW transports' base, the seam's client, the path transport (`PathTransportTest` reads its flag).
+ * CFW transports' base and the seam's client.
  */
 class InjectedInputTest {
     private fun injectedOf(t: Transport): TransportEvent.Input = runBlocking {

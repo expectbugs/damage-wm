@@ -5555,9 +5555,9 @@ class Shell(
      *  (measured on glass 2026-09-05 22:04, `HANDOFF.md` §37.0). The shell
      *  keeps composing and stops SENDING, drops the lease so stock owns the
      *  display and the temples, tells the phone once — and the WAKE is a
-     *  session REBUILD (`Transport.restartSession`: the link ends, the keeper
-     *  stops this shell and starts it again from the prelude up — G2CC's
-     *  reconnect-and-relayout path), never a keyframe. The new start reads the
+     *  session REBUILD (`Transport.restartSession`: the session ends — the phone's
+     *  radio link is kept since stage BW — the keeper stops this shell and starts
+     *  it again from the prelude up, G2CC's relayout path), never a keyframe. The new start reads the
      *  glasses' state before its first frame ([startLocked]).
      *
      *  0.64: a REST is the same sleep under the shell's own reason — frames stop, the lease is
@@ -5709,8 +5709,8 @@ class Shell(
      *  field-14 zero, and whether the glasses send one is unread
      *  (`SettingsMsg.parseSilentRestored`). When they say it is off and the
      *  shell sleeps all the same — a refusal streak: the page ended and no
-     *  push came, §37.0's 22:04:28 — the session is rebuilt, at most once per
-     *  pacing (a ring spun twice must not ask twice). 0.64: the transport's
+     *  push came, §37.0's 22:04:28 — the session is rebuilt over a fresh
+     *  connect, at most once per pacing (a ring spun twice must not ask twice). 0.64: the transport's
      *  watchdog stands down for that sleep too (`pageTrafficWanted`), so this
      *  check — or an input event — is its one way back. A REST has its own
      *  check ([restCheck]). */
@@ -5736,7 +5736,9 @@ class Shell(
         val now = System.currentTimeMillis()
         if (now - lastRebuildAskMs < silentPacingMs) return
         lastRebuildAskMs = now
-        requestRebuild("the glasses say they are awake and refused the last frames ($why)")
+        // stage BWF (`BL-decisions.md` Part G item 1): this rebuild ends the link — kept, frames refused after an
+        // answered start would be kept again at every pacing, and only a hand action ended that
+        requestRebuild("the glasses say they are awake and refused the last frames ($why)", endLink = true)
     }
 
     /** A rest's paced check. Build 1 READS only: one wear query (op 7) per check, never waited on — no
@@ -7432,14 +7434,14 @@ class Shell(
         }
     }
 
-    /** The one way out of the sleep (§37.0): the transport ends its link and
-     *  reports it, the keeper stops this shell (state saved) and starts it
+    /** The one way out of the sleep (§37.0): the transport ends the session (keeping its radio link where it can,
+     *  stage BW, unless [endLink]) and reports it, the keeper stops this shell (state saved) and starts it
      *  again, and the new start adopts the glasses' state — asleep or
      *  painting — from the session's READ. A transport that cannot (nothing
      *  started, or a seam whose far end did not take it) leaves a loud status
      *  and the next tick asks again; the manual recovery is the host's
      *  (Target → SIM → glasses). */
-    private fun requestRebuild(why: String) {
+    private fun requestRebuild(why: String, endLink: Boolean = false) {
         restartRequested = true
         chromeDirty = true
         // P5 item 3, RH-5's second site: the coroutine ran with no guard of the session it was asked in — run after
@@ -7452,7 +7454,7 @@ class Shell(
                 Log.w("shell", "session rebuild of an ended session not run: $why")
                 return@launch
             }
-            val ok = try { transport.restartSession(why) } catch (e: Exception) { Log.e("shell", "session restart", e); false }
+            val ok = try { transport.restartSession(why, endLink) } catch (e: Exception) { Log.e("shell", "session restart", e); false }
             if (!ok) post(Msg.Run {
                 restartRequested = false
                 // The kind follows the sleep's reason (the P4 review's finding 11): a rest writes no

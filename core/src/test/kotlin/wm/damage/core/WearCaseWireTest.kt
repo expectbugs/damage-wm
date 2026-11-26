@@ -991,33 +991,6 @@ class WearCaseWireTest {
         } finally { scope.cancel(); tmp.toFile().deleteRecursively() }
     }
 
-    /** The arbitration transport forwards the query to the path that drives, carries that path's state
-     *  whole, and (the review's finding 8) forgets what the path's session said — the wear report, the
-     *  switch, the firmware's Silent Mode — at its own stop. */
-    @Test
-    fun thePathTransportForwardsTheQueryAndForgetsTheSessionAtItsStop(): Unit = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            val sim = GlassFirmwareSim()
-            sim.setWearDetectionSwitch(true)
-            val ble = SimTransport(sim, scope, SimTransport.Timing(instant = true))
-            val path = wm.damage.core.transport.PathTransport(listOf(wm.damage.core.transport.PathTransport.Candidate("ble", ble)), scope, headStartMs = 0)
-            assertFalse(path.queryWear(), "no path drives: nothing went out")
-            path.start(warmup())
-            until("the start's own query") { sim.wearQueriesSeen == 2 }
-            assertTrue(path.queryWear(), "forwarded to the driving path")
-            until("which wrote it to both arms") { sim.wearQueriesSeen == 4 }
-            sim.sensorReportsWear(true)
-            sim.setSilent(true)
-            until("the path's state is the driving transport's, whole") {
-                path.state.value.let { it.worn == true && it.wearSwitch == true && it.glassesSilent } }
-            path.stop()
-            assertEquals(Triple(null, null, false), path.state.value.let { Triple(it.worn, it.wearSwitch, it.glassesSilent) },
-                "the stop forgets what the path's session said")
-            assertFalse(path.queryWear())
-        } finally { scope.cancel() }
-    }
-
     /** `sim = …` on the MODELED-timing simulator (the desktop's and the phone's SIM target): there the poll's
      *  next READ is up to a minute away, so a knob the READ reports queues one READ itself (the review's
      *  finding 17). The first poll comes 5 s after the start and the next 60 s later; every wait below is
