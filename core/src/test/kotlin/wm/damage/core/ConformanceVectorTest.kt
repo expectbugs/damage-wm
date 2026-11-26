@@ -96,23 +96,10 @@ class ConformanceVectorTest {
         // again (ended with SVR's comparison, X8T), C3 stage SV2's ship acts of Crush, Flip and the new Matrix with the
         // acts MX2 and X1MX2 moved (ended with SV2's comparison, X9T) and C3 stage SV3's one exception for two stages —
         // the ship acts K1-2 stage 1 moved, C3 stage X2MX2's Warp, Flip and Encode acts and its new Crush act, and SV3's
-        // new act (ended with SV3's comparison, X10T) — are gone: every unfilled file in the repo fails like any other.
-        // Music's motion update, stage L (`MML_UNFILLED`): the held lanes' two program shapes, inputs written from the
-        // shell's own builder (`MusicLaneVectorsTest`), filled by the fork's runner in a later lane — excused by name until
-        // then, and a filled one names the exception stale
-        // K1-2 stage 4f, one exception for the stage-4 capture: the four ship acts K1-2 stage 3a moved (the ring tap that
-        // opens Settings, now bound as list 1), written again, and the list-1 acts ([ShipVectors.list1Acts]) — exactly the
-        // names in [K12S4F_UNFILLED] — are written before the fork's runner fills them: reported "not filled" with a count and
-        // run through the model ([theUnfilledVectorsRunThroughTheModel]); a filled one names the exception stale. The
-        // comparison removes this exception.
-        val k12 = out.notFilled.filter { it.substringBefore(" (") in K12S4F_UNFILLED }
-        if (k12.isNotEmpty()) println("ConformanceVectorTest: ${k12.size} K1-2 stage-4f vector(s) not filled until the comparison: ${k12.joinToString("; ")}")
-        for (n in out.notFilled - k12.toSet()) if (MML_UNFILLED.none { n.startsWith("$it ") })
-            out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
-        for (m in K12S4F_UNFILLED) if (Files.exists(dir.resolve("$m.json")) && out.notFilled.none { it.startsWith("$m ") })
-            out.problems += "$m: filled — the stage-4f exception K12S4F_UNFILLED is stale, remove it"
-        for (m in MML_UNFILLED) if (Files.exists(dir.resolve("$m.json")) && out.notFilled.none { it.startsWith("$m ") })
-            out.problems += "$m: filled — the stage-L exception MML_UNFILLED is stale, remove it"
+        // new act (ended with SV3's comparison, X10T), Music's stage L's two lane shapes and K1-2 stage 4f's list-1 acts
+        // with the four ring-tap acts it wrote again (both ended with K1-2 stage 4h's comparison) — are gone: every
+        // unfilled file in the repo fails like any other.
+        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -833,19 +820,13 @@ class ConformanceVectorTest {
             val x2 = "v5-ship-select-warp-352"
             for (n in listOf(x2, "${x2}2"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
-            // K1-2 stage 4f's exception holds exactly its names: one of them (a list-1 act) is reported, not failed; a name
-            // that only begins like it fails like any other
-            val k12 = "v5-ship-list1-notches-depth-352"
-            assertTrue(k12 in K12S4F_UNFILLED, "$k12 is stage 4f's name")
-            for (n in listOf(k12, "${k12}2"))
-                Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "${k12}2", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
                 "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", k12, "${k12}2", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
         } finally {
             Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
             Files.delete(dir); Files.delete(other)
@@ -872,8 +853,8 @@ class ConformanceVectorTest {
      * compared like the rest. C3 stage SV3: every act that stages Main written again after K1-2 stage 1 (one strip at
      * 256 KiB, band slots per row), and its new act, the withdrawal at 256 KiB ([ShipVectors.sv3Acts]), compared like the
      * rest; filled at SV3's comparison. K1-2 stage 4f: the acts whose tap opens Settings (bound as list 1 since K1-2 stage
-     * 3a) written again, and the list-1 acts ([ShipVectors.list1Acts], compared on their ring form too); not filled until
-     * its comparison ([K12S4F_UNFILLED]).
+     * 3a) written again, and the list-1 acts ([ShipVectors.list1Acts], compared on their ring form too); filled at K1-2
+     * stage 4h's comparison.
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
@@ -945,17 +926,5 @@ class ConformanceVectorTest {
         const val X3_HINT = "v5-x3-hint"
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
-        /** Music's motion update, stage L (`private/build085/MM-L-built.md`): the bar's shape and a three-link chain of
-         *  it, written by `MusicLaneVectorsTest` from the shell's own builder, not filled until the fork's runner fills them
-         *  in a later lane (never by hand). */
-        val MML_UNFILLED = setOf("v5-mml-bar", "v5-mml-chain")
-        /** K1-2 stage 4f (`private/build083/K1-2-S4f-built.md`; decisions DA (b), (c) 4): the files written before the fork's
-         *  runner fills them — the four ship acts K1-2 stage 3a moved (written again) and the seven list-1 acts. Exactly
-         *  these names; the comparison removes the set. Music's [MML_UNFILLED] stands beside it, its own stage's. */
-        val K12S4F_UNFILLED = setOf("v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-glasses-last-288",
-            "v5-ship-ring-tap-report-last-352", "v5-ship-ring-tap-glasses-last-352",
-            "v5-ship-list1-notches-depth-352", "v5-ship-list1-adjust-none-288", "v5-ship-list1-kept-fall-352",
-            "v5-ship-list1-select-level-depth-480", "v5-ship-list1-count-fall-288", "v5-ship-list1-app-slide-352",
-            "v5-ship-list1-main-over-depth-352")
     }
 }
