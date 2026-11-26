@@ -261,7 +261,7 @@ Which window sends which (`C/app/PcScopes.kt`, each `XCore`'s describe): Reader 
 | **collection** | `id`, item kind, `inline` items or `paged{count (or unknown: the tracker's listing is endless), version, sorts, filters}` queried by anchor, `groups[{id, title}]`, `empty` text | lists; the Music catalog (~3 k rows) and Feed items are paged |
 | **section** | `id`, `title`, item ids | Overdue · Today · In the cart; Feed's sources |
 | **document** | `id`, `extractor` version, `blocks[{id, kind: heading(level) · para · item(depth) · quote · mono · image · rule · table, spans[{text, marks: em · strong · code · link(href)}], charStart, charEnd}]`, `toc[{title, block}]`, `sourceUrl`; a `href` is http or https only and opens outside the app's page. As built for Reader (S1-1): a block's `level` is a heading's level or an item's depth; an image block names its blob in `ref`; an in-book link carries `jump` (an anchor at another spine document's start) instead of an `href`. As built for Feed (S1-3): `feed/item:<src>:<id>` answers `{item, document{id, extractor, sourceUrl, blocks}, extracted, note}`, its blocks Feed's own (heading, para, item, quote, mono, image; `level` 1 on headings and items; an image's `ref` `feed.<key>`), the text exactly the glasses' (spans laid over it, so saved offsets keep their meaning); an article cached before S1-3 is served as plain spans; `feed/comments:<src>:<id>` answers `{entries[{id, author, published, depth, title?, score?, blocks}]}` | Reader, Feed articles and comments, torrent pages (NFO = mono), Files' text and PDF text, Hold'em and Tmux history |
-| **value** | `id`, `label`, number or text, `unit`, `system`, `band` normal · attention · alarm, `asOf` (source time), `receivedAt` (PC clock), `source`, `staleAfter`, `state` live · stale · lastKnown, `reason`, `corrected` | bus values, PC figures, speeds, a battery, per-source health |
+| **value** | `id`, `label`, number or text, `unit`, `system`, `band` normal · attention · alarm, `asOf` (the source's time, or the PC's clock where the PC takes the value in), `source`, `staleAfter`, `state` live · stale · lastKnown, `reason`, `corrected` | bus values, PC figures, speeds, a battery, per-source health |
 | **series** | `key`, `span`, `step`, `unit`; points fetched by range; a gap is an explicit null; event marks from the action log | graphs (`BASTION.md` B-08, B-11…B-14) |
 | **event** | `id`, `title`, `start` (instant or date), `end` or `length`, `allDay`, `zone`, `kind`, `ref` | calendar, detections, the action log |
 | **job** | `id`, `label`, `state` queued · running · done · failed, `fraction?`, `phase`, `startedAt`, `updatedAt`, `answer` | a copy or `du`, a YouTube grab, pre-transcode, a rescan |
@@ -498,7 +498,7 @@ PC raises the record right after the status push that carries the waiting sessio
 
 ## 8. Live values and viewers
 
-Every value carries `asOf` and `receivedAt`; ages count on the PC's clock from first sight (`BASTION.md` §9); a client
+Every value carries `asOf`; ages count on the PC's clock from first sight (`BASTION.md` §9); a client
 learns the PC's clock offset at `welcome` and greys a value past `staleAfter` itself; a value whose source is out of
 reach is `lastKnown` with the reason ("hub not answering 6 min"). No text carries an age baked in. Per-source health
 ("<host> quiet 40 s", "torrent client unreachable 12 s") is a value of its own, which carries the in-window health lines.

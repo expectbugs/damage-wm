@@ -70,19 +70,30 @@ object InputEcho {
  * R-b H2 (`private/build085/RB-lean-spec.md` §2, §4.5; his answer Q3: it stays in the link cell): the link cell's
  * host half — empty while all is well (the cell's one dim mark), else the worst health line's tag. A fixed vocabulary,
  * so the cell is MEASURED for it (`HostTagFitTest`): a word of [AGED] followed by its age (`PC 4m`, `hub 6m`, `copy
- * 2d`), or a word that carries its own reading (`disk 98%`, at most two digits; [REFUSED]). The age is composed by the
+ * 2d`), or a word that carries its own reading ([disk], at most two digits; [REFUSED]). The age is composed by the
  * shell at each chrome build ([text]) from whole minutes of the wall clock, so it moves at the same minute as the
  * clock cell and rides that cell's flush (`DESIGN.md` §8.3: chrome never justifies its own flush).
+ * R-b F (`RB-decisions.md` Part F item 2): a tag is never cut. Where its whole form does not fit (above 100 % font
+ * size, or beside the poor-signal dBm figure) the cell draws its [short] form, the line's name alone; the phone and the
+ * pages say the whole line.
  */
 data class HostTag(val word: String, val since: Long? = null) {
     fun text(now: Long): String = if (since == null) word else "$word ${age(since, now)}"
 
     companion object {
         val NONE = HostTag("")
+        const val PC = "PC"
+        const val HUB = "hub"
+        const val COPY = "copy"
         /** The words followed by an age: the PC out of reach, the hub silent, the nightly copy failed or old. */
-        val AGED = listOf("PC", "hub", "copy")
-        /** The PC answers but refuses this phone (its credential, or no lane this build speaks). */
+        val AGED = listOf(PC, HUB, COPY)
+        /** The PC answers but refuses this phone (its credential, no lane this build speaks, or its record not open). */
         const val REFUSED = "PC no"
+        /** The data folder's disk nearly full, with its percent used (two digits at most: a full disk reads 99). */
+        fun disk(usedPct: Int): String = "disk ${usedPct.coerceIn(0, 99)}%"
+
+        /** A tag's short form (a shown [text]): its first word, the name of its line — `PC`, `hub`, `copy`, `disk`. */
+        fun short(tag: String): String = tag.substringBefore(' ')
 
         /** Whole wall-clock minutes from [since] to [now]: `<1m`, `59m`, `23h`, `9d`. */
         fun age(since: Long, now: Long): String {
@@ -95,10 +106,10 @@ data class HostTag(val word: String, val since: Long? = null) {
             }
         }
 
-        /** Every shape the cell is measured for, at its widest readings (two-digit days; three-digit ones take the
-         *  fit path, counted). */
+        /** Every shape the cell is measured for, at its widest readings (two-digit days: a longer age is wider in its
+         *  whole form only, and its short form carries no reading). */
         val WIDEST: List<String> = AGED.flatMap { w -> listOf("<1m", "59m", "23h", "99d").map { "$w $it" } } +
-            listOf("disk 99%", REFUSED)
+            listOf(disk(99), REFUSED)
     }
 }
 

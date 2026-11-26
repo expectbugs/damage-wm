@@ -194,8 +194,8 @@ class Shell(
 
     /** Test/introspection: is the floating context menu open, and whose? */
     val menuIsOpen: Boolean get() = menu.open
-    /** Test/introspection: the status cell's text ("ok", "ERROR …", "DIVERGE …"). */
-    /** The status cell's word as last derived (`Status.kt`) — tests and status lines. */
+    /** The status cell's word as last derived (`Status.kt`: "ok", "ERROR …", "DIVERGE …") — tests, status lines and the
+     *  health view (any thread). */
     val statusLine: String get() = statusWord
     val switcherIsOpen: Boolean get() = switcher.open
     /** How many rows the wheel is showing — a harness reads it so a pin that
@@ -297,9 +297,6 @@ class Shell(
     /** R-b H2: the link cell's tag — the worst health line's, set by the phone's `PhoneHealth` on a change only; its
      *  age is composed at each chrome build ([HostTag.text]), so it moves with the clock cell's minute. */
     @Volatile var hostTag: HostTag = HostTag.NONE
-
-    /** R-b H2: the status cell's word as the last pump derived it, for the health view (any thread). */
-    val statusWordNow: String get() = statusWord
 
     /** The host's build, as the journal records it at every session start
      *  (§41): the APK's version or the desktop's git stamp — a journal read

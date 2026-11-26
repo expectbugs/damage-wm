@@ -134,6 +134,8 @@ async function step(s) {
   // (seen in FIX2's look: scrollTop moved 400 px and no event came in 400 ms)
   if (s.fire) (s.fire[0] === 'window' ? window : await until(s.fire[0])).dispatchEvent(new Event(s.fire[1], { bubbles: true }));
   if (s.scroll) { const el = await until(s.scroll[0]); el.scrollTop += s.scroll[1]; el.dispatchEvent(new Event('scroll')); }
+  // R-b F: an element's scroll place, said (the look prints it): which element, its place and its furthest place
+  if (s.place) { const el = await until(s.place); note('place ' + s.place + ' at ' + Math.round(el.scrollTop) + ' of ' + (el.scrollHeight - el.clientHeight) + (el.dataset.seen ? ' (the same element)' : '')); el.dataset.seen = '1'; }
   // S1-3: a key pressed in an element (the terminal's field), as a keyboard delivers it — with its legacy keyCode too
   // (S1-3's merge: the real terminal library reads keyCode, and a keydown without one typed nothing in the real look)
   // (S1-3 fix stage: with modifiers, s.key[2], as {ctrlKey: true})
