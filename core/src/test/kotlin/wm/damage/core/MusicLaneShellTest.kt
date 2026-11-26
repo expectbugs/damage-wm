@@ -587,7 +587,7 @@ class MusicLaneShellTest {
             for (h in listOf(480, 416, 352, 288)) {
                 // Music's own Size, set at Now Playing (exclusive mode's repaint does not re-lay the shell), then Music Mode
                 r.setRow("Size", "$h")
-                r.until("at $h: Now Playing") { r.shell.isQuiescent() }
+                r.until("at $h: Now Playing laid out at $h") { r.onLoop { r.shell.layout.safe.h } == h && r.shell.isQuiescent() }
                 r.scopeMode()
                 val want = wm.damage.core.windows.music.ScopeRehearsal.strip(h)
                 r.until("at $h: Scope's chain on the rehearsal's strip $want (held ${r.held()})", maxMs = 8_000) { r.shell.isQuiescent() && r.held()?.second == want && r.laneTagIn(Arm.RIGHT) != null }
