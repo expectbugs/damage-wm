@@ -716,7 +716,7 @@ overrides the global for that app only. Reader's Size row is the first instance 
 | **Head tracking** | default OFF (§7.1); no reader — no IMU path is built |
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
 | **Taps · Local input** | shown only on a build that reports local input (`FIRMWARE.md` §6.3, §6.7): `Taps` — phone · report (default) · glasses, what a ring tap on a bound list does on the glasses; `Local input` — its state in words, a tap re-arms it while held back |
-| **Slide frames** | **Adam's ruling of 2026-09-05 (`HANDOFF.md` §40):** `off · 2 · 4 · auto · 8 · 12` frames per notch for list and document slides — **`auto` (the default) is the ease-out halving rule** (list 3, doc 5); N resamples the ease-out to at most N steps on the 2 px grid; `off` is one copy and one strip. He tests the feel at every value on the phone path himself. The wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3). `MOTION.md` §7 puts the `Animations` category (below) where §6 C4 had one Global `Motion` row replace this row and `Slide fill`; both stay Global rows |
+| **Slide frames** | **Adam's ruling of 2026-09-05 (`HANDOFF.md` §40):** `off · 2 · 4 · auto · 8 · 12` frames per notch for list and document slides — **`auto` (the default) is the ease-out halving rule** (list 3, doc 5); N resamples the ease-out to at most N steps on the 2 px grid; `off` is one copy and one strip. He tests the feel at every value on the phone path himself. The phone-drawn wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3). `MOTION.md` §7 puts the `Animations` category (below) where §6 C4 had one Global `Motion` row replace this row and `Slide fill`; both stay Global rows |
 | **Slide fill** | **Adam: "Auto" (`HANDOFF.md` §41.9): `auto · split · whole`.** A strip past 12,000 px either goes out BLANK with the translation and is filled next flush (`split` — the glass moves ~70 ms after the notch, a black band shows until the fill lands: ~610 ms measured when the fill is pixels) or lands whole in the same flush (`whole` — no band, the first change waits for the strip's bytes). `auto` splits only while the texture cache is off: with the cache live the strip is ~200 B of draws and the split buys nothing |
 | **Cached text** | **`off · on`, OFF by default (`HANDOFF.md` §40, §41).** On: the session's fonts and icons are rendered by the host, packed into the firmware's 64 KiB texture cache (mode 12, in idle chunks after the keyframe) and every string and icon the proof can reproduce ships as cached draws instead of pixels — on a depth plane behind one per-lens mode-9 copy, since the firmware's draws are flat. Off → on resumes at once. **On the Phase 2 build and later (`HANDOFF.md` §60, §66, §73; ruled 2026-11-10, §75):** the cache is the session's 160 KiB (a 96 KiB atlas and a 64 KiB staging reserve) — 256 KiB at the fork's ladder stage 2 and above (`FIRMWARE.md` §5.9), where with BIND in force Main's staged rows take 128 KiB under a 32 KiB stage reserve and the atlas keeps 96 KiB (`core/…/wire/CfwModes.kt`); a string is drawn per lens (mode 18, an icon by mode 17; no copy) and carries its pair kerns as adjust bytes; a face is packed with the characters it has drawn and gains the rest in place, in small writes through the lease; and with the row on, text is laid out by the cache's metric whether or not its face is live, so it wraps a little earlier than with the row off and does not move when a face goes live. The journal's `cached`/`cacheMiss`/`unpacked` is the account. |
 | **Page staging** | built (2026-09-16, `HANDOFF.md` §66; Adam: on by default): `off · on`. On a contract-2 session with Cached text on, the focused document's next and previous strips are uploaded to the cache's reserve off the gesture path and a notch ships one mode-17 draw instead of its strip; `off` is for the A/B |
@@ -761,7 +761,8 @@ its category (default · None · Depth · Slide · Fall; "default" follows this 
 list); Select and
 Close / Back — Length (450), Frames (10), one on/off row per effect (Depth · Warp · Flip · Fall · Glitch · Encode ·
 Matrix · Explode, Depth on); Lock Screen — the same with Fade · Build · Matrix · Encode · Glitch · Explode, Fade on;
-Popups — Length (300), Frames (auto), Unfurl (on), Fade, Slide (off).
+Popups — Length (300), Frames (auto), Unfurl (on), Fade, Slide (off); and at stage 5, on the page itself after the
+tiers, `Switcher` — Drum (default) · None (§4.3).
 
 ### 4.3 Switcher — the wheel
 
@@ -841,12 +842,28 @@ black background so each row is one long run.
 - The panel rect never moves ⇒ no rect growth. **1 fid per frame flat, 3 with per-band depth** — a
   4-frame spin spends 4 or 12 fids, inside the ≤5-rects-per-batch budget (§8.2).
 
+**At ladder stage 5 the glasses turn the drum** (C3 DW; `motion/Wheel.kt`). On a 256 KiB session with three rows
+or more on the wheel (Main and two windows), it is bound on the glasses as list 2 while it is open (`FIRMWARE.md`
+§6.7, §7.11), and a notch turns it at once, before any flush: the row leaving squashes into the outer rule and
+fades, the row entering grows out of the other, the centre item and the arriving neighbour change form at half the
+travel (both at the neighbour form's brightness there), the inner rules slide — one ease-out, ending pixel for pixel
+on the switcher's own rest picture at the next cursor. Its length and frames are the Scroll tier's; `Switcher ·
+None` (§4.2) plays the same move in one step. The top bar's title follows each report and the preview comes once
+the notches stop, both from the phone. A notch before the last detent has ended starts from that detent's end: a
+burst that turns as one motion needs a retarget inside a fire, a firmware matter, not built. Opening, committing and
+closing stay cuts. At stage 5 the panel has a black margin of its disparity on each side (Global `Depth`, or the
+window's own where that is 0), the window behind cut back by that much. Its pictures and two programs stay resident
+at the end of Main's region (at most 20 KiB); below stage 5, at 160 KiB, with fewer than three rows, and in an open
+before its offer holds, the phone draws the wheel as above. The `wheel` journal note at each close says whether it
+was bound at the open, or after how long, and who drew each notch. How the form swap and a burst read is his to
+judge on the glasses.
+
 #### Depth — the flagship use of stereo
 
 Perspective and disparity agree here, which is when stereo reads well instead of as strain.
 
-- **Centre band at plane 0; the two neighbour bands at −1**, matching the content depth behind
-  them — the drum curves back *into* the scene.
+- **Centre band at plane 0; the rest of the panel, the two neighbour bands with it, at Global `Depth`** —
+  the content's plane behind them: the drum curves back *into* the scene.
 - 🔴 **The wheel owns the depth story while open (corrected 2026-08-31, on glass).** The window
   behind it is a preview, so the shell must NOT keep lifting that window's lens band to plane 0 —
   the band spans the full content width and dragged the entire width forward, background included
@@ -1611,7 +1628,8 @@ up to 9 at 480, the current line HEAD-bright, the scheduler flushing a line ahea
 the visualizer strip (608 × 48 at 288/352, × 64 at 416/480, at the bottom, Bars · Scope · Pulse ·
 Meter at 4/8/12 Hz — each frame ONE rect), the queue peek (next two above the strip — **one at
 288**, the same ladder), the seven-segment **medium** clock top-right, and the PC link line under
-it.
+it. At ladder stage 5 the card's bar is a continuous fill the glasses grow and Scope is played by
+the glasses (`MUSIC.md` §14.2).
 
 🔴 **A returned rect is a PROMISE, and every band is sized by MEASURED ink** (2026-09-05;
 `CLAUDE.md`'s standing rule). `paintExclusive` is the one place a window declares its own damage;
@@ -1772,7 +1790,8 @@ the end state.
 
 On the fork's builds the glasses also play motion from programs the phone writes — Main's `Scroll effect`, the
 notice's timer and arrivals, the full-screen transitions at ladder stage 5 — ruled by `MOTION.md` §7 (its contract
-`FIRMWARE.md` §5–§7, its rows §4.2's `Animations`).
+`FIRMWARE.md` §5–§7, its rows §4.2's `Animations`); at stage 5 also the switcher's drum (§4.3) and Music's bar and
+Scope (`MUSIC.md` §14.2).
 
 ### 6.3 Rules
 
@@ -1798,7 +1817,7 @@ notice's timer and arrivals, the full-screen transitions at ladder stage 5 — r
   400 B, the transfer term (ms per KB) from flushes of 1 KB and more priced against that floor —
   nine readings each, none counted before three, both starting over with the session. Above
   50 ms/KB (entered past 65, left under 35; the phone path measured ~125 on 1M and about 32–72 on
-  the Phase 2 build's 2M, PC-direct ~20) the wheel spins in **2** frames per notch instead of 4. Each spin frame is a ~0.9 KB repaint of the drum, so four of them are ~0.8 s
+  the Phase 2 build's 2M, PC-direct ~20) the phone-drawn wheel (§4.3) spins in **2** frames per notch instead of 4. Each spin frame is a ~0.9 KB repaint of the drum, so four of them are ~0.8 s
   of link time through the phone (the 1M figure). The slides keep their frames: their strips are small and the
   first frame is as fast as a snap. Nothing adapts until a real flush has been timed; the harnesses
   (instant timing) always see 4. On-glass verdict owed.

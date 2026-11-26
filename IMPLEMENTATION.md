@@ -237,8 +237,8 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 ./gradlew :desktop:run --args="--ble-info"    # the BlueZ adapter and the devices it knows (no discovery)
 ./gradlew :desktop:run --args="--selfcheck"   # the scripted gate (REMINDER.md carries the count): two passes (contract 1 with a gain-in-place step at boot, then contract 2 with cached text on), every window's walk, the truth oracle on every settle
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface, and the converted windows' again in DIR/phone/
-./gradlew :desktop:run --args="--motion-check DIR"  # C1–C3: the test programs, the notice's programs, the transitions, Main's scroll effects and the wheel on the simulator, a strip PNG each; exit 1 when one does not hold
-./gradlew :desktop:run --args="--local-check DIR"   # C2: Main's bound list fired through the simulator's input hook at every cursor, both directions and the press, four heights, 160 and 256 KiB
+./gradlew :desktop:run --args="--motion-check DIR"  # C1–C3: the test programs, the notice's programs, the transitions, Main's scroll effects, the wheel and Music's Scope on the simulator, a strip PNG each; exit 1 when one does not hold
+./gradlew :desktop:run --args="--local-check DIR"   # C2: Main's bound list fired through the simulator's input hook at every cursor, both directions and the press, four heights, 160 and 256 KiB; C3 DW: the switcher's wheel as list 2
 ./gradlew :desktop:run --args="--wheel-icons DIR"   # the switcher wheel's cells painted with the theme's icons beside the drawn set's
 ./gradlew :desktop:run --args="--epub-check [DIR]"  # parse every book in DIR (default: the config's booksDir); exit 1 on zero books, a DIR that is not a directory or a failing book
 ./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, catalog, lanes, cache keys, Qdrant, one viz blob, the adaptive-playlist derivation
@@ -720,6 +720,8 @@ place, the enrichment package (`audio/`, Adam's own code), yt-dlp. Two contracts
   **Phone notifications** (off).
 - 🔴 **Music Mode's bands hold what they draw** (§27.2): `paintExclusive` is the one place a window declares its
   own damage rects, so every band is sized from MEASURED ink, never a guessed offset.
+- **At ladder stage 5** the progress bar and Music Mode's Scope are held lanes the glasses play (`MUSIC.md` §14.2;
+  "The phone's halves of C1–C3" below).
 - **Harnesses**: `ScriptedMusic` (the selfcheck walk incl. Music Mode with the queue ADVANCING, then at 130 % and
   the tallest face; snapshot scenes 30–39); `--music-check` (read-only; asserts a track the catalog FLAGS as
   having art extracts one); `MusicTest`, `MusicWindowTest`, `MusicModeTest`, `ResolverTest`, `LyricsFetchTest`,
@@ -1068,10 +1070,11 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   instance's areas are left out of the agreement check, as spans (`MirrorScanMotionTest`). `MotionSimTest`,
   `BindSimTest`, `EffectsSimTest`.
 - **Who plays what.** Each motion has its owner in the shell's pump, on fixed slots (`TransitionRun`'s companion: 0
-  the bound list, 1 the wrap's PLAY, 2 a transition's out half or the notice, 3 the in half); the period and steps are
-  the fit below. C1's test programs (`motion/TestPrograms.kt`: list, popover, recede, flip; Main's pans from
-  `MainPan.kt`) play only by hand (`probe motion=NAME`, `Transport.sendMotion`, ENGINE in force; their cache write is
-  another writer's, so the shell drops its atlas for that session). `TestProgramsTest`, `MotionCheckTest`.
+  the bound list, 1 the wrap's PLAY, 2 a transition's out half or the notice, 3 the in half; Music's held lanes take 0
+  and 1 in turn on levels with no bound list and no wrap); the period and steps are the fit below. C1's test
+  programs (`motion/TestPrograms.kt`: list, popover, recede, flip; Main's pans from `MainPan.kt`) play only by hand
+  (`probe motion=NAME`, `Transport.sendMotion`, ENGINE in force; their cache write is another writer's, so the shell
+  drops its atlas for that session). `TestProgramsTest`, `MotionCheckTest`.
 - **Main's list staged** (C2; `shell/ListStaging.kt`, `ListBinding.kt`, `Shell.pumpListBind`): the records from Main's
   own painters — the strip (every row's row form, margin rows past each end), each row's band form, the item table,
   the programs — in Main's own 128 KiB region on a 256 KiB session with BIND, else the shared stage reserve
@@ -1112,14 +1115,39 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   written into the top 16 KiB of the stage reserve (`CfwModes.NOTICE_REGION`, `Shell.pumpNoticeStage`) and counted by
   the ledger; tags `0xE000 + n` (0.83). Elsewhere the timer is the phone's own steps; Unfurl is always the phone's.
   `NoticeEngineTest`, `NoticeTimerTest`, `NoticeTimerRenderTest` (desktop).
+- **Held lanes** (Music's motion update, stages L and S; `shell/WindowLanes.kt`, `windows/music/MusicMotion.kt`; at
+  stage 5 on a 256 KiB session with BIND, `ShellServices.lanesInForce`): a window in front declares rects the glasses
+  animate while it keeps painting (`DamageWindow.lanes` → `LaneSpec`: rects, a key whose change plans again, period
+  and steps, the records and font its programs read, a planner). The shell plays one version-2 OWN program a stretch:
+  a PLAY in slot 0, each next a PLAY-AFTER into the other slot sent with half the stretch left, its area written
+  first (one deflated message where it fits) and proven — three areas of 5,440 B in turn in `CfwModes.musicRegion`,
+  the stage reserve's lower 16 KiB, Page staging's strips there dropped; tags from `0xA000`. While a chain is open
+  the compositor holds its cells (`Compositor.laneHold`) and the flush names slots 0 and 1 held (`FlushRequest.held`);
+  every end releases them (`laneRelease`), so the next frame writes the lane from the truth and the transport CLOSEs
+  what the mirror holds; no chain starts in the pump that ended one. The lens's clock is the PLAY's landing
+  (`WindowLanes.flushDone`); a PLAY-AFTER landing over 100 ms late restarts the chain; three refusals in a session
+  turn the lanes off. Music: the bar (`MusicMotion.barLanes`), Scope's strip alone in Music Mode (`scopeLanes`), the
+  time text each second (`MusicGlasses.scheduleTimeTick`); `MpvSink` ages its place by the time since its last
+  `time-pos`; `ClockSkew` journals the PC–phone wall-clock difference (`clocks:`). `MusicLaneShellTest`,
+  `MusicLaneFuzzTest`, `ScopeLaneTest`, `MusicLaneVectorsTest`, `--motion-check`'s `music-scope-*` strips.
 - **`Animations`** (`shell/SettingsWindow.kt`; the fields in `ShellSettings`, on the PC record): a category on a BIND
   build, one row per tier opening its sub menu (0.84): Scroll (`Scroll effect`, `Scroll length` 300 ms, `Scroll
   frames` Auto); at stage 5 Select, Close / Back, Lock Screen (450 ms, 10 frames, a checkbox per effect; Depth, Depth,
   Fade by default); Popups (`Popup length`, `Popup frames`, `Popup · Unfurl` on, `· Fade`, `· Slide`). `Taps` is in
   Global on a BIND build. `SettingsLocalRowsTest`, `TransitionsTest`.
-- **The wheel** (C3 DW-0, its offline half only): `motion/Wheel.kt` (the cells from the switcher's own painters, the
-  drum's programs), `WheelCheck.kt` (`--motion-check`'s strips), `desktop --wheel-icons`; nothing bound; below stage 5
-  the switcher sends what it did before. `WheelTest`, `WheelStage4Test`.
+- **The wheel** (C3 DW; stage 5 on a 256 KiB session with Main's own region; `DESIGN.md` §4.3): `motion/Wheel.kt`
+  (the cells from the switcher's own painters, the rule, the item table, the drum's two programs, their fit at the
+  Scroll tier's length and frames), resident at the end of Main's region (`shell/WheelResident.kt`, at most 20 KiB;
+  `Shell.pumpWheel` places and writes it through the stage lane in idle, keeps it current in place while the wheel
+  is closed, and Main's staging laid over it drops it). While the switcher is open and the offer holds
+  (`Shell.wheelNotOffered`: the block placed, written for this open's order, geometry and timing, and counted; three
+  rows or more), the block's list is bound as list 2 on a ring in slot 0 (`Shell.slot0` takes it first; entries 6
+  and 7, the report-only tap entry 0) and the local rules answer its reports as Main's; otherwise the phone draws
+  the wheel as below stage 5. The `Switcher` row (Drum · None; `ShellSettings.switcher`); a black margin of the
+  panel's disparity either side (`Shell.switcherMargin`); the `wheel` note at each close (`journal_report.py`'s
+  wheel report). `WheelCheck.kt` (`--motion-check`'s strips), `desktop --wheel-icons`. `WheelTest`,
+  `WheelStage4Test`, `WheelBindTest`, `WheelResidentTest`, `WheelAndHostSettingsTest`, `--local-check`'s wheel
+  cases, `LocalSequenceFuzzTest`, the `v5-ship-wheel-*` and `v5-dw-fire` vectors.
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 
@@ -1275,8 +1303,8 @@ the sections cited):
   measures exactly inside it (`WrapEstimateTest`); `Shell.pump` reserves one window slot for the pump after a
   ring event (`pumpPriority`) — two idle ticks in a row with the reserve holding and no flush completion between them
   give that tick's pump the whole window (one `link` note); `LinkState.transferMsPerKbEma` (flushes ≥ 1 KB, against
-  `floorMsEma` from flushes < 400 B) is the regime discriminator — the wheel spins in 2 frames above 50 ms/KB. **The
-  two fields hold medians, not EMAs** (§73; the names are the seam's): `transport/LinkEstimator.kt`
+  `floorMsEma` from flushes < 400 B) is the regime discriminator — the phone-drawn wheel spins in 2 frames above
+  50 ms/KB. **The two fields hold medians, not EMAs** (§73; the names are the seam's): `transport/LinkEstimator.kt`
   keeps the last nine ISOLATED flushes per term (every window slot free and no ack clock open when the lane
   took the flush — `CfwTransportBase.laneFlush`'s `alone`), prices a big flush against the measured floor,
   never takes a cache write as a floor reading, and starts over with each session; a term reads its default

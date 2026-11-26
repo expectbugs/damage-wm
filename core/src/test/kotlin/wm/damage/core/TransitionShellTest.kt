@@ -2022,13 +2022,13 @@ class TransitionShellTest {
     }
 
     /**
-     * OM-1 (was C3 X4T item 2's, `C3-V2T-review.md` 2): a second Encode act right after a first, into a dense page at 480
-     * (14 lines of 60 letters: two cell lists). The first — a Back out of the page — writes its records and lists
-     * deflated (mode 25), and that message still waits for the read that judges it when the second — a Select back into
-     * the page during the first's in half — is made. A waiting write no longer holds the next one plain (the transport
-     * judges the waiting writes together), so the second sends its records, out lists and in lists in ONE deflated
-     * message before its out PLAY, with no list write of its own — where X4T's single compressed slot sent the in lists
-     * after the out PLAY.
+     * OM-1 (was C3 X4T item 2's, `C3-V2T-review.md` 2), as OM-1F left it: a second Encode act right after a first, into a
+     * dense page at 480 (14 lines of 60 letters: two cell lists). The first — a Back out of the page — writes its records
+     * and lists deflated (mode 25), and no read has answered since when the second — a Select back into the page during
+     * the first's in half — is made. A write sent before holds no later one plain (a write goes deflated while ZWRITE is
+     * in force and mode 25 is not withdrawn), so the second sends its records, out lists and in lists in ONE deflated
+     * message before its out PLAY, with no list write of its own — where X4T's single compressed slot, held until a read
+     * answered after the first, sent the in lists after the out PLAY.
      */
     @Test
     fun aQuickSecondEncodeActSendsItsInListsWithItsRecordsDeflated_OM(): Unit = runBlocking {
@@ -2042,8 +2042,8 @@ class TransitionShellTest {
             r.doubleTap(); r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }; runEnds(r, "the Back ends"); r.settle("on Main")
             selectAndSettle(r)                                                  // into the page again (Depth)
             r.shell.updateSettings(only("encode")); r.settle("Encode checked")
-            // from the first act until the second is made, the read that would judge the first act's mode-25 write gets no
-            // answer (the transport asks again 2 s on): the window a phone's round trip gives on the glasses' link
+            // from the first act until the second is made, no read gets an answer (the transport asks again 2 s on): the
+            // window a phone's round trip gives on the glasses' link, in which the one-at-a-time rule held a write plain
             val dropReads = java.util.concurrent.atomic.AtomicBoolean(false)
             (r.t as StartRig).onNotify = { _, p -> if (dropReads.get() && StartRig.telemetry(p) != null) null else p }
             val region0 = r.t.state.value.transitionRegion!!
@@ -2055,7 +2055,6 @@ class TransitionShellTest {
             assertTrue(r.notes("transition").last { it.startsWith("owed: ") }.startsWith("owed: Back Encode reversed"), "${r.notes("transition")}")
             val first = right(r).first { img -> cacheWrites(img).any { it.first in region0 } }
             assertEquals(CfwModes.ZWRITE_MODE, first[0].toInt() and 0x7F, "precondition: the first act's records' write went deflated (mode 25)")
-            assertTrue(r.t.nextListDeflates(), "the first act's mode-25 write, still waiting for its judgment, holds no later write plain")
             r.images.clear()
             val owed0 = r.notes("transition").count { it.startsWith("owed: ") }
             r.tap()                                                             // the second act: Select, Encode
@@ -2082,7 +2081,7 @@ class TransitionShellTest {
             assertTrue(write in 0 until out && out < pa && lists == -1, "records before the out PLAY, no list write of its own: $said")
             assertTrue(w.size == 3 && w[0].first in region && w[1].first in reserve && w[2].first == w[1].first + w[1].second,
                 "the records, the out lists and the in lists right above them, one message: $said")
-            assertEquals(CfwModes.ZWRITE_MODE, imgs[write][0].toInt() and 0x7F, "deflated while the first act's write waits: $said")
+            assertEquals(CfwModes.ZWRITE_MODE, imgs[write][0].toInt() and 0x7F, "deflated with no read answered since the first act's write: $said")
             assertTrue(inHalfWhole(r), "$notes")
             r.assertOracle("after the second act")
         } finally { r.close() }

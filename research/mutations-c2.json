@@ -2142,8 +2142,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "listOf(ListStaging.WHOLE), motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)",
-    "ListStaging.WIDTHS + ListStaging.WHOLE, motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)"
+    "listOf(ListStaging.WHOLE), motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom,",
+    "ListStaging.WIDTHS + ListStaging.WHOLE, motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom,"
    ]
   ],
   "tests": [
@@ -2152,7 +2152,7 @@
   "expect": [
    "theBoundStagingHoldsOnlyTheWholeListsPans_AF10"
   ],
-  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 FF: the shell passes EFFECTS in force] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's]",
+  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 FF: the shell passes EFFECTS in force] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's] [re-pointed by C3 DM-2a to its present text: the rasterizer the records are drawn with passed after the band room]",
   "from": "FB"
  },
  {
@@ -3613,7 +3613,7 @@
   "file": "shell/ListStaging.kt",
   "edits": [
    [
-    "                room != null && room.any { it > 0 } || bandRoom?.any { it > 0 } == true -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit, false, stage5, fx)",
+    "                room != null && room.any { it > 0 } || bandRoom?.any { it > 0 } == true -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit, false, stage5, fx, text = text, recordsOff = recordsOff)",
     ""
    ]
   ],
@@ -3623,7 +3623,7 @@
   "expect": [
    "aRoomTheRegionCannotHoldIsLeftOut_B082"
   ],
-  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument (false on the ladder's later rungs)] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's]",
+  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument (false on the ladder's later rungs)] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's] [re-pointed by C3 DM-2a to its present text: the text rasterizer and the records' switch passed through the ladder]",
   "from": "B082"
  },
  {
@@ -3631,8 +3631,8 @@
   "file": "shell/ListStaging.kt",
   "edits": [
    [
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx)",
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, WRAP_NONE, false, stage5, fx)"
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx, text = text, recordsOff = recordsOff)",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, WRAP_NONE, false, stage5, fx, text = text, recordsOff = recordsOff)"
    ]
   ],
   "tests": [
@@ -3641,7 +3641,7 @@
   "expect": [
    "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
   ],
-  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's]",
+  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's] [re-pointed by C3 DM-2a to its present text: the text rasterizer and the records' switch passed through the ladder]",
   "from": "B082"
  },
  {
@@ -3649,7 +3649,7 @@
   "file": "shell/ListStaging.kt",
   "edits": [
    [
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx)",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx, text = text, recordsOff = recordsOff)",
     ""
    ]
   ],
@@ -3659,7 +3659,7 @@
   "expect": [
    "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
   ],
-  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font) [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's]",
+  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font) [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by K1-2 stage 1: AD.2's strip switch removed (one strip at every size), the band room beside the strip's] [re-pointed by C3 DM-2a to its present text: the text rasterizer and the records' switch passed through the ladder]",
   "from": "B082"
  },
  {
@@ -3793,8 +3793,8 @@
   "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = ease, n = swap, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))",
-    "lvl0 = 15, lvl1 = MainPan.LVL_BACK - 1, ease = ease, n = swap, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))"
+    "x = cx - bandD, xR = cx + bandD, y = l.lens.y, dx = -shift, dxR = shift,\n                        lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = ease",
+    "x = cx - bandD, xR = cx + bandD, y = l.lens.y, dx = -shift, dxR = shift,\n                        lvl0 = 15, lvl1 = MainPan.LVL_BACK - 1, ease = ease"
    ]
   ],
   "tests": [
@@ -3803,7 +3803,7 @@
   "expect": [
    "depthIsTodaysProgramsByteForByte_K11"
   ],
-  "note": "Depth's leaving form dims one level less far: END is unchanged (its last state is the entering form at 15), only the bytes pin sees it [re-pointed by K1-2 stage 2 to Main's Depth alone]",
+  "note": "Depth's leaving form dims one level less far: END is unchanged (its last state is the entering form at 15), only the bytes pin sees it [re-pointed by K1-2 stage 2 to Main's Depth alone] [re-pointed by C3 DM-2a to its present text: Matrix's band track repeats Depth's band line, so the edit names Depth's own x]",
   "from": "K1-1"
  },
  {
@@ -8346,8 +8346,8 @@
   "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "if (asked == ScrollEffect.CRUSH) Plays(ScrollEffect.SLIDE, false, why)",
-    "if (asked == ScrollEffect.CRUSH) Plays(ScrollEffect.DEPTH, false, why)"
+    "ScrollEffect.CRUSH -> Plays(ScrollEffect.SLIDE, false, why)",
+    "ScrollEffect.CRUSH -> Plays(ScrollEffect.DEPTH, false, why)"
    ]
   ],
   "tests": [
@@ -8356,7 +8356,7 @@
   "expect": [
    "aStoredCrushAtStage4PlaysSlidesBytesExactly_DM1"
   ],
-  "note": "C3 DM-1 (D3, the stage-5 form): a stored Crush below stage 5 plays Depth, not Slide's bytes",
+  "note": "C3 DM-1 (D3, the stage-5 form): a stored Crush below stage 5 plays Depth, not Slide's bytes [re-pointed by C3 DM-2a to its present text: the fallback is a `when` over Crush and Matrix]",
   "from": "C3-DM1"
  },
  {
@@ -13137,75 +13137,287 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "            if (zwriteOff) return list19",
-    "            if (zwriteOff || zwSet != null) return list19"
+    "    private var zwriteOff = false\n",
+    "    private var zwriteOff = false\n    private var zwOne: Int? = null\n"
+   ],
+   [
+    "            if (zwriteOff) return list19\n            val z = CfwModes.zwrite(list19)\n            return if (z.size < list19.size) z else list19",
+    "            if (zwriteOff || zwOne != null) return list19\n            val z = CfwModes.zwrite(list19)\n            if (z.size < list19.size) zwOne = telemetryIds.get()\n            return if (z.size < list19.size) z else list19"
+   ],
+   [
+    "        synchronized(zwLock) { return !zwriteOff }",
+    "        synchronized(zwLock) { return !zwriteOff && zwOne == null }"
+   ],
+   [
+    "synchronized(zwLock) { zwriteOff = false }",
+    "synchronized(zwLock) { zwriteOff = false; zwOne = null }"
+   ],
+   [
+    "            zwRecord = rec\n",
+    "            zwRecord = rec\n            zwOne?.let { a -> val id = t.requestId?.toInt() ?: 0; if (id != 0 && ((id - a) and 0xFFFF) in 1..0x7FFF) zwOne = null }\n"
    ]
   ],
   "tests": [
-   "*MotionTransportTest.aSecondListGoesDeflatedWhileTheFirstWaits_OM*",
+   "*MotionTransportTest.aSecondListGoesDeflatedRightBehindTheFirst_OM*",
+   "*MotionTransportTest.theNextListDeflatesWhileZwriteIsInForceAndNotWithdrawn_OM*",
    "*StagePiecesTest.everyPieceOfARecordGoesDeflated_OM*",
-   "*StagingTest.everyMessageOfAnAtlasBatchGoesDeflated_OM*"
+   "*StagingTest.everyMessageOfAnAtlasBatchGoesDeflated_OM*",
+   "*TransitionShellTest.aQuickSecondEncodeActSendsItsInListsWithItsRecordsDeflated_OM*"
   ],
   "expect": [
-   "aSecondListGoesDeflatedWhileTheFirstWaits_OM",
+   "aSecondListGoesDeflatedRightBehindTheFirst_OM",
+   "theNextListDeflatesWhileZwriteIsInForceAndNotWithdrawn_OM",
    "everyPieceOfARecordGoesDeflated_OM",
-   "everyMessageOfAnAtlasBatchGoesDeflated_OM"
+   "everyMessageOfAnAtlasBatchGoesDeflated_OM",
+   "aQuickSecondEncodeActSendsItsInListsWithItsRecordsDeflated_OM"
   ],
-  "note": "C3-OM1: one deflated write waiting at a time again (the set held to one member: a write behind it goes plain) (spec §5 row `OM-set-one`)",
+  "note": "C3-OM1, re-pointed by C3-OM1F (the set is gone): the old one-at-a-time rule restored — after a deflated write, every later one goes plain and nextListDeflates() answers false until a reply to a later telemetry request (X4T's queued-ahead count, gone with OM-1, not restored)",
   "from": "C3-OM1"
  },
  {
-  "id": "OM-afterid-first",
-  "file": "transport/CfwTransportBase.kt",
+  "id": "DM2a-window-plays-asked",
+  "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "            s.afterId = telemetryIds.get()",
-    "            if (s.lists.size == 1) s.afterId = telemetryIds.get()"
+    "asked in WINDOW_EFFECTS -> Plays(asked, true)",
+    "asked != ScrollEffect.CRUSH && asked != ScrollEffect.FLIP -> Plays(asked, true)"
    ]
   ],
   "tests": [
-   "*MotionTransportTest.aReplyToAnOlderRequestDoesNotJudgeALaterMember_OM*"
+   "*ScrollEffectsTest.aWindowListPlaysDepthForAnEffectItsFormDoesNotPlay_DM2a*",
+   "*WindowListShellTest.filesPlaysSlideWhileMainPlaysDepth_K12S3c*"
   ],
   "expect": [
-   "aReplyToAnOlderRequestDoesNotJudgeALaterMember_OM"
+   "aWindowListPlaysDepthForAnEffectItsFormDoesNotPlay_DM2a",
+   "filesPlaysSlideWhileMainPlaysDepth_K12S3c"
   ],
-  "note": "C3-OM1: the set's judging request id taken at its first member only (a reply to a request made before a later member judges it) (spec §5 row `OM-afterid-first`)",
-  "from": "C3-OM1"
+  "note": "C3 DM-2a: the unfixed tree's window branch — an effect the window form does not play (Matrix) is asked of its builder instead of playing Depth, said",
+  "from": "DM-2a"
  },
  {
-  "id": "OM-resend-last",
-  "file": "transport/CfwTransportBase.kt",
+  "id": "DM2a-no-records-predicate",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
-    "            for ((i, list) in w.lists.withIndex()) {",
-    "            for ((i, list) in w.lists.withIndex().toList().takeLast(1)) {"
+    "if (wantRecords != recordEffect) return",
+    "if (false && wantRecords != recordEffect) return"
    ]
   ],
   "tests": [
-   "*MotionTransportTest.aRefusalReSendsEveryWaitingListInOrder_OM*"
+   "*ScrollEffectsTest.aChangeIntoOrOutOfMatrixIsAFullStaging_DM2a*",
+   "*MainLocalShellTest.aChangeIntoOrOutOfMatrixIsAFullStagingEachWay_DM2a*"
   ],
   "expect": [
-   "aRefusalReSendsEveryWaitingListInOrder_OM"
+   "aChangeIntoOrOutOfMatrixIsAFullStaging_DM2a",
+   "aChangeIntoOrOutOfMatrixIsAFullStagingEachWay_DM2a"
   ],
-  "note": "C3-OM1: a refusal naming 25 re-sends only the set's last list (spec §5 row `OM-resend-last`)",
-  "from": "C3-OM1"
+  "note": "C3 DM-2a (decisions DW 1, 2): a change into or out of Matrix re-makes the pans alone beside records that are not there or left behind, never a full staging",
+  "from": "DM-2a"
  },
  {
-  "id": "OM-resend-none",
-  "file": "transport/CfwTransportBase.kt",
+  "id": "DM2a-records-not-given-up-first",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
-    "            for ((i, list) in w.lists.withIndex()) {",
-    "            for ((i, list) in w.lists.withIndex().toList().take(0)) {"
+    "if (at > regionEnd && recEffect != null) return withoutRecords(",
+    "if (false && at > regionEnd && recEffect != null) return withoutRecords("
    ]
   ],
   "tests": [
-   "*MotionTransportTest.aRefusalReSendsEveryWaitingListInOrder_OM*"
+   "*ScrollEffectsTest.aStagingWithoutRecordsIsTodaysAndRecordsAreGivenUpFirst_DM2a*"
   ],
   "expect": [
-   "aRefusalReSendsEveryWaitingListInOrder_OM"
+   "aStagingWithoutRecordsIsTodaysAndRecordsAreGivenUpFirst_DM2a"
   ],
-  "note": "C3-OM1: a refusal naming 25 re-sends nothing (the count's shortfall path alone) (spec §5 row `OM-resend-none`)",
-  "from": "C3-OM1"
+  "note": "C3 DM-2a (decisions DW 4): where Matrix's staging does not fit, lessOrNull's order runs first (the spare pan slot goes) and the records stay",
+  "from": "DM-2a"
+ },
+ {
+  "id": "DM2a-slot-over-every-effect",
+  "file": "shell/ListStaging.kt",
+  "edits": [
+   [
+    "val slotEffects = if (recEffect != null) listOf(recEffect) else ScrollEffect.entries.filter { !ScrollEffects.hasRecords(it) }",
+    "val slotEffects = if (recEffect != null) listOf(recEffect) else ScrollEffect.entries"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.aStagingWithoutRecordsIsTodaysAndRecordsAreGivenUpFirst_DM2a*"
+  ],
+  "expect": [
+   "aStagingWithoutRecordsIsTodaysAndRecordsAreGivenUpFirst_DM2a"
+  ],
+  "note": "C3 DM-2a (decisions DW 3, DV 2): a staging without records sizes its pan slot over Matrix too — at stage 5 Matrix's pans are made with no rain record and the staging is refused (caught by that LintError, not by the byte comparison)",
+  "from": "DM-2a"
+ },
+ {
+  "id": "DM2a-matrix-no-rain",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "track(wL, wR, Motion.Backdrop.None) { rain(rain, t, x = 0, xR = 0, seed = RAIN_SEED, mixTag = true) }",
+    "track(wL, wR, Motion.Backdrop.None) { wait(t) }"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.matrixsRainFallsThroughTheRowsAndIsGoneAtT_DM2a*"
+  ],
+  "expect": [
+   "matrixsRainFallsThroughTheRowsAndIsGoneAtT_DM2a"
+  ],
+  "note": "C3 DM-2a: Matrix's pans with no rain — Depth's picture at every step",
+  "from": "DM-2a"
+ },
+ {
+  "id": "DM2a-rain-seed",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "const val RAIN_SEED = 0x4D58",
+    "const val RAIN_SEED = 0x4D59"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest.mainsMatrixPansInVDmRainFireAreTheProductsBytes_DM2a*"
+  ],
+  "expect": [
+   "mainsMatrixPansInVDmRainFireAreTheProductsBytes_DM2a"
+  ],
+  "note": "C3 DM-2a (decisions DW 7, 10): the product's pans leave v5-dm-rain-fire's bytes (the seed the vector pins)",
+  "from": "DM-2a"
+ },
+ {
+  "id": "P-zw-gate",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (_state.value.flagsInForce and DamageMsg.FLAG_ZWRITE == 0) return list19\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.noMode25Or26ReachesTheWireWithoutTheLaddersBits_6_2*"
+  ],
+  "expect": [
+   "noMode25Or26ReachesTheWireWithoutTheLaddersBits_6_2"
+  ],
+  "note": "spec §6.1: mode 25 only with ZWRITE in force (carried by C3-OM1F from the C1 list, test glob narrowed)",
+  "from": "C1 / C3-OM1F"
+ },
+ {
+  "id": "P-zw-max-list",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "list19[0].toInt() != 19 || list19.size - 1 > CfwModes.ZWRITE_MAX) return list19",
+    "list19[0].toInt() != 19) return list19"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.theMode25JudgesBounds_DM1*"
+  ],
+  "expect": [
+   "theMode25JudgesBounds_DM1"
+  ],
+  "note": "§5.9: a list past 16,384 B goes as mode 19 (carried by C3-OM1F from the C1 list, test glob narrowed)",
+  "from": "C1 / C3-OM1F"
+ },
+ {
+  "id": "P-zw-off-OM",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (zwriteOff) return list19",
+    "            if (false) return list19"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*",
+   "*MotionTransportTest.theMode25JudgesBounds_DM1*"
+  ],
+  "expect": [
+   "aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9",
+   "theMode25JudgesBounds_DM1"
+  ],
+  "note": "spec §2 row 23, B-N6: after a refusal, mode 19 for the session (the C1 list's P-zw-off re-pointed: reader b's candidate, carried by C3-OM1F)",
+  "from": "C1 / C3-OM1F"
+ },
+ {
+  "id": "P-zw-withdrawn-OMF",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (withdraw) zwriteOff = true\n            withdraw\n",
+    "            false\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*",
+   "*MotionTransportTest.aLateMode25RefusalSendsNothingAgainAndLeavesTheCountShort_OMF*",
+   "*MotionTransportTest.theMode25JudgesBounds_DM1*"
+  ],
+  "expect": [
+   "aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9",
+   "aLateMode25RefusalSendsNothingAgainAndLeavesTheCountShort_OMF",
+   "theMode25JudgesBounds_DM1"
+  ],
+  "note": "a record newly naming 25 withdraws mode 25 for the session, said (the C1 list's P-zw-withdrawn re-pointed to the one branch left, C3-OM1F)",
+  "from": "C1 / C3-OM1F"
+ },
+ {
+  "id": "P-zw-judge-differs-OMF",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "rec.first == CfwModes.ZWRITE_MODE && rec != before && !zwriteOff",
+    "rec.first == CfwModes.ZWRITE_MODE && !zwriteOff"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*"
+  ],
+  "expect": [
+   "(no pin: reached only by a RIGHT record that arrives after the start's arming and before its fid-ring clear (mode 7 sub 0 empties fields 23-25, FIRMWARE.md section 4) while a mode-25 refusal stands from before the session; run once by C3-OM1F against the 5_9 test's second session, nothing failed)"
+  ],
+  "note": "only a NEW record naming 25 withdraws: a refusal standing on RIGHT's record from before the session is its baseline (the C1 list's P-zw-judge-differs re-pointed, C3-OM1F)",
+  "from": "C1 / C3-OM1F"
+ },
+ {
+  "id": "OMF-start-keeps-off",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "synchronized(zwLock) { zwriteOff = false }",
+    "synchronized(zwLock) { }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*"
+  ],
+  "expect": [
+   "aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9"
+  ],
+  "note": "C3-OM1F: a session start allows mode 25 again (without it a refusal keeps every later session on mode 19)",
+  "from": "C3-OM1F"
+ },
+ {
+  "id": "OMF-unsaid",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (withdrawn) emitNote(\"glass\", ",
+    "        if (false) emitNote(\"glass\", "
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*",
+   "*MotionTransportTest.aLateMode25RefusalSendsNothingAgainAndLeavesTheCountShort_OMF*"
+  ],
+  "expect": [
+   "aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9",
+   "aLateMode25RefusalSendsNothingAgainAndLeavesTheCountShort_OMF"
+  ],
+  "note": "C3-OM1F: the withdrawal of mode 25 is said once, naming the count as the judge (no silent failure)",
+  "from": "C3-OM1F"
  }
 ]
