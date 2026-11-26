@@ -12110,8 +12110,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        wheel.reserved = size\n        if (windowListFirst()) return false\n",
-    "        wheel.reserved = size\n"
+    "        wheel.reserved = size\n        if (windowListFirst() || pageStagingFirst(st)) return false\n",
+    "        wheel.reserved = size\n        if (pageStagingFirst(st)) return false\n"
    ]
   ],
   "tests": [
@@ -12120,7 +12120,7 @@
   "expect": [
    "aSessionStartWithAWindowsListInFrontBindsTheListBeforeTheBlocksWrite_DW1b2"
   ],
-  "note": "C3 DW-1b-2 (decisions DF finding 2): the wheel's block written ahead of a window's list in front at a session start (CK A3's old order) — the list waits for the whole block",
+  "note": "C3 DW-1b-2 (decisions DF finding 2): the wheel's block written ahead of a window's list in front at a session start (CK A3's old order) — the list waits for the whole block (re-pointed by DW-2b: the line also holds the document's hold, which stays)",
   "from": "DW-1b-2"
  },
  {
