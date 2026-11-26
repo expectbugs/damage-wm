@@ -110,8 +110,9 @@ object is an older store's removal mark) · `styleTransform`/`styledText()`
 (route EVERY measure/draw through it) · `back()` / `levelDepth()` · `onTypedText(line)` (confirm-staged) ·
 `open(target)` (§16.1: opaque per-window target, false = loud) · `contentPlanes(content)` (stereo regions
 inside the content area, up to `Shell.MAX_WINDOW_PLANES` = 4, validated and capped by the shell; empty = the
-content plane) · the hooks `onRegistered` / `onActivate(ctx, from)` / `onDeactivate` / `onLayoutChanged` /
-`onFontScaleChanged`.
+content plane) · `lanes(content)` (rects the glasses animate while the window keeps painting, at ladder stage 5;
+Music only: `IMPLEMENTATION.md`, "Held lanes") · the hooks `onRegistered` / `onActivate(ctx, from)` /
+`onDeactivate` / `onLayoutChanged` / `onFontScaleChanged`.
 
 **`ActivationSource` (2026-09-04, Adam's general rule):** `SWITCHER` resumes exactly where the window was;
 `MAIN` presents the root list; `DEEP_LINK` goes to the target; `RESTORE` changes nothing. Every window with

@@ -1264,7 +1264,7 @@ is stated there.
   source is a record *(C3, §7.5: a version-2 DRAW also scales `new` and a record's source window)* — `self` with h0/h1 ≠ 0 is 12 at a PLAY and at a RETARGET whose parameters scale it; a COMMIT
   and a fire refuse ANY `self` earlier in their order, with 5 (§6.5, §6.2 step 10) (ruled on the fork's first review
   pass: no use asks for a scaled capture; `v4-scaled-self` pins the four sites) — at a PLAY, a COMMIT and a fire alike; on RETARGET's restart path H is clamped to 1..2048 as levels
-  are (R1.10). The wheel's drum (`MOTION.md` W1/W2) and Pulse use it; the icon grow (M2) was cut on 2026-11-18 (Adam:
+  are (R1.10). The wheel's drum (`MOTION.md` W1/W2) uses it; the icon grow (M2) was cut on 2026-11-18 (Adam:
   no size change in Main's focus motion). `tools/verify.py` step 7 is run again on the grown engine function.
 
 ### 6.7 The phone's rules (built in its transport and shell; none of them is firmware)
@@ -2824,11 +2824,11 @@ silent-mode clock): the glasses draw them after the frame copy from cached fonts
 the phone sets; they are outside the shadow and the phone never paints them. RTC and fuel-gauge
 sources are stock functions (`FORK.md` R0.5).
 
-Two candidates for the same build, from Music's motion update (`MUSIC.md` §14.2 E; asked 2026-11-22, not
-designed): a cell whose digits count by themselves from a start value and a rate (the track timer — the clock
-cell's mechanism with another source), and a brightness schedule for the whole panel (tempo, phase, depth,
-length) that each lens follows on its own tick (the Global `Pulse`). Open before either is designed: the stock
-panel-brightness path read at instruction level, and whether it writes to storage on each change.
+One candidate for the same build from Music's motion update (`MUSIC.md` §14.2 E; asked 2026-11-22, not
+designed): a brightness schedule for the whole panel (tempo, phase, depth, length) that each lens follows on its
+own tick (the Global `Pulse`). Open before it is designed: the stock panel-brightness path read at instruction
+level, and whether it writes to storage on each change. The track timer needs no cell: the phone repaints its
+digits once a second (`MUSIC.md` §14.2 A).
 
 ### 8.2 v2 offline home (Phase 7; step G, decided again, `REPLAN.md` §4) — *draft*
 
@@ -2920,13 +2920,14 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   notice, the ring list; C3 X3D and SVR; a window's list bound as list 1, the `v5-ship-list1-*` acts, K1-2 stage 4;
   the app switcher's wheel, five `v5-ship-wheel-*` acts — opening with notches, a yield, Main's late report, a commit
   to a window, a cancel — C3 DW-3), the wheel's hand-made `v5-dw-fire` (both wheel programs bound on ring lists: fires
-  mid-list and at both wraps, the COMMITs of the reports, the report-only tap), and Music's two held-lane shapes
-  (`v5-mml-*`, its stage L), all filled by the fork's runner. The differential fuzz (`firmware/fuzz_vectors.py`; each
-  switch's text is its docstring) has a switch per build — `--c1` (§5.10), `--c2` (§6.10), `--c3` (§7.13) with its
-  widening `--c3x` — and `--dw` (with `--c3`) for the app switcher's shapes `--c3` never draws: version-2 records bound
-  on list 2 as a ring with its scroll entries 6 and 7, and one report-only tap entry held by two lists in turn. Its
-  sets are written outside the repository and filled by the fork's runner; on `--dw`'s seeds 3..42 and 1003..1042 (80
-  vectors, 2,558 steps, 5,116 lens-steps) the model answers as the C does on every step, refusals included.
+  mid-list and at both wraps, the COMMITs of the reports, the report-only tap), and Music's four held-lane shapes
+  (`v5-mml-*`: the bar and its chain, stage L; Scope and its chain, stage S), all filled by the fork's runner.
+  The differential fuzz (`firmware/fuzz_vectors.py`; each switch's text is its docstring) has a switch per build —
+  `--c1` (§5.10), `--c2` (§6.10), `--c3` (§7.13) with its widening `--c3x` — and `--dw` (with `--c3`) for the app
+  switcher's shapes `--c3` never draws: version-2 records bound on list 2 as a ring with its scroll entries 6 and 7,
+  and one report-only tap entry held by two lists in turn. Its sets are written outside the repository and filled by
+  the fork's runner; on `--dw`'s seeds 3..42 and 1003..1042 (80 vectors, 2,558 steps, 5,116 lens-steps) the model
+  answers as the C does on every step, refusals included.
 
 ## 10. Lifecycle
 
@@ -3218,3 +3219,5 @@ phone's keeper applies the hold-back rule before re-arming.
   of a transition's step, with the period stretched to the tier's length for the four effects on the fit (X2MX2).
 - 2026-11-24 — §6.7 P9: the switcher wheel's block as a resident tenant of the region, and in-place writes to
   records only an unbound list names (DW-1a).
+- 2026-11-26 — §8.1: one candidate from Music's motion update (the timer's digits need no cell); §9: Music's four
+  held-lane shapes (stages L and S).

@@ -209,9 +209,11 @@ whatever content had to be staged, not N frames on the wire.
 | U8 | enter/exit Music Mode | the window surfaces stack in / the panel clears | PB | the surfaces cached | P3 | exclusive mode entrance |
 | U9 | boost/limiter badge | the boost badge appears; a notice on max+boost | CB + N | — | P3 | low value |
 
-**Planned on 2026-11-22 (Adam's ask): Music's motion update** — the bar and timer, the visualizers and the
-lyrics as programs sent ahead of the playhead, new visualizers, lyric effects by the word, a Global beat pulse.
-The design and its open reads are `MUSIC.md` §14; its place in the order `REPLAN.md` §17.3 item 9.
+**Music's motion update (Adam's ask, 2026-11-22)** — the bar and timer, the visualizers and the lyrics as programs
+sent ahead of the playhead, new visualizers, lyric effects by the word, a Global beat pulse. At ladder stage 5 the
+bar (U2) and Scope (U7) are built as programs the glasses play, the timer as the phone's repaint each second; the
+rest is planned. The design, what is built and what is open: `MUSIC.md` §14; its place in the order `REPLAN.md`
+§17.3 item 9.
 
 ### 2.6 Feed (`FEED.md`)
 

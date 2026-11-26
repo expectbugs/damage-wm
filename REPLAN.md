@@ -531,7 +531,8 @@ to him at the sitting before it (the previous deploy), so a "go" costs no sittin
 offline-home C3 of row G). **In progress:** K1, the motion kit's shell part (§17.3 items 6 and 8; from APK 0.83,
 §100, §101) · S1-4's first half (Music) and S1-5 (Games, Main and Settings on the PC's record, the Settings page, the
 sync channel removed) built, reviewed and on `main`, not deployed (§97) · R-b's health view the same (§17.4) · Music's
-motion update (`MUSIC.md` §14, §17.3 item 9) in work. **Not started:** S2, K2–K4, Reminders, S3, G.
+motion update (`MUSIC.md` §14, §17.3 item 9): the bar with its timer and Scope built and reviewed, the rest at K3.
+**Not started:** S2, K2–K4, Reminders, S3, G.
 
 | build | contains | he sees in daily use | needs from him (sittings) | before it starts | gate |
 |---|---|---|---|---|---|
@@ -800,10 +801,11 @@ what an actor may do; the snapshot judge; one look at every page in a real brows
 9. **Music's motion update, asked by Adam on 2026-11-22** (`MUSIC.md` §14): the progress bar and timer, the
    visualizers and the lyrics become programs the glasses play on their own clock, sent ahead of the playhead; new
    visualizers; lyric effects by the line and by the word; a Global beat pulse. Its place: Music's turn in the kit
-   (§16.1's K3), after S1-4's first half is merged. The PC's precompute (strips, the beat schedule, word times)
-   depends on no device and may be built ahead (item 7). Its two firmware items (the pulse's brightness schedule,
-   timer digits that count by themselves) ride the next firmware build beside `FIRMWARE.md` §8.1's chrome, with
-   that build's design pass and his go for the flash. It does not jump the order.
+   (§16.1's K3), after S1-4's first half is merged; on his word of 2026-11-24 the bar with its timer and Scope
+   (stages L and S) were built ahead of it. The PC's precompute (strips, the beat schedule, word times) depends on
+   no device and may be built ahead (item 7). Its one firmware item, the pulse's brightness schedule, rides the next
+   firmware build beside `FIRMWARE.md` §8.1's chrome, with that build's design pass and his go for the flash; the
+   timer's digits need none. It does not jump the order.
 
 10. **S1-5's five questions, answered by Adam on 2026-11-23: "All your recommendations above are good."** Hold'em's
     page in the browser waits until he asks (Games still moves onto the PC's record); the desk pieces (side by
