@@ -2952,14 +2952,18 @@ class Shell(
 
     /** One record of the stage lane's own books ([ownRecs]: the notice's programs, the held lanes' areas) written, after
      *  Page staging's holds, every one (fix A2): the atlas's lane, the count's reading, a re-send owed, one unproven
-     *  record at a time. */
-    private suspend fun stageOwnRecord(rec: StagedRecord, st: LinkState): Boolean {
+     *  record at a time. [whole] (Music stage SF2, `MM-S-V2-review.md` 2; the held lanes' areas): the record goes as ONE
+     *  message when its entry list fits mode 25's inflate (`FIRMWARE.md` §5.9: 16,384 B) and the transport says a write
+     *  submitted now goes deflated — the transitions' rule ([Transport.nextListDeflates]): the transport deflates one
+     *  waiting message at a time, so a second piece right behind the first went raw. Otherwise today's pieces. */
+    private suspend fun stageOwnRecord(rec: StagedRecord, st: LinkState, whole: Boolean = false): Boolean {
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight || st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
         if (stage.count(StagedRecord.State.ACKED) > 0 || ownRecs().any { it.state == StagedRecord.State.ACKED }) return false
         if (atlasResendMissing > 0L) return false
-        stageSubmit(rec, st)
+        val one = whole && rec.encoded.size + 4 <= CfwModes.ZWRITE_MAX && transport.nextListDeflates()
+        stageSubmit(rec, st, chunk = if (one) CfwModes.ZWRITE_MAX - 4 else STAGE_CHUNK)
         return true
     }
 
@@ -3123,7 +3127,13 @@ class Shell(
             written = { (l, r) -> comp.laneWritten(l, r) }) { slot ->
             transport.mirror.motionTagIn(Arm.RIGHT, slot)
         })
-        lanes.takeRelease()?.let { comp.laneRelease(it) }
+        lanes.takeRelease()?.let {
+            comp.laneRelease(it)
+            // Music stage SF2 (`MM-S-V2-review.md` 1): in Exclusive mode the window paints now, in the pump that takes the
+            // release and before its frame — the released cells are written from the place shown now, not from the strip's
+            // last once-a-second paint (which went out for one flush at every chain end). The notice's furl paints here too
+            if (mode == Mode.EXCLUSIVE) paintExclusiveDelta()
+        }
         comp.laneHold = lanes.hold                    // empty whenever a list is in front: the gate ends the chain first
     }
 
@@ -3153,7 +3163,7 @@ class Shell(
         } ?: return false
         if (pagingInFront() || cacheWritesHeld()) return false
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld || !ledgerReadable(st)) return false
-        return stageOwnRecord(rec, st)
+        return stageOwnRecord(rec, st, whole = true)
     }
 
     /** Tests: the lanes' chain (open, its (slot, tag)s, its areas' states, strikes off). */
@@ -4923,26 +4933,27 @@ class Shell(
      *  record whole at its place. [namesLast]: the last part names the rest (a band switch's item word) and goes alone,
      *  after every other piece was acknowledged. [mayGo]: whether a piece after the first may go now (the record's
      *  owner's gate, read afresh on every pump). [onBooked]: what makes the record nameable — run when the naming piece
-     *  is submitted, else at the last piece's ack. The first piece goes now. */
+     *  is submitted, else at the last piece's ack. [chunk]: a message's data at most (Music stage SF2: the held lanes'
+     *  area as one message where it may go deflated, [stageOwnRecord]). The first piece goes now. */
     private suspend fun stageSubmit(rec: StagedRecord, st: LinkState, parts: List<Pair<Int, ByteArray>> = listOf(rec.off to rec.encoded),
-                                    namesLast: Boolean = false, mayGo: () -> Boolean = { true },
+                                    namesLast: Boolean = false, mayGo: () -> Boolean = { true }, chunk: Int = STAGE_CHUNK,
                                     onBooked: (() -> Unit)? = null) {
-        stageCursor = StageCursor(rec, stagePieces(parts, namesLast, st.cacheSize), mayGo, onBooked)
+        stageCursor = StageCursor(rec, stagePieces(parts, namesLast, st.cacheSize, chunk), mayGo, onBooked)
         stageSendPiece(st)
     }
 
     /** [parts] as pieces of one mode-19 message each: consecutive data parts packed at their own offsets, split so a
-     *  message carries at most [STAGE_CHUNK] bytes of data (its entries' 4-byte headers beside them; parts are 4-byte
+     *  message carries at most [chunk] bytes of data (its entries' 4-byte headers beside them; parts are 4-byte
      *  aligned, so a split keeps every offset aligned); with [namesLast] the last part alone, last. */
-    private fun stagePieces(parts: List<Pair<Int, ByteArray>>, namesLast: Boolean, cacheSize: Int): List<StagePiece> {
+    private fun stagePieces(parts: List<Pair<Int, ByteArray>>, namesLast: Boolean, cacheSize: Int, chunk: Int = STAGE_CHUNK): List<StagePiece> {
         val out = ArrayList<StagePiece>()
         var entries = ArrayList<CfwModes.CacheWrite2>()
-        var room = STAGE_CHUNK + 4                                  // header + data of the message's entries
+        var room = chunk + 4                                        // header + data of the message's entries
         fun close(names: Boolean) {
             if (entries.isEmpty()) return
             out += StagePiece(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(entries, cacheSize)), entries.sumOf { it.data.size }, names,
                 entries.map { it.off4 * 4 until it.off4 * 4 + it.data.size })
-            entries = ArrayList(); room = STAGE_CHUNK + 4
+            entries = ArrayList(); room = chunk + 4
         }
         for ((i, part) in parts.withIndex()) {
             val (off, bytes) = part
