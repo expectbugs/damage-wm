@@ -550,6 +550,10 @@ internal object ShipVectors {
             RingSpec("${PREFIX}ring-pitch-352", ScrollEffect.DEPTH, 352, RingForm.PITCH))
     }
 
+    /** C3 stage DM-2a (decisions DW 6): Matrix on Main at stage 5 — its ring NOTCHES at 352 (a notch down and up mid-list,
+     *  then the two wraps), its rain records staged with the list; unfilled until the fork's fill (`DM2A_UNFILLED`). */
+    fun dm2aActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-matrix-352", ScrollEffect.MATRIX, 352, RingForm.NOTCHES))
+
     /** C3 stage X2MX2 (decisions CM (2)): Crush's notch on Main's ring list at 352 answered only after its END ([RingForm.LATE]). */
     fun x2mx2Acts(): List<Act> = listOf(RingSpec("${PREFIX}ring-crush-late-352", ScrollEffect.CRUSH, 352, RingForm.LATE))
 
@@ -621,7 +625,7 @@ internal object ShipVectors {
 
     /** Every ship act: the transitions ([specs]), then SV-083's scroll and notice acts, then SVR's ring acts, then SV2's,
      *  then X2MX2's, then SV3's, then K1-2 stage 4f's list-1 acts, then DW-3's wheel acts. */
-    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts() + x2mx2Acts() + sv3Acts() + list1Acts() + wheelActs()
+    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts() + x2mx2Acts() + sv3Acts() + list1Acts() + wheelActs() + dm2aActs()
 
     /** [act] as the rig plays it, and its vector. */
     suspend fun captureAct(act: Act): Captured = when (act) {
