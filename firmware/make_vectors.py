@@ -4471,14 +4471,14 @@ staging (`MainLocalCheck.MainRig(BoxFace, 352)`, Matrix at stage 5): the band (x
 and the rows' width (content less the rail), the list's and the band's disparities, the rows above and below the band a
 whole-list pan draws, the count, and the ring's margin (rows above + 1). `Version2MotionTest` checks them against the
 staging."""
-DM_RAIN_SEED = 0x4D58          # the product's `ScrollEffects.RAIN_SEED`: a constant of ours (decisions DW 10); the vector pins the bytes
 DM_LVL_BACK = 8                # `MainPan.LVL_BACK`: the leaving band form's level at the swap (Depth's band, K1-1)
 
 def dm_matrix_prog(g, strip4, band4, rain4, step, T, swap):
     """Main's Matrix pan (the DM-2 spec §1.5; decisions DR (b), DW 5): five per-lens tracks, version 2, no OWN — T0 the
     rows' and band's whole area W at level 0, waiting T (the backdrop T3 needs); T1 and T2 Depth's rows above and below
     the band (the strip at y ← P0 and y ← P3, one pitch over T, ease 1); T3 a reveal-0 rain over W, backdrop none, its
-    seed mixed with the tag (opt bit 7); T4 Depth's band — the leaving form (src ← P2) at the band's plane to the list's
+    seed h0 ← P1 (the entering row's band form, kind 1: both lenses compute it from the cursor) and no tag mixed in (C3
+    DM-2aF, decisions EV 1: a local fire's tag is each lens's own S, §6.4); T4 Depth's band — the leaving form (src ← P2) at the band's plane to the list's
     and level 15 → 8 over the swap's steps, then the entering one (src ← P1) from the list's plane to the band's and 8 → 15."""
     lx, ly, lw, lh = g["lens"]
     rh, cx, rw, dL, dB, kA, kB = g["rowH"], g["cx"], g["rowW"], g["listD"], g["bandD"], g["kA"], g["kB"]
@@ -4492,7 +4492,7 @@ def dm_matrix_prog(g, strip4, band4, rain4, step, T, swap):
         track(W, 0, w2(T)),
         track(A, 0, rows(0)),
         track(B, 0, rows(3)),
-        track(W, BD_NONE, gly(T, RAIN, rain4, seed=DM_RAIN_SEED, opt=0x80)),
+        track(W, BD_NONE, gly(T, RAIN, rain4, pref0=pref(1, F_H0))),
         track(N, 0, d2(swap, band4, cx - dB, ly, dx=-shift, xR=cx + dB, dxR=shift, lvl=(15, DM_LVL_BACK), ease=EASE_OUT,
                        pref0=pref(2, F_SRC)),
                     d2(T - swap, band4, cx - dL, ly, dx=shift, xR=cx + dL, dxR=-shift, lvl=(DM_LVL_BACK, 15), ease=EASE_OUT,
