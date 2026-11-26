@@ -49,10 +49,10 @@ import wm.damage.core.windows.reader.ReaderCore
  * the host, and nothing here acts on what it reads ("shown only" says so where nothing else does).
  */
 
-/** His question Q2 (open; `RB-lean-spec.md` §1, recommended): the data folder's disk is in ALARM when LESS THAN this
+/** His question Q2 (answered by him on 2026-11-25): the data folder's disk is in ALARM when LESS THAN this
  *  percent of it is free (strict "less than"; about 72 GB of the 3.6 TB root). His answer changes this constant only. */
 const val DISK_ALARM_FREE_PCT = 2.0
-/** His question Q2 (open; recommended): the disk is in ATTENTION when LESS THAN this percent is free (strict "less
+/** His question Q2 (answered by him on 2026-11-25): the disk is in ATTENTION when LESS THAN this percent is free (strict "less
  *  than"; about 180 GB). His answer changes this constant only. */
 const val DISK_ATTENTION_FREE_PCT = 5.0
 
