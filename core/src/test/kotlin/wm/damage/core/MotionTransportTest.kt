@@ -762,11 +762,13 @@ class MotionTransportTest {
     }
 
     // ------------------------------------------------------------------------------------------- mode 25 (A.4)
-    /** `FIRMWARE.md` §5.9, spec §6.2: with ZWRITE in force a mode-19 list goes as mode 25; RIGHT's refusal of it (the
-     *  record at the next read) sends the same list as mode 19 and the count moves by one write; mode 25 is then off
-     *  for the session. */
+    /** `FIRMWARE.md` §5.9, spec §6.2, as OM-1F left it (Part EQ): with ZWRITE in force a mode-19 list goes as mode 25.
+     *  RIGHT's refusal of it, on record at the next read, sends nothing again — the refused list is a missing write, and
+     *  RIGHT's count stays one short for the shell's count to find; mode 25 is off for the session, said once, and the
+     *  next list goes as mode 19. The next session allows mode 25 again: the refusal still on RIGHT's record is that
+     *  session's baseline, not a new one. */
     @Test
-    fun aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9(): Unit = runBlocking {
+    fun aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9(): Unit = runBlocking {
         val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
         val t = StartRig(glass, scope)
         collect(t)
@@ -792,14 +794,68 @@ class MotionTransportTest {
         assertEquals(25, right[1][0].toInt())
         assertEquals(1L, glass.cacheGen(Arm.RIGHT), "refused: no bump")
         t.devProbe("telemetry", "read")
-        waitUntil(10_000, message = { "the fall-back: $notes" }) { right.size >= 3 }
-        assertTrue(right[2].contentEquals(b), "the same list, as mode 19")
-        waitUntil(10_000, message = { "the bump" }) { glass.cacheGen(Arm.RIGHT) == 2L }
-        assertTrue(has("glass", "mode 25 refused by RIGHT"), "said: $notes")
+        waitUntil(10_000, message = { "the refusal said: $notes" }) { has("glass", "mode 25 refused by RIGHT") }
+        delay(200)
+        assertEquals(2, right.size, "nothing sent again: the refused list is the count's to find")
+        assertEquals(1L, glass.cacheGen(Arm.RIGHT), "two writes acked, one bump: RIGHT's count one short")
         t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(3000))), 0, "ATLAS"))
-        waitUntil(10_000, message = { "the third write" }) { right.size >= 4 }
-        assertEquals(19, right[3][0].toInt(), "mode 25 off for the session after a refusal")
-        assertEquals(3L, glass.cacheGen(Arm.RIGHT), "three writes, three bumps: the count is the shell's")
+        waitUntil(10_000, message = { "the third write" }) { right.size >= 3 }
+        assertEquals(19, right[2][0].toInt(), "mode 25 off for the session after a refusal")
+        waitUntil(10_000, message = { "the mode 19 landed" }) { glass.cacheGen(Arm.RIGHT) == 2L }
+        assertEquals(1, notes.count { it.first == "glass" && "mode 25 refused by RIGHT" in it.second }, "said once: $notes")
+        // the next session: the start arms ZWRITE again and RIGHT's standing record (the same refusal) is its baseline
+        t.endLink("test: the session ends")
+        t.start(full)
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 1 again: DRAW2 and ZWRITE")
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(4000))), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the next session's write" }) { right.size >= 4 }
+        assertEquals(25, right[3][0].toInt(), "a session start allows mode 25 again")
+        t.devProbe("telemetry", "read")
+        delay(200)
+        assertTrue(t.nextListDeflates(), "the refusal standing on RIGHT's record from the session before withdraws nothing: $notes")
+        t.stop()
+    }
+
+    /** OM-1F (Part EQ; reader a's probe, `C3-OM1-V1-a.md` 1 (b)): a mode-25 refusal that goes on record after a reply.
+     *  LEFT acks list A and its forward to RIGHT is held while RIGHT answers a read; A then reaches RIGHT and is refused
+     *  (its entry lies past the session's cache: 5 — no control is sent, so no reply carries the refusal early), list B
+     *  goes deflated and lands, and a read shows A's refusal.
+     *  Nothing is sent again, mode 25 is withdrawn and said once, naming the count as the judge, and RIGHT's count is one
+     *  short of the two acked writes — so no verdict of the shell's count can prove A. */
+    @Test
+    fun aLateMode25RefusalSendsNothingAgainAndLeavesTheCountShort_OMF(): Unit = runBlocking {
+        val (glass, t, right) = zwriteRig()
+        val images = java.util.concurrent.atomic.AtomicInteger()
+        // every image message goes out on LEFT (the bulk arm); its first packet is counted
+        t.onWrite = { arm, p -> if (arm == Arm.LEFT && StartRig.firstOfImage(p)) images.incrementAndGet(); p }
+        val held = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        try {
+            glass.rightForward = { img -> if ((img[0].toInt() and 0x7F) == 25 && held.isEmpty()) { held += img; false } else true }
+            // A: one entry at off4 0xFFFF (256 KiB), past the 160 KiB cache — both lenses refuse it (5), the phone reads RIGHT
+            val a = zlist(1000).also { it[1] = 0xFF.toByte(); it[2] = 0xFF.toByte() }
+            t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(a)), 0, "ATLAS"))
+            waitUntil(10_000, message = { "LEFT took A, its forward to RIGHT held" }) { held.isNotEmpty() }
+            glass.rightForward = null
+            val replies = notes.count { it.first == "glass" && it.second.startsWith("R id=") }
+            t.devProbe("telemetry", "read")
+            waitUntil(10_000, message = { "RIGHT answered the read before A reached it: $notes" }) {
+                notes.count { it.first == "glass" && it.second.startsWith("R id=") } > replies }
+            delay(100)
+            assertTrue(!glass.conformanceMessage(Arm.RIGHT, held.single(), System.currentTimeMillis()), "A reaches RIGHT and is refused")
+            assertEquals(listOf(25, 5), glass.refusalRecord(Arm.RIGHT).take(2).let { listOf(it[0] and 0x7F, it[1]) }, "refused 5")
+            t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(2000))), 0, "ATLAS"))
+            waitUntil(10_000, message = { "B landed" }) { glass.cacheGen(Arm.RIGHT) == 1L && right.size >= 2 }
+            assertEquals(listOf(25, 25), right.map { it[0].toInt() }, "A (refused) and B (landed) both went deflated")
+            t.devProbe("telemetry", "read")
+            waitUntil(10_000, message = { "the refusal said: $notes" }) { has("glass", "mode 25 refused by RIGHT") }
+            delay(300)
+            assertEquals(2, images.get(), "nothing sent again: the wire carries A and B only")
+            assertEquals(2, right.size, "nothing sent again: RIGHT saw A and B only")
+            assertTrue(!t.nextListDeflates(), "mode 25 withdrawn for the session")
+            val said = notes.filter { it.first == "glass" && "mode 25 refused by RIGHT" in it.second }
+            assertTrue(said.size == 1 && "count" in said[0].second, "said once, naming the count as the judge: $said")
+            assertEquals(1L, glass.cacheGen(Arm.RIGHT), "RIGHT's count one short of the two acked writes: no verdict proves A")
+        } finally { glass.rightForward = null }
         t.stop()
     }
 
@@ -1214,54 +1270,6 @@ class MotionTransportTest {
         waitUntil(10_000, message = { "the refusal is a divergence: $notes" }) {
             notes.any { it.first == "divergence" && it.second.startsWith("motion: slot 0 refused by RIGHT") && "tag 0x0093" in it.second } }
         t.stop()
-    }
-
-    /** Build C1's ruling B-N3: the mode-19 copy of a refused mode 25 is not sent while the glasses are in Silent Mode,
-     *  nor while no lease is held — said, and the wire (each image message's first packet) carries nothing more. */
-    @Test
-    fun aRefusedMode25IsNotSentAgainInSilentModeOrWithNoLease_BN3(): Unit = runBlocking {
-        for (case in listOf("silent", "no lease")) {
-            notes.clear()
-            val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
-            val t = StartRig(glass, scope)
-            // C1-R6 B6-6: on any failure the transport's notes go to the test's output with the case, then the failure
-            try {
-            collect(t)
-            t.devProbe("c1", "1")
-            t.start(full)
-            assertEquals(0x24, t.state.value.flagsInForce, "$case: stage 1, ZWRITE in force")
-            val images = java.util.concurrent.atomic.AtomicInteger()
-            // every image message goes out on LEFT (the bulk arm); its first packet is counted
-            t.onWrite = { a, p -> if (a == Arm.LEFT && StartRig.firstOfImage(p)) images.incrementAndGet(); p }
-            // RIGHT's ZWRITE goes off behind the phone's back: the mode 25 is refused there (15)
-            glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, System.currentTimeMillis())
-            val list = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(1000, ByteArray(2000) { (it / 100).toByte() })), 160 * 1024)
-            t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list)), 0, "ATLAS"))
-            waitUntil(10_000, message = { "$case: the mode 25 went out" }) { images.get() == 1 }
-            // C1-P R1 §2: the count is taken before the model has the packet (StartRig.writeArm), so the case's change
-            // could reach the model first; RIGHT's own refusal record of the mode 25 is the model having taken it
-            waitUntil(10_000, message = { "$case: RIGHT's model took the mode 25: ${glass.refusalRecord(Arm.RIGHT)}" }) {
-                (glass.refusalRecord(Arm.RIGHT)[0] and 0x7F) == 25 }
-            if (case == "silent") {
-                glass.setSilent(true)
-                waitUntil(10_000, message = { "$case: the push" }) { t.state.value.glassesSilent }
-            } else {
-                t.setLeaseWanted(false)
-                assertEquals(false, t.state.value.leaseHeld, case)
-            }
-            t.devProbe("telemetry", "read")
-            waitUntil(10_000, message = { "$case: the refusal judged: $notes" }) { has("glass", "mode 25 refused by RIGHT") }
-            delay(300)
-            val why = if (case == "silent") "the glasses are in Silent Mode" else "no lease is held"
-            assertEquals(1, images.get(), "$case: no mode-19 copy on the wire")
-            assertTrue(has("glass", "waiting for that read: $why"), "$case: said: ${notes.filter { it.first == "glass" }}")
-            } catch (e: Throwable) {
-                println("B-N3 pin, case '$case', failed (${e.message}); the transport's notes in order:\n" +
-                    notes.joinToString("\n") { "  ${it.first}: ${it.second}" })
-                throw e
-            }
-            t.stop()
-        }
     }
 
     /** A mirror that counts the shell's questions to it (build C1's ruling B-N4). */
@@ -1724,8 +1732,8 @@ class MotionTransportTest {
     }
 
     /** DM1 (`P-zw-max-list`, `P-zw-withdrawn`), spec §2 row 23: a list past the 16,384 B inflate goes as mode 19; a
-     *  mode-25 refusal on record with nothing waiting (one the judge took as landed) turns mode 25 off for the session.
-     *  (Its third bound, one mode 25 waiting at a time, went with OM-1: [aSecondListGoesDeflatedWhileTheFirstWaits_OM].) */
+     *  mode-25 refusal newly on RIGHT's record, of a message the phone never sent, turns mode 25 off for the session.
+     *  (Its third bound, one mode 25 waiting at a time, went with OM-1: [aSecondListGoesDeflatedRightBehindTheFirst_OM].) */
     @Test
     fun theMode25JudgesBounds_DM1(): Unit = runBlocking {
         val (glass, t, right) = zwriteRig()
@@ -1733,14 +1741,14 @@ class MotionTransportTest {
         t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(3000, 16_400))), 0, "ATLAS"))
         waitUntil(10_000, message = { "the long list reached RIGHT: $notes" }) { right.size >= 1 }
         assertEquals(19, right[0][0].toInt(), "a 16,404 B list is past the inflate: mode 19")
-        // a mode-25 refusal on RIGHT's record that no waiting message answers for
+        // a mode-25 refusal on RIGHT's record of a message the phone never sent
         val now = System.currentTimeMillis()
         glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, now)
         val planted = list(9000)
         assertTrue(!glass.conformanceMessage(Arm.RIGHT, byteArrayOf(25) + Zl.deflate(planted.copyOfRange(1, planted.size)), now), "RIGHT refuses it (15)")
         glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ZWRITE, now)
         t.devProbe("telemetry", "read")
-        waitUntil(10_000, message = { "the refusal on record is said: $notes" }) { has("glass", "a mode-25 refusal on record") }
+        waitUntil(10_000, message = { "the refusal on record is said: $notes" }) { has("glass", "mode 25 refused by RIGHT") }
         val seen = right.size                               // the planted message reached the observer too
         t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(4000))), 0, "ATLAS"))
         waitUntil(10_000, message = { "the next write reached RIGHT" }) { right.size > seen }
@@ -1748,13 +1756,13 @@ class MotionTransportTest {
         t.stop()
     }
 
-    /** OM-1 (Part EJ 4; was X4T item 2's): [CfwTransportBase.nextListDeflates] is "ZWRITE in force and mode 25 not
-     *  withdrawn" — a list queued ahead (the lane held on a keyframe's first packet, a list behind it) and a deflated list
-     *  waiting for its judge no longer make the next write go raw; a refusal judged does. */
+    /** OM-1 (Part EJ 4; was X4T item 2's), as OM-1F left it: [CfwTransportBase.nextListDeflates] is "ZWRITE in force and
+     *  mode 25 not withdrawn" — a list queued ahead (the lane held on a keyframe's first packet, a list behind it) and a
+     *  deflated list sent before do not make the next write go raw; a refusal newly on RIGHT's record does. */
     @Test
     fun theNextListDeflatesWhileZwriteIsInForceAndNotWithdrawn_OM(): Unit = runBlocking {
         val (glass, t, right) = zwriteRig()
-        assertTrue(t.nextListDeflates(), "nothing queued, nothing waiting: a write now goes deflated")
+        assertTrue(t.nextListDeflates(), "nothing queued: a write now goes deflated")
         val gate = java.util.concurrent.CountDownLatch(1)
         val held = java.util.concurrent.atomic.AtomicBoolean(false)
         // the image lane held inside the keyframe's first packet (bounded: the gate opens below, or after 10 s)
@@ -1766,8 +1774,8 @@ class MotionTransportTest {
         gate.countDown()
         waitUntil(10_000, message = { "the list reached RIGHT" }) { right.isNotEmpty() }
         assertEquals(25, right[0][0].toInt(), "mode 25")
-        assertTrue(t.nextListDeflates(), "a deflated list waiting for its judge holds no later write plain")
-        // RIGHT's ZWRITE goes off behind the phone's back: the next mode 25 is refused there (15), and the read judges it
+        assertTrue(t.nextListDeflates(), "a deflated list sent before holds no later write plain")
+        // RIGHT's ZWRITE goes off behind the phone's back: the next mode 25 is refused there (15), and the read shows it
         glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, System.currentTimeMillis())
         t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(2000))), 0, "ATLAS"))
         waitUntil(10_000, message = { "RIGHT refused it" }) { (glass.refusalRecord(Arm.RIGHT)[0] and 0x7F) == 25 }
@@ -1791,10 +1799,10 @@ class MotionTransportTest {
     /** A mode-19 list of one 2,000 B entry at [off4] that deflates well. */
     private fun zlist(off4: Int) = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(off4, ByteArray(2000) { (it / 100).toByte() })), 160 * 1024)
 
-    /** OM-1 (spec §5 pin 1): a second list submitted while the first waits for its judge goes deflated too — the two wait
-     *  as one set, and one read made after both judges both (landed: nothing sent again, two bumps). */
+    /** OM-1 (spec §5 pin 1), as OM-1F left it: a second list submitted right behind the first, before any reply, goes
+     *  deflated too; a read after both sends nothing again (both landed: two bumps). */
     @Test
-    fun aSecondListGoesDeflatedWhileTheFirstWaits_OM(): Unit = runBlocking {
+    fun aSecondListGoesDeflatedRightBehindTheFirst_OM(): Unit = runBlocking {
         val (glass, t, right) = zwriteRig()
         t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(1000))), 0, "ATLAS"))
         t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(2000))), 0, "ATLAS"))
@@ -1804,63 +1812,6 @@ class MotionTransportTest {
         delay(200)
         assertEquals(2, right.size, "both landed: nothing sent again")
         assertEquals(2L, glass.cacheGen(Arm.RIGHT), "two messages, two bumps")
-        t.stop()
-    }
-
-    /** OM-1 (spec §5 pin 2, Part EJ 3): three lists deflated with no read between them wait as one set; RIGHT refuses the
-     *  second and third (its ZWRITE off behind the phone's back). The record at the read that judges them cannot say which
-     *  was refused, so all three go again as mode 19, equal to the lists and in their order, and mode 25 is off for the
-     *  session; the note names how many went. */
-    @Test
-    fun aRefusalReSendsEveryWaitingListInOrder_OM(): Unit = runBlocking {
-        val (glass, t, right) = zwriteRig()
-        val lists = listOf(zlist(1000), zlist(2000), zlist(3000))
-        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(lists[0])), 0, "ATLAS"))
-        waitUntil(10_000, message = { "the first landed" }) { glass.cacheGen(Arm.RIGHT) == 1L }
-        glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, System.currentTimeMillis())
-        for (l in lists.drop(1)) t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(l)), 0, "ATLAS"))
-        waitUntil(10_000, message = { "three writes reached RIGHT" }) { right.size >= 3 }
-        assertEquals(listOf(25, 25, 25), right.map { it[0].toInt() }, "each shrinks, so each goes deflated; none judged yet")
-        assertEquals(1L, glass.cacheGen(Arm.RIGHT), "the second and third refused: no bump")
-        t.devProbe("telemetry", "read")
-        waitUntil(10_000, message = { "the re-sends: $notes" }) { right.size >= 6 }
-        for (i in 0 until 3) assertTrue(right[3 + i].contentEquals(lists[i]), "re-send ${i + 1}: list ${i + 1} as mode 19, in order")
-        waitUntil(10_000, message = { "their bumps" }) { glass.cacheGen(Arm.RIGHT) == 4L }
-        assertTrue(has("glass", "mode 25 refused by RIGHT") && has("glass", "which of the 3 lists ("), "said: $notes")
-        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(4000))), 0, "ATLAS"))
-        waitUntil(10_000, message = { "the next write" }) { right.size >= 7 }
-        assertEquals(19, right[6][0].toInt(), "mode 25 off for the session")
-        t.stop()
-    }
-
-    /** OM-1 (spec §5 pin 3): a reply to a request handed out before the set's last member does not judge the set. RIGHT
-     *  answers a read made after the first list before the second reaches it, and the rig hands that answer over only
-     *  after the second was written (and refused); it judges nothing, and the read made after the second sends both
-     *  again. */
-    @Test
-    fun aReplyToAnOlderRequestDoesNotJudgeALaterMember_OM(): Unit = runBlocking {
-        val (glass, t, right) = zwriteRig()
-        val hold = java.util.concurrent.atomic.AtomicBoolean(false)
-        val held = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
-        t.onNotify = { arm, p -> if (hold.get() && arm == Arm.RIGHT && StartRig.telemetry(p) != null) { held += p; null } else p }
-        val a = zlist(1000); val b = zlist(2000)
-        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(a)), 0, "ATLAS"))
-        waitUntil(10_000, message = { "the first landed" }) { glass.cacheGen(Arm.RIGHT) == 1L }
-        hold.set(true)
-        t.devProbe("telemetry", "read")
-        waitUntil(10_000, message = { "RIGHT answered the read (held)" }) { held.isNotEmpty() }
-        glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, System.currentTimeMillis())
-        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(b)), 0, "ATLAS"))
-        waitUntil(10_000, message = { "the second reached RIGHT" }) { right.size >= 2 }
-        assertEquals(25, right[1][0].toInt(), "the second goes deflated while the first waits")
-        waitUntil(10_000, message = { "RIGHT refused it" }) { (glass.refusalRecord(Arm.RIGHT)[0] and 0x7F) == 25 }
-        t.deliver(Arm.RIGHT, held.first())
-        hold.set(false)
-        delay(200)
-        assertEquals(2, right.size, "the older read's answer judged nothing")
-        t.devProbe("telemetry", "read")
-        waitUntil(10_000, message = { "the set went again: $notes" }) { right.size >= 4 }
-        assertTrue(right[2].contentEquals(a) && right[3].contentEquals(b), "both members as mode 19, in order")
         t.stop()
     }
 

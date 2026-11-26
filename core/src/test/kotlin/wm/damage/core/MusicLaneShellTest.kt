@@ -712,8 +712,8 @@ class MusicLaneShellTest {
     }
 
     /** Stage SF2 (`MM-S-V2-review.md` 2): with the deflated cache write in force, each of Scope's areas written while its
-     *  chain runs goes as ONE stage message under 1 KB on the wire — not a deflated first piece and a raw second (the
-     *  transport deflates one waiting message at a time; a 4.5–5.4 KB area went as 3,064 B + the rest). */
+     *  chain runs goes as ONE stage message under 1 KB on the wire — not a deflated first piece and a raw second — chosen
+     *  when the transport says a write submitted now goes deflated (ZWRITE in force, mode 25 not withdrawn this session). */
     @Test
     fun scopesAreaGoesAsOneDeflatedMessageWhileItsChainRuns(): Unit = runBlocking {
         val r = Rig(stage = 5)
