@@ -99,7 +99,17 @@ class ConformanceVectorTest {
         // new act (ended with SV3's comparison, X10T), Music's stage L's two lane shapes and K1-2 stage 4f's list-1 acts
         // with the four ring-tap acts it wrote again (both ended with K1-2 stage 4h's comparison) — are gone: every
         // unfilled file in the repo fails like any other.
-        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        // C3 stage DW-3, one exception for the wheel's capture: the five wheel acts ([ShipVectors.wheelActs]), the hand-made
+        // `v5-dw-fire` and the 64 stage-5 256 KiB ship acts DW-1a's block moved (written again) — exactly the names in
+        // [DW3_UNFILLED] — are written before the fork's runner fills them: reported "not filled" with a count and run
+        // through the model ([theUnfilledVectorsRunThroughTheModel]); a filled one names the exception stale. The
+        // comparison removes this exception.
+        val dw3 = out.notFilled.filter { it.substringBefore(" (") in DW3_UNFILLED }
+        if (dw3.isNotEmpty()) println("ConformanceVectorTest: ${dw3.size} DW-3 vector(s) not filled until the comparison: ${dw3.joinToString("; ")}")
+        for (n in out.notFilled - dw3.toSet())
+            out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        for (m in DW3_UNFILLED) if (Files.exists(dir.resolve("$m.json")) && out.notFilled.none { it.startsWith("$m ") })
+            out.problems += "$m: filled — the stage DW-3 exception DW3_UNFILLED is stale, remove it"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -854,7 +864,8 @@ class ConformanceVectorTest {
      * 256 KiB, band slots per row), and its new act, the withdrawal at 256 KiB ([ShipVectors.sv3Acts]), compared like the
      * rest; filled at SV3's comparison. K1-2 stage 4f: the acts whose tap opens Settings (bound as list 1 since K1-2 stage
      * 3a) written again, and the list-1 acts ([ShipVectors.list1Acts], compared on their ring form too); filled at K1-2
-     * stage 4h's comparison.
+     * stage 4h's comparison. C3 DW-3: the wheel's acts ([ShipVectors.wheelActs], compared on [ShipVectors.wheelForms]) and
+     * the 64 acts whose session writes the wheel's block, written again; filled at DW-3's comparison.
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
@@ -882,6 +893,7 @@ class ConformanceVectorTest {
             val project: (JsonObject) -> List<String> = when (spec) {
                 is ShipVectors.Spec -> ShipVectors::programs
                 is ShipVectors.RingSpec, is ShipVectors.ListSpec -> ShipVectors::ringForms
+                is ShipVectors.WheelSpec -> ShipVectors::wheelForms
                 else -> ShipVectors::namedPrograms
             }
             val steps = got.vector["steps"]!!.jsonArray.size
@@ -926,5 +938,31 @@ class ConformanceVectorTest {
         const val X3_HINT = "v5-x3-hint"
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
+        /** C3 stage DW-3 (`private/c3-design/C3-DW3-built.md`; decisions DQ (6), (11)): the files written before the fork's
+         *  runner fills them — the five wheel acts, `v5-dw-fire` (`make_vectors.py`) and the 64 stage-5 256 KiB ship acts
+         *  whose session now writes the wheel's block (written again). Exactly these names; the comparison removes the set. */
+        val DW3_UNFILLED = setOf("v5-ship-wheel-open-notches-352", "v5-ship-wheel-yield-480",
+            "v5-ship-wheel-late-main-352", "v5-ship-wheel-commit-window-480", "v5-ship-wheel-cancel-352", "v5-dw-fire",
+            "v5-ship-back-encode-rev-352", "v5-ship-back-encode-rev-480", "v5-ship-back-encode-rev-dense-480",
+            "v5-ship-back-encode-rev-off4-352", "v5-ship-back-encode-rev-off4-480", "v5-ship-back-matrix-rev-352",
+            "v5-ship-back-matrix-rev-480", "v5-ship-back-matrix-rev-depth0-352", "v5-ship-back-matrix-rev-off4-352",
+            "v5-ship-cut-select-encode-352", "v5-ship-cut-select-matrix-352", "v5-ship-lock-encode-352",
+            "v5-ship-lock-encode-480", "v5-ship-lock-encode-off4-352", "v5-ship-lock-encode-off4-480",
+            "v5-ship-lock-encode-rev-352", "v5-ship-lock-encode-rev-480", "v5-ship-lock-encode-rev-off4-352",
+            "v5-ship-lock-encode-rev-off4-480", "v5-ship-lock-matrix-352", "v5-ship-lock-matrix-480",
+            "v5-ship-lock-matrix-rev-352", "v5-ship-lock-matrix-rev-480", "v5-ship-lock-matrix-rev-s8-352",
+            "v5-ship-lock-matrix-s8-352", "v5-ship-ring-back-wrap-352", "v5-ship-ring-burst-352",
+            "v5-ship-ring-burst-each-352", "v5-ship-ring-crush-288", "v5-ship-ring-crush-352",
+            "v5-ship-ring-crush-fast-352", "v5-ship-ring-crush-late-352", "v5-ship-ring-depth-288",
+            "v5-ship-ring-depth-352", "v5-ship-ring-fall-288", "v5-ship-ring-fall-352", "v5-ship-ring-flip-352",
+            "v5-ship-ring-none-288", "v5-ship-ring-none-352", "v5-ship-ring-pitch-352", "v5-ship-ring-slide-288",
+            "v5-ship-ring-slide-352", "v5-ship-ring-table-352", "v5-ship-ring-tap-glasses-row0-288",
+            "v5-ship-ring-tap-glasses-row0-352", "v5-ship-ring-tap-report-row0-288",
+            "v5-ship-ring-tap-report-row0-352", "v5-ship-ring-withdraw-352", "v5-ship-scroll-crush-stage5-480",
+            "v5-ship-scroll-depth-stage5-480", "v5-ship-scroll-flip-stage5-480", "v5-ship-select-encode-352",
+            "v5-ship-select-encode-480", "v5-ship-select-encode-apart-480", "v5-ship-select-encode-dense-480",
+            "v5-ship-select-encode-off4-352", "v5-ship-select-encode-off4-480", "v5-ship-select-matrix-352",
+            "v5-ship-select-matrix-480", "v5-ship-select-matrix-depth0-352", "v5-ship-select-matrix-late-352",
+            "v5-ship-select-matrix-off4-352", "v5-ship-select-matrix-s8-480", "v5-ship-write-select-encode-352")
     }
 }

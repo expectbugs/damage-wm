@@ -225,6 +225,50 @@ class Version2MotionTest {
 
     private enum class Namer { PLAY, AFTER, COMMIT, SET }
 
+    /**
+     * C3 DW-3 (decisions DQ (7)): `v5-dw-fire`'s two wheel programs, written by `make_vectors.py`'s `wheel_prog` from the
+     * DW spec's tracks, are byte for byte what the product's own [wm.damage.core.motion.Wheel.program] gives called with
+     * the parameters the vector's "wheel" key names (the geometry; each program's off4, step, T, cell and rule records,
+     * tables), read against the cache step 0 leaves; and the file's two ease tables are [wm.damage.core.motion.Wheel.swapTables]'s.
+     * A difference is a finding, never an edit of either side.
+     */
+    @Test
+    fun theWheelsProgramsInVDwFireAreTheProductsBytes_DW3() {
+        val vec = Json.parseToJsonElement(Files.readString(vectorDir().resolve("v5-dw-fire.json"))).jsonObject
+        val cache = ByteArray(256 * 1024)
+        for (op in vec["steps"]!!.jsonArray[0].jsonObject["ops"]!!.jsonArray) {
+            val h = op.jsonObject["msg"]?.jsonPrimitive?.content ?: continue
+            for (m in subs(hex(h))) if (u8(m, 0) == 19) {
+                var i = 1
+                while (i + 4 <= m.size) { val o4 = u16(m, i); val n = u16(m, i + 2); m.copyInto(cache, o4 * 4, i + 4, i + 4 + n); i += 4 + n }
+            }
+        }
+        val w = vec["wheel"]!!.jsonObject
+        val gj = w["geo"]!!.jsonObject
+        fun gi(k: String) = gj[k]!!.jsonPrimitive.content.toInt()
+        val pa = gj["panel"]!!.jsonArray.map { it.jsonPrimitive.content.toInt() }
+        val g = wm.damage.core.motion.Wheel.Geo(Rect(pa[0], pa[1], pa[2], pa[3]), gi("d"), gi("bandTop"), gi("bandBot"), gi("hN"), gi("yA"), gi("yB"))
+        val programs = w["programs"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf(1, -1), programs.map { it["step"]!!.jsonPrimitive.content.toInt() }, "the down and the up program")
+        for (p in programs) {
+            fun pi(k: String) = p[k]!!.jsonPrimitive.content.toInt()
+            val t = pi("t")
+            val cell = Source.Record(pi("cell4"), g.w, g.cellH, pi("cellBytes"), cache.copyOfRange(pi("cell4") * 4, pi("cell4") * 4 + pi("cellBytes")))
+            val rule = Source.Record(pi("rule4"), g.w, 2, pi("ruleBytes"), cache.copyOfRange(pi("rule4") * 4, pi("rule4") * 4 + pi("ruleBytes")))
+            val (e1, e2) = wm.damage.core.motion.Wheel.swapTables(t)
+            val tabs = p["tables"]!!.jsonArray.map { it.jsonPrimitive.content.toInt() }
+            for ((off4, e) in tabs.zip(listOf(e1, e2))) {
+                val n = u8(cache, off4 * 4)
+                assertContentEquals(e, IntArray(n) { s16(cache, off4 * 4 + 2 + 2 * it) }, "the table at off4 $off4 is Wheel.swapTables($t)'s")
+            }
+            val built = wm.damage.core.motion.Wheel.program(pi("at4"), g, listOf(cell), rule, fx, pi("step"), t,
+                tabs.zip(listOf(e1, e2)).map { (o, e) -> Ease.Table(o, e) }, p["none"]!!.jsonPrimitive.content.toBoolean())
+            val at = pi("at4") * 4
+            assertEquals(built.bytes.size, u16(cache, at + 2), "the ${pi("step")} program's length field")
+            assertContentEquals(built.bytes, cache.copyOfRange(at, at + built.bytes.size), "v5-dw-fire's ${if (pi("step") > 0) "down" else "up"} program is Wheel.program's")
+        }
+    }
+
     /** Every program record and table the 28 `v5-*` vectors name — by a PLAY, a PLAY-AFTER, a COMMIT or a SET, batches
      *  unwrapped, against the cache their mode-19 writes have left at that message — rebuilt through the DSL: equal byte
      *  for byte, or listed (a record the DSL cannot say, or one it refuses, with the walk's answer beside it). And at
@@ -253,8 +297,10 @@ class Version2MotionTest {
         val k12 = ShipVectors.list1Acts().size
         // Music's motion update, stage L: the held lanes' two (`v5-mml-*`, `MusicLaneVectorsTest`), their programs read too
         val mml = 2                                         // v5-mml-bar, v5-mml-chain
-        assertEquals(28 + ShipVectors.acts().size + 1 + mml, files.size,
-            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2, X2MX2's $x2mx2, SV3's $sv3, K1-2 stage 4f's $k12, stage L's $mml")
+        // C3 DW-3: the wheel's acts (in `acts()`) and the hand-made v5-dw-fire (its programs pinned by [theWheelsProgramsInVDwFireAreTheProductsBytes_DW3])
+        val dw = ShipVectors.wheelActs().size
+        assertEquals(28 + ShipVectors.acts().size + 1 + mml + 1, files.size,
+            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2, X2MX2's $x2mx2, SV3's $sv3, K1-2 stage 4f's $k12, stage L's $mml, DW-3's $dw and v5-dw-fire")
         val comparedProg = HashMap<String, Int>(); val comparedTab = HashMap<String, Int>()
         val seenProg = HashSet<String>(); val seenTab = HashSet<String>()
         val inexpressible = LinkedHashMap<String, String>(); val refusedByDsl = LinkedHashMap<String, String>()
