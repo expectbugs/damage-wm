@@ -777,7 +777,7 @@ object Motion {
         stepOnModel(program, p, cache, base, shadow, left, tag, -1)
 
     /** C3 DM-1: [endOnModel]'s picture at step [k] of a bound program (1..T; −1 its last) — what one step paints over
-     *  [base], every track in order at that step (a bound program is absolute: §7.2). For the step pins of Crush and Flip. */
+     *  [base], every track in order at that step (a bound program is absolute: §7.2). For the step pins of the scroll effects. */
     fun stepOnModel(program: MotionProgram, p: IntArray, cache: ByteArray, base: ByteArray, shadow: ByteArray, left: Boolean, tag: Int = 0, k: Int): ByteArray {
         program.resolve(p, staticOnly = false)
         val stride = Geometry.PANEL_W / 2

@@ -909,8 +909,8 @@ class ListStaging private constructor(
                       *  or false, today's form byte for byte. C3 FF: and at every height the programs take the fast DRAW
                       *  path's fit ([ScrollEffects.timing]); false: C2's fit, every byte as before. */
                      stage5: Boolean = false,
-                     /** C3 DM-1: the gate's token ([Motion.effects]) as the link state gives it at this staging — Crush and Flip
-                      *  are staged in version 2 only with it; never kept (decisions W, D-6). */
+                     /** C3 DM-1: the gate's token ([Motion.effects]) as the link state gives it at this staging — Crush, Flip
+                      *  and Matrix are staged in version 2 only with it; never kept (decisions W, D-6). */
                      fx: Motion.Effects? = null,
                      /** K1-2 stage 1 (O12): per row, the largest band form a row whose band form changed in the last staging
                       *  drew ([bandSeen], carried by window; 0: none) — that row gets the largest slot. */
@@ -1232,7 +1232,7 @@ class ListStaging private constructor(
         /**
          * C3 DM-1 (D3 as ruled): the pans of [plays0] at the [timing] it gives, laid out from [off] — and a version-2 form
          * checked at every cursor a notch lands on ([checkEveryCursor]); a form the check refuses gives way to its fallback
-         * (Crush → Slide, Flip → its height turn), the refusal said in [Laid.plays]. [n] rows, [ring] and [itemOffs] are the
+         * (Crush → Slide, Flip → its height turn, Matrix → Depth), the refusal said in [Laid.plays]. [n] rows, [ring] and [itemOffs] are the
          * staging's (the parameters the glasses compute).
          */
         internal fun lay(staged: ScrollEffects.Staged, plays0: ScrollEffects.Plays, fx: Motion.Effects?, off: Int, specs: List<PanSpec>, marginA: Int,
@@ -1259,9 +1259,13 @@ class ListStaging private constructor(
          * C3 DM-1 (the DM spec §1.2's "windows inside the strip", §1.6's budget): [pan] with the parameters the glasses
          * compute at EVERY cursor a notch of its step lands on (`FIRMWARE.md` §6.2 step 9; on a [ring] list kinds 1 and 2 at
          * the virtual row, §7.8) — every source window inside its record (5), every value (12), and its step budget C at
-         * most [BUDGET_PCT] % of the cap (§7.12, the DSL's calculator). A [LintError] names the first that is not.
+         * most [BUDGET_PCT] % of the cap (§7.12, the DSL's calculator). A [LintError] names the first that is not. C3 DM-2aF
+         * (decisions EV 1): and no seed mixed with the fire's tag — a bound fire's tag is each lens's own S (§6.4), which can
+         * differ between the lenses, so a seed with it (opt bit 7 of PIECES or GLYPHS, §7.2) would draw each eye its own.
          */
         internal fun checkEveryCursor(pan: Pan, n: Int, ring: Boolean, itemOffs: IntArray) {
+            if (pan.program.tracks.any { t -> t.segments.any { (it.verb == Motion.PIECES || it.verb == Motion.GLYPHS) && it.opt and 0x80 != 0 } })
+                throw LintError("a bound program's seed mixes the fire's tag (opt bit 7, §7.2): a local fire's tag is each lens's own S (§6.4), so each eye would draw its own")
             cursors@ for (c in 0 until n) {
                 val v = c + pan.step
                 if (!ring && v !in 0 until n) continue                   // the edge: nothing plays there
