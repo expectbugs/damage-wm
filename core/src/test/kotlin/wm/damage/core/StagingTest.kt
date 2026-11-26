@@ -160,16 +160,17 @@ class StagingTest {
         override fun restoreState(state: JsonObject) {}
     }
 
-    private class Rig(scope: CoroutineScope, timing: SimTransport.Timing = SimTransport.Timing(instant = true)) {
+    /** [zwrite]: a C1 build at the ladder's stage 1 (ZWRITE in force, so cache writes may go as mode 25). */
+    private class Rig(scope: CoroutineScope, timing: SimTransport.Timing = SimTransport.Timing(instant = true), zwrite: Boolean = false) {
         val tmp = Files.createTempDirectory("damage-staging")
-        val sim = GlassFirmwareSim().also { it.damageContract = 2 }
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; if (zwrite) it.damageFeatures = 0x1ff }
         val text = CachedText(GlyphyText())
         val simT = SimTransport(sim, scope, timing)
         val spy = SpyTransport(simT)
         val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope, HELD_CLOCK)
         val doc = Doc(text)
 
-        init { shell.register(doc) }
+        init { shell.register(doc); if (zwrite) simT.devProbe("c1", "1") }
 
         fun all() = spy.all()
         fun notes(kind: String): List<String> =
@@ -801,6 +802,25 @@ class StagingTest {
             assertTrue(atlasWrites.all { (off, len) -> off + len <= RESERVE_START }, "every atlas write stays below ${RESERVE_START}: ${atlasWrites.filter { it.first + it.second > RESERVE_START }}")
             assertTrue(stageWrites.all { (off, len) -> off >= RESERVE_START && off + len <= 160 * 1024 && off % 4 == 0 }, "every record write lands in the reserve, 4-byte aligned: ${stageWrites.filter { it.first < RESERVE_START }}")
             assertTrue(stageWrites.all { (_, len) -> len <= Shell.STAGE_CHUNK }, "record writes are chunked")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** OM-1 (spec §5 pin 5): every message of an atlas batch goes deflated where ZWRITE is in force — each ATLAS flush's
+     *  bytes on the wire (the journal's `done`) below its list's bytes (`submit`; a list of 64 B or less may not shrink).
+     *  Until OM-1 only a batch's first did: a batch is read at its end, and the one compressed slot stayed taken until then. */
+    @Test
+    fun everyMessageOfAnAtlasBatchGoesDeflated_OM(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, zwrite = true)
+        try {
+            rig.upWithTheDocStaged()
+            assertEquals(0x24, rig.spy.state.value.flagsInForce and 0x24, "DRAW2 and ZWRITE in force")
+            val atlas = rawAndWire(Files.readAllLines(rig.tmp.resolve("journal.jsonl")), "ATLAS")
+            assertTrue(atlas.size >= 2 && atlas.filter { it.first > 64 }.all { (raw, wire) -> wire != null && wire < raw }, "every ATLAS flush over 64 B deflated (list B to wire B): $atlas")
             rig.shell.stop()
         } finally {
             scope.cancel()

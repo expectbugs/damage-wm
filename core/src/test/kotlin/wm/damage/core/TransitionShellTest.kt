@@ -2022,16 +2022,16 @@ class TransitionShellTest {
     }
 
     /**
-     * C3 X4T item 2 (`C3-V2T-review.md` 2, decisions AT (2)): a second Encode act right after a first, into a dense page at
-     * 480 (14 lines of 60 letters: two cell lists). The first — a Back out of the page — writes its records and lists
-     * deflated (mode 25), and that message waits for the read that judges it, so a cache write submitted now goes raw (the
-     * transport says so: the precondition, read just before the second act). The second — a Select back into the page
-     * during the first's in half — then sends the small form first: its records and the out lists, then its out PLAY, then
-     * the in lists in a write of their own right above the out lists, before its PLAY-AFTER (DM-T's order) — never all
-     * three raw in front of the first image.
+     * OM-1 (was C3 X4T item 2's, `C3-V2T-review.md` 2): a second Encode act right after a first, into a dense page at 480
+     * (14 lines of 60 letters: two cell lists). The first — a Back out of the page — writes its records and lists
+     * deflated (mode 25), and that message still waits for the read that judges it when the second — a Select back into
+     * the page during the first's in half — is made. A waiting write no longer holds the next one plain (the transport
+     * judges the waiting writes together), so the second sends its records, out lists and in lists in ONE deflated
+     * message before its out PLAY, with no list write of its own — where X4T's single compressed slot sent the in lists
+     * after the out PLAY.
      */
     @Test
-    fun aQuickSecondEncodeActSendsItsInListsAfterItsOutPlay_X4T(): Unit = runBlocking {
+    fun aQuickSecondEncodeActSendsItsInListsWithItsRecordsDeflated_OM(): Unit = runBlocking {
         val r = Rig(stage = 5, kib256 = true)
         try {
             val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
@@ -2055,7 +2055,7 @@ class TransitionShellTest {
             assertTrue(r.notes("transition").last { it.startsWith("owed: ") }.startsWith("owed: Back Encode reversed"), "${r.notes("transition")}")
             val first = right(r).first { img -> cacheWrites(img).any { it.first in region0 } }
             assertEquals(CfwModes.ZWRITE_MODE, first[0].toInt() and 0x7F, "precondition: the first act's records' write went deflated (mode 25)")
-            assertTrue(!r.t.nextListDeflates(), "precondition: the first act's mode-25 write still waits for its judgment, so a write now goes raw")
+            assertTrue(r.t.nextListDeflates(), "the first act's mode-25 write, still waiting for its judgment, holds no later write plain")
             r.images.clear()
             val owed0 = r.notes("transition").count { it.startsWith("owed: ") }
             r.tap()                                                             // the second act: Select, Encode
@@ -2078,10 +2078,11 @@ class TransitionShellTest {
             val w = cacheWrites(imgs[write])
             val said = "the second act's records' write #$write ${imgs[write].size} B (mode ${imgs[write][0].toInt() and 0x7F}, entries ${w.map { it.second }})" +
                 (if (lists >= 0) ", its in lists' write #$lists ${imgs[lists].size} B (mode ${imgs[lists][0].toInt() and 0x7F})" else "") + "; out PLAY #$out, PLAY-AFTER #$pa"
-            println("X4T item 2: $said\n  " + describeImages(imgs, region, reserve).joinToString("\n  "))
-            assertTrue(w.size == 2 && w[0].first in region && w[1].first in reserve, "the first write is the records and the out lists only: $said")
-            assertTrue(write in 0 until out && out < lists && lists < pa, "records, out PLAY, in lists, PLAY-AFTER in that order: $said")
-            assertTrue(cacheWrites(imgs[lists]).single().first == w[1].first + w[1].second, "the in lists right above the out lists: $said")
+            println("OM-1, a quick second Encode act: $said\n  " + describeImages(imgs, region, reserve).joinToString("\n  "))
+            assertTrue(write in 0 until out && out < pa && lists == -1, "records before the out PLAY, no list write of its own: $said")
+            assertTrue(w.size == 3 && w[0].first in region && w[1].first in reserve && w[2].first == w[1].first + w[1].second,
+                "the records, the out lists and the in lists right above them, one message: $said")
+            assertEquals(CfwModes.ZWRITE_MODE, imgs[write][0].toInt() and 0x7F, "deflated while the first act's write waits: $said")
             assertTrue(inHalfWhole(r), "$notes")
             r.assertOracle("after the second act")
         } finally { r.close() }

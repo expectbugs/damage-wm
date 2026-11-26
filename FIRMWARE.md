@@ -767,12 +767,14 @@ on both lenses (the meeting's row 11).
   FLAGS_SET all inside one inflate write the old session's list into the new session (no known path does this;
   closing it needs a session identity, not built — R6 A6-3). An empty list writes nothing and does not bump; one bump
   per message. Cache writes were 61 % of the image lane's bytes and per-message deflate took them
-  to 57 % (M, `HANDOFF.md` §68, v1-era traffic). **The phone (as built):** it sends a mode 25 in place of a mode-19
-  message only while ZWRITE is in force and the deflated form is smaller, one waiting at a time, never from the motion
-  API. Field 17's count is the only judge of a mode 25 (R1.18); a refusal record naming 25 turns mode 25 off for the
-  session and the same list is re-sent once as mode 19 (R2 B-N6) — not while the glasses are in Silent Mode or no
-  lease is held, where the wake's upload covers it (R5 B-N3); the image lane itself has no Silent gate, so an image
-  queued as the Silent push arrives still goes, once (focused read B).
+  to 57 % (M, `HANDOFF.md` §68, v1-era traffic). **The phone (as built):** it sends a mode 25 in place of every
+  mode-19 message while ZWRITE is in force and the deflated form is smaller, never from the motion API; the ones
+  deflated since the last judging read wait as one set, and a RIGHT reply to a request made after the set's last
+  member judges them all (C3 OM-1). Field 17's count is the only judge of a mode 25 (R1.18); a refusal record naming
+  25 turns mode 25 off for the session, and since the record cannot say which member it names, every list of the set
+  is re-sent once as mode 19, in order, behind what the image lane already holds (R2 B-N6, OM-1) — not while the
+  glasses are in Silent Mode or no lease is held, where the wake's upload covers it (R5 B-N3); the image lane itself
+  has no Silent gate, so an image queued as the Silent push arrives still goes, once (focused read B).
 - **The cache pointer's release:** claimed by one exchange like the slots and the scratch (FBW-2, `HANDOFF.md` §76);
   a release point withdraws it inside its masked section or, finding the engine's busy word held (by the copy
   hook or the ui_task), leaves the withdrawal to the holder's settlement (§5.11). No wire change.

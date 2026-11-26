@@ -7451,42 +7451,6 @@
   "from": "C3-X4T"
  },
  {
-  "id": "C3X4T-item2-flag",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && transport.nextListDeflates() }",
-    "?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ZWRITE != 0 }"
-   ]
-  ],
-  "tests": [
-   "*TransitionShellTest.aQuickSecondEncodeActSendsItsInListsAfterItsOutPlay_X4T*"
-  ],
-  "expect": [
-   "aQuickSecondEncodeActSendsItsInListsAfterItsOutPlay_X4T"
-  ],
-  "note": "C3-X4T: item2-flag (lane row `item2-flag`)",
-  "from": "C3-X4T"
- },
- {
-  "id": "C3X4T-item2-counter",
-  "file": "transport/CfwTransportBase.kt",
-  "edits": [
-   [
-    "return !zwriteOff && zwWaiting == null && listsAhead.get() == 0",
-    "return !zwriteOff && zwWaiting == null"
-   ]
-  ],
-  "tests": [
-   "*MotionTransportTest.theNextListDeflatesOnlyWithNoListAheadOrWaiting_X4T*"
-  ],
-  "expect": [
-   "theNextListDeflatesOnlyWithNoListAheadOrWaiting_X4T"
-  ],
-  "note": "C3-X4T: item2-counter (lane row `item2-counter`)",
-  "from": "C3-X4T"
- },
- {
   "id": "C3X4T-item4-idle",
   "file": "shell/Shell.kt",
   "edits": [
@@ -13167,5 +13131,81 @@
   ],
   "note": "stage SF2 (the gate's red): the strip repaints at the first paint with no chain after its lane was OFFERED since its last such paint — the mutant puts back SF's condition (after a HELD paint only): a seek's release paint, then a chain held until a pause in the same second with no once-a-second paint between, leaves the strip the seek's picture (≈ 350 ms back) for good",
   "from": "MM-SF2"
+ },
+ {
+  "id": "OM-set-one",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (zwriteOff) return list19",
+    "            if (zwriteOff || zwSet != null) return list19"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aSecondListGoesDeflatedWhileTheFirstWaits_OM*",
+   "*StagePiecesTest.everyPieceOfARecordGoesDeflated_OM*",
+   "*StagingTest.everyMessageOfAnAtlasBatchGoesDeflated_OM*"
+  ],
+  "expect": [
+   "aSecondListGoesDeflatedWhileTheFirstWaits_OM",
+   "everyPieceOfARecordGoesDeflated_OM",
+   "everyMessageOfAnAtlasBatchGoesDeflated_OM"
+  ],
+  "note": "C3-OM1: one deflated write waiting at a time again (the set held to one member: a write behind it goes plain) (spec §5 row `OM-set-one`)",
+  "from": "C3-OM1"
+ },
+ {
+  "id": "OM-afterid-first",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            s.afterId = telemetryIds.get()",
+    "            if (s.lists.size == 1) s.afterId = telemetryIds.get()"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aReplyToAnOlderRequestDoesNotJudgeALaterMember_OM*"
+  ],
+  "expect": [
+   "aReplyToAnOlderRequestDoesNotJudgeALaterMember_OM"
+  ],
+  "note": "C3-OM1: the set's judging request id taken at its first member only (a reply to a request made before a later member judges it) (spec §5 row `OM-afterid-first`)",
+  "from": "C3-OM1"
+ },
+ {
+  "id": "OM-resend-last",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            for ((i, list) in w.lists.withIndex()) {",
+    "            for ((i, list) in w.lists.withIndex().toList().takeLast(1)) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusalReSendsEveryWaitingListInOrder_OM*"
+  ],
+  "expect": [
+   "aRefusalReSendsEveryWaitingListInOrder_OM"
+  ],
+  "note": "C3-OM1: a refusal naming 25 re-sends only the set's last list (spec §5 row `OM-resend-last`)",
+  "from": "C3-OM1"
+ },
+ {
+  "id": "OM-resend-none",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            for ((i, list) in w.lists.withIndex()) {",
+    "            for ((i, list) in w.lists.withIndex().toList().take(0)) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusalReSendsEveryWaitingListInOrder_OM*"
+  ],
+  "expect": [
+   "aRefusalReSendsEveryWaitingListInOrder_OM"
+  ],
+  "note": "C3-OM1: a refusal naming 25 re-sends nothing (the count's shortfall path alone) (spec §5 row `OM-resend-none`)",
+  "from": "C3-OM1"
  }
 ]
