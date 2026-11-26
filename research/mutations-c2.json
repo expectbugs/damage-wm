@@ -1038,7 +1038,7 @@
  },
  {
   "id": "margins-blank",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "val stripRow = IntArray(stripRows) { s -> val i = s - sA; if (wraps) i.mod(n) else if (i in 0 until n) i else -1 }",
@@ -1056,7 +1056,7 @@
  },
  {
   "id": "whole-list-not-bound",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "val down = pan(WHOLE, 1); val up = pan(WHOLE, -1)",
@@ -1074,7 +1074,7 @@
  },
  {
   "id": "press-not-forward",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "val pressD = maxOf(0, bandD - Geometry.X_STEP)",
@@ -1092,7 +1092,7 @@
  },
  {
   "id": "apply-band-raw-kept",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "bands[m.row] = Picture(\"band ${m.row}\", m.g, levelsOf(m.g), m.encoded, m.off, m.slot)",
@@ -1110,7 +1110,7 @@
  },
  {
   "id": "pad-past-class",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "                val floor = if (n <= 15) 1 else if (n <= 255) 16 else 256\n",
@@ -1128,7 +1128,7 @@
  },
  {
   "id": "timing-no-margin",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "        const val PERIOD_MARGIN = 1.10",
@@ -1182,7 +1182,7 @@
  },
  {
   "id": "offer-uncounted",
-  "file": "shell/MainBinding.kt",
+  "file": "shell/ListBinding.kt",
   "edits": [
    [
     "val counted: Boolean get() = records.isNotEmpty() && records.all { it.state == StagedRecord.State.PROVEN }",
@@ -1200,7 +1200,7 @@
  },
  {
   "id": "no-pace",
-  "file": "shell/MainBinding.kt",
+  "file": "shell/ListBinding.kt",
   "edits": [
    [
     "const val RESTAGE_PACE_MS = 5_000L",
@@ -1218,7 +1218,7 @@
  },
  {
   "id": "no-key",
-  "file": "shell/MainBinding.kt",
+  "file": "shell/ListBinding.kt",
   "edits": [
    [
     "if (keysNow[i] != keys[i]) { keys[i] = keysNow[i]; dirty[i] = true }",
@@ -1239,7 +1239,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            (ms.listD to ms.bandD) != mainBindPlanes() -> ",
+    "            (ms.listD to ms.bandD) != listBindPlanes() -> ",
     "            false -> "
    ]
   ],
@@ -1257,8 +1257,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            is MainStaging.Restage.Outgrown -> mainBindDrop(\"a full staging is owed (a new mark): ${r.why}\")",
-    "            is MainStaging.Restage.Outgrown -> mainBind.same(row)"
+    "            is ListStaging.Restage.Outgrown -> listBindDrop(\"a full staging is owed (a new mark): ${r.why}\")",
+    "            is ListStaging.Restage.Outgrown -> listBind.same(row)"
    ]
   ],
   "tests": [
@@ -1275,8 +1275,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (!mainBindBurstOpen() && !mainMotionMayDraw()) b.nextOwed(now)",
-    "        if (!mainMotionMayDraw()) b.nextOwed(now)"
+    "        if (!listBindBurstOpen() && !listMotionMayDraw()) b.nextOwed(now)",
+    "        if (!listMotionMayDraw()) b.nextOwed(now)"
    ]
   ],
   "tests": [
@@ -1290,7 +1290,7 @@
  },
  {
   "id": "band-in-place",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val (off, slot) = spares.entries.filter { it.value >= enc.size }.minByOrNull { it.value }?.toPair()\n                ?: return",
@@ -1308,7 +1308,7 @@
  },
  {
   "id": "item-word-neighbour-zero",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "row -> off / 4; in 0 until rows -> itemOffs[w0 + k]; else -> 0 }",
@@ -1326,7 +1326,7 @@
  },
  {
   "id": "strip-tail-not-relaid",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            if (seg == null) { if (outgrown < 0) outgrown = s; continue }",
@@ -1420,8 +1420,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "    private fun mainBindBurstOpen(): Boolean = local.burstOpen",
-    "    private fun mainBindBurstOpen(): Boolean = false"
+    "    private fun listBindBurstOpen(): Boolean = local.burstOpen",
+    "    private fun listBindBurstOpen(): Boolean = false"
    ]
   ],
   "tests": [
@@ -2031,7 +2031,7 @@
  },
  {
   "id": "AF4-release-in-burst",
-  "file": "shell/MainBinding.kt",
+  "file": "shell/ListBinding.kt",
   "edits": [
    [
     "        if (acked && !burstOpen) switchAcked(p)",
@@ -2103,7 +2103,7 @@
  },
  {
   "id": "AF8-pace-per-row",
-  "file": "shell/MainBinding.kt",
+  "file": "shell/ListBinding.kt",
   "edits": [
    [
     "    fun nextOwed(nowMs: Long): Int? = if (nowMs < lastAnyWriteMs + RESTAGE_PACE_MS || patches.any { p -> !p.released } || reprogram != null) null",
@@ -2142,8 +2142,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "listOf(MainStaging.WHOLE), motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)",
-    "MainStaging.WIDTHS + MainStaging.WHOLE, motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)"
+    "listOf(ListStaging.WHOLE), motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)",
+    "ListStaging.WIDTHS + ListStaging.WHOLE, motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)"
    ]
   ],
   "tests": [
@@ -2720,8 +2720,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "if (reason != mainBindRefusalSaid) { mainBindRefusalSaid = reason; this.note(note) }",
-    "run { mainBindRefusalSaid = reason; this.note(note) }"
+    "if (reason != listBindRefusalSaid) { listBindRefusalSaid = reason; this.note(note) }",
+    "run { listBindRefusalSaid = reason; this.note(note) }"
    ]
   ],
   "tests": [
@@ -2928,7 +2928,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            stagePagesClear(\"the live font set changed\")\n            for (h in lists) h.mainBind.recheckAll()",
+    "            stagePagesClear(\"the live font set changed\")\n            for (h in lists) h.listBind.recheckAll()",
     "            stageClear(\"the live font set changed\")"
    ]
   ],
@@ -2943,7 +2943,7 @@
  },
  {
   "id": "T1-period-no-margin",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "        const val PERIOD_MARGIN = 1.10",
@@ -2979,7 +2979,7 @@
  },
  {
   "id": "ANIM-auto-fixed-rule",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            if (motion.frames <= 0) return pFit to kotlin.math.floor(lenTicks / pFit).toInt().coerceAtLeast(MIN_STEPS)",
@@ -2997,7 +2997,7 @@
  },
  {
   "id": "ANIM-fixed-under-fit",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val p = maxOf(pFit, kotlin.math.ceil(lenTicks / motion.frames).toInt())",
@@ -3072,8 +3072,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            ms.progSlots == null && ms.motion != motionInForce() && !mainBindBurstOpen() ->",
-    "            false && ms.progSlots == null && ms.motion != motionInForce() && !mainBindBurstOpen() ->"
+    "            ms.progSlots == null && ms.motion != motionInForce() && !listBindBurstOpen() ->",
+    "            false && ms.progSlots == null && ms.motion != motionInForce() && !listBindBurstOpen() ->"
    ],
    [
     "        if (ms.remakeOwed(want) == null) return false",
@@ -3112,7 +3112,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (frontBefore != null && localFrontNow?.list != frontBefore.list &&\n            (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE || mode == Mode.SILENT || (mode == Mode.MAIN && frontBefore.list != MainStaging.LIST)) &&",
+    "        if (frontBefore != null && localFrontNow?.list != frontBefore.list &&\n            (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE || mode == Mode.SILENT || (mode == Mode.MAIN && frontBefore.list != ListStaging.LIST)) &&",
     "        if (frontBefore != null && localFrontNow?.list != frontBefore.list &&"
    ]
   ],
@@ -3265,7 +3265,7 @@
  },
  {
   "id": "AZ4-wrap-into-bound-slot",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "        const val WRAP_SLOT = 1",
@@ -3377,8 +3377,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "    private fun ListBind.mainPeriodApply() {\n        if (local.burstOpen) return\n",
-    "    private fun ListBind.mainPeriodApply() {\n"
+    "    private fun ListBind.listPeriodApply() {\n        if (local.burstOpen) return\n",
+    "    private fun ListBind.listPeriodApply() {\n"
    ]
   ],
   "tests": [
@@ -3469,8 +3469,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (!mainBindBurstOpen() && !mainMotionMayDraw()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }",
-    "        if (!mainBindBurstOpen()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }"
+    "        if (!listBindBurstOpen() && !listMotionMayDraw()) b.nextOwed(now)?.let { row -> return listBindRow(st, ms, row, write = true, now) }",
+    "        if (!listBindBurstOpen()) b.nextOwed(now)?.let { row -> return listBindRow(st, ms, row, write = true, now) }"
    ]
   ],
   "tests": [
@@ -3487,8 +3487,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "namesLast = r.band != null, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() }",
-    "namesLast = r.band != null, mayGo = { !mainBindBurstOpen() }"
+    "namesLast = r.band != null, mayGo = { !listBindBurstOpen() && !listMotionMayDraw() }",
+    "namesLast = r.band != null, mayGo = { !listBindBurstOpen() }"
    ]
   ],
   "tests": [
@@ -3502,7 +3502,7 @@
  },
  {
   "id": "B082-no-room",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            var tail = layTail(room = true)\n            if (segOff[first] + tail.size() > c.slot) tail = layTail(room = false)",
@@ -3520,7 +3520,7 @@
  },
  {
   "id": "B082-room-not-carried",
-  "file": "shell/MainBinding.kt",
+  "file": "shell/ListBinding.kt",
   "edits": [
    [
     "    fun roomFor(idsNow: List<String?>): IntArray { harvestRoom(); return IntArray(idsNow.size) { idsNow[it]?.let { id -> roomById[id] } ?: 0 } }",
@@ -3538,7 +3538,7 @@
  },
  {
   "id": "B082-strip-margins-grown",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            // the strip's margins: the rows Main shows past either end (B082: the wrap's rows are a record of their own)\n            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)",
@@ -3556,7 +3556,7 @@
  },
  {
   "id": "B082-wrap-record-not-written",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "                if (wrapRow[j] != row) continue\n",
@@ -3574,7 +3574,7 @@
  },
  {
   "id": "B082-wrap-index",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "        val idx = if (pan.step > 0) layout.rowsAbove else layout.rowsAbove + 1",
@@ -3592,7 +3592,7 @@
  },
  {
   "id": "B082-relay-room-no-fallback",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            if (segOff[first] + tail.size() > c.slot) tail = layTail(room = false)\n",
@@ -3610,7 +3610,7 @@
  },
  {
   "id": "B082-region-room-not-dropped",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "                room != null && room.any { it > 0 } || bandRoom?.any { it > 0 } == true -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit, false, stage5, fx)",
@@ -3628,7 +3628,7 @@
  },
  {
   "id": "B082-wrap-ladder-no-tight",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx)",
@@ -3646,7 +3646,7 @@
  },
  {
   "id": "B082-wrap-ladder-none",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx)",
@@ -3703,8 +3703,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            if (mainMotionMayDraw() || now < quietAt) { periodRecheck(maxOf(quietAt, now + 250) - now); return }",
-    "            if (mainMotionMayDraw()) { periodRecheck(maxOf(quietAt, now + 250) - now); return }"
+    "            if (listMotionMayDraw() || now < quietAt) { periodRecheck(maxOf(quietAt, now + 250) - now); return }",
+    "            if (listMotionMayDraw()) { periodRecheck(maxOf(quietAt, now + 250) - now); return }"
    ]
   ],
   "tests": [
@@ -3739,7 +3739,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "if (mainBindBurstOpen() || mainMotionMayDraw()) scheduleSave() else saveAll()",
+    "if (listBindBurstOpen() || listMotionMayDraw()) scheduleSave() else saveAll()",
     "saveAll()"
    ]
   ],
@@ -3757,7 +3757,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (c.booked || k.firstLine < MainBinding.PATCH_KEY || b == null) return\n",
+    "        if (c.booked || k.firstLine < ListBinding.PATCH_KEY || b == null) return\n",
     "        if (true) return\n"
    ]
   ],
@@ -3851,8 +3851,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            ms.progSlots == null && ms.motion != motionInForce() && !mainBindBurstOpen() -> \"the motion changed",
-    "            ms.motion != motionInForce() && !mainBindBurstOpen() -> \"the motion changed"
+    "            ms.progSlots == null && ms.motion != motionInForce() && !listBindBurstOpen() -> \"the motion changed",
+    "            ms.motion != motionInForce() && !listBindBurstOpen() -> \"the motion changed"
    ]
   ],
   "tests": [
@@ -3871,8 +3871,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (mainBindBurstOpen() || mainMotionMayDraw()) return false\n        val want = motionInForce()",
-    "        if (mainMotionMayDraw()) return false\n        val want = motionInForce()"
+    "        if (listBindBurstOpen() || listMotionMayDraw()) return false\n        val want = motionInForce()",
+    "        if (listMotionMayDraw()) return false\n        val want = motionInForce()"
    ]
   ],
   "tests": [
@@ -3904,7 +3904,7 @@
  },
  {
   "id": "K11-auto-steps-ignore-period",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "        val tp = ScrollEffects.stepsAt(want, periodInForce, t)\n",
@@ -3924,7 +3924,7 @@
  },
  {
   "id": "K11-release-before-sets-land",
-  "file": "shell/MainBinding.kt",
+  "file": "shell/ListBinding.kt",
   "edits": [
    [
     "        if (!r.switched || !r.setsLanded || burstOpen) return null",
@@ -3963,7 +3963,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        val covered = blocked != null && !inFront() && mainBindBlocked(st, front = false) == null\n",
+    "        val covered = blocked != null && !inFront() && listBindBlocked(st, front = false) == null\n",
     "        val covered = false\n"
    ]
   ],
@@ -4392,11 +4392,11 @@
  },
  {
   "id": "B083-S3-room-kept",
-  "file": "shell/MainBinding.kt",
+  "file": "shell/ListBinding.kt",
   "edits": [
    [
-    "            if (r < ms.changed.size && ms.changed[r]) roomById[id] = MainStaging.roomFor(ms.seenMax[r]) else roomById.remove(id)",
-    "            if (r < ms.changed.size && ms.changed[r]) roomById[id] = maxOf(roomById[id] ?: 0, MainStaging.roomFor(ms.seenMax[r]))"
+    "            if (r < ms.changed.size && ms.changed[r]) roomById[id] = ListStaging.roomFor(ms.seenMax[r]) else roomById.remove(id)",
+    "            if (r < ms.changed.size && ms.changed[r]) roomById[id] = maxOf(roomById[id] ?: 0, ListStaging.roomFor(ms.seenMax[r]))"
    ]
   ],
   "tests": [
@@ -4483,24 +4483,6 @@
    "theSeamsClientMarksAScreenGesture"
   ],
   "note": "item 3: the seam client's injectInput leaves the flag off",
-  "from": "B083-fix"
- },
- {
-  "id": "B083F-3-path-not-marked",
-  "file": "transport/PathTransport.kt",
-  "edits": [
-   [
-    "TransportEvent.Input(type, EvenHubMsg.SRC_RING, injected = true)",
-    "TransportEvent.Input(type, EvenHubMsg.SRC_RING)"
-   ]
-  ],
-  "tests": [
-   "*PathTransportTest*"
-  ],
-  "expect": [
-   "theFirstPathToStartWinsAndTheOtherIsCancelled"
-  ],
-  "note": "item 3: the path transport's injectInput leaves the flag off",
   "from": "B083-fix"
  },
  {
@@ -4782,8 +4764,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "override fun mainBehindClock(): Boolean = mode == Mode.SILENT",
-    "override fun mainBehindClock(): Boolean = mode == Mode.SILENT || mode == Mode.EXCLUSIVE"
+    "override fun listBehindClock(): Boolean = mode == Mode.SILENT",
+    "override fun listBehindClock(): Boolean = mode == Mode.SILENT || mode == Mode.EXCLUSIVE"
    ]
   ],
   "tests": [
@@ -4800,7 +4782,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (mainBehindClock()) return false\n        b.verifyDue(now)",
+    "        if (listBehindClock()) return false\n        b.verifyDue(now)",
     "        b.verifyDue(now)"
    ]
   ],
@@ -4818,8 +4800,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "override fun mainBindLayout(): Layout = if (mode == Mode.MAIN) layout else layoutFor(settings)",
-    "override fun mainBindLayout(): Layout = layout"
+    "override fun listBindLayout(): Layout = if (mode == Mode.MAIN) layout else layoutFor(settings)",
+    "override fun listBindLayout(): Layout = layout"
    ]
   ],
   "tests": [
@@ -4838,7 +4820,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "ms.layout != mainBindLayout() -> \"$who's layout changed\"",
+    "ms.layout != listBindLayout() -> \"$who's layout changed\"",
     "ms.layout != layout -> \"$who's layout changed\""
    ]
   ],
@@ -4856,8 +4838,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            MainStaging.Paint(lay, surface.view() ?: return false, kit,",
-    "            MainStaging.Paint(layout, surface.view() ?: return false, kit,"
+    "            ListStaging.Paint(lay, surface.view() ?: return false, kit,",
+    "            ListStaging.Paint(layout, surface.view() ?: return false, kit,"
    ]
   ],
   "tests": [
@@ -7959,7 +7941,7 @@
  },
  {
   "id": "DM0-margin-k",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            // the strip's margins: the rows Main shows past either end (B082: the wrap's rows are a record of their own)\n            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)",
@@ -7979,7 +7961,7 @@
  },
  {
   "id": "DM0-remake-margin-k",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "slots[to], specs, margin, rows, ring, itemOffs",
@@ -7997,7 +7979,7 @@
  },
  {
   "id": "DM0-wrap-record-at-stage5",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val noWrapRecord = !wraps || wrapFit == WRAP_NONE || ring",
@@ -8017,7 +7999,7 @@
  },
  {
   "id": "DM0-ring-below-stage5",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val ring = stage5 && wraps",
@@ -8037,7 +8019,7 @@
  },
  {
   "id": "DM0-ring-where-no-wrap",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val ring = stage5 && wraps",
@@ -8093,7 +8075,7 @@
  },
  {
   "id": "X2M0-ring-wrap-pan",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "    fun wrapPan(step: Int): Pan? = pans.firstOrNull { it.strip == WRAP_STRIP && it.step == step }",
@@ -8135,8 +8117,8 @@
   "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "        val pt = if (stage5) MainStaging.timingOf(",
-    "        val pt = if (false) MainStaging.timingOf("
+    "        val pt = if (stage5) ListStaging.timingOf(",
+    "        val pt = if (false) ListStaging.timingOf("
    ]
   ],
   "tests": [
@@ -8152,7 +8134,7 @@
  },
  {
   "id": "FF-fast-below-stage5",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "else ScrollEffects.timing(pl, l, listD, bandD, motion, stage5) }",
@@ -8174,7 +8156,7 @@
  },
  {
   "id": "FF-remake-c2-fit",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form)",
@@ -8198,7 +8180,7 @@
   "edits": [
    [
     "        val stage5 = st.effects\n",
-    "        val stage5 = st.effects && MainStaging.ringFits(lay, n)\n"
+    "        val stage5 = st.effects && ListStaging.ringFits(lay, n)\n"
    ]
   ],
   "tests": [
@@ -8212,7 +8194,7 @@
  },
  {
   "id": "FF-s5-auto-steps-ignore-period",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "        val tp = ScrollEffects.stepsAt(want, periodInForce, t)\n",
@@ -8415,7 +8397,7 @@
  },
  {
   "id": "DM1-pitch-fixed",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "return BoundList(list, SLOT, rows, down.pitch, mark,",
@@ -8433,7 +8415,7 @@
  },
  {
   "id": "DM1-check-off",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "                if (p.v2) for (pan in pans) checkEveryCursor(pan, n, ring, itemOffs)\n",
@@ -8451,7 +8433,7 @@
  },
  {
   "id": "DM1-budget-share",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "const val BUDGET_PCT = 80",
@@ -9967,8 +9949,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            else if (r.strip.isNotEmpty() && mainBind.withdrawnFor != row) {",
-    "            else if (r.strip.isNotEmpty() && mainBind.withdrawnFor != row && st.cacheSize < CfwModes.CACHE2_MAX_RIDERS) {"
+    "            else if (r.strip.isNotEmpty() && listBind.withdrawnFor != row) {",
+    "            else if (r.strip.isNotEmpty() && listBind.withdrawnFor != row && st.cacheSize < CfwModes.CACHE2_MAX_RIDERS) {"
    ]
   ],
   "tests": [
@@ -9982,7 +9964,7 @@
  },
  {
   "id": "K12S1-O12-uniform-slots",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val bands = bandPics.mapIndexed { i, (g, enc) -> val sz = if ((bandRoom?.getOrNull(i) ?: 0) > 0) bigSlot else slack(enc.size)",
@@ -10000,7 +9982,7 @@
  },
  {
   "id": "K12S1-O12-room-ignored",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val bands = bandPics.mapIndexed { i, (g, enc) -> val sz = if ((bandRoom?.getOrNull(i) ?: 0) > 0) bigSlot else slack(enc.size)",
@@ -10020,7 +10002,7 @@
  },
  {
   "id": "K12S1-O12-room-not-harvested",
-  "file": "shell/MainBinding.kt",
+  "file": "shell/ListBinding.kt",
   "edits": [
    [
     "            if (ms.bandSeen[r] > 0) bandRoomById[id] = ms.bandSeen[r] else bandRoomById.remove(id)",
@@ -10038,7 +10020,7 @@
  },
  {
   "id": "K12S1-O12-room-kept-on-short-region",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "                room != null && room.any { it > 0 } || bandRoom?.any { it > 0 } == true -> assemble(",
@@ -10056,7 +10038,7 @@
  },
  {
   "id": "K12S1-O12-spare-smallest",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val spareSlot = bigSlot\n",
@@ -10076,7 +10058,7 @@
  },
  {
   "id": "K12S1-free-span-blobs-only",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "    val freeSpan: Int get() = regionEnd - end\n",
@@ -10096,7 +10078,7 @@
  },
  {
   "id": "K12S1-O12-one-spare",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val spareOffs = listOf(next(spareSlot), next(spareSlot))\n",
@@ -10281,8 +10263,8 @@
   "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH),\n            MainStaging.Rule(CfwModes.KIND_ARG, 0))",
-    "            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA + step) * l.rowH),\n            MainStaging.Rule(CfwModes.KIND_ARG, 0))"
+    "            ListStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH),\n            ListStaging.Rule(CfwModes.KIND_ARG, 0))",
+    "            ListStaging.Rule(CfwModes.KIND_PITCH, (marginA + step) * l.rowH),\n            ListStaging.Rule(CfwModes.KIND_ARG, 0))"
    ]
   ],
   "tests": [
@@ -10296,7 +10278,7 @@
  },
  {
   "id": "K12S2-window-ring-margin-k",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val ring = ringFits(l, n)                                   // `ContentKit.wrapIndex`: the list's paint wraps\n            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)",
@@ -10314,7 +10296,7 @@
  },
  {
   "id": "K12S2-window-floor",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            if (start < floor) throw LintError(",
@@ -10332,7 +10314,7 @@
  },
  {
   "id": "K12S2-window-spare-kept",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            val slots = if (progSpare && top - (sl.slot + 2 * progSlot) >= floor) 2 else 1",
@@ -10350,7 +10332,7 @@
  },
  {
   "id": "K12S2-window-tap-press",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "            ?: BoundList.Entry(entryIds[2], CfwModes.EV_TAP, 0, periodInForce, CfwModes.PROG_NONE, List(4) { CfwModes.BindParam(CfwModes.KIND_ARG, 0) }, null)",
@@ -10370,7 +10352,7 @@
  },
  {
   "id": "K12S2-window-restage-band",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "        val bg = if (form == ListForm.STRIP_WINDOWS) null else paintBandForm(view, kit, l, row, relay)",
@@ -10428,7 +10410,7 @@
   "edits": [
    [
     "        val gone = records.values.filter { (it.key !is RegionStageKey || it in ring?.resident.orEmpty()) &&",
-    "        val gone = records.values.filter { (it.key !is MainStageKey || it in ring?.resident.orEmpty()) &&"
+    "        val gone = records.values.filter { (it.key !is ListStageKey || it in ring?.resident.orEmpty()) &&"
    ]
   ],
   "tests": [
@@ -10446,7 +10428,7 @@
   "edits": [
    [
     "        val gone = stage.records.values.filter { it.key !is RegionStageKey }\n        for (r in gone) stage.remove(r)",
-    "        val gone = stage.records.values.filter { it.key !is MainStageKey }\n        for (r in gone) stage.remove(r)"
+    "        val gone = stage.records.values.filter { it.key !is ListStageKey }\n        for (r in gone) stage.remove(r)"
    ]
   ],
   "tests": [
@@ -10464,7 +10446,7 @@
   "edits": [
    [
     "        val met = stage.records.values.filter { it.key !is RegionStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }",
-    "        val met = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }"
+    "        val met = stage.records.values.filter { it.key !is ListStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }"
    ]
   ],
   "tests": [
@@ -10482,7 +10464,7 @@
   "edits": [
    [
     "        stagedProvenCount = stage.records.values.count { it.state == StagedRecord.State.PROVEN && it.key !is RegionStageKey }",
-    "        stagedProvenCount = stage.records.values.count { it.state == StagedRecord.State.PROVEN && it.key !is MainStageKey }"
+    "        stagedProvenCount = stage.records.values.count { it.state == StagedRecord.State.PROVEN && it.key !is ListStageKey }"
    ]
   ],
   "tests": [
@@ -10500,7 +10482,7 @@
   "edits": [
    [
     "        val strips = stage.records.values.filter { it.key !is RegionStageKey && it.off >= 0 && it.off in res }",
-    "        val strips = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off in res }"
+    "        val strips = stage.records.values.filter { it.key !is ListStageKey && it.off >= 0 && it.off in res }"
    ]
   ],
   "tests": [
@@ -10746,7 +10728,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        val b = if (known == null) mainList.takeIf { ev.slot == MainStaging.WRAP_SLOT || windowList.mainBind.stagings == 0 } ?: return\n            else lists.firstOrNull { it.listNo == known } ?: return",
+    "        val b = if (known == null) mainList.takeIf { ev.slot == ListStaging.WRAP_SLOT || windowList.listBind.stagings == 0 } ?: return\n            else lists.firstOrNull { it.listNo == known } ?: return",
     "        val b = mainList"
    ]
   ],
@@ -10782,8 +10764,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            mainList.mainBind.staging?.takeIf { it.end > ms.start && it.start < ms.end }?.let { m ->",
-    "            mainList.mainBind.staging?.takeIf { false }?.let { m ->"
+    "            mainList.listBind.staging?.takeIf { it.end > ms.start && it.start < ms.end }?.let { m ->",
+    "            mainList.listBind.staging?.takeIf { false }?.let { m ->"
    ]
   ],
   "tests": [
@@ -10800,8 +10782,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        windowList.mainBind.staging?.takeIf { it.end > base && it.start < w.regionEnd }?.let { l ->",
-    "        windowList.mainBind.staging?.takeIf { false }?.let { l ->"
+    "        windowList.listBind.staging?.takeIf { it.end > base && it.start < w.regionEnd }?.let { l ->",
+    "        windowList.listBind.staging?.takeIf { false }?.let { l ->"
    ]
   ],
   "tests": [
@@ -10837,7 +10819,7 @@
   "edits": [
    [
     "        return windowList.pumpLane(st)\n",
-    "        return windowList.pumpMainBind(st)      // (mutant) the whole lane under a run\n"
+    "        return windowList.pumpListBind(st)      // (mutant) the whole lane under a run\n"
    ]
   ],
   "tests": [
@@ -10928,8 +10910,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (mainList.mainBind.records.any { it.state == StagedRecord.State.SENT || it.state == StagedRecord.State.ACKED }) return false",
-    "        if (false && mainList.mainBind.records.any { it.state == StagedRecord.State.SENT || it.state == StagedRecord.State.ACKED }) return false"
+    "        if (mainList.listBind.records.any { it.state == StagedRecord.State.SENT || it.state == StagedRecord.State.ACKED }) return false",
+    "        if (false && mainList.listBind.records.any { it.state == StagedRecord.State.SENT || it.state == StagedRecord.State.ACKED }) return false"
    ]
   ],
   "tests": [
@@ -11040,7 +11022,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "                    if (!same) { differ++; mainBind.differs(row) }",
+    "                    if (!same) { differ++; listBind.differs(row) }",
     "                    if (!same) { differ++ }"
    ]
   ],
@@ -11094,8 +11076,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "if (retry) { mainBindRefusedFor = null; refusedRows = null; bandSeen = null; post(Msg.Pump) }",
-    "if (false) { mainBindRefusedFor = null; refusedRows = null; bandSeen = null; post(Msg.Pump) }"
+    "if (retry) { listBindRefusedFor = null; refusedRows = null; bandSeen = null; post(Msg.Pump) }",
+    "if (false) { listBindRefusedFor = null; refusedRows = null; bandSeen = null; post(Msg.Pump) }"
    ]
   ],
   "tests": [
@@ -11112,8 +11094,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "override fun mainBindLayout(): Layout = if (mode == Mode.MAIN) layout else layoutFor(settings)",
-    "override fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout"
+    "override fun listBindLayout(): Layout = if (mode == Mode.MAIN) layout else layoutFor(settings)",
+    "override fun listBindLayout(): Layout = if (listBehindClock()) effectiveLayout() else layout"
    ]
   ],
   "tests": [
@@ -11188,7 +11170,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "mainList.takeIf { ev.slot == MainStaging.WRAP_SLOT || windowList.mainBind.stagings == 0 } ?: return",
+    "mainList.takeIf { ev.slot == ListStaging.WRAP_SLOT || windowList.listBind.stagings == 0 } ?: return",
     "mainList"
    ]
   ],
@@ -11628,8 +11610,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (wheelBind.offered != null && (local.burstOpen || mainMotionMayDraw())) return false\n",
-    "        if (false && wheelBind.offered != null && (local.burstOpen || mainMotionMayDraw())) return false\n"
+    "        if (wheelBind.offered != null && (local.burstOpen || listMotionMayDraw())) return false\n",
+    "        if (false && wheelBind.offered != null && (local.burstOpen || listMotionMayDraw())) return false\n"
    ]
   ],
   "tests": [
@@ -11849,7 +11831,7 @@
   "edits": [
    [
     "        return windowList.pumpLane(st)\n",
-    "        return if (transition != null) false else windowList.pumpMainBind(st)\n"
+    "        return if (transition != null) false else windowList.pumpListBind(st)\n"
    ]
   ],
   "tests": [
@@ -11886,8 +11868,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (form == wm.damage.core.motion.ListForm.STRIP_WINDOWS) MainStaging.windowCountRefusal(lay, n)?.let {",
-    "        if (false) MainStaging.windowCountRefusal(lay, n)?.let {"
+    "        if (form == wm.damage.core.motion.ListForm.STRIP_WINDOWS) ListStaging.windowCountRefusal(lay, n)?.let {",
+    "        if (false) ListStaging.windowCountRefusal(lay, n)?.let {"
    ]
   ],
   "tests": [
@@ -11923,7 +11905,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            if (ct == null || mainBindPaintVersions == (ct.wantVersion to ct.seenVersion) || cacheWritesHeld() || mainBind.paints >= MainBinding.PAINTS_MAX) return false",
+    "            if (ct == null || listBindPaintVersions == (ct.wantVersion to ct.seenVersion) || cacheWritesHeld() || listBind.paints >= ListBinding.PAINTS_MAX) return false",
     "            return false"
    ]
   ],
@@ -12400,7 +12382,7 @@
   "edits": [
    [
     "!settlePreview() && !pumpStagePiece(st) && !mainList.pumpLane(st) &&",
-    "!settlePreview() && !pumpStagePiece(st) && !mainList.pumpMainBind(st) &&"
+    "!settlePreview() && !pumpStagePiece(st) && !mainList.pumpListBind(st) &&"
    ]
   ],
   "tests": [
@@ -12414,7 +12396,7 @@
  },
  {
   "id": "K12S4i-strip-pad-fault",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "padded(slv, s * segPx, (s + 1) * segPx, segLen[s], \"strip row $s\").copyInto(stripEnc, o)",
@@ -12432,7 +12414,7 @@
  },
  {
   "id": "K12S4i-restage-pad-fault",
-  "file": "shell/MainStaging.kt",
+  "file": "shell/ListStaging.kt",
   "edits": [
    [
     "tail.write(padded(lk, 0, lk.size, lens[k], \"strip row $k\"))",
@@ -12453,8 +12435,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        !mainBind.counted -> mainBindPaintUnderRun(st)\n",
-    "        !mainBind.counted -> this === windowList && mainBindPaintUnderRun(st)\n"
+    "        !listBind.counted -> listBindPaintUnderRun(st)\n",
+    "        !listBind.counted -> this === windowList && listBindPaintUnderRun(st)\n"
    ]
   ],
   "tests": [
@@ -12501,5 +12483,293 @@
   ],
   "note": "C3 DW-2 (decisions DP 9: the block never waits for a strip that will not come): the hold stands for any document in front, not only one Page staging stages — behind a document with no content key the block is never placed",
   "from": "DW-2b"
+ },
+ {
+  "id": "BW-keep-decision",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val keep = !endLink && linkKeepable()",
+    "val keep = false"
+   ]
+  ],
+  "note": "the restart's keep decision: every restart ends the link as before (the pin: the wake shows a disconnect and a second connect)",
+  "tests": [
+   "*SilentGlassesTest.thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "expect": [
+   "thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-watchdog-ends",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(watchdog)\", endLink = true)",
+    "(watchdog)\", endLink = false)"
+   ]
+  ],
+  "note": "the watchdog's restart keeps a link that has gone quiet instead of ending it",
+  "tests": [
+   "*WatchdogTest.aSessionThatStopsAnsweringIsProbedThenRebuilt"
+  ],
+  "expect": [
+   "aSessionThatStopsAnsweringIsProbedThenRebuilt"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-adopt-refusal",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (refused == null) adopted = true",
+    "if (true) adopted = true"
+   ]
+  ],
+  "note": "the start adopts a kept link whatever the adoption check says (an arm down in the gap is not connected afresh)",
+  "tests": [
+   "*KeptLinkTest.anArmDownInTheGapTakesTheFullConnect"
+  ],
+  "expect": [
+   "anArmDownInTheGapTakesTheFullConnect"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-start-clears-mark",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val kept = synchronized(stateLock) { _state.value.linkKept.also { if (it) _state.value = _state.value.copy(linkKept = false) } }",
+    "val kept = _state.value.linkKept"
+   ]
+  ],
+  "note": "the start reads the mark and leaves it set: a later link loss in that session would be read as kept",
+  "tests": [
+   "*SilentGlassesTest.thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "expect": [
+   "thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-fallback-fires",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!rec.kept || gate.reasks < limit) return null",
+    "return null"
+   ]
+  ],
+  "note": "the fallback never gives up: a kept link that does not answer the CREATE is re-asked with no end",
+  "tests": [
+   "*KeptLinkTest.aKeptLinkThatDoesNotAnswerTheCreateFallsBackToAFreshConnect"
+  ],
+  "expect": [
+   "aKeptLinkThatDoesNotAnswerTheCreateFallsBackToAFreshConnect"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-fallback-fresh",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!rec.kept || gate.reasks < limit) return null",
+    "if (gate.reasks < limit) return null"
+   ]
+  ],
+  "note": "the fallback fires on a link connected afresh too (today's re-asks cut to two)",
+  "tests": [
+   "*KeptLinkTest.aKeptLinkThatDoesNotAnswerTheCreateFallsBackToAFreshConnect"
+  ],
+  "expect": [
+   "aKeptLinkThatDoesNotAnswerTheCreateFallsBackToAFreshConnect"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-keeper-yield",
+  "file": "shell/ShellKeeper.kt",
+  "edits": [
+   [
+    "stopShell(\"stop after link end\", stopTransport = !kept)",
+    "stopShell(\"stop after link end\")"
+   ]
+  ],
+  "note": "the keeper stops the transport after a kept restart (its stop ends the link; the next start connects afresh)",
+  "tests": [
+   "*SilentGlassesTest.thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "expect": [
+   "thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession"
+  ],
+  "from": "BW"
+ },
+ {
+  "id": "BW-prelude-giveup",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!awaitingPrelude) break\n                        if (keptLinkGiveUp(rec, gate, KEPT_LINK_REASKS, CAPABILITY_REASK_MS, keptLinkSilent) != null) break",
+    "if (!awaitingPrelude) break"
+   ]
+  ],
+  "note": "the prelude's give-up on a kept link removed: a kept start whose prelude is never acked asks again with no end",
+  "tests": [
+   "*KeptLinkTest.aKeptLinkThatDoesNotAckThePreludeFallsBackToAFreshConnect"
+  ],
+  "expect": [
+   "aKeptLinkThatDoesNotAckThePreludeFallsBackToAFreshConnect"
+  ],
+  "from": "BWF"
+ },
+ {
+  "id": "BW-read-giveup",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!awaitingCapability) break\n                        if (keptLinkGiveUp(rec, gate, KEPT_LINK_REASKS, CAPABILITY_REASK_MS, keptLinkSilent) != null) break",
+    "if (!awaitingCapability) break"
+   ]
+  ],
+  "note": "the capability READ's give-up on a kept link removed",
+  "tests": [
+   "*KeptLinkTest.aKeptLinkThatDoesNotAnswerTheReadFallsBackToAFreshConnect"
+  ],
+  "expect": [
+   "aKeptLinkThatDoesNotAnswerTheReadFallsBackToAFreshConnect"
+  ],
+  "from": "BWF"
+ },
+ {
+  "id": "BW-warmup-giveup",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val silent = keptLinkGiveUp(rec, warmupGate, KEPT_LINK_WARMUP_RESENDS, STALL_REPORT_MS, keptLinkSilent)",
+    "val silent: String? = null"
+   ]
+  ],
+  "note": "the warmup's give-up on a kept link removed: a kept LEFT that delivers nothing re-sends with no end (Part G item 3)",
+  "tests": [
+   "*KeptLinkTest.aKeptLinkThatDoesNotAckTheWarmupFallsBackToAFreshConnect"
+  ],
+  "expect": [
+   "aKeptLinkThatDoesNotAckTheWarmupFallsBackToAFreshConnect"
+  ],
+  "from": "BWF"
+ },
+ {
+  "id": "BW-silent-tick-ends",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "refused the last frames ($why)\", endLink = true)",
+    "refused the last frames ($why)\")"
+   ]
+  ],
+  "note": "the paced rebuild of a shell asleep on refused frames keeps the link (Part G item 1): kept again at every pacing",
+  "tests": [
+   "*SilentGlassesTest.aKeptLinkWhoseFramesAreRefusedIsEndedByThePacedRebuild"
+  ],
+  "expect": [
+   "aKeptLinkWhoseFramesAreRefusedIsEndedByThePacedRebuild"
+  ],
+  "from": "BWF"
+ },
+ {
+  "id": "DW2a-supersede-any-list",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "pending.removeAll { it is Pending.Clear && it.entry in mine && held[it.entry]?.list == list.list }",
+    "pending.removeAll { it is Pending.Clear && it.entry in mine }"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "decisions DP 5, candidate 1: a CLEAR owed for an entry number the arriving list uses is dropped whatever list holds it — the wheel's report-only tap entry 0 (Main's entry 0) stays on the lenses after the close onto Main and every tap reports list 2 (dropped: (6)); caught only with the wheel; the gate size by named reach seed 424200653",
+  "from": "DW-2a"
+ },
+ {
+  "id": "DW2a-tap-on-phones-row",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        return Verdict.Act(c)\n",
+    "        return Verdict.Act(row)\n"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "spec §7.2's seeded case (b): the tap rule acts on the phone's row, not the lens's cursor — (1); the gate size by named reach seed 101032 (a wheel sequence through the tap rule's commit); the full-size fuzz catches it with the wheel off too",
+  "from": "DW-2a"
+ },
+ {
+  "id": "K12S4b-rebind-only-from-none",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "(old == null || old.list != list.list)) slot(list.slot)",
+    "(old == null)) slot(list.slot)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "decisions AF.2 with two lists in slot 0 (K1-2 4b's row): a front changing straight from one list to another names no row — (9); the gate size by named reach seed 701297 (4b's first failing seed, list 1)",
+  "from": "DW-2a"
+ },
+ {
+  "id": "K12S4b-clear-only-list0",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "for ((no, h) in held.toList()) if (h.list == old.list) pending += Pending.Clear(no)",
+    "for ((no, h) in held.toList()) if (h.list == 0) pending += Pending.Clear(no)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "P9 with two lists (K1-2 4b's row; spec §7.2's seeded case (a), the leaving list left bound): the list leaving the front CLEARs only Main's entries — list 1's or the wheel's stay held after it leaves: (7), (6) and the wheel's end phase; the gate size catches it unaided since the wheel rides (16 failures in the gate-sized run on 655b4995, measured)",
+  "from": "DW-2a"
+ },
+ {
+  "id": "K12S4b-discard-names-row-handed",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "val cur = if (list != null && front?.list == list) row else list?.let { lastRow[it] }",
+    "val cur = if (list != null) row else null"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "the answer's DISCARD with two lists (K1-2 4b's row): it names the row handed for the list in front, whatever list the slot's report named — (1)/(9); the gate size by named reach seed 100564 (4b's first failing seed, list 1)",
+  "from": "DW-2a"
  }
 ]

@@ -28,7 +28,7 @@ class HoldLoopTest {
     private val rowW = l.content.w - Layout.RAIL_W
     private val full = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H)
 
-    /** Main's three tracks per lens as `MainStaging.assemble` lays them out. */
+    /** Main's three tracks per lens as `ListStaging.assemble` lays them out. */
     private fun areas(): List<Pair<Rect, Rect>> {
         val kA = l.rowsAbove; val kB = l.rowsBelow
         val bandW = rowW + kotlin.math.abs(listD - bandD)

@@ -83,6 +83,9 @@ class BleTransport(
     /** Build C1-P R1 §1: the last run ended on an uncaught error — a stored stage steps down to 0 (the first stack
      *  only; no default, as above). */
     c1StageStepDown: Boolean,
+    /** Stage BW (Part E item 1): the link notices' record and the scan's count, for the process's life
+     *  ([LinkNotices.watch]); no default, as above. */
+    private val watch: PairWatch,
 ) : CfwTransportBase(scope, "ble", c1StageFile = c1StageFile, c1StageStepDown = c1StageStepDown) {
 
     data class Remembered(
@@ -113,8 +116,11 @@ class BleTransport(
         @Volatile var negotiatedMtu = -1
         @Volatile var initFailure: String? = null
 
-        /** Stage BLF: the PHY (tx to rx) the read at this connect's initialize answered; null until it does. */
-        @Volatile var phyAtConnect: Pair<Int, Int>? = null
+        /** Stage BLF: the PHY (tx to rx) this connection last reported — the read at its initialize, the answer to a
+         *  PHY request on it, and (stage BWF) the read at a kept link's adoption; null until a read answers. The
+         *  library passes a PHY change nobody asked for to no field (Nordic 2.7.5 hands an update only to a pending
+         *  request), so a kept link is read again at each adoption ([readPhyNow]). */
+        @Volatile var phyReported: Pair<Int, Int>? = null
 
         init {
             // EVERY parameter update on this link, ours or the peripheral's
@@ -149,6 +155,7 @@ class BleTransport(
         fun requestPhy(mask: Int, label: String) {
             setPreferredPhy(mask, mask, PhyRequest.PHY_OPTION_NO_PREFERRED)
                 .with(PhyCallback { _, tx, rx ->
+                    phyReported = tx to rx           // stage BW: the link's PHY now
                     notePhy(arm, tx, rx)
                     emitNote("link", "$arm PHY after the $label request: ${phyName(tx)}/${phyName(rx)}")
                 })
@@ -236,9 +243,17 @@ class BleTransport(
                 .enqueue()
             // the PHY in use, read once (1M is all the glasses accept — this
             // records it rather than assumes it); best-effort, alone
+            readPhyNow("at the connect")
+        }
+
+        /** Read the PHY this link is on — a read of the phone's own controller, no radio exchange — into
+         *  [phyReported] and the link cell; best-effort, alone in the queue. At the connect, and (stage BWF, Part G
+         *  item 5) at a kept link's adoption, where [phyReported] is cleared first: until the read answers, the 2M
+         *  skip has nothing to read and asks, as on a link connected afresh. */
+        fun readPhyNow(label: String) {
             readPhy()
-                .with(PhyCallback { _, tx, rx -> phyAtConnect = tx to rx; notePhy(arm, tx, rx) })
-                .fail { _, status -> Log.w("ble", "$arm PHY read status $status (continuing)") }
+                .with(PhyCallback { _, tx, rx -> phyReported = tx to rx; notePhy(arm, tx, rx) })
+                .fail { _, status -> Log.w("ble", "$arm PHY read $label status $status (continuing)") }
                 .enqueue()
         }
 
@@ -387,16 +402,17 @@ class BleTransport(
             if (!m.linkUp) { skipped.add(arm.name); continue }
             // stage BLF: a link already on 2M both ways (a link the phone held from the session before) is not asked —
             // the request would change nothing and the arm's queue would wait on the radio to answer a no-change
-            // request. The read is the one at this connect's initialize, not one just before this line.
-            val p = m.phyAtConnect
+            // request. The PHY is the one this link last reported: its connect's read, or (stage BWF) the read at a kept
+            // link's adoption, or the answer to a request since.
+            val p = m.phyReported
             if (p != null && p.first == PhyCallback.PHY_LE_2M && p.second == PhyCallback.PHY_LE_2M) { onTwoM.add(arm.name); continue }
             m.requestPhy(PhyRequest.PHY_LE_2M_MASK, "link")
             asked.add(arm.name)
         }
-        if (onTwoM.isNotEmpty()) Log.i("ble", "2M request skipped on ${onTwoM.joinToString("+")}: the PHY read at its connect already said 2M both ways")
+        if (onTwoM.isNotEmpty()) Log.i("ble", "2M request skipped on ${onTwoM.joinToString("+")}: the PHY this link last reported already said 2M both ways")
         emitNote("link", "the build offers LE 2M (DamageCaps bit 6): 2M requested on ${if (asked.isEmpty()) "no arm" else asked.joinToString("+")}" +
             (if (skipped.isEmpty()) "" else " (${skipped.joinToString("+")} had no link up)") +
-            (if (onTwoM.isEmpty()) "" else "; not requested on ${onTwoM.joinToString("+")}: the PHY read at its connect already said 2M both ways"))
+            (if (onTwoM.isEmpty()) "" else "; not requested on ${onTwoM.joinToString("+")}: the PHY this link last reported already said 2M both ways"))
     }
 
     /** The last `phy=` probe's choice, kept across rebuilds (null until one is probed). */
@@ -433,6 +449,39 @@ class BleTransport(
         else -> "reason $reason"
     }
 
+    /** Stage BW: a deliberate restart keeps the link when both arms are up right now. */
+    override fun linkKeepable(): Boolean = managers.values.all { it.linkUp && it.isConnected }
+
+    /** Stage BW: adopt the link kept through the restart — both arms demonstrably up (the session's mark, the
+     *  platform's connection and the write and notify characteristics), else the words why not and today's
+     *  [connectLink] runs (it ends what is left first). The link's properties are not asked for again where they
+     *  are in force: the paced priority re-ask's test once per arm (asked only where the arm's last interval is
+     *  above the configured priority's bound), and the 2M request is skipped by [onDamageBuild]'s own rule on a
+     *  link that reads 2M — the PHY read again here, once per arm (stage BWF). Nothing else is reset that describes
+     *  the live connection (MTU, intervals); the re-ask count is the session's and starts again. */
+    override suspend fun adoptLink(): String? {
+        val down = managers.entries.filter { (_, m) -> !(m.linkUp && m.isConnected && m.write != null && m.notify != null) }
+            .map { (arm, m) -> "${arm.name.first()}: " + when {
+                !m.linkUp -> "its link ended in the gap"
+                !m.isConnected -> "not connected"
+                else -> "its characteristics are gone" } }
+        if (down.isNotEmpty()) return down.joinToString("; ")
+        reasks.set(0)
+        // stage BWF (Part G item 5): the PHY read again, once per arm — before this session's 2M decision reads it
+        for ((_, m) in managers) { m.phyReported = null; m.readPhyNow("at the kept link's adoption") }
+        val asked = ArrayList<String>()
+        for ((arm, m) in managers) {
+            val iv = intervalUnitsByArm[arm] ?: continue          // no update reported on this link: nothing says it is slow
+            if (iv * 1.25 <= maxIntervalMs()) continue
+            asked.add("${arm.name.first()} at %.2f ms".format(iv * 1.25))
+            m.requestPriority(arm, "kept link")
+        }
+        Log.i("ble", "kept link: R+L adopted — no scan, no connect; " +
+            (if (asked.isEmpty()) "priority in force on both arms, not asked" else "$priorityName asked again on ${asked.joinToString(", ")}"))
+        if (asked.isNotEmpty()) emitNote("link", "kept link: $priorityName asked again on ${asked.joinToString(", ")} (above ${maxIntervalMs().toInt()} ms)")
+        return null
+    }
+
     override suspend fun connectLink() {
         resetPriorityBookkeeping()          // §47: per session, like the counters
         // a previous session that ended in a link loss may have left the
@@ -464,7 +513,7 @@ class BleTransport(
                 val m = managers.getValue(arm)
                 m.negotiatedMtu = -1
                 m.initFailure = null
-                m.phyAtConnect = null
+                m.phyReported = null
                 updateState { it.copy(detail = "connecting ${arm.name}" + heldWords(arm, found.via(arm))) }
                 m.connect(dev).retry(CONNECT_RETRIES, CONNECT_RETRY_MS).useAutoConnect(false).suspend()
                 m.initFailure?.let { throw IllegalStateException(it) }
@@ -543,43 +592,16 @@ class BleTransport(
      *  completes, the scan sees that lens advertise or Bluetooth goes off. */
     private val heldFailed = java.util.concurrent.ConcurrentHashMap.newKeySet<Arm>()
 
-    /** Stage BLF: what the scan's decision reads — the phone's link notices for
-     *  the transport's life, one scan's sightings and asks ([PairWatch]). Every
-     *  call is made under this object's lock: the notices' receiver (main
-     *  thread), the scan's callback (a binder thread) and the asker. */
-    private val watch = PairWatch()
-
-    /** Stage BLF: the phone's LE link-up and link-down notices (they see a link
-     *  whoever holds it, where the GATT list sees only an app's) and Bluetooth
-     *  turning off, for the transport's life — registered and unregistered in
-     *  the `init` at the end of this class. */
+    /** Stage BLF: the hand recovery's words end with the Bluetooth toggle they asked for — this transport's own
+     *  receiver, registered and unregistered in the `init` at the end of this class. The link notices themselves are
+     *  recorded for the process ([LinkNotices], stage BW) and reach the scan through [watch]. */
     private val linkReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
-            when (i?.action) {
-                BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                    if (i.getIntExtra(BluetoothDevice.EXTRA_TRANSPORT, BluetoothDevice.TRANSPORT_LE) != BluetoothDevice.TRANSPORT_LE) return
-                    val dev = deviceOf(i) ?: run { Log.w("ble", "link notice ${i.action} with no device — not recorded"); return }
-                    val up = i.action == BluetoothDevice.ACTION_ACL_CONNECTED
-                    synchronized(watch) { watch.linkNotice(dev.address, up, System.currentTimeMillis()) }
-                    val known = remembered()
-                    val tag = when { dev.address.equals(known.leftAddress, true) -> "L"; dev.address.equals(known.rightAddress, true) -> "R"; else -> null }
-                    if (tag != null) Log.i("ble", "$tag ${dev.address}: link-${if (up) "up" else "down"} notice")
-                }
-                BluetoothAdapter.ACTION_STATE_CHANGED -> {
-                    val st = i.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)
-                    if (st == BluetoothAdapter.STATE_TURNING_OFF || st == BluetoothAdapter.STATE_OFF) {
-                        synchronized(watch) { watch.bluetoothOff() }
-                        heldFailed.clear()        // the hand recovery's words end with the toggle they asked for
-                    }
-                }
-            }
+            if (i?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            val st = i.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)
+            if (st == BluetoothAdapter.STATE_TURNING_OFF || st == BluetoothAdapter.STATE_OFF) heldFailed.clear()
         }
     }
-
-    @Suppress("DEPRECATION")
-    private fun deviceOf(i: Intent): BluetoothDevice? =
-        if (android.os.Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-        else i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
 
     /** What the scan settled on: each lens's device and where it came from. */
     private class Found(val left: BluetoothDevice, val right: BluetoothDevice, val decision: PairFind.Decision.Connect) {
@@ -822,23 +844,19 @@ class BleTransport(
         const val HELD_ASK_MS = 5_000L
     }
 
-    // Stage BLF: the link notices' receiver for the transport's life — last in the class, so every field it reaches is
+    // Stage BLF: the Bluetooth-off receiver for the transport's life — last in the class, so every field it reaches is
     // set before a notice can arrive. Unregistered when the stack's scope ends (`ShellService.stopStack` cancels the
-    // scope the transport was built with). A register that fails leaves the record empty: unknown counts as not held.
+    // scope the transport was built with). A register that fails leaves the hand recovery's words until a connect.
     init {
         try {
-            context.registerReceiver(linkReceiver, IntentFilter().apply {
-                addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
-                addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
-                addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
-            })
+            context.registerReceiver(linkReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
             val job = scope.coroutineContext[Job]
-            if (job == null) Log.w("ble", "link notices: the transport's scope has no job — the receiver stays for the process")
+            if (job == null) Log.w("ble", "Bluetooth-off receiver: the transport's scope has no job — it stays for the process")
             else job.invokeOnCompletion {
                 try { context.unregisterReceiver(linkReceiver) } catch (e: Exception) { Log.w("ble", "link notices receiver: ${e.message}") }
             }
         } catch (e: Exception) {
-            Log.w("ble", "link notices not registered (${e.javaClass.simpleName}: ${e.message}) — a lens counts as held only on the phone's GATT list")
+            Log.w("ble", "Bluetooth-off receiver not registered (${e.javaClass.simpleName}: ${e.message}) — the hand recovery's words stay until a connect")
         }
     }
 }

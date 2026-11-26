@@ -8,14 +8,14 @@ import kotlin.test.assertTrue
 import wm.damage.core.gfx.Rle
 import wm.damage.core.motion.BoxFace
 import wm.damage.core.shell.DamageWindow
-import wm.damage.core.shell.MainBinding
+import wm.damage.core.shell.ListBinding
 import wm.damage.core.shell.MainLocalCheck
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.shell.ShellSettings
 import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.DamageMsg
 import wm.damage.core.gfx.Gray8
-import wm.damage.core.shell.MainStageKey
+import wm.damage.core.shell.ListStageKey
 import wm.damage.core.shell.StageKey
 import wm.damage.core.shell.StageRing
 import wm.damage.core.shell.StagedRecord
@@ -93,7 +93,7 @@ class MainBindTest {
         val rows = MainLocalCheck.sampleRows()
         val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
         val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
-        val b = wm.damage.core.shell.MainBinding()
+        val b = wm.damage.core.shell.ListBinding()
         val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
         b.begin(ms, emptyList(), keys(), 0L)
         val first = b.list!!
@@ -102,8 +102,8 @@ class MainBindTest {
         val pOld = (first.predict(tor - 1, down) as wm.damage.core.local.BoundList.Fire.Drew).p!!
         rows[tor].s = rows[tor].s.copy(detail = "iso 9%")
         b.keysChanged(keys())
-        val r = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
-        b.changed(tor); b.submitted(r, StagedRecord(MainStageKey(ms, 1000 + tor, "re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
+        val r = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as ListStaging.Restage.Changed
+        b.changed(tor); b.submitted(r, StagedRecord(ListStageKey(ms, 1000 + tor, "re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
         val second = b.list!!
         assertTrue(second.names(tor, down, down.prog4, pOld), "adopted before the acknowledgement")
         b.releaseIfDue(b.patches.single(), acked = true, burstOpen = true)
@@ -126,17 +126,17 @@ class MainBindTest {
             val what = "h$h stage ${if (stage5) 5 else 4}"
             assertEquals(1, ms.blobs.count { it.name.startsWith("strip") }, "$what: one strip record: ${ms.blobs.map { it.name }}")
             assertTrue(ms.pans.none { it.strip == 1 }, "$what: no pan draws a second strip")
-            val b = wm.damage.core.shell.MainBinding()
+            val b = wm.damage.core.shell.ListBinding()
             val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
             b.begin(ms, emptyList(), keys(), 0L)
             val progs0 = b.list!!.entries.map { it.prog4 }
             val mus = rows.indexOfFirst { it.id == "music" }
             rows[mus].s = rows[mus].s.copy(line = "Night Drive - Low Tides")
             rig.repainted()
-            val r = ms.restage(mus, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
+            val r = ms.restage(mus, rig.view, rig.kit, { _, f -> f() }) as ListStaging.Restage.Changed
             assertTrue(r.strip.isNotEmpty() && r.strip.all { it.off >= ms.strip.off && it.off + it.bytes.size <= ms.strip.off + ms.strip.slot },
                 "$what: the row form's writes inside the one strip's slot ${ms.strip.off}..${ms.strip.off + ms.strip.slot}: ${r.strip.map { "${it.what} @${it.off} ${it.bytes.size} B" }}")
-            b.changed(mus); b.submitted(r, StagedRecord(MainStageKey(ms, 1000 + mus, "re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
+            b.changed(mus); b.submitted(r, StagedRecord(ListStageKey(ms, 1000 + mus, "re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
             assertEquals(progs0, b.list!!.entries.map { it.prog4 }, "$what: the list after the write names the same pans")
         }
     }
@@ -147,7 +147,7 @@ class MainBindTest {
         val rows = MainLocalCheck.sampleRows()
         val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
         val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, false))
-        val b = wm.damage.core.shell.MainBinding()
+        val b = wm.damage.core.shell.ListBinding()
         val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
         b.begin(ms, emptyList(), keys(), 0L)
         val tor = rows.indexOfFirst { it.id == "torrents" }; val mus = rows.indexOfFirst { it.id == "music" }
@@ -155,8 +155,8 @@ class MainBindTest {
         b.keysChanged(keys())
         b.changed(tor, 2_000L); b.changed(mus, 1_000L)                 // Music owed longer
         assertEquals(mus, b.nextOwed(10_000L), "the stalest first")
-        val r = ms.restage(mus, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
-        b.submitted(r, StagedRecord(MainStageKey(ms, 1000 + mus, "re-stage"), Gray8(1, 1), ByteArray(4)), 10_000L)
+        val r = ms.restage(mus, rig.view, rig.kit, { _, f -> f() }) as ListStaging.Restage.Changed
+        b.submitted(r, StagedRecord(ListStageKey(ms, 1000 + mus, "re-stage"), Gray8(1, 1), ByteArray(4)), 10_000L)
         b.releaseIfDue(b.patches.single(), acked = true, burstOpen = false)
         assertNull(b.nextOwed(14_000L), "the other row waits for the pace in all, not its own")
         assertEquals(tor, b.nextOwed(15_000L), "then the next")
@@ -173,10 +173,10 @@ class MainBindTest {
             // runs of every class: single pixels, 16..255, 256 and more, a whole black row
             var i = rnd.nextInt(700)
             while (i < lv.size) { val n = 1 + rnd.nextInt(if (trial % 3 == 0) 20 else 400); val c = rnd.nextInt(16); for (k in i until minOf(lv.size, i + n)) lv[k] = c.toByte(); i += n + rnd.nextInt(300) }
-            val natural = MainStaging.rleSize(lv, 0, lv.size)
-            assertNull(MainStaging.rlePadded(lv, 0, lv.size, natural - 1), "trial $trial: one byte short of the natural $natural is refused")
-            for (size in listOf(natural, natural + 1, natural + 3, MainStaging.slack(natural), natural * 3)) {
-                val seg = MainStaging.rlePadded(lv, 0, lv.size, size) ?: throw AssertionError("trial $trial: no stream of $size B (natural $natural)")
+            val natural = ListStaging.rleSize(lv, 0, lv.size)
+            assertNull(ListStaging.rlePadded(lv, 0, lv.size, natural - 1), "trial $trial: one byte short of the natural $natural is refused")
+            for (size in listOf(natural, natural + 1, natural + 3, ListStaging.slack(natural), natural * 3)) {
+                val seg = ListStaging.rlePadded(lv, 0, lv.size, size) ?: throw AssertionError("trial $trial: no stream of $size B (natural $natural)")
                 assertEquals(size, seg.size)
                 assertTrue(Rle.decodeLevels(seg, lv.size).contentEquals(lv), "trial $trial at $size B: decodes to its levels")
             }
@@ -192,15 +192,15 @@ class MainBindTest {
         for (h in listOf(288, 352, 416, 480)) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
             val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true), motion = null)
-            val pan = ms.pan(MainStaging.WHOLE, 1)
-            val stepMs = MainStaging.STEP_MS_BASE + MainStaging.STEP_MS_PER_KPX * pan.areaPx / 1000.0
+            val pan = ms.pan(ListStaging.WHOLE, 1)
+            val stepMs = ListStaging.STEP_MS_BASE + ListStaging.STEP_MS_PER_KPX * pan.areaPx / 1000.0
             assertEquals(rig.layout.rowsAbove to rig.layout.rowsBelow, pan.kA to pan.kB, "$h: the whole list moves")
             val p0 = kotlin.math.ceil(stepMs * 1024.0 / 1000.0).toInt()
-            assertTrue(ms.period >= p0 * MainStaging.PERIOD_MARGIN && ms.period - 1 < p0 * MainStaging.PERIOD_MARGIN, "$h: the period P0 with the margin, rounded up")
+            assertTrue(ms.period >= p0 * ListStaging.PERIOD_MARGIN && ms.period - 1 < p0 * ListStaging.PERIOD_MARGIN, "$h: the period P0 with the margin, rounded up")
             assertTrue(kotlin.math.abs(ms.t * p0 * 1000.0 / 1024 - 200) <= p0 * 1000.0 / 1024 / 2 + 0.01, "$h: T nearest 200 ms at P0")
             assertEquals(want[h], ms.period to ms.t, "$h: (P, T)")
             assertEquals(ms.t, ms.pans.first().program.T, "$h: every pan has the staging's T")
-            assertEquals(MainStaging.PRESS_T, ms.press.program.T, "$h: the press keeps T = 3")
+            assertEquals(ListStaging.PRESS_T, ms.press.program.T, "$h: the press keeps T = 3")
         }
     }
 
@@ -216,11 +216,11 @@ class MainBindTest {
             val fixed = rig.staging(CfwModes.CACHE2_MAX, region, motion = null)
             val pFit = fixed.period
             for (len in ShellSettings.SCROLL_LENGTHS) for (f in ShellSettings.FRAME_COUNTS) {
-                val ms = rig.staging(CfwModes.CACHE2_MAX, region, MainStaging.ScrollMotion(len, f))
+                val ms = rig.staging(CfwModes.CACHE2_MAX, region, ListStaging.ScrollMotion(len, f))
                 val lenTicks = len * 1024.0 / 1000.0
                 if (f == 0) {
                     assertEquals(pFit, ms.period, "$h $len ms Auto: the fitted period")
-                    assertEquals(maxOf(MainStaging.MIN_STEPS, kotlin.math.floor(lenTicks / pFit).toInt()), ms.t, "$h $len ms Auto: the steps that fit")
+                    assertEquals(maxOf(ListStaging.MIN_STEPS, kotlin.math.floor(lenTicks / pFit).toInt()), ms.t, "$h $len ms Auto: the steps that fit")
                 } else {
                     assertEquals(f, ms.t, "$h $len ms $f frames: the count")
                     assertTrue(ms.period >= pFit, "$h $len ms $f frames: never under the fitted period")
@@ -233,8 +233,8 @@ class MainBindTest {
         println("ANIM-table\n" + table.joinToString("\n"))
         val d = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows()).staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
         assertEquals(46 to 6, d.period to d.t, "the defaults at 352 (300 ms since decisions AZ.7): T 6 at P 46")
-        assertEquals(4, MainStaging.swapOf(10), "the band's swap at T 10")
-        assertEquals(2, MainStaging.swapOf(5), "the band's swap at T 5, as before")
+        assertEquals(4, ListStaging.swapOf(10), "the band's swap at T 10")
+        assertEquals(2, ListStaging.swapOf(5), "the band's swap at T 5, as before")
     }
 
     /** A summary that grows past its slots' slack is not written in place: a full staging (a new mark) is owed. */
@@ -244,16 +244,16 @@ class MainBindTest {
         val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
         val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
         val tmux = rows.indexOfFirst { it.id == "tmux" }
-        assertEquals(MainStaging.Restage.Same, ms.restage(tmux, rig.view, rig.kit, { _, b -> b() }), "nothing changed: nothing to write")
+        assertEquals(ListStaging.Restage.Same, ms.restage(tmux, rig.view, rig.kit, { _, b -> b() }), "nothing changed: nothing to write")
         rows[tmux].s = DamageWindow.Summary("17 sessions across four hosts, two of them busy", detail = "build: running the whole battery since 14:02 with 3 failures", progress = 0.5, more = true)
         val r = ms.restage(tmux, rig.view, rig.kit, { _, b -> b() })
-        assertTrue(r is MainStaging.Restage.Outgrown, "a row grown past its slack: $r")
+        assertTrue(r is ListStaging.Restage.Outgrown, "a row grown past its slack: $r")
         // a small change fits: Torrents' progress
         val tor = rows.indexOfFirst { it.id == "torrents" }
         rows[tor].s = rows[tor].s.copy(progress = 0.95, line = "3 active, 3.4 MB/s", detail = "debian-13.iso 95%")
         val r2 = ms.restage(tor, rig.view, rig.kit, { _, b -> b() })
-        assertTrue(r2 is MainStaging.Restage.Changed, "a progress step is written in place: $r2")
-        r2 as MainStaging.Restage.Changed
+        assertTrue(r2 is ListStaging.Restage.Changed, "a progress step is written in place: $r2")
+        r2 as ListStaging.Restage.Changed
         println("DM2-restage torrents: ${r2.bytes} B in ${r2.writes.size} write(s): ${r2.writes.joinToString { "${it.what} ${it.bytes.size} B" }}")
         assertTrue(r2.writes.all { it.off % 4 == 0 && it.bytes.size % 4 == 0 }, "every write 4-aligned")
         val strip = r2.writes.filter { it.what.startsWith("strip") }
@@ -276,9 +276,9 @@ class MainBindTest {
         val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
         fun rleWith(line: String): Int {
             sm.s = base.copy(line = line)
-            val g = MainStaging.paintStripRow(rig.view, rig.layout, music) { _, b -> b() }
+            val g = ListStaging.paintStripRow(rig.view, rig.layout, music) { _, b -> b() }
             val lv = ByteArray(g.pix.size) { wm.damage.core.gfx.Pack.level(g.pix[it].toInt() and 0xFF).toByte() }
-            return MainStaging.rleSize(lv, 0, lv.size)
+            return ListStaging.rleSize(lv, 0, lv.size)
         }
         val s0 = rleWith(base.line)
         val seg0 = ms.strip.segLen!![rig.layout.rowsAbove + music]
@@ -286,20 +286,20 @@ class MainBindTest {
         val t1 = (1..60).map { base.line + " " + "W".repeat(it) }.first { rleWith(it) > seg0 }
         val s1 = rleWith(t1)
         val r1 = ms.restage(music, rig.view, rig.kit, { _, b -> b() })
-        assertTrue(r1 is MainStaging.Restage.Changed && r1.relaid != null, "the first change outgrew its segment: $r1")
-        r1 as MainStaging.Restage.Changed
+        assertTrue(r1 is ListStaging.Restage.Changed && r1.relaid != null, "the first change outgrew its segment: $r1")
+        r1 as ListStaging.Restage.Changed
         val tail = r1.writes.filter { it.what.startsWith("strip") }.sumOf { it.bytes.size }
         ms.apply(r1)
         r1.band?.let { ms.release(it.oldOff4) }   // the shell frees the old band slot at the switch's ack
         // the second change: larger than plain slack would hold, inside the room
-        val room = MainStaging.roomFor(maxOf(s0, s1))
-        val t2 = (1..80).map { t1 + "W".repeat(it) }.firstOrNull { rleWith(it).let { n -> n > MainStaging.segSlack(s1) && n <= room } }
-        assertNotNull(t2, "a second change between the plain slack (${MainStaging.segSlack(s1)}) and the room ($room): " +
+        val room = ListStaging.roomFor(maxOf(s0, s1))
+        val t2 = (1..80).map { t1 + "W".repeat(it) }.firstOrNull { rleWith(it).let { n -> n > ListStaging.segSlack(s1) && n <= room } }
+        assertNotNull(t2, "a second change between the plain slack (${ListStaging.segSlack(s1)}) and the room ($room): " +
             (1..80).joinToString { "${rleWith(t1 + "W".repeat(it))}" })
         rleWith(t2!!)
         val r2 = ms.restage(music, rig.view, rig.kit, { _, b -> b() })
-        assertTrue(r2 is MainStaging.Restage.Changed, "$r2")
-        r2 as MainStaging.Restage.Changed
+        assertTrue(r2 is ListStaging.Restage.Changed, "$r2")
+        r2 as ListStaging.Restage.Changed
         val strip = r2.writes.filter { it.what.startsWith("strip") }
         println("B082-room music: first change $s0 → $s1 B (tail ${tail} B), second → ${rleWith(t2)} B: ${strip.joinToString { "${it.what} ${it.bytes.size} B" }}")
         assertTrue(r2.relaid == null && strip.none { "laid out again" in it.what || ".." in it.what }, "the second change wrote its segments alone: ${strip.map { it.what }}")
@@ -313,21 +313,21 @@ class MainBindTest {
         val rows = MainLocalCheck.sampleRows()
         val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
         val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
-        val b = MainBinding()
+        val b = ListBinding()
         val ids = rows.map { it.id }
         b.begin(ms, emptyList(), List(ms.rows) { null }, 0L, ids)
         val music = rows.indexOfFirst { it.id == "music" }
         (rows[music] as MainLocalCheck.SampleRow).s = rows[music].summary().copy(line = "Night Drive - Low Tide (live, 1998)")
-        assertTrue(ms.restage(music, rig.view, rig.kit, { _, bb -> bb() }) is MainStaging.Restage.Changed)
+        assertTrue(ms.restage(music, rig.view, rig.kit, { _, bb -> bb() }) is ListStaging.Restage.Changed)
         b.drop()
         val room = b.roomFor(ids)
-        assertEquals(MainStaging.roomFor(ms.seenMax[music]), room[music], "Music's room carried by its window")
+        assertEquals(ListStaging.roomFor(ms.seenMax[music]), room[music], "Music's room carried by its window")
         assertTrue(room.withIndex().all { (i, v) -> i == music || v == 0 }, "no other row given room: ${room.toList()}")
         val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
-        val ms2 = MainStaging.build(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, CfwModes.CACHE2_MAX,
-            region.first, region.last + 1, widths = listOf(MainStaging.WHOLE))
-        val ms3 = MainStaging.assemble(MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } },
-            rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(MainStaging.WHOLE), room = room)
+        val ms2 = ListStaging.build(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, CfwModes.CACHE2_MAX,
+            region.first, region.last + 1, widths = listOf(ListStaging.WHOLE))
+        val ms3 = ListStaging.assemble(ListStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } },
+            rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(ListStaging.WHOLE), room = room)
         val s = rig.layout.rowsAbove + music
         assertTrue(ms3.strip.segLen!![s] >= room[music] && ms3.strip.segLen!![s] > ms2.strip.segLen!![s], "Music's segment starts with its room: ${ms3.strip.segLen!![s]} vs ${ms2.strip.segLen!![s]}")
     }
@@ -340,27 +340,27 @@ class MainBindTest {
         val rows = MainLocalCheck.sampleRows()
         val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
         val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
-        val b = MainBinding()
+        val b = ListBinding()
         val ids = rows.map { it.id }
         val music = rows.indexOfFirst { it.id == "music" }
         val row = rows[music] as MainLocalCheck.SampleRow
         val plain = row.s
-        fun staged(change: String?): MainStaging {
+        fun staged(change: String?): ListStaging {
             val ms = rig.staging(CfwModes.CACHE2_MAX, region)
             b.begin(ms, emptyList(), List(ms.rows) { null }, 0L, ids)
-            if (change != null) { row.s = plain.copy(line = change); ms.restage(music, rig.view, rig.kit, { _, bb -> bb() }).let { assertTrue(it is MainStaging.Restage.Changed, "\"$change\" re-staged: $it") } }
+            if (change != null) { row.s = plain.copy(line = change); ms.restage(music, rig.view, rig.kit, { _, bb -> bb() }).let { assertTrue(it is ListStaging.Restage.Changed, "\"$change\" re-staged: $it") } }
             b.drop()
             return ms
         }
         val long = staged("Night Drive - Low Tide (live, 1998)")
         val roomLong = b.roomFor(ids)[music]
-        assertEquals(MainStaging.roomFor(long.seenMax[music]), roomLong, "the long title's room")
+        assertEquals(ListStaging.roomFor(long.seenMax[music]), roomLong, "the long title's room")
         row.s = plain
         staged(null)
         assertEquals(0, b.roomFor(ids)[music], "a staging in which the row drew nothing new: its room is taken away (was $roomLong)")
         val short = staged("Low Tide")
         val roomShort = b.roomFor(ids)[music]
-        assertEquals(MainStaging.roomFor(short.seenMax[music]), roomShort, "the shorter title's room alone")
+        assertEquals(ListStaging.roomFor(short.seenMax[music]), roomShort, "the shorter title's room alone")
         assertTrue(roomShort < roomLong, "the room came down: $roomShort, from $roomLong")
     }
 
@@ -370,9 +370,9 @@ class MainBindTest {
     fun aRoomTheRegionCannotHoldIsLeftOut_B082() {
         val rig = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows())
         val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
-        val paint = MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
-        val plain = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(MainStaging.WHOLE))
-        val ms = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(MainStaging.WHOLE),
+        val paint = ListStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
+        val plain = ListStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(ListStaging.WHOLE))
+        val ms = ListStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(ListStaging.WHOLE),
             room = IntArray(plain.rows) { 8_000 })
         assertTrue(ms.strip.segLen!!.contentEquals(plain.strip.segLen!!), "the strip as it was: ${ms.strip.segLen!!.toList()}")
         assertEquals(plain.wrap?.slot, ms.wrap?.slot, "the room goes first: the wrap's record kept as it was")
@@ -385,8 +385,8 @@ class MainBindTest {
     fun aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082() {
         val rig = MainLocalCheck.MainRig(BoxFace, 288, MainLocalCheck.sampleRows())
         val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
-        val paint = MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
-        fun at(end: Int) = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, end, listOf(MainStaging.WHOLE))
+        val paint = ListStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
+        fun at(end: Int) = ListStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, end, listOf(ListStaging.WHOLE))
         val full = at(region.last + 1)
         val wp = assertNotNull(full.wrap, "Main wraps at 288 with eight rows")
         val extra = wp.slot - ((wp.encoded.size + 3) and 3.inv())
@@ -411,11 +411,11 @@ class MainBindTest {
         val j = (0 until l.rowsAbove + l.rowsBelow + 2).first { (ms.rows - 1 - l.rowsAbove + it).mod(ms.rows) == tor }
         (rows[tor] as MainLocalCheck.SampleRow).s = rows[tor].summary().copy(line = "3 active, 3.4 MB/s", progress = 0.95)
         val r = ms.restage(tor, rig.view, rig.kit, { _, b -> b() })
-        assertTrue(r is MainStaging.Restage.Changed, "$r")
-        r as MainStaging.Restage.Changed
+        assertTrue(r is ListStaging.Restage.Changed, "$r")
+        r as ListStaging.Restage.Changed
         assertTrue(r.wrapWrites.any { it.what.startsWith("wrap row $j") && it.off >= wp.off && it.off < wp.off + wp.slot }, "the wrap record's row $j written: ${r.wrapWrites.map { it.what }}")
         ms.apply(r)
-        val g = MainStaging.paintStripRow(rig.view, l, tor) { _, b -> b() }
+        val g = ListStaging.paintStripRow(rig.view, l, tor) { _, b -> b() }
         for (y in 0 until l.rowH) for (x in 0 until g.w) if (wp.raw[x, j * l.rowH + y] != g[x, y]) throw AssertionError("wrap row $j is not the new picture at ($x,$y)")
     }
 
@@ -445,9 +445,9 @@ class MainBindTest {
         val stg = Staging()
         stg.ring = StageRing(192 * 1024, 256 * 1024)
         val ms = Any()
-        val own = StagedRecord(MainStageKey(ms, 0, "strip"), Gray8(1, 1), ByteArray(8)).also { it.off = 128 * 1024 }
+        val own = StagedRecord(ListStageKey(ms, 0, "strip"), Gray8(1, 1), ByteArray(8)).also { it.off = 128 * 1024 }
         stg.records[own.key] = own
-        val shared = StagedRecord(MainStageKey(ms, 1, "band 0"), Gray8(1, 1), ByteArray(8))
+        val shared = StagedRecord(ListStageKey(ms, 1, "band 0"), Gray8(1, 1), ByteArray(8))
         assertTrue(stg.ring!!.placeAt(shared, 192 * 1024) != null)
         stg.records[shared.key] = shared
         val doc = Any()
@@ -466,7 +466,7 @@ class MainBindTest {
         val rows = MainLocalCheck.sampleRows()
         val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
         val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
-        val b = wm.damage.core.shell.MainBinding()
+        val b = wm.damage.core.shell.ListBinding()
         val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
         b.begin(ms, emptyList(), keys(), 0L)
         val first = b.list!!
@@ -474,10 +474,10 @@ class MainBindTest {
         rows[tor].s = rows[tor].s.copy(detail = "iso 9%")
         b.keysChanged(keys())
         assertTrue(b.stale(tor) && b.staleRows == listOf(tor))
-        val r = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
+        val r = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as ListStaging.Restage.Changed
         val mv = r.band!!
         assertTrue(r.strip.isEmpty(), "the detail is the band form's alone")
-        val rec = StagedRecord(MainStageKey(ms, 1000 + tor, "re-stage"), Gray8(1, 1), ByteArray(4))
+        val rec = StagedRecord(ListStageKey(ms, 1000 + tor, "re-stage"), Gray8(1, 1), ByteArray(4))
         b.changed(tor); b.submitted(r, rec, 1L)
         val second = b.list!!
         assertTrue(second !== first && second.mark == first.mark && second.previous === first, "a new list, the same mark, the old one as previous")
@@ -488,7 +488,7 @@ class MainBindTest {
         assertTrue(ms.free.size == 2 && mv.oldOff4 * 4 in ms.free, "the old slot is free again beside the other spare: ${ms.free}")
         // a row-form change: withdrawn until its write is submitted
         rows[tor].s = rows[tor].s.copy(line = "3 active, 14.0 MB/s")
-        val r2 = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
+        val r2 = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as ListStaging.Restage.Changed
         assertTrue(r2.strip.isNotEmpty())
         b.withdraw(tor, 7L)
         assertEquals(tor, b.withdrawnFor)
@@ -508,8 +508,8 @@ class MainBindTest {
         val off0 = ms.strip.off
         rows[tmux].s = rows[tmux].s.copy(line = "3 sessions · 2 attached · 1 idle")
         val r = ms.restage(tmux, rig.view, rig.kit, { _, f -> f() })
-        assertTrue(r is MainStaging.Restage.Changed && r.relaid != null, "re-laid in the strip's slot: $r")
-        r as MainStaging.Restage.Changed
+        assertTrue(r is ListStaging.Restage.Changed && r.relaid != null, "re-laid in the strip's slot: $r")
+        r as ListStaging.Restage.Changed
         val tail = r.strip.single()
         assertTrue(tail.off >= off0 && tail.off + tail.bytes.size <= off0 + ms.strip.slot, "the tail inside the strip's slot")
         ms.apply(r)

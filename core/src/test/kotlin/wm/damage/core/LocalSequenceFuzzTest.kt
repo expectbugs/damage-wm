@@ -193,6 +193,7 @@ class LocalSequenceFuzzTest {
     private fun moved(h: LocalHarness, failed: MutableList<String>, suffix: String) {
         for ((g, n) in h.moves) if (n > 1) failed += "(8) gesture $g moved the row $n times$suffix"
         for ((g, n) in h.moves1) if (n > 1) failed += "(8) gesture $g moved list 1's row $n times$suffix"     // K1-2 stage 4b
+        for ((g, n) in h.moves2) if (n > 1) failed += "(8) gesture $g moved the wheel's row $n times$suffix"  // C3 DW-2a
     }
 
     /** (9): the row at rest against the ring's net count — on the phone; (2) and (3) carry it to both lenses. With
@@ -257,7 +258,7 @@ class LocalSequenceFuzzTest {
         for (m in h.truthMismatches()) failed += "(2) $m"
         if (h.maxRefusalStreak >= 3) failed += "(5) three refused flushes in a row (the shell sleeps on that): ${h.maxRefusalStreak}"
         // (3)
-        if (!h.covered && !h.window) {
+        if (!h.covered && !h.window && !h.wheelOpen) {
             val (l, r) = h.cursors()
             if (l != h.row || r != h.row) failed += "(3) cursors L $l R $r, phone's row ${h.row}"
         }
@@ -370,6 +371,7 @@ class LocalSequenceFuzzTest {
         h.lose115 = 0.0; h.dup115 = 0.0; h.bandDropScroll = 0.0
         h.dropAnswer = 0.0; h.actOpensWindow = 0.0; h.lose27 = null; h.refuse27On = null; h.refuseTailOn = null; h.loseAnswerOn = null
         h.actSelects = 0.0
+        if (!keep && h.wheelOpen) h.cancelWheel()      // C3 DW-2a: the wheel closed (a waiting notice shows, then goes)
         h.uncover(); if (!keep) h.back()
         if (h.badge) h.toggleBadge()                 // a draw over the band is not the staged picture: every notch DISCARDs
         h.rest()
@@ -406,6 +408,14 @@ class LocalSequenceFuzzTest {
     private fun list1Of(seed: Long) = list1On && ringOf(seed) && (seed / 8) % 2 == 0L && seed !in RING_GATE_SEEDS.keys &&
         seed !in STAGE4_GATE_SEEDS.keys && seed !in STAGE5_GATE_SEEDS.keys
 
+    /** C3 DW-2a (decisions DP 2): half the ring sequences carry the switcher's wheel as glasses list 2 (a stage-5 build; the
+     *  wheel binds at stage 5 only) — never a seed of a class map, chosen by the seed with no draw from the sequence's
+     *  stream (`(seed / 16) % 2`, so a quarter carry list 1 and the wheel together), every other sequence exactly as
+     *  before. None at the stage-4 timing and none in his profile. `LOCAL_FUZZ_WHEEL=0`: none (the fuzz as it stood). */
+    private val wheelOn = System.getenv("LOCAL_FUZZ_WHEEL") != "0"
+    private fun wheelOf(seed: Long) = wheelOn && ringOf(seed) && (seed / 16) % 2 == 0L && seed !in RING_GATE_SEEDS.keys &&
+        seed !in STAGE4_GATE_SEEDS.keys && seed !in STAGE5_GATE_SEEDS.keys
+
     /** [stopAfter]: run only the first events of the sequence (the same stream; `LOCAL_FUZZ_SHRINK`'s prefixes). */
     fun randomSequence(seed: Long, events: Int = 40, stopAfter: Int = Int.MAX_VALUE): Verdict {
         val r = java.util.Random(seed)
@@ -422,6 +432,8 @@ class LocalSequenceFuzzTest {
         // K1-2 stage 4b: list 1's events come from a stream of their own (a third of the driven events)
         val l1r = if (h.list1) java.util.Random(seed * 131 + 7) else null
         if (h.list1) h.actSelects = 0.5
+        // C3 DW-2a: the wheel's events from a stream of their own (a quarter of the driven events that are not list 1's)
+        val w2r = if (h.wheel) java.util.Random(seed * 151 + 11) else null
         val sequence = ArrayList<String>()
         val n = 1 + r.nextInt(events)
         repeat(n) {
@@ -431,6 +443,13 @@ class LocalSequenceFuzzTest {
                 val what = h.list1Event(l1r)
                 sequence += "${h.now}: $what"
                 h.trace?.invoke("[${h.now}] drive list 1: $what")
+                h.runUntil(h.now + 30 + r.nextInt(370))
+                return@repeat
+            }
+            if (w2r != null && w2r.nextInt(4) == 0) {
+                val what = h.wheelEvent(w2r)
+                sequence += "${h.now}: $what"
+                h.trace?.invoke("[${h.now}] drive the wheel: $what")
                 h.runUntil(h.now + 30 + r.nextInt(370))
                 return@repeat
             }
@@ -474,7 +493,9 @@ class LocalSequenceFuzzTest {
         scrollLiveness(h, failed)
         // K1-2 stage 4b: list 1's reach is the random part's (the end phase opens, binds, taps and leaves it in every one)
         val reach0 = java.util.TreeMap(h.l1Reach)
+        val reachW0 = java.util.TreeMap(h.w2Reach)
         if (h.list1) list1Phase(h, failed, counted)
+        if (h.wheel) wheelPhase(h, failed)                  // C3 DW-2a
         // row A's first trigger (declined, declared): does a batch lost on RIGHT alone heal once COMMITs land again?
         if (h.commitMissedRight) {
             val right = h.truthMismatches().filter { it.startsWith("RIGHT") }
@@ -521,6 +542,12 @@ class LocalSequenceFuzzTest {
             for ((k, c) in reach0) if (c > 0) counted["$L1 $k"] = (counted["$L1 $k"] ?: 0) + 1
             if (h.moves.keys.any { it in h.moves1.keys }) counted["$L1 a gesture that moved both lists' rows"] = (counted["$L1 a gesture that moved both lists' rows"] ?: 0) + 1
         }
+        // C3 DW-2a: the wheel's reach — per class, one for each sequence that reached it
+        if (h.wheel) {
+            counted[W2_SEQS] = (counted[W2_SEQS] ?: 0) + 1
+            for ((k, c) in reachW0) if (c > 0) counted["$W2 $k"] = (counted["$W2 $k"] ?: 0) + 1
+            if (h.moves2.keys.any { it in h.moves.keys || it in h.moves1.keys }) counted["$W2 a gesture that moved the wheel's row and another list's"] = (counted["$W2 a gesture that moved the wheel's row and another list's"] ?: 0) + 1
+        }
         val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} held ${h.heldCommits} acts ${h.acts.size} " +
             "verdicts ${h.verdicts.groupingBy { it.second::class.simpleName }.eachCount()} counts ${h.rules.counts}"
         return Verdict(failed.distinct(), counted, stats, sequence)
@@ -528,6 +555,61 @@ class LocalSequenceFuzzTest {
 
     private val L1 = "L1:"
     private val L1_SEQS = "L1: sequences with list 1"
+    private val W2 = "W2:"
+    private val W2_SEQS = "W2: sequences with the wheel"
+
+    /**
+     * C3 DW-2a (decisions DP 4): the wheel at rest and live, after Main's and list 1's checks — opened over Main and offered
+     * once its order is counted; (2) its picture on both lenses, (3) both lenses' list-2 cursors on its row, (4) nothing
+     * owed; (7) on its ring; then (6) on its report-only tap: one tap commits — acted on (by the tap rule under `report` and
+     * `glasses`, as today under `phone`), (1) on the row RIGHT showed — and closes it; then (2) and (3) on the list the commit
+     * brought in front.
+     */
+    private fun wheelPhase(h: LocalHarness, failed: MutableList<String>) {
+        quiet(h)
+        h.openWheel()
+        h.runUntil(h.now + 1000)                        // the lane's count (≤ 700 ms) and the offer mid-open
+        h.rest()
+        if (h.rules.front?.list != 2) { failed += "(W2) the wheel is not bound at rest while open (open ${h.wheelOpen}, offered ${h.l2Bound})"; return }
+        fun wheelAtRest(what: String) {
+            for (m in h.truthMismatches()) failed += "(2) $what: $m"
+            val (l, r) = h.cursors(2)
+            if (l != h.row2 || r != h.row2) failed += "(3) $what: list 2's cursors L $l R $r, phone's row ${h.row2}"
+            val rr = h.rules
+            if (rr.owesUncarried(h.now) != 0) failed += "(4) $what: owes ${rr.owesScroll}/${rr.owesClick}/${rr.owesAny} no carry holds"
+            if (rr.burstOpen) failed += "(4) $what: a burst still open"
+            if (rr.slotOwed(0)) failed += "(4) $what: slot 0 still owes an answer"
+        }
+        wheelAtRest("the wheel at rest")
+        val f0 = failed.size
+        scrollLiveness(h, failed, keep = true)
+        h.rest()
+        if (h.rules.front?.list == 2) wheelAtRest("the wheel after its notches") else failed += "(W2) the wheel left the front during its notches"
+        val acts0 = h.acts.size
+        val g = h.gesture(0, answer = true, band = "none")
+        h.rest()
+        val a = h.acts.drop(acts0).firstOrNull { it.gesture == g }
+        if (a == null) failed += "(6) the wheel's tap was not acted on (taps ${h.rules.taps.word}; verdicts ${h.verdicts.filter { it.first == g }.map { it.second }}; notes ${h.notes.takeLast(4)})"
+        else if (a.viaRule && a.rightId != a.id) failed += "(1) gesture $g: acted on identity ${a.id}, RIGHT showed ${a.rightId}"
+        if (h.wheelOpen) failed += "(W2) the wheel still open after its tap"
+        for (i in f0 until failed.size) failed[i] = failed[i] + " (list 2)"
+        // the list the commit brought in front (a window's list is bound by its lane)
+        h.runUntil(h.now + 1000)
+        h.rest()
+        for (m in h.truthMismatches()) failed += "(2) after the wheel's commit: $m"
+        val fl = h.rules.front?.list
+        if (fl == 0 || fl == 1) {
+            val (l, r) = h.cursors(fl); val row = if (fl == 0) h.row else h.row1
+            if (l != row || r != row) failed += "(3) after the wheel's commit, list $fl: cursors L $l R $r, phone's row $row"
+        }
+    }
+
+    /** C3 DW-2a: the wheel's classes the run reached, each with the number of sequences that reached it. */
+    private fun wheelReach(what: String, counted: Map<String, Int>) {
+        val ks = counted.keys.filter { it.startsWith(W2) }.sorted()
+        if (ks.isEmpty()) { println("W2REACH $what at ${timing ?: "unset"}: no sequence carries the wheel"); return }
+        println("W2REACH $what at ${timing ?: "unset"}: " + ks.joinToString("; ") { "${it.removePrefix("$W2 ")} ${counted[it]}" })
+    }
 
     /**
      * K1-2 stage 4b: the window list at rest and live, after Main's checks — the window shown again (its staging kept when
@@ -1495,6 +1577,30 @@ class LocalSequenceFuzzTest {
         424201644L to listOf("$swallowedKey (a carried one)", "$lostDrewKey paid by a carried owe"),
         101792L to listOf("$staleKey an unreported stock message"))   // across the wrap (the review's)
 
+    /**
+     * C3 DW-2a (decisions DP 6; owed since DN 2): seeds the gate-sized run carries for the rows of `LocalRules` that a second
+     * or third list in slot 0 reaches and the gate's own 60 + 60 do not catch — each named with the reach keys (`L1:` and
+     * `W2:`, as the run counts them) of the path its row's failure takes, and admitted by the selectors (list 1 and the
+     * wheel ride them as on any seed). The gate-sized run fails when a named seed stops reaching a key it is named for
+     * ([namedSeedsReach]): the row's pin would otherwise stop meeting its guard without a word. The default timing's.
+     */
+    private val REACH_GATE_SEEDS: Map<Long, List<String>> = mapOf(
+        // DW2a-supersede-any-list: the close onto Main with a CLEAR of the wheel's tap entry 0 owed (Main's entry 0 too)
+        424200653L to listOf("$W2 a close onto main", "$W2 a commit by the tap rule"),
+        // DW2a-tap-on-phones-row (spec §7.2's seeded case: the tap acted on the phone's row)
+        101032L to listOf("$W2 a commit by the tap rule"),
+        // K12S4b-rebind-only-from-none (4b's first failing seed): a front changing straight from one list to the other
+        701297L to listOf("$L1 return: list 1 → Main", "$L1 window change: Main → list 1, a new staging"),
+        // K12S4b-discard-names-row-handed (4b's first failing seed): a report of the list not in front, answered
+        100564L to listOf("$L1 pin 13: a list-1 report answered with Main in front (Apply(type=1))",
+            "$L1 pin 13: a list-0 report answered with list 1 in front (Apply(type=2))"))
+    private fun reachSeedsFor(): Map<Long, List<String>> = if (timing == null || timing == Timing.DEFAULT) REACH_GATE_SEEDS else emptyMap()
+
+    /** C3 DW-2a: every named reach seed of [named] reached every key it is named for ([reachedBy]: seed → the keys its run
+     *  counted). */
+    private fun namedSeedsReach(named: Map<Long, List<String>>, reachedBy: Map<Long, Set<String>>): List<String> =
+        named.flatMap { (seed, keys) -> keys.filter { it !in reachedBy[seed].orEmpty() }.map { "seed $seed: a named reach seed no longer reaches the key it is named for ($it)" } }
+
     /** Decisions BB (3): every named seed of [named] declared every class key it is named for in [declaredSeeds] (class
      *  key → the seeds that declared it). */
     private fun namedSeedsHoldTheirClasses(named: Map<Long, List<String>>, declaredSeeds: Map<String, List<Long>>, form: (Long) -> String): List<String> =
@@ -1675,9 +1781,13 @@ class LocalSequenceFuzzTest {
         val only = System.getenv("LOCAL_FUZZ_SEEDS")?.split(',')?.map { it.trim().toLong() }
         // decisions BQ: the gate-sized run also runs one sequence of each declared class of (9) and (10)
         val gate = System.getenv("LOCAL_FUZZ_N") == null && System.getenv("LOCAL_FUZZ_BASES") == null
-        val seeds = only ?: (bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } } + if (gate) gateSeedsFor().keys else emptyList())
+        val seeds = only ?: (bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } } + if (gate) gateSeedsFor().keys + reachSeedsFor().keys else emptyList())
+        val reachedBy = HashMap<Long, Set<String>>()
         for (seed in seeds) {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
+            if (seed in reachSeedsFor()) reachedBy[seed] = v.counted.keys
+            // C3 DW-2a: `LOCAL_FUZZ_KEYS=1` prints each sequence's list-1 and wheel reach keys (choosing a named reach seed's keys)
+            if (System.getenv("LOCAL_FUZZ_KEYS") != null) println("KEYS seed $seed: " + v.counted.keys.filter { it.startsWith(L1) || it.startsWith(W2) }.sorted().joinToString(" ; "))
             for (f in v.failed) fails += "seed $seed: $f"
             if (v.failed.isNotEmpty()) println("SEQUENCE seed $seed: ${v.sequence.joinToString(" | ")}")    // K1-2 stage 4b
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
@@ -1690,10 +1800,13 @@ class LocalSequenceFuzzTest {
         // C3 X2M0 (the review of DM-0, finding 4), C3 X3M0 (decisions BB (3)): a named seed that no longer declares a class
         // it is named for — the gate-sized run would stop running that class without a word, even while the seed keeps another
         if (gate && only == null) fails += namedSeedsHoldTheirClasses(gateSeedsFor(), declaredSeeds) { if (ringOf(it)) "ring" else "plain" }
+        // C3 DW-2a (decisions DP 6): a named reach seed that no longer reaches a key it is named for
+        if (gate && only == null) fails += namedSeedsReach(reachSeedsFor(), reachedBy)
         println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; " +
             "counted $counted")
         fz5Reach("sequence fuzz", counted)
         list1Reach("sequence fuzz", counted)
+        wheelReach("sequence fuzz", counted)
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }
 
@@ -1725,7 +1838,7 @@ class LocalSequenceFuzzTest {
     /** C3 FZ5 (`private/c3-design/briefs/C3-FZ5-brief.md`): the motion a sequence's list plays. [DEFAULT] is the fuzz's
      *  short motion — T 3 at P 16, the press T 2, the notice's timer at P 16, a ring list per [ringOf], a wrap record on a
      *  plain list — exactly what an unset `LOCAL_FUZZ_TIMING` runs; [STAGE4] his glasses on APK 0.83: T 6 at P 46, the
-     *  press `MainStaging.PRESS_T` at P 46, the timer at `PopupPrograms.TIMER_PERIOD`, plain lists only; [STAGE5] the next
+     *  press `ListStaging.PRESS_T` at P 46, the timer at `PopupPrograms.TIMER_PERIOD`, plain lists only; [STAGE5] the next
      *  build with the fast-path fit: T 19 at P 16 (his Main at 352), the press at P 16, the timer at 128, a ring list per
      *  [ringOf], and no wrap record on a plain list (no stage-5 staging holds one: its edge is the phone's frames). */
     enum class Timing(val tScroll: Int, val period: Int, val tPress: Int, val noticePeriod: Int, val rings: Boolean, val wrapRecord: Boolean,
@@ -1735,8 +1848,8 @@ class LocalSequenceFuzzTest {
                        *  are out of this value's reach there: 3.0 and 3.2 at 0.30, with the owes at 23. */
                       val hisDrop: Double) {
         DEFAULT(LocalHarness.T_SCROLL, LocalHarness.PERIOD, LocalHarness.T_PRESS, LocalHarness.PERIOD, true, true, 0.57),
-        STAGE4(6, 46, wm.damage.core.shell.MainStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, false, true, 0.58),
-        STAGE5(19, 16, wm.damage.core.shell.MainStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, true, false, 0.58)
+        STAGE4(6, 46, wm.damage.core.shell.ListStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, false, true, 0.58),
+        STAGE5(19, 16, wm.damage.core.shell.ListStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, true, false, 0.58)
     }
 
     /** `LOCAL_FUZZ_TIMING=stage4|stage5|default` for the random bases and his profile; unset: the harness exactly as before
@@ -1747,9 +1860,12 @@ class LocalSequenceFuzzTest {
     /** [l1]: list 1 may ride (random sequences; his profile is Main's session and carries none). */
     private fun harnessFor(seed: Long, taps: Taps, pitch: Boolean = false, l1: Boolean = true): LocalHarness {
         // K1-2 stage 4b: list 1 rides a ring build only ([list1Of]; the stage-4 timing has none)
-        val t = timing ?: return if (!pitch) LocalHarness(seed, taps, ring = ringOf(seed), list1 = l1 && ringOf(seed) && list1Of(seed)) else LocalHarness(seed, taps, pitchProbe = true)
+        val t = timing ?: return if (!pitch) LocalHarness(seed, taps, ring = ringOf(seed), list1 = l1 && ringOf(seed) && list1Of(seed),
+            wheel = l1 && ringOf(seed) && wheelOf(seed)) else LocalHarness(seed, taps, pitchProbe = true)
         val ring = !pitch && t.rings && ringOf(seed)
-        return LocalHarness(seed, taps, tScroll = t.tScroll, period = t.period, ring = ring, tPress = t.tPress, pitchProbe = pitch, list1 = l1 && ring && list1Of(seed))
+        // C3 DW-2a: the wheel rides a ring build only, as list 1 ([l1] false: his profile, none of either)
+        return LocalHarness(seed, taps, tScroll = t.tScroll, period = t.period, ring = ring, tPress = t.tPress, pitchProbe = pitch, list1 = l1 && ring && list1Of(seed),
+            wheel = l1 && ring && wheelOf(seed))
             .also { it.noticePeriod = t.noticePeriod; it.wrapRecord = t.wrapRecord }
     }
 
@@ -1812,6 +1928,7 @@ class LocalSequenceFuzzTest {
             declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size}: ${s.take(8).joinToString()}" } + "; counted $counted")
         fz5Reach("gate", counted)
         list1Reach("gate", counted)
+        wheelReach("gate", counted)
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }
 

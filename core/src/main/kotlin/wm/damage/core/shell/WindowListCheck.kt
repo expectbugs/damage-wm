@@ -37,7 +37,7 @@ import wm.damage.core.wire.DamageMsg
  * - when it drew: after its last step the lens holds, in the rows' areas, the window's OWN paint at the moved cursor and,
  *   in the band's area (the band less its two rules), the entering row's row form at the area's first line; outside the
  *   areas nothing changed (the rules among them); the COMMIT that answers it writes END into the shadow — what
- *   [MainStaging.paintEndOf] puts into belief — byte for byte;
+ *   [ListStaging.paintEndOf] puts into belief — byte for byte;
  * - at a plain list's end (the staged edge): nothing changes on either lens.
  * And per list and height the tap entry, report-only under `Taps · glasses` too (no press on a window list).
  */
@@ -137,7 +137,7 @@ object WindowListCheck {
         private val rowForms = HashMap<Int, Gray8>()
 
         /** Row [c] in its row form, as the strip holds it. */
-        fun rowForm(c: Int): Gray8 = rowForms.getOrPut(c) { MainStaging.paintStripRow(view, layout, c) { _, b -> b() } }
+        fun rowForm(c: Int): Gray8 = rowForms.getOrPut(c) { ListStaging.paintStripRow(view, layout, c) { _, b -> b() } }
 
         /** [base] with the band's [area] as the window form leaves it on one lens ([left]): level 0, and row [c]'s row form
          *  at the area's first line ([ScrollEffects.BAND_ROW_DY]) on the band's plane, its raw pixels. */
@@ -152,8 +152,8 @@ object WindowListCheck {
         }
 
         /** The window form staged for [effect] at stage 5 on 256 KiB in `[floor, top)`. */
-        fun staging(effect: ScrollEffect, floor: Int, top: Int): MainStaging =
-            MainStaging.buildWindow(layout, view, kit, listD, bandD, CfwModes.CACHE2_MAX_RIDERS, MainStaging.ScrollMotion.DEFAULT.copy(effect = effect),
+        fun staging(effect: ScrollEffect, floor: Int, top: Int): ListStaging =
+            ListStaging.buildWindow(layout, view, kit, listD, bandD, CfwModes.CACHE2_MAX_RIDERS, ListStaging.ScrollMotion.DEFAULT.copy(effect = effect),
                 MainLocalCheck.effectsAt(true), floor, top)
     }
 
@@ -161,7 +161,7 @@ object WindowListCheck {
     private fun mainEnd(text: TextRasterizer, height: Int, depth: Int): Int {
         val cache = CfwModes.CACHE2_MAX_RIDERS
         return MainLocalCheck.MainRig(text, height, MainLocalCheck.sampleRows(), depth)
-            .staging(cache, CfwModes.mainRegion(cache, bind = true), MainStaging.ScrollMotion.DEFAULT, stage5 = true).end
+            .staging(cache, CfwModes.mainRegion(cache, bind = true), ListStaging.ScrollMotion.DEFAULT, stage5 = true).end
     }
 
     /** The window list's top at [height] and Global `Depth` [depth] (C3 DW-1b-2, decisions DA (c) 3: one source, no
@@ -226,14 +226,14 @@ object WindowListCheck {
             sim.conformanceControl(arm, DamageMsg.OP_CACHE_SIZE, cacheSize / 1024, lens.now)
             sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, MainLocalCheck.flags(true), lens.now)
         }
-        if (ms.ring != MainStaging.ringFits(ms.layout, ms.rows)) setup += "the staging's form: ring ${ms.ring} with ${ms.rows} rows at $height"
+        if (ms.ring != ListStaging.ringFits(ms.layout, ms.rows)) setup += "the staging's form: ring ${ms.ring} with ${ms.rows} rows at $height"
         if (ms.start < floor || ms.end > top) setup += "the staging ${ms.start}..${ms.end} leaves its space $floor..$top"
         if (ms.blobs.size != 2 || ms.bands.isNotEmpty() || ms.wrap != null) setup += "a window list stages its strip and its programs alone: ${ms.blobs.map { it.name }}"
         for (b in ms.blobs) lens.write(b.off, b.bytes, b.name, setup)
         for (s in list.sets()) lens.send("a SET", s, setup)
         lens.send("the LIST", list.listMessage(0), setup)
         for (arm in Arm.entries) if (sim.bindForTest(arm).lists[LIST].ring != ms.ring) setup += "$arm: the list's RING flag is not ${ms.ring} after the LIST"
-        val whole = ms.pan(MainStaging.WHOLE, 1)
+        val whole = ms.pan(ListStaging.WHOLE, 1)
         val stripRows = ms.strip.raw.h / ms.layout.rowH
         val avail = top - floor
         val perRow = ms.strip.slot.toDouble() / stripRows
@@ -255,7 +255,7 @@ object WindowListCheck {
                 answer: (Int, IntArray, Int) -> Unit) {
             lens.now += 1_000
             lens.keyframe(rig.truth(c, true), rig.truth(c, false))
-            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, LIST, c), fails)
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(ListStaging.SLOT, 1, LIST, c), fails)
             lens.notifies()
             frames?.add(MainLocalCheck.Frame("before", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
             val a = lens.fire(CfwModes.DEV_RING, e.eventId)
@@ -302,7 +302,7 @@ object WindowListCheck {
         for ((e, name) in listOf(down to "down", up to "up")) {
             val fails = ArrayList<String>(); val lines = ArrayList<String>()
             var kept: List<MainLocalCheck.Frame> = emptyList()
-            val pan = ms.pan(MainStaging.WHOLE, e.step)
+            val pan = ms.pan(ListStaging.WHOLE, e.step)
             for (c in if (midOnly) listOf(mid) else (0 until ms.rows).toList()) {
                 val frames: MutableList<MainLocalCheck.Frame>? = if (keepFrames && c == mid) ArrayList() else null
                 one(e, c, fails, lines, frames) { cP, p, prog4 ->
@@ -314,7 +314,7 @@ object WindowListCheck {
                         MainLocalCheck.differ(held, want, areas).let { if (it > 0) fails += "$name from $c $arm: $it px at HOLD where the lens is not the list's paint at $cP (the band's area: its row form)" }
                         MainLocalCheck.differ(held, rig.truth(c, left), null).let { n -> val inA = MainLocalCheck.differ(held, rig.truth(c, left), areas); if (n - inA > 0) fails += "$name from $c $arm: ${n - inA} px outside the areas changed at HOLD" }
                     }
-                    lens.send("the riding LIST and COMMIT S $s", CfwModes.batch(listOf(list.listMessage(0), Motion.commit(ms.programAt(prog4), MainStaging.SLOT, s, LIST, cP, p)), engine = true, bind = true), fails)
+                    lens.send("the riding LIST and COMMIT S $s", CfwModes.batch(listOf(list.listMessage(0), Motion.commit(ms.programAt(prog4), ListStaging.SLOT, s, LIST, cP, p)), engine = true, bind = true), fails)
                     for (arm in Arm.entries) if (sim.bindForTest(arm).lists[LIST].ring != ms.ring) fails += "$name from $c $arm: the list's RING flag is not ${ms.ring} after the answer"
                     for (arm in Arm.entries) {
                         val left = arm == Arm.LEFT

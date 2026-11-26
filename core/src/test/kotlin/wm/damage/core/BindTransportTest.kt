@@ -360,10 +360,11 @@ class BindTransportTest {
      *  stage files were written from. [holdBack] puts a stage-4 hold-back in force the way its evidence would
      *  ([CfwTransportBase.ladderRecordForTest]). `Taps` is not the transport's (stage DP2, decisions N.1): its start bytes
      *  are one file per stage, and the bind batch per `Taps` value is the shell's (`LocalStartTest`). */
-    private suspend fun startWire(features: Int, stage: Int, holdBack: Boolean = false): List<String> {
+    private suspend fun startWire(features: Int, stage: Int, holdBack: Boolean = false, keep: Boolean = false): List<String> {
         val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = features }
         var now = 1_763_000_000_000L
         val t = StartRig(glass, scope, clock = { now }, instantPacing = false)
+        t.keepsLink = keep                      // stage BW: the restart below keeps the rig's link, the next start adopts it
         t.heapReads = false
         if (stage > 0) {
             scope.async { t.start(full) }.await()
@@ -378,6 +379,10 @@ class BindTransportTest {
         scope.async { t.start(full) }.await()
         delay(300)
         val got = synchronized(sent) { sent.toList() }
+        if (keep) {
+            assertEquals(1, t.connects, "stage BW: the start after the kept restart adopted the link — no second connect")
+            assertEquals(0, t.disconnects, "stage BW: the kept restart ended nothing")
+        }
         t.stop()
         return got
     }
@@ -446,6 +451,16 @@ class BindTransportTest {
         assertWire("awake-start-c2-stage4.txt", startWire(0x5ff, 5), "0x5ff stage 5: this build can arm 4")
         assertWire("awake-start-c1-stage3.txt", startWire(0xdff, 5, holdBack = true), "0xdff stage 5 held back: stage 3")
         assertWire("awake-start-c1-stage3.txt", startWire(0x5ff, 5, holdBack = true), "0x5ff stage 5 held back: stage 3")
+    }
+
+    /** Stage BW (Adam's word, 2026-11-25): a start over a link kept through the restart writes exactly the bytes of the
+     *  start after a link end — the same files, his daily build and stage (C3 at stage 5) and a C2 build at stage 1: the
+     *  link is adopted and nothing else of the start changes (the prelude, the READ, the CREATE, the ACQUIRE, the cache
+     *  size, the stage's arming, the warmup, the fid-ring clear, in the same order). */
+    @Test
+    fun aStartOverAKeptLinkWritesTheSameBytesAsAfterALinkEnd_BW(): Unit = runBlocking {
+        assertWire("awake-start-c3-stage5.txt", startWire(0xdff, 5, keep = true), "0xdff stage 5 over a kept link")
+        assertWire("awake-start-c1-stage1.txt", startWire(0x5ff, 1, keep = true), "0x5ff stage 1 over a kept link")
     }
 
     /** Spec §6.2: below stage 4 — a C1 build (0x1ff) at stages 3 and 4, a C2 build (0x5ff) at 0..3 — a seeded walk of the

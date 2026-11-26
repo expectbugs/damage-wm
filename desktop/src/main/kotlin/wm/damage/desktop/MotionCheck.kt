@@ -427,7 +427,7 @@ object MotionCheck {
         val geo = wm.damage.core.motion.PopupPrograms.Geo(n.fullRect(notice, l, false), n.ruleOffset(), wm.damage.core.shell.Notifications.BAR_INSET, 0)
         val region = CfwModes.noticeRegion(cacheSize, true)!!
         val at = region.first / 4
-        val (pa, fa) = wm.damage.core.shell.MainStaging.timing(geo.areaPx, wm.damage.core.shell.MainStaging.ScrollMotion(300, 0))
+        val (pa, fa) = wm.damage.core.shell.ListStaging.timing(geo.areaPx, wm.damage.core.shell.ListStaging.ScrollMotion(300, 0))
         val program = if (style == wm.damage.core.motion.PopupPrograms.Style.TIMER) wm.damage.core.motion.PopupPrograms.timer(at, geo)
             else wm.damage.core.motion.PopupPrograms.arrival(at, geo, style, fa, 2)
         val period = if (style == wm.damage.core.motion.PopupPrograms.Style.TIMER) wm.damage.core.motion.PopupPrograms.TIMER_PERIOD else pa

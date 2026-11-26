@@ -19,7 +19,7 @@ import wm.damage.core.wire.CfwModes
  * Build C2, the spec's package DM (`C2-spec.md` §6.4; `C2-decisions.md` B.4, F, P and V — V replaces B.1 and K): Main's rows staged on the
  * glasses from Main's OWN painters with real text, the pan programs, the press, and the bound list they make. Context
  * for the reader: Adam's own glasses on his own firmware fork (display-rendering work on a personal device); nothing
- * here sends — the shell writes the records through its own stage writes ([MainBinding]).
+ * here sends — the shell writes the records through its own stage writes ([ListBinding]).
  *
  * **The records** (one staging = one layout, one pair of planes, one row count), laid out from the start of the region
  * the caller gives (the shared stage reserve at 160 KiB, Main's own region at 256: [CfwModes.mainRegion]), each 4-byte
@@ -69,7 +69,7 @@ import wm.damage.core.wire.CfwModes
  * base, every pan drawing the strip as source windows at pitch +rowH and the entering row's ROW form in the band — no band
  * forms, no item table, no press, no wrap record. The shell stages one for the window's list in front at stage 5 (glasses list 1).
  */
-class MainStaging private constructor(
+class ListStaging private constructor(
     val layout: Layout,
     /** The planes in force: Main's list at [listD], its band at [bandD] (`Shell.updatePlanes`; the left lens at x − d). */
     val listD: Int,
@@ -137,7 +137,7 @@ class MainStaging private constructor(
 
     /** K1-2 stage 1 (O12): per row, the largest band form (encoded bytes) it has drawn in this staging once its band form
      *  changed — its first paint's included — or 0 while it has not changed: carried into the next staging by window
-     *  ([MainBinding.bandRoomFor]), where that row's band slot is the largest one. */
+     *  ([ListBinding.bandRoomFor]), where that row's band slot is the largest one. */
     val bandSeen = IntArray(rows)
 
     /** Every program's period in OS ticks and the pans' steps — the staging's, then a programs switch's ([switchTo]). */
@@ -848,7 +848,7 @@ class MainStaging private constructor(
         fun build(layout: Layout, view: WindowView.ListView, kit: ContentKit, listD: Int, bandD: Int, cacheSize: Int,
                   regionStart: Int = cacheSize - CfwModes.STAGE_RESERVE, regionEnd: Int = cacheSize,
                   relay: (Gray8, () -> Unit) -> Unit = { _, b -> b() }, widths: List<Int> = WIDTHS + WHOLE,
-                  motion: ScrollMotion? = null, stage5: Boolean = false, fx: Motion.Effects? = null): MainStaging {
+                  motion: ScrollMotion? = null, stage5: Boolean = false, fx: Motion.Effects? = null): ListStaging {
             val p = Paint(layout, view, kit)
             while (!p.done) p.step(relay)
             return assemble(p, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, stage5 = stage5, fx = fx)
@@ -896,7 +896,7 @@ class MainStaging private constructor(
                      fx: Motion.Effects? = null,
                      /** K1-2 stage 1 (O12): per row, the largest band form a row whose band form changed in the last staging
                       *  drew ([bandSeen], carried by window; 0: none) — that row gets the largest slot. */
-                     bandRoom: IntArray? = null): MainStaging {
+                     bandRoom: IntArray? = null): ListStaging {
             val layout = paint.layout
             if (cacheSize < CfwModes.STAGE_RESERVE || cacheSize > CfwModes.CACHE2_MAX_RIDERS || cacheSize % 4 != 0)
                 throw LintError("no staging for a cache of $cacheSize B (a contract-2 session's 64..256 KiB)")
@@ -968,7 +968,7 @@ class MainStaging private constructor(
             // scroll rows is then a full staging, as before), then the rows' room (the strip's and, K1-2 stage 1, the band
             // slots'), then the wrap record's slack, then the wrap
             // record itself (here, and once the programs are laid out below)
-            fun lessOrNull(spareFirst: Boolean): MainStaging? = when {
+            fun lessOrNull(spareFirst: Boolean): ListStaging? = when {
                 spareFirst && progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, room, wrapFit, false, stage5, fx, bandRoom)
                 room != null && room.any { it > 0 } || bandRoom?.any { it > 0 } == true -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit, false, stage5, fx)
                 wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx)
@@ -1038,7 +1038,7 @@ class MainStaging private constructor(
                 listOfNotNull(wrapPic?.let { Blob(it.name, it.off, pad(it.encoded), it.raw) }) +
                 Blob("items", items4 * 4, pad(itemBytes), null) +
                 Blob("programs", progs.first().first, pad(progBytes), null)
-            return MainStaging(layout, listD, bandD, n, cacheSize, period, t, regionStart, regionEnd, strip, bands.toMutableList(), items4, itemOffs,
+            return ListStaging(layout, listD, bandD, n, cacheSize, period, t, regionStart, regionEnd, strip, bands.toMutableList(), items4, itemOffs,
                 spareOffs.associateWith { spareSlot }.toMutableMap(), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, staged, progSlots, progSlot, ring, stage5, laid.plays)
         }
 
@@ -1099,7 +1099,7 @@ class MainStaging private constructor(
         fun assembleWindow(paint: Paint, listD: Int, bandD: Int, cacheSize: Int, motion: ScrollMotion, fx: Motion.Effects?,
                            floor: Int = CfwModes.mainRegion(cacheSize, bind = true).first,
                            top: Int = CfwModes.mainRegion(cacheSize, bind = true).last + 1,
-                           room: IntArray? = null, progSpare: Boolean = true): MainStaging {
+                           room: IntArray? = null, progSpare: Boolean = true): ListStaging {
             val l = paint.layout
             if (fx == null) throw LintError("a window list is bound at stage 5 only (decisions BC O2): its programs are version 2, built through the gate")
             if (cacheSize != CfwModes.CACHE2_MAX_RIDERS) throw LintError("no window list in a ${cacheSize / 1024} KiB session (decisions BC O4: 256 KiB only)")
@@ -1136,7 +1136,7 @@ class MainStaging private constructor(
             val progBytes = joined(laid.parts)
             if (progBytes.size > progSlot) throw LintError("a window list's pans (${progBytes.size} B) pass their slot ($progSlot B)")
             val blobs = listOf(Blob(strip.name, strip.off, pad(strip.encoded), strip.raw), Blob("programs", slotA, pad(progBytes), null))
-            return MainStaging(l, listD, bandD, n, cacheSize, laid.period, laid.t, floor, top, strip, ArrayList(), CfwModes.ITEMS_NONE, IntArray(0),
+            return ListStaging(l, listD, bandD, n, cacheSize, laid.period, laid.t, floor, top, strip, ArrayList(), CfwModes.ITEMS_NONE, IntArray(0),
                 HashMap(), laid.pans, null, blobs, sl.stripRow, motion, sl.seen, null, IntArray(0), staged,
                 if (slots == 2) intArrayOf(slotA, slotA + progSlot) else null, progSlot, ring, true, laid.plays, ListForm.STRIP_WINDOWS)
         }
@@ -1146,7 +1146,7 @@ class MainStaging private constructor(
         fun buildWindow(layout: Layout, view: WindowView.ListView, kit: ContentKit, listD: Int, bandD: Int, cacheSize: Int, motion: ScrollMotion,
                         fx: Motion.Effects?, floor: Int = CfwModes.mainRegion(cacheSize, bind = true).first,
                         top: Int = CfwModes.mainRegion(cacheSize, bind = true).last + 1,
-                        relay: (Gray8, () -> Unit) -> Unit = { _, b -> b() }): MainStaging {
+                        relay: (Gray8, () -> Unit) -> Unit = { _, b -> b() }): ListStaging {
             val p = Paint(layout, view, kit, bands = false)
             while (!p.done) p.step(relay)
             return assembleWindow(p, listD, bandD, cacheSize, motion, fx, floor, top)

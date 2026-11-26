@@ -53,9 +53,22 @@ internal open class StartRig(val glass: GlassFirmwareSim, scope: CoroutineScope,
         })
     }
 
+    /** Stage BW: true opts this rig in to keeping its "link" through a deliberate restart, as the phone's radio and
+     *  the sim do (default false: every restart ends it, as before). [connects] and [disconnects] count the link's
+     *  own connects and ends. */
+    @Volatile var keepsLink = false
+    @Volatile private var linkUp = false
+    @Volatile var connects = 0
+        private set
+    @Volatile var disconnects = 0
+        private set
+    override fun linkKeepable(): Boolean = keepsLink && linkUp
+    override suspend fun adoptLink(): String? = if (linkUp) null else "the rig's link ended in the gap"
+
     override fun nowMs(): Long = clock()
-    override suspend fun connectLink() {}
+    override suspend fun connectLink() { connects++; linkUp = true }
     override suspend fun disconnectLink() {
+        disconnects++; linkUp = false
         val g = disconnectGate
         if (g != null) { disconnectParked = true; g.await() }
         if (ended) return

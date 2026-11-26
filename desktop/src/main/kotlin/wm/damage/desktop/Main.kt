@@ -23,7 +23,6 @@ import wm.damage.core.shell.Shell
 import wm.damage.core.shell.ShellKeeper
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.LensPanels
-import wm.damage.core.transport.PathTransport
 import wm.damage.core.transport.RemoteTransportClient
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.Transport
@@ -1324,8 +1323,7 @@ class DesktopStack(
                 // and the stack's own resources go the same way (R3-K3): its
                 // coroutines, and the BlueZ handler on the process-wide bus
                 scope.cancel()
-                val all = (transport as? PathTransport)?.paths?.map { it.transport } ?: listOf(transport)
-                for (t in all) (t as? BlueZTransport)?.close()
+                (transport as? BlueZTransport)?.close()
             }
         }
     }

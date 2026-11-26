@@ -212,8 +212,11 @@ every image** and says so with a push. The shell treats it as the glasses being 
 composing, stops sending, drops the lease so the stock firmware owns the display and the temples,
 tells the phone once (naming the gesture that wakes them), and when the glasses report awake it
 **rebuilds the session** (`HANDOFF.md` §38): leaving Silent Mode ends the firmware's EvenHub page,
-so the wake is a fresh connect, CREATE and keyframe through the session keeper — never a keyframe
-into the old session. The shell's own silent mode (§1.5) is a black surface the shell keeps
+so the wake asks the start gates again through the session keeper — prelude, READ, CREATE, warmup
+and a keyframe — over both radio links, which it keeps; never a keyframe into the old session. A
+gate the kept links leave unanswered (five re-asks; two re-sends of the warmup) ends them and the
+next start connects afresh, and the rebuild paced while the glasses refuse frames without saying
+Silent Mode ends the link. The shell's own silent mode (§1.5) is a black surface the shell keeps
 painting.
 
 ### 1.6 There is no quit
@@ -642,7 +645,7 @@ exactly), and a window places its second lens line below the first line's measur
 the newly exposed row + mode 3 repaint of the lens }` — the shift moves every row on-device for
 zero pixel bytes, and the highlight never has to be erased because it never moves. With local input in force (the
 fork's ladder stage 4 and above) the glasses play the notch themselves from Main's staged rows — the bound list, with
-the `Scroll effect` row's motion (`core/…/shell/MainStaging.kt`, `MainBinding.kt`; `FIRMWARE.md` §6, `MOTION.md` §7).
+the `Scroll effect` row's motion (`core/…/shell/ListStaging.kt`, `ListBinding.kt`; `FIRMWARE.md` §6, `MOTION.md` §7).
 
 **The list wraps**, and **Settings is its last entry** — from the top row, **one scroll up lands on
 Settings**.

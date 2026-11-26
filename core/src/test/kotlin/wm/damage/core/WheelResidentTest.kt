@@ -610,7 +610,7 @@ class WheelResidentTest {
     @Test
     fun aRebuiltBlockDiffersOnlyInTheRecordThatChanged_DW1a() {
         val fx = wm.damage.core.motion.WheelCheck.effects()
-        val m = wm.damage.core.shell.MainStaging.ScrollMotion.DEFAULT
+        val m = wm.damage.core.shell.ListStaging.ScrollMotion.DEFAULT
         val rig = wm.damage.core.motion.WheelCheck.Rig(FakeText(), 352, 9, 8)
         val cells = rig.cells()
         val b = rig.block(cells = cells)

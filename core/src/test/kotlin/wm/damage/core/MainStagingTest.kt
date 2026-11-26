@@ -21,7 +21,7 @@ import wm.damage.core.shell.ContentKit
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
 import wm.damage.core.shell.MotionNotify
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.shell.MainSurface
 import wm.damage.core.shell.WindowView
 import wm.damage.core.sim.GlassFirmwareSim
@@ -31,14 +31,14 @@ import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.Pb
 
 /**
- * Build C2, stage DMS (`C2-DMS-brief.md`; spec §6.4): Main's rows staged from Main's own painters ([MainStaging]).
+ * Build C2, stage DMS (`C2-DMS-brief.md`; spec §6.4): Main's rows staged from Main's own painters ([ListStaging]).
  * Context for the reader: Adam's own glasses on his own firmware fork; nothing here contacts a device — the glasses are
  * the firmware model ([GlassFirmwareSim]) driven message by message.
  *
  * The pin that matters: END of each pan program, at every cursor and in both directions, is Main's own paint at the
  * moved cursor inside the program's areas, pixel for pixel — the compositor's own truth of `ContentKit.paintList` over
  * `MainSurface` under the planes the shell gives Main at Global `Depth` 8 — at all four heights; and the shadow the
- * firmware model writes at that PLAY is what [MainStaging.paintEnd] puts into belief. The text is [BoxFace] (half-level
+ * firmware model writes at that PLAY is what [ListStaging.paintEnd] puts into belief. The text is [BoxFace] (half-level
  * edges: raw values that are not a level's, so a belief painted from the records' levels instead of the pictures' raw
  * pixels would differ from the truth byte for byte).
  */
@@ -81,7 +81,7 @@ class MainStagingTest {
             ) + (if (bandD != depth) listOf(Compositor.PlaneRegion(layout.lens, bandD)) else emptyList())
         }
 
-        fun staging(cacheSize: Int = CfwModes.CACHE2_MAX) = MainStaging.build(layout, view, kit, depth, bandD, cacheSize)
+        fun staging(cacheSize: Int = CfwModes.CACHE2_MAX) = ListStaging.build(layout, view, kit, depth, bandD, cacheSize)
 
         private val truths = HashMap<Int, Pair<Gray8, Gray8>>()
 
@@ -104,7 +104,7 @@ class MainStagingTest {
     }
 
     /** A GlassFirmwareSim on contract 2 with DRAW2 and ENGINE, a 160 KiB cache, and [ms]'s records written. */
-    private fun simWith(ms: MainStaging): GlassFirmwareSim {
+    private fun simWith(ms: ListStaging): GlassFirmwareSim {
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff; it.clockIsOsTick = true }
         for (arm in Arm.entries) {
             sim.conformanceLease(arm, true, 1000)

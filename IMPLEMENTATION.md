@@ -73,7 +73,7 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       BindSim, EffectsSim (C1–C3's engine, local input and effects per lens),
                                       PixelLoops (the mirror's fast loops)
             wm.damage.core.transport  the seam + Emit + CfwTransportBase + SimTransport + Remote client/server
-                                      + LensPanels (the mirror) + LinkEstimator + PathTransport (unused, below)
+                                      + LensPanels (the mirror) + LinkEstimator
                                       + LadderRecord (the firmware ladder's stored record, C2)
             wm.damage.core.motion     (C1–C3) Motion (the DSL), TestPrograms, MainPan, ScrollEffects, PopupPrograms,
                                       Transitions, TransitionRehearsal, CellLists, Wheel, WheelCheck
@@ -84,7 +84,7 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       ContentKit (lens/list/document), slides, persistence, settings,
                                       MenuSurface, KeyboardSurface (§4.8), ShellKeeper, Staging, Status,
                                       BatteryLatch, WindowContract (`DamageWindow`), AnchorCursor,
-                                      QuietHours, LoopWatch, MainSurface + MainStaging + MainBinding +
+                                      QuietHours, LoopWatch, MainSurface + ListStaging + ListBinding +
                                       MainLocalCheck (C2), TransitionRun (C3)
             wm.damage.core.app        the PC record, operation log, core executor, the merge rule
                                       (Merge: the latest input wins); + the `app` lane (AppWire, AppNet, AppClient,
@@ -184,10 +184,9 @@ mouse, on a pixel-exact replica.*
   driver, and `Shell.start()` ADOPTS a live session (one wide keyframe). The seam server answers a claim of a
   live session with an adopt-grant and never stops the owner's session on driver loss; only the OWNING host
   tears it down. `HandoverTest` ×4 (`preludeAcks == 1` across claim / silent death / release / pause / resume).
-- **The arbitration** (`transport/PathTransport.kt`: concurrent attempts over the candidate paths, first to start
-  wins, a refused path disabled for the run) is built by no host (§19; `DesktopStack.transport` in `desktop/Main.kt`:
-  `auto` is the data host and builds no stack; `sim` / `ble` / `remote` build one transport each); the class and
-  `PathTransportTest` remain. `--transport remote` is the explicit claim-and-drive dev override.
+- **The transports a host builds** (`DesktopStack.transport` in `desktop/Main.kt`): `auto` is the data host and builds no
+  stack; `sim` / `ble` / `remote` build one transport each. `--transport remote` is the explicit claim-and-drive dev
+  override.
 - **The phone**: `BleTransport` on G2CC's driver + the reference's sequence (RIGHT then LEFT, `retry(10, 500)`,
   MTU 512 checked ≥ 245, priority HIGH, cached pair addresses, RSSI poll); `ShellService` on the keeper (a seam
   claim pauses it, a release resumes it); the **Target** switch in `Prefs`; `LensView` draws the mirror.
@@ -1073,7 +1072,7 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   the fit below. C1's test programs (`motion/TestPrograms.kt`: list, popover, recede, flip; Main's pans from
   `MainPan.kt`) play only by hand (`probe motion=NAME`, `Transport.sendMotion`, ENGINE in force; their cache write is
   another writer's, so the shell drops its atlas for that session). `TestProgramsTest`, `MotionCheckTest`.
-- **Main's list staged** (C2; `shell/MainStaging.kt`, `MainBinding.kt`, `Shell.pumpMainBind`): the records from Main's
+- **Main's list staged** (C2; `shell/ListStaging.kt`, `ListBinding.kt`, `Shell.pumpListBind`): the records from Main's
   own painters — the strip (every row's row form, margin rows past each end), each row's band form, the item table,
   the programs — in Main's own 128 KiB region on a 256 KiB session with BIND, else the shared stage reserve
   (`CfwModes.mainRegion`); written as pieces of one mode-19 message (`STAGE_CHUNK`, 0.82), proven by the cache count,
@@ -1090,8 +1089,8 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
 - **The scroll effects and the fit** (`motion/ScrollEffects.kt`, K1-1; the `Scroll effect` row): None · Depth (the
   default) · Slide · Fall in version 1 from stage 4; Crush and Flip's width turn in version 2 at stage 5 (below it Crush
   plays Slide and Flip its height turn, and the row says so). A notch's period is fitted on the effect's painted area:
-  C2's fit `MainStaging.timing` (P0 with a margin, inside 16..128 ticks), at stage 5 the fast DRAW path's
-  `MainStaging.fastStepMs` (§7.12; four modeled figures, the fourth for Flip's scaled turn), both through `timingOf`; Auto frames take the steps
+  C2's fit `ListStaging.timing` (P0 with a margin, inside 16..128 ticks), at stage 5 the fast DRAW path's
+  `ListStaging.fastStepMs` (§7.12; four modeled figures, the fourth for Flip's scaled turn), both through `timingOf`; Auto frames take the steps
   that fit `Scroll length`, and the glasses' measured period (notify 114 field 9) raises the period. `ScrollEffectsTest`.
 - **The ring list** (C3 DM-0, 0.84): at stage 5, where Main's paint wraps (his eight rows at 288 and 352), the list is
   bound with LIST-RING (`CfwModes.bindListRing`, `BoundList.ring`); the strip carries the other end's rows as margins
@@ -1191,7 +1190,7 @@ the sections cited):
   reading paced 2 s; four notice classes, `cache/short`, `cache/lost`, `cache/staging`, `cache/off` (source
   `DAMAGE · cache`). The transport and the sleep: the router names what it has no handler for once per session;
   the low-battery latch is judged at a reading's arrival and never replayed; a held level is dropped behind a live
-  one; the seam client and the path transport forget a session's Silent Mode and wear state at its end; a probe
+  one; the seam client forgets a session's Silent Mode and wear state at its end; a probe
   runs only in the session it was taken in; the lane drops an ACQUIRE once the lease is not wanted; a shell that
   adopts its session back without a lease rebuilds it; the loop's drain answers a queued `Run`.
 - **What a shell holds while down (§72).** A window push whose newest instance supersedes the older
@@ -1406,7 +1405,7 @@ the sections cited):
   the shell's one wake; `isQuiescent` waits for it); the hold loop has a throwing backstop (`HOLD_ROUNDS_MAX`) that
   lands in the shell's assemble-error path (the one loop on the shell's thread whose end rests on an argument).
   **Main as the bound list**
-  (`shell/MainStaging.kt`, `MainBinding.kt`): the strip covers every row; the row key is what the row DRAWS (never a
+  (`shell/ListStaging.kt`, `ListBinding.kt`): the strip covers every row; the row key is what the row DRAWS (never a
   value that moves without the picture — the Music row's progress as its lit blocks); one strip at every cache size — a
   row-form change withdraws the list, writes the row and binds it again; the band slots are sized per row, with two
   spares. The instruments: `LocalSequenceFuzzTest` (eight invariants), `desktop --local-check`,
@@ -1423,7 +1422,7 @@ Every review's pins were run against the unfixed tree and watched to fail before
   each pinned to a fixture that must fire (`GeometryTest`; the emit's refusals `EmitRulesTest`), pipeline round
   trips through the sim, `Round3Test`;
   `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`, `WheelAndHostSettingsTest`,
-  `SeamMirrorTest`, `SeamSessionTest`, `ReplicaServerTest`, `PathTransportTest`, `LongPressTest`;
+  `SeamMirrorTest`, `SeamSessionTest`, `ReplicaServerTest`, `LongPressTest`;
   `LensOracleTest`, `Round5Test`–`Round7Test`, `L2ProbeTest`; `SeamLivenessTest`, `HandoverTest`,
   `StyleTest`, `BatteryBrightnessTest`, `EpubChaptersImagesTest`; `TmuxTest`; `SubstrateTest`,
   `ReaderArrangementsTest`, `ReaderPositionTest`, `ReaderCoreTest`, the record's, the lane's, the working copy's and

@@ -5,7 +5,7 @@ import wm.damage.core.geom.LintError
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.Level
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.shell.Switcher
 import wm.damage.core.shell.TextureCacheImage
 import wm.damage.core.sim.MotionSim
@@ -35,8 +35,8 @@ import wm.damage.core.wire.CfwModes
  * together); END is the switcher's paint at the new cursor on each lens, and the start pose its paint at the old one
  * (`WheelTest`). Parameters: four kind-1 rules ([rules]) on a ring list. `Switcher` = None: the same tracks in one step.
  *
- * **Timing** ([timing]): the fast DRAW path's fit (C3 FF, `MainStaging.fastStepMs`, modeled) on the pixels a step writes
- * and the bytes it decodes, then K1-1's rule (`MainStaging.timingOf`) at the Scroll tier's length and frames.
+ * **Timing** ([timing]): the fast DRAW path's fit (C3 FF, `ListStaging.fastStepMs`, modeled) on the pixels a step writes
+ * and the bytes it decodes, then K1-1's rule (`ListStaging.timingOf`) at the Scroll tier's length and frames.
  */
 object Wheel {
     /** The level a swapping cell's CENTRE form is scaled to at the swap: the neighbour form's own level, so the picture
@@ -131,11 +131,11 @@ object Wheel {
         return (2 * cMax + 2 * nMax + 3 * rule).toInt()
     }
 
-    /** (period in OS ticks, steps) on the fast DRAW path's fit (modeled: `MainStaging.fastStepMs`, the period × 1.10
+    /** (period in OS ticks, steps) on the fast DRAW path's fit (modeled: `ListStaging.fastStepMs`, the period × 1.10
      *  floored at 16) at the Scroll tier's [motion]; [none]: one step at the fitted period. */
-    fun timing(g: Geo, cells: List<Cell>, motion: MainStaging.ScrollMotion, none: Boolean): Pair<Int, Int> {
-        val ms = MainStaging.fastStepMs(stepPx(g), walkBytes(g, cells))
-        return if (none) MainStaging.timingOf(ms, motion.copy(frames = 0)).first to 1 else MainStaging.timingOf(ms, motion)
+    fun timing(g: Geo, cells: List<Cell>, motion: ListStaging.ScrollMotion, none: Boolean): Pair<Int, Int> {
+        val ms = ListStaging.fastStepMs(stepPx(g), walkBytes(g, cells))
+        return if (none) ListStaging.timingOf(ms, motion.copy(frames = 0)).first to 1 else ListStaging.timingOf(ms, motion)
     }
 
     /** The two ease tables of the swapping cells over [t] steps (the DW spec §2.1): the swap's step n1 — the first step
@@ -155,13 +155,13 @@ object Wheel {
     /** The parameters' rules for a notch in [step] (+1 down, −1 up), every one kind 1 on the ring list (`FIRMWARE.md`
      *  §7.8: the item at (v + arg) mod n, v = c + step): P0 the row leaving, P1 the centre leaving, P2 the row arriving
      *  in the centre, P3 the row entering. */
-    fun rules(step: Int): List<MainStaging.Rule> =
-        (if (step > 0) listOf(-2, -1, 0, 1) else listOf(2, 1, 0, -1)).map { MainStaging.Rule(CfwModes.KIND_ITEM, it) }
+    fun rules(step: Int): List<ListStaging.Rule> =
+        (if (step > 0) listOf(-2, -1, 0, 1) else listOf(2, 1, 0, -1)).map { ListStaging.Rule(CfwModes.KIND_ITEM, it) }
 
     // ------------------------------------------------------------------------------------------------- the block
     /**
      * The wheel's records laid out from [base] (4-byte aligned) up: the rule record, the item table's slot (an entry per
-     * cell), the cells each in a slot of its own size with slack (`MainStaging.slack`), then the programs' slot — the
+     * cell), the cells each in a slot of its own size with slack (`ListStaging.slack`), then the programs' slot — the
      * drum's tables and two programs at this T, with slack, so `Switcher` = None ([none]: its one-step programs in the same
      * slot) or a cell rewritten in place keeps every offset. Its [Block.size] does not depend on [base].
      *
@@ -219,7 +219,7 @@ object Wheel {
          * offsets and slots — what an in-place write makes the glasses hold. Null when it does not fit them: another number
          * of cells, another cell size (the face), a cell or the programs past their slot — then the block is placed anew.
          */
-        fun rebuilt(g: Geo, cells: List<Cell>, order: IntArray, effects: Motion.Effects, motion: MainStaging.ScrollMotion, none: Boolean = false): Block? {
+        fun rebuilt(g: Geo, cells: List<Cell>, order: IntArray, effects: Motion.Effects, motion: ListStaging.ScrollMotion, none: Boolean = false): Block? {
             if (cells.size != this.cells.size || g.w != geo.w || g.hC != geo.hC || g.hN != geo.hN) return null
             if (cells.indices.any { pad4(cells[it].encoded).size > cellSlots[it] }) return null
             return layOut(base, g, cells, order, effects, motion, none, ruleOff, itemsOff, itemSlot, cellOffs, cellSlots, progOff, progSlot)
@@ -280,7 +280,7 @@ object Wheel {
      * names and a program past 80 % of the step budget's cap at any cursor (§7.12: the phone may refuse more than the
      * glasses do; `MotionProgram.cost`).
      */
-    fun block(base: Int, g: Geo, cells: List<Cell>, effects: Motion.Effects, motion: MainStaging.ScrollMotion = MainStaging.ScrollMotion.DEFAULT,
+    fun block(base: Int, g: Geo, cells: List<Cell>, effects: Motion.Effects, motion: ListStaging.ScrollMotion = ListStaging.ScrollMotion.DEFAULT,
               none: Boolean = false, order: IntArray = IntArray(cells.size) { it }): Block {
         if (base % 4 != 0 || base < 0) throw LintError("the wheel's block at $base is not 4-byte aligned")
         var at = base
@@ -289,9 +289,9 @@ object Wheel {
         val ruleOff = next(rule.size)
         val itemSlot = 2 * cells.size
         val itemsOff = next(itemSlot)
-        // each cell in a slot of its own size with slack (`MainStaging.slack`: a quarter, at least 64 B — a dirty tick or a
+        // each cell in a slot of its own size with slack (`ListStaging.slack`: a quarter, at least 64 B — a dirty tick or a
         // rename rewrites it in place)
-        val cellSlots = IntArray(cells.size) { MainStaging.slack(cells[it].encoded.size) }
+        val cellSlots = IntArray(cells.size) { ListStaging.slack(cells[it].encoded.size) }
         val cellOffs = IntArray(cells.size) { next(cellSlots[it]) }
         val progOff = at
         return layOut(base, g, cells, order, effects, motion, none, ruleOff, itemsOff, itemSlot, cellOffs, cellSlots, progOff, null)
@@ -300,7 +300,7 @@ object Wheel {
 
     /** The block on the offsets given; [progSlot0] null: the programs' slot sized from the drum's programs with slack, else
      *  that slot — null when the drum's programs pass it. */
-    private fun layOut(base: Int, g: Geo, cells: List<Cell>, order: IntArray, effects: Motion.Effects, motion: MainStaging.ScrollMotion, none: Boolean,
+    private fun layOut(base: Int, g: Geo, cells: List<Cell>, order: IntArray, effects: Motion.Effects, motion: ListStaging.ScrollMotion, none: Boolean,
                        ruleOff: Int, itemsOff: Int, itemSlot: Int, cellOffs: IntArray, cellSlots: IntArray, progOff: Int, progSlot0: Int?): Block? {
         refusal(g, cells.size)?.let { throw LintError("no wheel: $it") }
         if (cells.any { it.pic.w != g.w || it.pic.h != g.cellH }) throw LintError("a cell is not ${g.w} x ${g.cellH}")
@@ -311,7 +311,7 @@ object Wheel {
         val ruleRec = Motion.Source.Record(ruleOff / 4, g.w, 2, rule.size, rule)
         val (period, tDrum) = timing(g, cells, motion, none = false)
         val drum = programs(progOff, g, recs, ruleRec, effects, tDrum, none = false)
-        val progSlot = progSlot0 ?: MainStaging.slack(drum.size)
+        val progSlot = progSlot0 ?: ListStaging.slack(drum.size)
         if (drum.size > progSlot) return null
         val (p, t) = if (none) timing(g, cells, motion, none = true) else period to tDrum
         val use = if (none) programs(progOff, g, recs, ruleRec, effects, 1, none = true) else drum

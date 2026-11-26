@@ -16,7 +16,7 @@ import wm.damage.core.motion.Motion
 import wm.damage.core.motion.MotionProgram
 import wm.damage.core.motion.Wheel
 import wm.damage.core.motion.WheelCheck
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.text.FontMetrics
 import wm.damage.core.text.FontSpec
 import wm.damage.core.text.TextRasterizer
@@ -284,7 +284,7 @@ class WheelTest {
             val block = rig.block()
             val g = block.geo
             assertEquals(Wheel.block(0, g, block.cells, WheelCheck.effects()).size, block.size, "$fname d $d: the size does not hang on the base")
-            assertEquals(block.cells.map { MainStaging.slack(it.encoded.size) }, block.cellSlots.toList(), "$fname: each cell's slot its size with slack")
+            assertEquals(block.cells.map { ListStaging.slack(it.encoded.size) }, block.cellSlots.toList(), "$fname: each cell's slot its size with slack")
             assertEquals(block.cellSlots.toList(), (block.cellOffs.toList() + block.progOff).zipWithNext().map { (x, y) -> y - x }, "$fname: the slots back to back, the programs' slot after them")
             val progs = block.tables.sumOf { (it.record.size + 3) / 4 * 4 } + (block.down.bytes.size + 3) / 4 * 4 + (block.up.bytes.size + 3) / 4 * 4
             assertTrue(block.progSlot >= progs, "$fname: the programs' slot holds them")
@@ -295,7 +295,7 @@ class WheelTest {
             // the transport's own framing aside)
             val deflated = block.writes().sumOf { (_, b) -> b.toList().chunked(wm.damage.core.shell.Shell.STAGE_CHUNK).sumOf { part ->
                 java.util.zip.Deflater(9).let { z -> z.setInput(part.toByteArray()); z.finish(); val buf = ByteArray(part.size + 64); val k = z.deflate(buf); z.end(); k } } }
-            lines += "$fname d $d: area ${g.areaPx} px a track; ${"%.2f".format(MainStaging.fastStepMs(Wheel.stepPx(g), Wheel.walkBytes(g, block.cells)))} ms a step " +
+            lines += "$fname d $d: area ${g.areaPx} px a track; ${"%.2f".format(ListStaging.fastStepMs(Wheel.stepPx(g), Wheel.walkBytes(g, block.cells)))} ms a step " +
                 "(${Wheel.stepPx(g)} px written, ${Wheel.walkBytes(g, block.cells)} B decoded); P ${block.period} T ${block.t} = " +
                 "${"%.0f".format(block.t * block.period * 1000.0 / 1024)} ms; C down ${"%,d".format(worst[1])} u (${"%.1f".format(worst[1]!! * 100.0 / Motion.BUDGET_CAP)} %), " +
                 "up ${"%,d".format(worst[-1])} u (${"%.1f".format(worst[-1]!! * 100.0 / Motion.BUDGET_CAP)} %); ${block.describe()}; deflated ${deflated} B"

@@ -114,15 +114,15 @@ interface Transport {
     suspend fun telemetry(label: String = "telemetry"): wm.damage.core.wire.DamageMsg.Telemetry? = null
 
     /** Whether this transport can make that read at all. False here means "no radio of my own to
-     *  ask with" (the seam's client, a path transport) — which is a different fact from "this
+     *  ask with" (the seam's client) — which is a different fact from "this
      *  build has nothing to answer" and from "the read failed", and the shell says which
      *  (2026-09-15, the third review: all three arrived as one silent null). */
     val cacheCheckSupported: Boolean get() = false
 
     /** Build C3, stage X4T (`C3-decisions.md` AT (2)): whether a cache-write message submitted now would go deflated as
      *  mode 25 (`FIRMWARE.md` §5.9) — the shell reads it at an Encode act to choose the one combined message, and DM-T's
-     *  order (the in lists after the out PLAY) otherwise. False where this transport cannot say (a peer across the seam,
-     *  a path transport with nothing driving): that order is never worse than a raw combined message. */
+     *  order (the in lists after the out PLAY) otherwise. False where this transport cannot say (a peer across the seam):
+     *  that order is never worse than a raw combined message. */
     fun nextListDeflates(): Boolean = false
 
     /** Hold or drop the framebuffer lease on demand (2026-09-05, `HANDOFF.md`
@@ -148,9 +148,15 @@ interface Transport {
     fun queryWear(): Boolean = false
 
     /**
-     * End the running session ON PURPOSE and report the link as down, so the
-     * session keeper rebuilds everything from the connect up — prelude,
-     * capability READ, carrier CREATE, lease, warmup, the shell's keyframe.
+     * End the running session ON PURPOSE and report it as ended, so the
+     * session keeper rebuilds it — prelude, capability READ, carrier CREATE,
+     * lease, warmup, the shell's keyframe. Stage BW (Adam's word, 2026-11-25):
+     * a transport whose radio link can be kept ([LinkState.linkKept]) keeps
+     * it and the next start rebuilds the session over it; the others end the
+     * link and the next start connects afresh. [endLink] ends it on every
+     * transport: the watchdog's restart and the paced rebuild of a shell
+     * asleep on refused frames (stage BWF: a kept link the glasses refuse
+     * frames on would otherwise be kept again at every rebuild).
      * G2CC's recovery path (its response-gap watchdog reconnected and the
      * fresh session rebuilt the layout), adopted 2026-09-05 (`HANDOFF.md`
      * §37.0): leaving the firmware's Silent Mode ends the EvenHub session,
@@ -160,7 +166,7 @@ interface Transport {
      * nothing, when no session is started (or the transport cannot restart
      * its far end — the seam driver). Default: cannot.
      */
-    suspend fun restartSession(reason: String): Boolean = false
+    suspend fun restartSession(reason: String, endLink: Boolean = false): Boolean = false
 
     /**
      * Bring the display up: capability gate (EVENCFW string must carry
@@ -408,6 +414,10 @@ sealed class TransportEvent {
 data class LinkState(
     val connected: Boolean = false,
     val started: Boolean = false,
+    /** Stage BW: the last session was ended by a deliberate restart that kept the radio link up, and the next
+     *  `start()` adopts it if both arms are still up (else it connects afresh). Set before `started` goes false;
+     *  cleared by the next `start()` and by `stop()`. The keeper reads it to leave the transport running. */
+    val linkKept: Boolean = false,
     val leaseHeld: Boolean = false,
     val inFlight: Int = 0,
     val window: Int = 3,
@@ -451,7 +461,7 @@ data class LinkState(
     /** The glasses' last wear report THIS session (service 0x10); null = no report this session. Cleared
      *  at every session start with [glassesSilent] (`CfwTransportBase.start`): a report describes the
      *  session it came in on. The CFW transport keeps it past a session's end until the next start;
-     *  `RemoteTransport` and `PathTransport` clear it at their stop as well (R3, review 2 B: this comment
+     *  `RemoteTransport` clears it at its stop as well (R3, review 2 B: this comment
      *  said every session end). Nothing reads it in 0.64 but notes and tests. */
     val worn: Boolean? = null,
     /** The stock wear-detection switch as the last device-info block read it (field 10): true when the

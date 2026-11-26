@@ -211,6 +211,9 @@ class ShellService : Service() {
         // build Q (L): every line also goes to its day's file, kept 10 days (`DayLog`). Once per PROCESS, never
         // removed: `Log` is process-wide, and one writer per file (a service recreated in the same process keeps it)
         if (dayLog == null) dayLog = wm.damage.core.util.DayLog(filesDir.toPath().resolve(LOG_DIR)).also { Log.addSink(it) }
+        // stage BW (Part E item 1): the phone's link notices, recorded for the process's life — once per process, after
+        // the sink (its lines reach the log); each BLE transport reads the record (`LinkNotices.watch`)
+        LinkNotices.install(this) { Prefs(applicationContext).let { BleTransport.Remembered(it.leftAddress, it.leftName, it.rightAddress, it.rightName) } }
         // the connectedDevice type ONLY at start: Android 15 refuses a service
         // started from BOOT_COMPLETED whose types include mediaPlayback; that
         // type is added when playback engages (review 2026-09-02)
@@ -425,7 +428,8 @@ class ShellService : Service() {
                 remembered = { BleTransport.Remembered(prefs.leftAddress, prefs.leftName, prefs.rightAddress, prefs.rightName) },
                 remember = { r -> prefs.rememberPair(r) },
                 c1StageFile = dataDir.resolve(wm.damage.core.transport.CfwTransportBase.C1_STAGE_FILE),
-                c1StageStepDown = c1StepDown)
+                c1StageStepDown = c1StepDown,
+                watch = LinkNotices.watch)
         } else {
             SimTransport(GlassFirmwareSim(), scope)
         }
