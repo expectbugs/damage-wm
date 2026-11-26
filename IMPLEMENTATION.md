@@ -238,7 +238,7 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 ./gradlew :desktop:run --args="--selfcheck"   # the scripted gate (REMINDER.md carries the count): two passes (contract 1 with a gain-in-place step at boot, then contract 2 with cached text on), every window's walk, the truth oracle on every settle
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface, and the converted windows' again in DIR/phone/
 ./gradlew :desktop:run --args="--motion-check DIR"  # C1–C3: the test programs, the notice's programs, the transitions, Main's scroll effects, the wheel and Music's Scope on the simulator, a strip PNG each; exit 1 when one does not hold
-./gradlew :desktop:run --args="--local-check DIR"   # C2: Main's bound list fired through the simulator's input hook at every cursor, both directions and the press, four heights, 160 and 256 KiB
+./gradlew :desktop:run --args="--local-check DIR"   # C2: Main's bound list fired through the simulator's input hook at every cursor, both directions and the press, four heights, 160 and 256 KiB; C3 DW: the switcher's wheel as list 2
 ./gradlew :desktop:run --args="--wheel-icons DIR"   # the switcher wheel's cells painted with the theme's icons beside the drawn set's
 ./gradlew :desktop:run --args="--epub-check [DIR]"  # parse every book in DIR (default: the config's booksDir); exit 1 on zero books, a DIR that is not a directory or a failing book
 ./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, catalog, lanes, cache keys, Qdrant, one viz blob, the adaptive-playlist derivation
@@ -1135,9 +1135,19 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   frames` Auto); at stage 5 Select, Close / Back, Lock Screen (450 ms, 10 frames, a checkbox per effect; Depth, Depth,
   Fade by default); Popups (`Popup length`, `Popup frames`, `Popup · Unfurl` on, `· Fade`, `· Slide`). `Taps` is in
   Global on a BIND build. `SettingsLocalRowsTest`, `TransitionsTest`.
-- **The wheel** (C3 DW-0, its offline half only): `motion/Wheel.kt` (the cells from the switcher's own painters, the
-  drum's programs), `WheelCheck.kt` (`--motion-check`'s strips), `desktop --wheel-icons`; nothing bound; below stage 5
-  the switcher sends what it did before. `WheelTest`, `WheelStage4Test`.
+- **The wheel** (C3 DW; stage 5 on a 256 KiB session with Main's own region; `DESIGN.md` §4.3): `motion/Wheel.kt`
+  (the cells from the switcher's own painters, the rule, the item table, the drum's two programs, their fit at the
+  Scroll tier's length and frames), resident at the end of Main's region (`shell/WheelResident.kt`, at most 20 KiB;
+  `Shell.pumpWheel` places and writes it through the stage lane in idle, keeps it current in place while the wheel
+  is closed, and Main's staging laid over it drops it). While the switcher is open and the offer holds
+  (`Shell.wheelNotOffered`: the block placed, written for this open's order, geometry and timing, and counted; three
+  rows or more), the block's list is bound as list 2 on a ring in slot 0 (`Shell.slot0` takes it first; entries 6
+  and 7, the report-only tap entry 0) and the local rules answer its reports as Main's; otherwise the phone draws
+  the wheel as below stage 5. The `Switcher` row (Drum · None; `ShellSettings.switcher`); a black margin of the
+  panel's disparity either side (`Shell.switcherMargin`); the `wheel` note at each close (`journal_report.py`'s
+  wheel report). `WheelCheck.kt` (`--motion-check`'s strips), `desktop --wheel-icons`. `WheelTest`,
+  `WheelStage4Test`, `WheelBindTest`, `WheelResidentTest`, `WheelAndHostSettingsTest`, `--local-check`'s wheel
+  cases, `LocalSequenceFuzzTest`, the `v5-ship-wheel-*` and `v5-dw-fire` vectors.
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 
@@ -1293,8 +1303,8 @@ the sections cited):
   measures exactly inside it (`WrapEstimateTest`); `Shell.pump` reserves one window slot for the pump after a
   ring event (`pumpPriority`) — two idle ticks in a row with the reserve holding and no flush completion between them
   give that tick's pump the whole window (one `link` note); `LinkState.transferMsPerKbEma` (flushes ≥ 1 KB, against
-  `floorMsEma` from flushes < 400 B) is the regime discriminator — the wheel spins in 2 frames above 50 ms/KB. **The
-  two fields hold medians, not EMAs** (§73; the names are the seam's): `transport/LinkEstimator.kt`
+  `floorMsEma` from flushes < 400 B) is the regime discriminator — the phone-drawn wheel spins in 2 frames above
+  50 ms/KB. **The two fields hold medians, not EMAs** (§73; the names are the seam's): `transport/LinkEstimator.kt`
   keeps the last nine ISOLATED flushes per term (every window slot free and no ack clock open when the lane
   took the flush — `CfwTransportBase.laneFlush`'s `alone`), prices a big flush against the measured floor,
   never takes a cache write as a floor reading, and starts over with each session; a term reads its default
