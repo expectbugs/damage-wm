@@ -52,7 +52,9 @@ day, an eighth of the lead's usage). So:
 **The stage:** where the brief asks for it, the failure envelope before any code (`FORK.md` §3.8's six questions). A
 fix sweeps its class, not its site. A pin is watched to fail on the unfixed tree. Rows for the mutation list go to a
 rows file in your scratch (`add`, `replace`, `drop`), each new row run once through a private copy; you never edit
-`research/mutations-c2.json`. Ship acts that move are named under one exception and never regenerated, unless the
+`research/mutations-c2.json`. Before your report, run `python3 research/mutate_core.py research/mutations-c2.json --check` in
+your tree: a row your change left not applying is re-pointed in your rows file (`replace`, the same intent) and run
+once (2026-11-25: a stage changed a line an older row named, and the list landed with a row that no longer applied). Ship acts that move are named under one exception and never regenerated, unless the
 brief says otherwise. Commits on your branch at each boundary, each message ending with the two attribution lines
 your session gives you. No push, no merge into another branch.
 
