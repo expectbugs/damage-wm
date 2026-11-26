@@ -3978,8 +3978,8 @@ abstract class CfwTransportBase(
                 for (op in work.request.ops) {
                     val payload = if (op is DisplayOp.CacheWrite) op.payload else (op as DisplayOp.CacheWrite2).payload
                     // build C1 (`FIRMWARE.md` §5.9): a mode-19 list goes deflated as mode 25 where ZWRITE is in force and
-                    // the deflated form is smaller — the waiting ones judged together at a later telemetry read ([zwriteJudge])
-                    val image = if (op is DisplayOp.CacheWrite2) zwriteOrList(payload, work.epoch) else payload
+                    // the deflated form is smaller; a refusal turns mode 25 off for the session ([zwriteJudge])
+                    val image = if (op is DisplayOp.CacheWrite2) zwriteOrList(payload) else payload
                     final = writeImage(image, work.epoch)
                     bytes += image.size
                     // §54: the writer is on record once the bytes left, acked or not —
@@ -4155,120 +4155,62 @@ abstract class CfwTransportBase(
     /**
      * Build C1, mode 25 (`FIRMWARE.md` §5.9; spec §2 row 23): the deflated form of the mode-19 message [list19], or the
      * message itself. Deflated while ZWRITE is in force (the flags RIGHT reported, the ladder's stage 1 or more on a
-     * bit-8 build), not withdrawn this session, the list within the 16,384 B inflate and the deflated form smaller.
-     * C3 OM-1 (Part EJ): every list deflated joins the set waiting to be judged ([zwSet]); one read speaks for all of
-     * them, and a refusal sends them all again ([zwriteJudge]).
+     * bit-8 build), not withdrawn this session ([zwriteJudge]), the list within the 16,384 B inflate and the deflated
+     * form smaller. Nothing waits on it (C3 OM-1F, Part EQ): a refused one is a missing write, and field 17's count,
+     * which the shell reads, is its one judge — the shell writes it again.
      */
-    private fun zwriteOrList(list19: ByteArray, epoch: Long): ByteArray {
+    private fun zwriteOrList(list19: ByteArray): ByteArray {
         if (_state.value.flagsInForce and DamageMsg.FLAG_ZWRITE == 0) return list19
         if (list19.size < 5 || list19[0].toInt() != 19 || list19.size - 1 > CfwModes.ZWRITE_MAX) return list19
         synchronized(zwLock) {
             if (zwriteOff) return list19
             val z = CfwModes.zwrite(list19)
-            if (z.size >= list19.size) return list19
-            val s = zwSet ?: ZwSet(epoch, zwRecord).also { zwSet = it }
-            s.lists += list19
-            s.afterId = telemetryIds.get()
-            return z
+            return if (z.size < list19.size) z else list19
         }
     }
 
-    /** C3 OM-1: the mode-25 messages deflated since the last judging read — their session, the refusal record (mode,
-     *  reason, sequence) RIGHT held before the first, the last telemetry request id handed out when the last was written
-     *  (a reply to a later request judges them all), and their lists in lane order. A list joins only while ZWRITE is in
-     *  force, which a session start and a lease end take away first, so the members are one session's. */
-    private class ZwSet(val epoch: Long, val recordBefore: Triple<Int, Int, Long>?) {
-        var afterId = 0
-        val lists = ArrayList<ByteArray>()
-    }
     private val zwLock = Any()
-    private var zwSet: ZwSet? = null
     /** A RIGHT refusal of mode 25 this session: every cache write from here is mode 19. */
     private var zwriteOff = false
     /** RIGHT's refusal record as the last telemetry record carried it (fields 23–25; null: none on record). */
     private var zwRecord: Triple<Int, Int, Long>? = null
-    private fun zwCount(s: ZwSet) = "${s.lists.size} list${if (s.lists.size == 1) "" else "s"} (${s.lists.sumOf { it.size }} B)"
-    private fun zwNeverJudged(s: ZwSet) = "the ${zwCount(s)} sent as mode 25 were never judged: their session ended before a " +
-        "read answered for them, so a refusal among them is not known"
 
     /**
      * C3 X4T item 2 (`C3-V2T-review.md` 2, decisions AT (2)), as C3 OM-1 left it (Part EJ 4): a cache-write message
-     * submitted now goes deflated when ZWRITE is in force and mode 25 is not withdrawn this session — a list waiting to be
-     * judged, or one queued ahead, no longer sends it raw ([zwriteOrList]; a list past the inflate, or one that does not
-     * shrink, goes raw whatever this says — the shell checks the first).
+     * submitted now goes deflated when ZWRITE is in force and mode 25 is not withdrawn this session — nothing the
+     * transport sent before holds it plain ([zwriteOrList]; a list past the inflate, or one that does not shrink, goes
+     * raw whatever this says — the shell checks the first).
      */
     override fun nextListDeflates(): Boolean {
         if (_state.value.flagsInForce and DamageMsg.FLAG_ZWRITE == 0) return false
         synchronized(zwLock) { return !zwriteOff }
     }
 
-    /** A session start: no mode-25 message waits (a set left from the session before is said), mode 25 is allowed again,
-     *  the record is the reset check's. */
-    private fun zwriteSessionStart() {
-        val left = synchronized(zwLock) { zwSet.also { zwSet = null; zwriteOff = false } }
-        left?.let { emitNote("glass", zwNeverJudged(it)) }
-    }
+    /** A session start: mode 25 is allowed again; the record is the reset check's (read before ZWRITE is armed). */
+    private fun zwriteSessionStart() = synchronized(zwLock) { zwriteOff = false }
 
     /**
-     * Spec §2 row 23, C3 OM-1: RIGHT's telemetry record [t], read ONCE for the refusal record. Only a reply to a request
-     * made after the waiting set's last member judges the set (an older reply can show neither answer for that member).
-     * A judging record that names mode 25 and differs from the one RIGHT held before the set's first member is the
-     * refusal of one of them, and the record cannot say which: every list of the set goes again as mode 19 on the image
-     * lane, in order, and mode 25 is off for the session. Any other judging record is the set taken. A mode-25 refusal
-     * in a reply that judges nothing (nothing waits, or the reply is older than the set's last member) turns mode 25 off
-     * too: with nothing waiting the shell's count re-sends a write it does not see, and that re-send is mode 19.
+     * Spec §2 row 23, C3 OM-1F (Part EQ): RIGHT's telemetry record [t], read ONCE for the refusal record. A record that
+     * NEWLY names mode 25 (it differs from the one before it; the session's first is the reset check's, read before
+     * ZWRITE is armed, so a refusal standing from earlier is the baseline) while ZWRITE is in force turns mode 25 off for
+     * the session, said once. Nothing is sent again: the record cannot say which write it names, and the refused write
+     * is missing from field 17's count, which the shell reads — the count is its one judge, and the shell's re-send of
+     * it is then mode 19.
      */
     private fun zwriteJudge(t: DamageMsg.Telemetry) {
         val ref = t.refusal
         val rec = ref?.let { Triple(it.mode and 0x7F, it.reason, it.seq) }
-        var resend: ZwSet? = null
-        var stale: ZwSet? = null
-        var withdrawn: String? = null
-        synchronized(zwLock) {
+        val withdrawn = synchronized(zwLock) {
             val before = zwRecord
             zwRecord = rec
-            val w = zwSet
-            val id = t.requestId?.toInt() ?: 0
-            val names25 = rec != null && rec.first == CfwModes.ZWRITE_MODE
-            if (w != null && (w.epoch != sessionEpoch.get())) { zwSet = null; stale = w }
-            else if (w != null && id != 0 && ((id - w.afterId) and 0xFFFF) in 1..0x7FFF) {
-                zwSet = null
-                if (names25 && rec != w.recordBefore) { resend = w; zwriteOff = true }
-            } else if (names25 && rec != before && !zwriteOff && _state.value.flagsInForce and DamageMsg.FLAG_ZWRITE != 0) {
-                zwriteOff = true
-                withdrawn = "a mode-25 refusal on record (${ref!!.describe()}) " + (if (w == null) "after its message was taken as " +
-                    "landed — this session writes mode 19 from here; the shell's count re-sends a write it does not see"
-                    else "in a reply older than the last of the ${zwCount(w)} waiting — this session writes mode 19 from here, " +
-                    "and the set goes again if the read that judges it shows a refusal")
-            }
+            val withdraw = rec != null && rec.first == CfwModes.ZWRITE_MODE && rec != before && !zwriteOff &&
+                _state.value.flagsInForce and DamageMsg.FLAG_ZWRITE != 0
+            if (withdraw) zwriteOff = true
+            withdraw
         }
-        stale?.let { emitNote("glass", zwNeverJudged(it)) }
-        withdrawn?.let { emitNote("glass", it) }
-        resend?.let { w ->
-            // build C1's ruling B-N3: never an image in answer to a refusal while the glasses refuse every frame (Silent
-            // Mode, `HANDOFF.md` §36) or hold no lease (the cache went with it): the wake's session start, and the next
-            // acquire's, upload the atlas again; the shell's count covers the rest. ONE read of the state.
-            val st = _state.value
-            if (st.glassesSilent || !st.leaseHeld) {
-                emitNote("glass", "mode 25 refused by RIGHT (${ref!!.describe()}) — nothing sent again of the ${zwCount(w)} " +
-                    "waiting for that read: " + (if (st.glassesSilent) "the glasses are in Silent Mode" else "no lease is held") +
-                    ", and the cache is written again when a lease is next taken; this session writes mode 19 from here")
-                return
-            }
-            emitNote("glass", "mode 25 refused by RIGHT (${ref!!.describe()}) — the record cannot say which of the ${zwCount(w)} " +
-                "waiting for that read, so all go again as mode 19, in order; this session writes mode 19 from here")
-            // each copy says so if it is not written: a session end drops it on the lane, a refusal answers it
-            for ((i, list) in w.lists.withIndex()) {
-                val done = CompletableDeferred<Unit>()
-                done.invokeOnCompletion { e -> if (e != null) emitNote("glass", "the mode-19 copy ${i + 1} of ${w.lists.size} " +
-                    "(${list.size} B) of a refused mode-25 set was not written (${e.message}) — the shell's count reads it as missing") }
-                if (!imageQueue.trySend(ImgWork.Raw(w.epoch, list, done)).isSuccess) {
-                    emitFault("zwrite", "the mode-19 copies of a refused mode-25 set were not queued from copy ${i + 1} of " +
-                        "${w.lists.size} — the shell's count reads them as missing")
-                    break
-                }
-            }
-        }
+        if (withdrawn) emitNote("glass", "mode 25 refused by RIGHT (${ref!!.describe()}) — this session writes mode 19 from " +
+            "here, and nothing is sent again: the refused write is missing from field 17's count, the shell's count finds it " +
+            "and writes it again")
     }
 
     // ------------------------------------------------- build C1's A-S1, the phone's half (`C1-R5-decisions.md`)

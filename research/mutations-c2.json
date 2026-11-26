@@ -13137,75 +13137,41 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "            if (zwriteOff) return list19",
-    "            if (zwriteOff || zwSet != null) return list19"
+    "    private var zwriteOff = false\n",
+    "    private var zwriteOff = false\n    private var zwOne: Int? = null\n"
+   ],
+   [
+    "            if (zwriteOff) return list19\n            val z = CfwModes.zwrite(list19)\n            return if (z.size < list19.size) z else list19",
+    "            if (zwriteOff || zwOne != null) return list19\n            val z = CfwModes.zwrite(list19)\n            if (z.size < list19.size) zwOne = telemetryIds.get()\n            return if (z.size < list19.size) z else list19"
+   ],
+   [
+    "        synchronized(zwLock) { return !zwriteOff }",
+    "        synchronized(zwLock) { return !zwriteOff && zwOne == null }"
+   ],
+   [
+    "synchronized(zwLock) { zwriteOff = false }",
+    "synchronized(zwLock) { zwriteOff = false; zwOne = null }"
+   ],
+   [
+    "            zwRecord = rec\n",
+    "            zwRecord = rec\n            zwOne?.let { a -> val id = t.requestId?.toInt() ?: 0; if (id != 0 && ((id - a) and 0xFFFF) in 1..0x7FFF) zwOne = null }\n"
    ]
   ],
   "tests": [
-   "*MotionTransportTest.aSecondListGoesDeflatedWhileTheFirstWaits_OM*",
+   "*MotionTransportTest.aSecondListGoesDeflatedRightBehindTheFirst_OM*",
+   "*MotionTransportTest.theNextListDeflatesWhileZwriteIsInForceAndNotWithdrawn_OM*",
    "*StagePiecesTest.everyPieceOfARecordGoesDeflated_OM*",
-   "*StagingTest.everyMessageOfAnAtlasBatchGoesDeflated_OM*"
+   "*StagingTest.everyMessageOfAnAtlasBatchGoesDeflated_OM*",
+   "*TransitionShellTest.aQuickSecondEncodeActSendsItsInListsWithItsRecordsDeflated_OM*"
   ],
   "expect": [
-   "aSecondListGoesDeflatedWhileTheFirstWaits_OM",
+   "aSecondListGoesDeflatedRightBehindTheFirst_OM",
+   "theNextListDeflatesWhileZwriteIsInForceAndNotWithdrawn_OM",
    "everyPieceOfARecordGoesDeflated_OM",
-   "everyMessageOfAnAtlasBatchGoesDeflated_OM"
+   "everyMessageOfAnAtlasBatchGoesDeflated_OM",
+   "aQuickSecondEncodeActSendsItsInListsWithItsRecordsDeflated_OM"
   ],
-  "note": "C3-OM1: one deflated write waiting at a time again (the set held to one member: a write behind it goes plain) (spec §5 row `OM-set-one`)",
-  "from": "C3-OM1"
- },
- {
-  "id": "OM-afterid-first",
-  "file": "transport/CfwTransportBase.kt",
-  "edits": [
-   [
-    "            s.afterId = telemetryIds.get()",
-    "            if (s.lists.size == 1) s.afterId = telemetryIds.get()"
-   ]
-  ],
-  "tests": [
-   "*MotionTransportTest.aReplyToAnOlderRequestDoesNotJudgeALaterMember_OM*"
-  ],
-  "expect": [
-   "aReplyToAnOlderRequestDoesNotJudgeALaterMember_OM"
-  ],
-  "note": "C3-OM1: the set's judging request id taken at its first member only (a reply to a request made before a later member judges it) (spec §5 row `OM-afterid-first`)",
-  "from": "C3-OM1"
- },
- {
-  "id": "OM-resend-last",
-  "file": "transport/CfwTransportBase.kt",
-  "edits": [
-   [
-    "            for ((i, list) in w.lists.withIndex()) {",
-    "            for ((i, list) in w.lists.withIndex().toList().takeLast(1)) {"
-   ]
-  ],
-  "tests": [
-   "*MotionTransportTest.aRefusalReSendsEveryWaitingListInOrder_OM*"
-  ],
-  "expect": [
-   "aRefusalReSendsEveryWaitingListInOrder_OM"
-  ],
-  "note": "C3-OM1: a refusal naming 25 re-sends only the set's last list (spec §5 row `OM-resend-last`)",
-  "from": "C3-OM1"
- },
- {
-  "id": "OM-resend-none",
-  "file": "transport/CfwTransportBase.kt",
-  "edits": [
-   [
-    "            for ((i, list) in w.lists.withIndex()) {",
-    "            for ((i, list) in w.lists.withIndex().toList().take(0)) {"
-   ]
-  ],
-  "tests": [
-   "*MotionTransportTest.aRefusalReSendsEveryWaitingListInOrder_OM*"
-  ],
-  "expect": [
-   "aRefusalReSendsEveryWaitingListInOrder_OM"
-  ],
-  "note": "C3-OM1: a refusal naming 25 re-sends nothing (the count's shortfall path alone) (spec §5 row `OM-resend-none`)",
+  "note": "C3-OM1, re-pointed by C3-OM1F (the set is gone): the old one-at-a-time rule restored — after a deflated write, every later one goes plain and nextListDeflates() answers false until a reply to a later telemetry request (X4T's queued-ahead count, gone with OM-1, not restored)",
   "from": "C3-OM1"
  },
  {
@@ -13319,5 +13285,139 @@
   ],
   "note": "C3 DM-2a (decisions DW 7, 10): the product's pans leave v5-dm-rain-fire's bytes (the seed the vector pins)",
   "from": "DM-2a"
+ },
+ {
+  "id": "P-zw-gate",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (_state.value.flagsInForce and DamageMsg.FLAG_ZWRITE == 0) return list19\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.noMode25Or26ReachesTheWireWithoutTheLaddersBits_6_2*"
+  ],
+  "expect": [
+   "noMode25Or26ReachesTheWireWithoutTheLaddersBits_6_2"
+  ],
+  "note": "spec §6.1: mode 25 only with ZWRITE in force (carried by C3-OM1F from the C1 list, test glob narrowed)",
+  "from": "C1 / C3-OM1F"
+ },
+ {
+  "id": "P-zw-max-list",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "list19[0].toInt() != 19 || list19.size - 1 > CfwModes.ZWRITE_MAX) return list19",
+    "list19[0].toInt() != 19) return list19"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.theMode25JudgesBounds_DM1*"
+  ],
+  "expect": [
+   "theMode25JudgesBounds_DM1"
+  ],
+  "note": "§5.9: a list past 16,384 B goes as mode 19 (carried by C3-OM1F from the C1 list, test glob narrowed)",
+  "from": "C1 / C3-OM1F"
+ },
+ {
+  "id": "P-zw-off-OM",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (zwriteOff) return list19",
+    "            if (false) return list19"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*",
+   "*MotionTransportTest.theMode25JudgesBounds_DM1*"
+  ],
+  "expect": [
+   "aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9",
+   "theMode25JudgesBounds_DM1"
+  ],
+  "note": "spec §2 row 23, B-N6: after a refusal, mode 19 for the session (the C1 list's P-zw-off re-pointed: reader b's candidate, carried by C3-OM1F)",
+  "from": "C1 / C3-OM1F"
+ },
+ {
+  "id": "P-zw-withdrawn-OMF",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (withdraw) zwriteOff = true\n            withdraw\n",
+    "            false\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*",
+   "*MotionTransportTest.aLateMode25RefusalSendsNothingAgainAndLeavesTheCountShort_OMF*",
+   "*MotionTransportTest.theMode25JudgesBounds_DM1*"
+  ],
+  "expect": [
+   "aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9",
+   "aLateMode25RefusalSendsNothingAgainAndLeavesTheCountShort_OMF",
+   "theMode25JudgesBounds_DM1"
+  ],
+  "note": "a record newly naming 25 withdraws mode 25 for the session, said (the C1 list's P-zw-withdrawn re-pointed to the one branch left, C3-OM1F)",
+  "from": "C1 / C3-OM1F"
+ },
+ {
+  "id": "P-zw-judge-differs-OMF",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "rec.first == CfwModes.ZWRITE_MODE && rec != before && !zwriteOff",
+    "rec.first == CfwModes.ZWRITE_MODE && !zwriteOff"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*"
+  ],
+  "expect": [
+   "(no pin: reached only by a RIGHT record that arrives after the start's arming and before its fid-ring clear (mode 7 sub 0 empties fields 23-25, FIRMWARE.md section 4) while a mode-25 refusal stands from before the session; run once by C3-OM1F against the 5_9 test's second session, nothing failed)"
+  ],
+  "note": "only a NEW record naming 25 withdraws: a refusal standing on RIGHT's record from before the session is its baseline (the C1 list's P-zw-judge-differs re-pointed, C3-OM1F)",
+  "from": "C1 / C3-OM1F"
+ },
+ {
+  "id": "OMF-start-keeps-off",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "synchronized(zwLock) { zwriteOff = false }",
+    "synchronized(zwLock) { }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*"
+  ],
+  "expect": [
+   "aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9"
+  ],
+  "note": "C3-OM1F: a session start allows mode 25 again (without it a refusal keeps every later session on mode 19)",
+  "from": "C3-OM1F"
+ },
+ {
+  "id": "OMF-unsaid",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (withdrawn) emitNote(\"glass\", ",
+    "        if (false) emitNote(\"glass\", "
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*",
+   "*MotionTransportTest.aLateMode25RefusalSendsNothingAgainAndLeavesTheCountShort_OMF*"
+  ],
+  "expect": [
+   "aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9",
+   "aLateMode25RefusalSendsNothingAgainAndLeavesTheCountShort_OMF"
+  ],
+  "note": "C3-OM1F: the withdrawal of mode 25 is said once, naming the count as the judge (no silent failure)",
+  "from": "C3-OM1F"
  }
 ]

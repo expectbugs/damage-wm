@@ -2954,8 +2954,8 @@ class Shell(
      *  Page staging's holds, every one (fix A2): the atlas's lane, the count's reading, a re-send owed, one unproven
      *  record at a time. [whole] (Music stage SF2, `MM-S-V2-review.md` 2; the held lanes' areas): the record goes as ONE
      *  message when its entry list fits mode 25's inflate (`FIRMWARE.md` §5.9: 16,384 B) and the transport says a write
-     *  submitted now goes deflated — the transitions' rule ([Transport.nextListDeflates]): the transport deflates one
-     *  waiting message at a time, so a second piece right behind the first went raw. Otherwise today's pieces. */
+     *  submitted now goes deflated (ZWRITE in force, mode 25 not withdrawn this session — the transitions' rule,
+     *  [Transport.nextListDeflates]). Otherwise today's pieces. */
     private suspend fun stageOwnRecord(rec: StagedRecord, st: LinkState, whole: Boolean = false): Boolean {
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight || st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
@@ -9366,12 +9366,11 @@ class Shell(
                 IntArray(4), listOf(wm.damage.core.motion.Motion.Drawing(b.outCost)), 0, cost = b.inCost)
         } catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the in half's PLAY-AFTER: ${e.message}") }
         // Encode: the out half's lists ride the records' write (one message). X2T item 2 (the review's 2, decisions AQ (2)):
-        // the in half's ride it too when the three fit one compressed message (the list within mode 25's inflate) — the
-        // transport deflates one waiting message at a time, so a second write right behind it went raw; past that they go
-        // after the out PLAY, above the out lists, as before. No new wait either way. C3 X4T item 2 (`C3-V2T-review.md` 2,
-        // decisions AT (2)): and only when the transport says a write submitted now would go deflated — ZWRITE in force,
-        // nothing waiting to be judged, no cache write queued ahead of it ([Transport.nextListDeflates]); a quick second
-        // act sent the three raw before its out PLAY
+        // the in half's ride it too when the three fit one compressed message (the list within mode 25's inflate); past
+        // that they go after the out PLAY, above the out lists, as before. No new wait either way. C3 X4T item 2
+        // (`C3-V2T-review.md` 2, decisions AT (2)): and only when the transport says a write submitted now goes deflated —
+        // ZWRITE in force, mode 25 not withdrawn this session ([Transport.nextListDeflates]); a raw combined message ahead
+        // of the out PLAY is worse than the separate writes
         val outAndRecords = listOfNotNull(CfwModes.CacheWrite2(at4, b.blob), b.outLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) })
         val inWrite = b.inLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) }
         val together = inWrite?.let { CfwModes.cacheUpdate2(outAndRecords + it, st.cacheSize) }

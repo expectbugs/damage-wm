@@ -120,9 +120,10 @@ interface Transport {
     val cacheCheckSupported: Boolean get() = false
 
     /** Build C3, stage X4T (`C3-decisions.md` AT (2)): whether a cache-write message submitted now would go deflated as
-     *  mode 25 (`FIRMWARE.md` §5.9) — the shell reads it at an Encode act to choose the one combined message, and DM-T's
-     *  order (the in lists after the out PLAY) otherwise. False where this transport cannot say (a peer across the seam):
-     *  that order is never worse than a raw combined message. */
+     *  mode 25 (`FIRMWARE.md` §5.9: ZWRITE in force, mode 25 not withdrawn this session). The shell reads it at two
+     *  places: an Encode act, to choose the one combined message over DM-T's order (the in lists after the out PLAY); and
+     *  a held lane's area (`stageOwnRecord`'s `whole`), to choose one message over pieces. False where this transport
+     *  cannot say (a peer across the seam): either other form is never worse than a raw single message. */
     fun nextListDeflates(): Boolean = false
 
     /** Hold or drop the framebuffer lease on demand (2026-09-05, `HANDOFF.md`
