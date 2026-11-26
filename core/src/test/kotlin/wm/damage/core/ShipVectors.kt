@@ -556,9 +556,44 @@ internal object ShipVectors {
     /** C3 stage SV3 (the lead's addition): the withdrawal at 256 KiB on Main's ring list at 352 ([RingForm.WITHDRAW]). */
     fun sv3Acts(): List<Act> = listOf(RingSpec("${PREFIX}ring-withdraw-352", ScrollEffect.DEPTH, 352, RingForm.WITHDRAW))
 
+    /**
+     * K1-2 stage 4f (decisions DA (b), (c) 1; DK item 1): a window's list bound on the glasses as list 1 (entries 3–5, slot
+     * 0) at ladder stage 5, its window-form pans of [effect] at layout height [height], in [form] — the forms each act holds
+     * are listed in `private/build083/K1-2-S4f-built.md` §1. Where no transition belongs to the act the Select, Back and
+     * Lock tiers are None, so the session runs none.
+     *  - NOTCHES: Settings, then Global (a ring list 1); a notch down, a notch up, a wrap notch up from row 0, a wrap notch
+     *    down from the last row.
+     *  - ADJUST: at Global's `Presence` (row 3) the adjust level entered (its CLEARs), a notch moving the value, the level
+     *    left (the SETs and the DISCARD naming row 3), the row re-staged by withdrawal (P9); a notch down.
+     *  - KEPT: Settings → Main (a Back, tier None) → a Select of Settings from Main (Depth): an arrival at the kept staging
+     *    (pin 11 (ii)), a notch while RIGHT's in half draws (refused 19 on list 1, applied as today); a notch after the run.
+     *  - SELECT_LEVEL: a Select from the bound categories into Global (Depth; a new level, pin 11 (i)), a notch while RIGHT's
+     *    in half draws (no entry of list 1 held: the stock path, no report); Global staged after the run; a notch.
+     *  - COUNT: a list window's rows from 6 to 7 (a new staging, a new mark); a notch.
+     *  - APP_EFFECT: a list window named Files with its own Scroll effect ([effect]) while `Animations` is Depth; a notch
+     *    down and a notch up.
+     *  - MAIN_OVER: started on Settings (list 1 staged with no staging of Main's); Main's staging grown over list 1's records
+     *    in the session (the rig's text drawn as noise, Main's rows made heavy one at a time, each staged whole by a Depth
+     *    change — `WindowListShellTest`'s pin 5), list 1 dropped (Main wins), then Main one row lighter again; the act:
+     *    Settings again, staged from Main's end, and a notch.
+     */
+    enum class ListForm { NOTCHES, ADJUST, KEPT, SELECT_LEVEL, COUNT, APP_EFFECT, MAIN_OVER }
+
+    data class ListSpec(override val name: String, val effect: ScrollEffect, val height: Int, val form: ListForm) : Act
+
+    /** K1-2 stage 4f: the list-1 acts — each form once; the effects and heights spread as Main's acts spread them. */
+    fun list1Acts(): List<Act> = listOf(
+        ListSpec("${PREFIX}list1-notches-depth-352", ScrollEffect.DEPTH, 352, ListForm.NOTCHES),
+        ListSpec("${PREFIX}list1-adjust-none-288", ScrollEffect.NONE, 288, ListForm.ADJUST),
+        ListSpec("${PREFIX}list1-kept-fall-352", ScrollEffect.FALL, 352, ListForm.KEPT),
+        ListSpec("${PREFIX}list1-select-level-depth-480", ScrollEffect.DEPTH, 480, ListForm.SELECT_LEVEL),
+        ListSpec("${PREFIX}list1-count-fall-288", ScrollEffect.FALL, 288, ListForm.COUNT),
+        ListSpec("${PREFIX}list1-app-slide-352", ScrollEffect.SLIDE, 352, ListForm.APP_EFFECT),
+        ListSpec("${PREFIX}list1-main-over-depth-352", ScrollEffect.DEPTH, 352, ListForm.MAIN_OVER))
+
     /** Every ship act: the transitions ([specs]), then SV-083's scroll and notice acts, then SVR's ring acts, then SV2's,
-     *  then X2MX2's, then SV3's. */
-    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts() + x2mx2Acts() + sv3Acts()
+     *  then X2MX2's, then SV3's, then K1-2 stage 4f's list-1 acts. */
+    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts() + x2mx2Acts() + sv3Acts() + list1Acts()
 
     /** [act] as the rig plays it, and its vector. */
     suspend fun captureAct(act: Act): Captured = when (act) {
@@ -566,6 +601,7 @@ internal object ShipVectors {
         is ScrollSpec -> captureScroll(act)
         is NoticeSpec -> captureNotice(act)
         is RingSpec -> captureRing(act)
+        is ListSpec -> captureList(act)
     }
 
     private val ANY_TAG: (Int) -> Boolean = { true }
@@ -1257,6 +1293,371 @@ internal object ShipVectors {
             return Captured(spec, vec, listOf("${spec.effect.word} T $t P $period, ring at ${spec.height}, stage 5 (flags 0x${st.flagsInForce.toString(16)}), " +
                 "${spec.form.name.lowercase()}${if (spec.form == RingForm.TAP) " ${spec.taps.name.lowercase()} ${if (spec.atLast) "last row" else "row 0"}" else ""}: " +
                 "${commits.size} COMMIT(s); the bind batch [${shape(bind)}]; the act's answer batches ${answers.map { "[$it]" }}") + words)
+        } finally { r.close() }
+    }
+
+    /** K1-2 stage 4f: a window whose own view is a list of [n] rows, each drawn as a few marks of its own (the COUNT and
+     *  APP_EFFECT acts' window, as `WindowListShellTest`'s). */
+    private class ListWin(id: String, name: String, @Volatile var n: Int) :
+        wm.damage.core.shell.DamageWindow(id, name, wm.damage.core.gfx.IconKind.FILES) {
+        val model = wm.damage.core.shell.ListModel()
+        override fun view(): wm.damage.core.shell.WindowView = wm.damage.core.shell.WindowView.ListView(model, { n },
+            { g, i, r, _ -> for (k in 0..(i % 5)) g.fillRect(r.x + 12 + k * 22 + (i * 7) % 40, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
+            { g, r, i -> g.fillRect(r.x + 4, r.y + 4, 8 + (i * 13) % 200, r.h - 8, 255) }, {})
+        override fun summary() = Summary("summary of $name", detail = "detail")
+        override fun saveState(): JsonObject = JsonObject(emptyMap())
+        override fun restoreState(state: JsonObject) {}
+    }
+
+    private fun isSetOf(s: ByteArray, list: Int) = isSub(s, 27, CfwModes.BIND_SET) && s.size > 5 && s[5].toInt() == list
+    private fun isClearOf(s: ByteArray, entry: Int) = isSub(s, 27, CfwModes.BIND_CLEAR) && s.size > 2 && (s[2].toInt() and 0xFF) == entry
+    private fun isListOf(s: ByteArray, list: Int) = (isSub(s, 27, CfwModes.BIND_LIST) || isSub(s, 27, CfwModes.BIND_LIST_RING)) && s.size >= 12 && s[2].toInt() == list
+    /** A DISCARD in slot 0 naming [list] (mode 26 sub 4: byte 2 the slot, byte 5 the list, bytes 6–7 the cursor). */
+    private fun isDiscard0Of(s: ByteArray, list: Int) = isSub(s, 26, CfwModes.MOTION_DISCARD) && s.size >= 8 && s[2].toInt() == 0 && s[5].toInt() == list
+
+    /** K1-2 stage 4f: a list-1 act ([ListSpec]) as the shell plays it, checked as it goes, and its vector. */
+    private suspend fun captureList(spec: ListSpec): Captured {
+        val over = spec.form == ListForm.MAIN_OVER
+        val lw = when (spec.form) { ListForm.COUNT -> ListWin("lw", "Listy", 6); ListForm.APP_EFFECT -> ListWin("files", "Files", 6); else -> null }
+        val mainEffect = if (spec.form == ListForm.APP_EFFECT) ScrollEffect.DEPTH else spec.effect
+        fun base(s: wm.damage.core.shell.ShellSettings) = s.copy(heightMode = spec.height, cachedText = "on", taps = Taps.REPORT, scrollEffect = mainEffect.id)
+            .withTier(Transitions.Tier.SELECT, effects = emptyList()).withTier(Transitions.Tier.BACK, effects = emptyList())
+            .withTier(Transitions.Tier.LOCK, effects = emptyList())
+            .let { if (spec.form == ListForm.APP_EFFECT) it.withAppStyle("files") { a -> a.copy(scrollEffect = spec.effect.id) } else it }
+        val r = TransitionShellTest.Rig(stage = 5, kib256 = true, nRows = MAIN_WINDOWS, text = if (over) NoisyText() else FakeText(),
+            startOn = if (over) "settings" else null, startSettings = base(wm.damage.core.shell.ShellSettings()))
+        try {
+            if (lw != null) r.shell.register(lw)
+            val withRun = spec.form == ListForm.KEPT || spec.form == ListForm.SELECT_LEVEL
+            // the slots whose instances place the act's events: the lists' pans (0, 1); with a transition, its halves too
+            val slots = if (withRun) listOf(0, 1, 2, 3) else listOf(0, 1)
+            val rec = Recorder(r, slots)
+            val words = ArrayList<String>()
+            fun wrow(): Int = r.onLoop { r.shell.windowBoundForTest().second }
+            fun wlist(): wm.damage.core.local.BoundList? = r.onLoop { r.shell.windowBoundForTest().first }
+            fun entriesOf(a: Arm, list: Int) = synchronized(r.sim) { r.sim.bindForTest(a).entries.withIndex().filter { it.value?.list == list }.map { it.index } }
+            fun wireMark1(): Int = synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).lists[1].mark }
+            fun staged() = r.notes("liststage").count { it.startsWith("staged") }
+            fun phase() = r.onLoop { r.shell.transitionPhaseForTest() }
+            suspend fun lanesDone(what: String) {
+                r.until("${spec.name}: $what — every lane done", 60_000) { r.shell.isQuiescent() && r.onLoop { r.shell.noticeLaneDoneForTest() &&
+                    r.shell.wheelLaneDoneForTest() && r.shell.windowListLaneDoneForTest() && !r.shell.cacheWorkInFlight && r.shell.transitionPhaseForTest() == null } }
+                r.settle("${spec.name}: $what")
+            }
+            suspend fun windowBound(what: String) {
+                r.until("${spec.name}: $what — the window list bound on RIGHT", 60_000) {
+                    r.onLoop { r.shell.slot0ForTest() == "window" && r.shell.windowBoundForTest().first != null } &&
+                        synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().count { it.list == 1 && !it.tap } == 2 } }
+                lanesDone(what)
+            }
+            suspend fun open(id: String) {
+                r.onLoop { r.shell.services.openWindow(id, null) }
+                r.until("${spec.name}: $id in front") { r.onLoop { r.shell.currentWindowId() } == id }
+            }
+            fun drawing(a: Arm, s: Int) = r.sim.motionForTest(a).slots[s]?.drawing == true
+            /** One gesture on list 1 ended: its burst closed (the lone SETTLE sent) and RIGHT handed a SETTLE since [from],
+             *  neither lens draws in slot 0 or 1, list 1's row is [to]. */
+            suspend fun ended(from: Int, to: Int, what: String, row: () -> Int = { wrow() }) = r.until("${spec.name}: $what — its SETTLE on RIGHT, the engine idle, row $to") {
+                rec.rightFrom(from).any { ss -> ss.any { isSub(it, 26, CfwModes.MOTION_SETTLE) } } && !r.onLoop { r.shell.localBurstOpenForTest() } &&
+                    synchronized(r.sim) { Arm.entries.none { a -> drawing(a, 0) || drawing(a, 1) } } && row() == to && r.shell.isQuiescent()
+            }
+            suspend fun notch(eventId: Int, to: Int, what: String, row: () -> Int = { wrow() }) {
+                val from = rec.events.size; rec.fire(eventId); ended(from, to, what, row); r.settle("${spec.name}: $what") }
+            suspend fun intoGlobal() {
+                rec.fire(CfwModes.EV_TAP)                                   // the categories' row 0: Global (no transition)
+                r.until("${spec.name}: Global's rows bound") { r.onLoop { r.shell.slot0ForTest() == "window" && r.shell.windowBoundForTest().first?.count?.let { it > 5 } == true } }
+                lanesDone("Global"); windowBound("Global")
+            }
+            suspend fun selectTierOn() {
+                r.shell.updateSettings { it.withTier(Transitions.Tier.SELECT, effects = listOf(Transitions.Effect.DEPTH.id)) }
+                r.settle("${spec.name}: the Select tier at Depth"); lanesDone("the Select tier at Depth")
+            }
+            /** The in half of the act's transition drawing on RIGHT. */
+            suspend fun inHalf() = r.until("${spec.name}: RIGHT's in half drawing") { phase() == "IN" &&
+                synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 && it.d < it.T } == true } }
+            suspend fun runEnds() {
+                r.until("${spec.name}: both lenses' in halves landed whole") { synchronized(r.sim) { Arm.entries.all { r.sim.motionForTest(it).slots[3]?.let { s -> !s.drawing && s.d == s.T } == true } } }
+                r.until("${spec.name}: the run ended") { phase() == null }
+                r.until("${spec.name}: the CLOSE of slot 2 reaches RIGHT") { rec.rightOfAct().any { ss -> ss.any { closeOf(it, 2) } } }
+            }
+
+            // ---- the session
+            if (!over) r.upAt(spec.height) { base(it) } else {
+                r.shell.start(); r.settle("${spec.name}: start")
+                r.until("${spec.name}: the atlas goes live") { r.shell.cachedTextActive && r.shell.cachedFontsLive.isNotEmpty() }
+            }
+            var row0 = 0
+            var count = 0
+            var oldMark = -1
+            var mainEnd = 0
+            when (spec.form) {
+                ListForm.NOTCHES -> { open("settings"); windowBound("Settings"); intoGlobal() }
+                ListForm.ADJUST -> {
+                    // (the walk to `Presence` is the act's: a session's inputs are laid at one tick in step 0)
+                    open("settings"); windowBound("Settings"); intoGlobal()
+                    check(r.onLoop { r.shell.settings.presence } == 1) { "${spec.name}: the fixture — Presence not at dim at rest" }
+                }
+                ListForm.KEPT -> {
+                    // (Main's walk to Settings' row is the act's, after the Back: a session's inputs are laid at one tick)
+                    open("settings"); windowBound("Settings"); selectTierOn(); windowBound("Settings, the Select tier on")
+                }
+                ListForm.SELECT_LEVEL -> { open("settings"); windowBound("Settings"); selectTierOn(); windowBound("Settings, the Select tier on") }
+                ListForm.COUNT, ListForm.APP_EFFECT -> {
+                    open(lw!!.id); windowBound(lw.name)
+                    if (spec.form == ListForm.APP_EFFECT) {
+                        val plays = r.onLoop { r.shell.windowListBinding.staging?.let { it.motion?.effect to it.plays.effect } }
+                        val mainPlays = r.onLoop { r.shell.mainBinding.staging?.motion?.effect }
+                        check(plays == spec.effect to spec.effect && mainPlays == ScrollEffect.DEPTH) {
+                            "${spec.name}: Files' list plays $plays and Main's $mainPlays — not ${spec.effect.word} beside Main's Depth" }
+                    }
+                }
+                ListForm.MAIN_OVER -> {
+                    windowBound("started on Settings")
+                    val ms1 = r.onLoop { r.shell.windowListBinding.staging } ?: error("${spec.name}: no staging of Settings' list")
+                    check(r.onLoop { r.shell.mainBinding.staging } == null) { "${spec.name}: a staging of Main's at a start on Settings" }
+                    r.doubleTap()
+                    r.until("${spec.name}: Main staged", 60_000) { r.onLoop { r.shell.currentWindowId() == null && r.shell.mainBinding.staging != null && r.shell.mainBinding.counted } }
+                    lanesDone("Main")
+                    // Main grows by its rows' content, one ink-heavy row at a time, each followed by a `Depth` change that
+                    // stages it whole again (`WindowListShellTest`'s pin 5), until its staging reaches list 1's records
+                    var depth = 8
+                    var k = 0
+                    val light = r.rows.map { it.s }
+                    fun mainStaged() = r.notes("mainstage").count { it.startsWith("staged") || "cannot be staged" in it }
+                    while (r.onLoop { r.shell.mainBinding.staging?.end ?: 0 } <= ms1.start && k < r.rows.size) {
+                        r.rows[k].s = wm.damage.core.shell.DamageWindow.Summary("M@W#".repeat(24), detail = "detail of $k", more = true); k++
+                        val n0 = mainStaged()
+                        depth = if (depth == 8) 4 else 8
+                        r.shell.updateSettings { it.copy(depth = depth) }
+                        r.until("${spec.name}: Main staged whole again at Depth $depth", 60_000) { mainStaged() > n0 &&
+                            r.onLoop { r.shell.mainBinding.staging == null || r.shell.mainBinding.counted } }
+                        lanesDone("Main at Depth $depth")
+                        if (r.onLoop { r.shell.mainBinding.staging } == null) {
+                            k--; r.rows[k].s = light[k]                         // past what Main's region holds: one row lighter
+                            r.until("${spec.name}: Main staged again one row lighter", 60_000) { r.onLoop { r.shell.mainBinding.staging != null && r.shell.mainBinding.counted } }
+                            lanesDone("Main one row lighter")
+                            break
+                        }
+                    }
+                    val main = r.onLoop { r.shell.mainBinding.staging } ?: error("${spec.name}: Main not staged: ${r.notes("mainstage").takeLast(3)}")
+                    check(main.end > ms1.start) { "${spec.name}: Main's staging (to ${main.end}) does not reach list 1's records (from ${ms1.start})" }
+                    check(r.notes("liststage").any { it.startsWith("dropped — Main's staging at") && "(Main wins)" in it }) { "${spec.name}: list 1 not dropped: ${r.notes("liststage").takeLast(3)}" }
+                    words += "Main grown over list 1: $k heavy row(s), Main at ${main.start}..${main.end}, list 1 was at ${ms1.start}..${ms1.end}"
+                    // then one row lighter, staged whole again (the pin's other branch): the first capture found list 1 refused
+                    // from the grown Main's end (12,032 B of space against the 13,744 B Settings' list takes), so the act's
+                    // staging from Main's end needs a Main as large as the one before the overlap
+                    k--; r.rows[k].s = light[k]
+                    val n1 = mainStaged()
+                    depth = if (depth == 8) 4 else 8
+                    r.shell.updateSettings { it.copy(depth = depth) }
+                    r.until("${spec.name}: Main staged whole again one row lighter", 60_000) { mainStaged() > n1 &&
+                        r.onLoop { r.shell.mainBinding.staging != null && r.shell.mainBinding.counted } }
+                    lanesDone("Main one row lighter")
+                    val lighter = r.onLoop { r.shell.mainBinding.staging }!!
+                    words += "then one row lighter: Main at ${lighter.start}..${lighter.end}"
+                    mainEnd = lighter.end
+                }
+            }
+            idle(r, spec.name)
+            val refusals0 = r.onLoop { r.shell.windowListRefusalsForTest() }
+
+            // ---- the act
+            when (spec.form) {
+                ListForm.NOTCHES, ListForm.APP_EFFECT -> {
+                    val l = wlist() ?: error("${spec.name}: no list bound")
+                    count = l.count
+                    if (spec.form == ListForm.NOTCHES) check(l.ring && l.list == 1 && l.slot == 0) { "${spec.name}: Global's rows not a ring list 1 in slot 0 (ring ${l.ring}, list ${l.list}, slot ${l.slot})" }
+                    check(wrow() == 0) { "${spec.name}: list 1 at row ${wrow()}, not 0" }
+                    rec.act.set(true)
+                    notch(CfwModes.EV_UPROLL, 1, "a notch down")
+                    notch(CfwModes.EV_DOWNROLL, 0, "a notch up")
+                    if (spec.form == ListForm.NOTCHES) {
+                        notch(CfwModes.EV_DOWNROLL, count - 1, "a wrap notch up from row 0")
+                        notch(CfwModes.EV_UPROLL, 0, "a wrap notch down from the last row")
+                    }
+                }
+                ListForm.ADJUST -> {
+                    val ms = r.onLoop { r.shell.windowListBinding.staging }
+                    oldMark = wlist()!!.mark
+                    val restaged0 = r.notes("liststage").count { it.startsWith("row 3 re-staged") }
+                    rec.act.set(true)
+                    for (k in 1..3) notch(CfwModes.EV_UPROLL, k, "the walk to Presence, row $k")
+                    idle(r, spec.name)
+                    rec.fire(CfwModes.EV_TAP)                               // Presence: the adjust level, a cover
+                    r.until("${spec.name}: adjusting — slot 0 is nobody's") { r.onLoop { r.shell.slot0ForTest() } == null }
+                    r.until("${spec.name}: entries 3–5 cleared on RIGHT") { entriesOf(Arm.RIGHT, 1).isEmpty() }
+                    r.settle("${spec.name}: adjusting")
+                    val seq = synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).seq }
+                    rec.fire(CfwModes.EV_DOWNROLL)                          // dim at rest → away at rest: the value, not the list
+                    r.until("${spec.name}: Presence changed") { r.onLoop { r.shell.settings.presence } == 0 }
+                    check(synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).seq } == seq) { "${spec.name}: the notch while adjusting took an S on RIGHT" }
+                    r.settle("${spec.name}: the value moved")
+                    rec.fire(CfwModes.EV_TAP)                               // the adjust level left
+                    r.until("${spec.name}: row 3 re-staged", 15_000) { r.notes("liststage").count { it.startsWith("row 3 re-staged") } > restaged0 }
+                    windowBound("offered again")
+                    check(r.onLoop { r.shell.windowListBinding.staging } === ms && wlist()!!.mark == oldMark) { "${spec.name}: the staging or its mark not kept (P9)" }
+                    check(wrow() == 3) { "${spec.name}: list 1 at row ${wrow()} after the adjust, not 3" }
+                    words += "re-staged: ${r.notes("liststage").filter { it.startsWith("withdrawn") || "re-staged" in it }.takeLast(2)}"
+                    notch(CfwModes.EV_UPROLL, 4, "a notch down after the adjust")
+                }
+                ListForm.KEPT -> {
+                    val ms1 = r.onLoop { r.shell.windowListBinding.staging }
+                    oldMark = wireMark1()
+                    val mark = wlist()!!.mark
+                    val staged0 = staged()
+                    rec.act.set(true)
+                    r.doubleTap()                                           // the Back (tier None): a double tap reaches only the phone
+                    r.until("${spec.name}: back on Main, its list bound on RIGHT") { r.onLoop { r.shell.currentWindowId() == null &&
+                        r.shell.slot0ForTest() == "main" && r.shell.mainBinding.counted } && entriesOf(Arm.RIGHT, 0).size >= 2 }
+                    lanesDone("back on Main")
+                    check(r.onLoop { r.shell.windowListBinding.staging } === ms1) { "${spec.name}: the window list's staging not kept while Main is in front" }
+                    val mainCount = r.onLoop { r.shell.mainBoundForTest().first }?.count ?: error("${spec.name}: Main's list not bound")
+                    check(r.row() == 0) { "${spec.name}: Main at row ${r.row()}, not 0" }
+                    notch(CfwModes.EV_DOWNROLL, mainCount - 1, "Main's wrap notch up to Settings' row") { r.row() }
+                    idle(r, spec.name)
+                    rec.fire(CfwModes.EV_TAP)                               // Main's last row: a Select of Settings (Depth)
+                    inHalf()
+                    r.until("${spec.name}: list 1 bound on RIGHT, or the run ended") { phase() == null ||
+                        synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().count { it.list == 1 && !it.tap } == 2 } }
+                    check(phase() == "IN" && synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[3]?.drawing == true }) {
+                        "${spec.name}: list 1's SETs did not ride the held frame (not bound on RIGHT while the in half draws)" }
+                    val applied0 = r.notes("applied").size
+                    row0 = r.onLoop { r.shell.focusedRowForTest() }
+                    rec.fire(CfwModes.EV_UPROLL)
+                    r.until("${spec.name}: the notch applied as today") { r.onLoop { r.shell.focusedRowForTest() } == row0 + 1 }
+                    r.until("${spec.name}: RIGHT's report of the notch") { r.notes("applied").size > applied0 }
+                    words += "the notch in the in half: ${r.notes("applied").drop(applied0)}"
+                    runEnds()
+                    windowBound("Settings, after the run")
+                    check(r.onLoop { r.shell.windowListBinding.staging } === ms1 && wlist()!!.mark == mark && staged() == staged0) {
+                        "${spec.name}: not the same staging and mark (no staging of the window list)" }
+                    check(wrow() == row0 + 1) { "${spec.name}: list 1 at row ${wrow()}, not the moved row ${row0 + 1}" }
+                    notch(CfwModes.EV_UPROLL, row0 + 2, "a notch after the run")
+                }
+                ListForm.SELECT_LEVEL -> {
+                    oldMark = wireMark1()
+                    val staged0 = staged()
+                    rec.act.set(true)
+                    rec.fire(CfwModes.EV_TAP)                               // the categories' row 0: a Select into Global (Depth)
+                    inHalf()
+                    check(entriesOf(Arm.RIGHT, 1).isEmpty()) { "${spec.name}: an entry of list 1 held on RIGHT in the in half: ${entriesOf(Arm.RIGHT, 1)}" }
+                    val applied0 = r.notes("applied").size
+                    val seq = synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).seq }
+                    row0 = r.onLoop { r.shell.focusedRowForTest() }
+                    rec.fire(CfwModes.EV_UPROLL)
+                    check(synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).seq } == seq) { "${spec.name}: the in-half notch took an S on RIGHT (it matched an entry)" }
+                    r.until("${spec.name}: the notch applied as today") { r.onLoop { r.shell.focusedRowForTest() } == row0 + 1 }
+                    runEnds()
+                    check(r.notes("applied").size == applied0) { "${spec.name}: a report of the in-half notch: ${r.notes("applied").drop(applied0)}" }
+                    windowBound("Global, after the run")
+                    check(staged() > staged0) { "${spec.name}: the new level not staged after the run" }
+                    check(wrow() == row0 + 1) { "${spec.name}: Global bound at row ${wrow()}, not the moved row ${row0 + 1}" }
+                    notch(CfwModes.EV_UPROLL, row0 + 2, "a notch on Global after the run")
+                }
+                ListForm.COUNT -> {
+                    oldMark = wireMark1()
+                    rec.act.set(true)
+                    lw!!.n = 7
+                    r.onLoop { r.shell.services.requestRender(lw) }
+                    r.until("${spec.name}: a new staging of 7 rows", 60_000) { r.onLoop { r.shell.windowBoundForTest().first?.let { it.count == 7 } == true } }
+                    windowBound("7 rows")
+                    check(r.notes("liststage").any { it.startsWith("dropped — the window list's rows changed (6 staged, 7 now)") }) { "${spec.name}: ${r.notes("liststage").takeLast(3)}" }
+                    notch(CfwModes.EV_UPROLL, 1, "a notch on the new staging")
+                }
+                ListForm.MAIN_OVER -> {
+                    oldMark = wireMark1()
+                    rec.act.set(true)
+                    open("settings")
+                    r.until("${spec.name}: Settings staged again, or refused", 60_000) { r.onLoop { r.shell.windowListRefusalsForTest() } > refusals0 ||
+                        (r.onLoop { r.shell.slot0ForTest() == "window" && r.shell.windowBoundForTest().first != null }) }
+                    check(r.onLoop { r.shell.windowListRefusalsForTest() } == refusals0) { "${spec.name}: Settings' list refused after Main's growth: ${r.notes("liststage").takeLast(2)}" }
+                    windowBound("Settings again")
+                    val ms2 = r.onLoop { r.shell.windowListBinding.staging }!!
+                    check(ms2.start >= mainEnd) { "${spec.name}: staged again at ${ms2.start}, not from Main's end $mainEnd" }
+                    words += "list 1 staged again at ${ms2.start}..${ms2.end}"
+                    notch(CfwModes.EV_UPROLL, 1, "a notch on Settings again")
+                }
+            }
+            lanesDone("the act's end"); idle(r, spec.name)
+            rec.act.set(false)
+            val recorded = rec.events.toList()
+            val firstAct = recorded.indexOfFirst { it.act }
+            check(firstAct >= 0 && recorded.drop(firstAct).all { it.act }) { "${spec.name}: an image or input of the session came after the act began (it would be laid in step 0)" }
+            val act = rec.rightOfAct()
+            val subsOfAct = act.flatten()
+            val commits = subsOfAct.filter { isSub(it, 26, CfwModes.MOTION_COMMIT) && it.size == 18 }
+            val lists1 = subsOfAct.filter { isListOf(it, 1) }
+            // the act's wire forms, as RIGHT was handed them
+            fun cleared35(ss: List<ByteArray>) = (3..5).all { e -> ss.any { isClearOf(it, e) } }
+            when (spec.form) {
+                ListForm.NOTCHES -> {
+                    val rightAll = recorded.filter { it.arm == Arm.RIGHT }.map { subs(it.msg!!) }
+                    check(rightAll.any { ss -> ss.any { isSub(it, 27, CfwModes.BIND_LIST_RING) && it[2].toInt() == 1 } }) { "${spec.name}: no LIST-RING naming list 1" }
+                }
+                ListForm.ADJUST -> {
+                    check(act.any { cleared35(it) }) { "${spec.name}: no batch CLEARs entries 3–5" }
+                    check(act.any { ss -> ss.any { isSetOf(it, 1) } && ss.any { isDiscard0Of(it, 1) && u16(it, 6) == 3 } }) { "${spec.name}: no return batch of list 1's SETs with the DISCARD naming row 3" }
+                }
+                ListForm.KEPT -> {
+                    check(act.any { ss -> cleared35(ss) } && act.any { ss -> ss.any { isSetOf(it, 0) } && ss.any { isDiscard0Of(it, 0) } }) { "${spec.name}: no change of slot 0 to Main (list 1's CLEARs, Main's SETs and DISCARD)" }
+                    check(act.any { ss -> ss.any { isSetOf(it, 1) } && ss.any { isDiscard0Of(it, 1) } }) { "${spec.name}: no return of list 1 (its SETs and the DISCARD naming it)" }
+                    check(lists1.all { u16(it, 7) == 0 && (it[11].toInt() and 0xFF) == oldMark }) { "${spec.name}: a new LIST of list 1 (only the riding one, shift 0, mark $oldMark): ${lists1.map { hex(it) }}" }
+                }
+                ListForm.SELECT_LEVEL, ListForm.COUNT, ListForm.MAIN_OVER -> {
+                    if (spec.form != ListForm.MAIN_OVER) check(act.any { cleared35(it) }) { "${spec.name}: no batch CLEARs entries 3–5" }
+                    check(lists1.any { (it[11].toInt() and 0xFF) != oldMark && (spec.form != ListForm.COUNT || u16(it, 5) == 7) }) {
+                        "${spec.name}: no LIST of list 1 with a new mark (old $oldMark): ${lists1.map { hex(it) }}" }
+                }
+                ListForm.APP_EFFECT -> {}
+            }
+            val st = r.t.state.value
+            check(st.flagsInForce == 0x7c) { "${spec.name}: flags in force 0x${st.flagsInForce.toString(16)}, not stage 5's 0x7c" }
+            val finalCrc = synchronized(r.sim) { Arm.entries.associateWith { r.sim.shadowCrc32(it) } }
+            val applied = ArrayList<DamageMsg.Applied>()
+            val vec = vector(spec.name, recorded, st.cacheSize / 1024, st.flagsInForce, finalCrc, ArrayList(), slots, ANY_TAG, applied) { _, bodies ->
+                check(bodies.none { it.outcome == DamageMsg.OUTCOME_REFUSED }) { "${spec.name}: a refusal on RIGHT: ${said(bodies, 0..3)}" }
+                check(bodies.filter { it.outcome == DamageMsg.OUTCOME_DREW }.all { (it.folded ?: 0L) == 0L }) { "${spec.name}: a step folded: ${said(bodies, 0..3)}" }
+                if (withRun) check(bodies.count { it.slot in 2..3 && it.outcome == DamageMsg.OUTCOME_DREW && ((it.tag ?: 0) and 0xE000) == 0xC000 } == 2) {
+                    "${spec.name}: not both halves of the Select whole on RIGHT: ${said(bodies, 0..3)}" }
+                words += "RIGHT's 114 bodies of the act: ${said(bodies, 0..3)}"
+            }
+            // RIGHT's 115s of the act, as the model laid out answers them
+            fun bad(what: String): Nothing = error("${spec.name}: $what — ${applied.map { it.describe() }}")
+            val scrolls = applied.filter { !it.isTap && it.list == 1 }
+            // KEPT: Main's walk to Settings' row (a wrap notch up on list 0) is the act's one report on another list
+            val others = applied.filter { !it.isTap && it.list != 1 }
+            if (spec.form != ListForm.KEPT && others.isNotEmpty()) bad("a scroll report not on list 1")
+            if (spec.form == ListForm.KEPT && (others.size != 1 || others[0].list != 0 || others[0].outcome != DamageMsg.APPLIED_DREW || others[0].field18 != 1L))
+                bad("not Main's one wrap notch on list 0 beside list 1's reports")
+            fun drew(cursors: List<Int>, f18: List<Long?> = cursors.map { null }) {
+                if (scrolls.size != cursors.size || scrolls.any { it.outcome != DamageMsg.APPLIED_DREW }) bad("not ${cursors.size} scroll fire(s) that drew")
+                if (scrolls.map { it.cursor } != cursors) bad("the cursors are not $cursors")
+                if (scrolls.map { it.field18 } != f18) bad("field 18 is not $f18")
+            }
+            when (spec.form) {
+                ListForm.NOTCHES -> drew(listOf(1, 0, count - 1, 0), listOf(null, null, 1L, 1L))
+                ListForm.APP_EFFECT -> drew(listOf(1, 0))
+                ListForm.ADJUST -> drew(listOf(1, 2, 3, 4))
+                ListForm.SELECT_LEVEL -> drew(listOf(row0 + 2))
+                ListForm.COUNT, ListForm.MAIN_OVER -> drew(listOf(1))
+                ListForm.KEPT -> {
+                    if (scrolls.size != 2) bad("not two scroll reports")
+                    val (a, b) = scrolls
+                    // §7.9 reason 19: a fire whose close set holds an owning instance (the in half's)
+                    if (a.outcome != DamageMsg.APPLIED_REFUSED || a.reason != 19) bad("the notch in the in half is not refused 19")
+                    if (b.outcome != DamageMsg.APPLIED_DREW || b.cursor != row0 + 2 || b.field18 != null) bad("the notch after the run did not draw at row ${row0 + 2}")
+                }
+            }
+            // the phone's answer to each fire that drew: the COMMIT of the report's own parameters at the absolute cursor
+            for (a in (scrolls + others).filter { it.outcome == DamageMsg.APPLIED_DREW }) {
+                val c = commits.firstOrNull { u16(it, 3) == a.s } ?: bad("no COMMIT of S ${a.s}")
+                if (u16(c, 6) != a.cursor || (0..3).any { s16(c, 10 + 2 * it) != a.params!![it] }) bad("the COMMIT of S ${a.s} is not the report's parameters at its cursor: ${hex(c)}")
+            }
+            words += "RIGHT's 115s: ${applied.joinToString(" | ") { it.describe().substringBefore(" uptime") }}"
+            val staging = r.onLoop { r.shell.windowListBinding.staging?.let { s -> "${s.motion?.effect?.word} T ${s.t} P ${s.period} at ${s.start}..${s.end}" } }
+            val answers = act.filter { ss -> ss.any { answerList(it) >= 0 } }.map { shape(it) }.distinct()
+            return Captured(spec, vec, listOf("list 1 ${spec.form.name.lowercase()} at ${spec.height}, stage 5 (flags 0x${st.flagsInForce.toString(16)}): its staging $staging; " +
+                "${commits.size} COMMIT(s); LISTs of list 1 in the act ${lists1.map { hex(it) }}; the act's answer batches ${answers.map { "[$it]" }}") + words)
         } finally { r.close() }
     }
 

@@ -2889,7 +2889,7 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   review sets' `v2-badrec`, `v2-gates`, `v2-order`, `v2-reach`), v3, v4 (§6.10's twelve, `v4-param-order`,
   `v4-scaled-self`, `v4-vscale-draw`), v5: §7.13's twelve, four fold pairs (`v5-fold-*`), the fix rounds' `v5-x2-*`
   and `v5-x3-hint`, and the `v5-ship-*` files — the shipped programs played as acts (transitions, scroll effects, the
-  notice, the ring list; C3 X3D and SVR).
+  notice, the ring list; C3 X3D and SVR; a window's list bound as list 1, the `v5-ship-list1-*` acts, K1-2 stage 4).
 
 ## 10. Lifecycle
 
