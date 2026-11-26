@@ -6,6 +6,7 @@ import wm.damage.core.gfx.Gray8
 import wm.damage.core.motion.Motion
 import wm.damage.core.motion.MotionProgram
 import wm.damage.core.wire.CfwModes
+import wm.damage.core.wire.TextureCache
 
 /**
  * Music's motion update, stage L (`private/build085/MM-lean-spec.md` §4.1–§4.3; his answers, `MM-decisions.md`): a
@@ -52,6 +53,10 @@ class LaneSpec(
     val steps: Int,
     /** The pictures the programs draw (v2 image records), placed by the shell at the start of each area of the slice. */
     val statics: List<Gray8>,
+    /** Stage S (ruling C/5): a font the programs draw glyphs from — code (33..255) → its v1 glyph record — placed in each
+     *  area after the statics (the records, then the 224-entry table) and given to the planner as [LaneAt.font]: an area
+     *  holds everything its stretch reads (`FIRMWARE.md` §7.11's one-interval read range). Empty: no font. */
+    val glyphs: Map<Int, TextureCache.Image> = emptyMap(),
     /** One stretch's program and parameters ([LaneAt]). */
     val plan: (LaneAt) -> LanePlan,
 ) {
@@ -59,13 +64,15 @@ class LaneSpec(
         if (rects.isEmpty() || rects.any { it.w <= 0 || it.h <= 0 }) throw LintError("a lane set needs rects: $rects")
         if (period !in CfwModes.MOTION_PERIODS) throw LintError("a lane's period $period is not ${CfwModes.MOTION_PERIODS}")
         if (steps !in 1..Motion.MAX_STEPS) throw LintError("a lane's stretch of $steps steps is not 1..${Motion.MAX_STEPS}")
+        if (glyphs.keys.any { it !in 33..255 }) throw LintError("a lane font's codes are 33..255 (0 and 32 name no glyph, §7.6): ${glyphs.keys}")
     }
 }
 
 /** Where and when one stretch is planned: its program at [at4] (off4), any table it names from [tables4] on (both inside
- *  its area), the statics placed as [statics], the lanes at disparity [d] (left lens x − d, right x + d), built through
- *  [fx]; its step 1 visible at phone time [stepOneMs], each step [stepMs] after the one before, [steps] steps. */
-class LaneAt(val at4: Int, val tables4: Int, val statics: List<Motion.Source.Record>, val d: Int, val fx: Motion.Effects,
+ *  its area), the statics placed as [statics] and the spec's font as [font] (null: none), the lanes at disparity [d]
+ *  (left lens x − d, right x + d), built through [fx]; its step 1 visible at phone time [stepOneMs], each step [stepMs]
+ *  after the one before, [steps] steps. */
+class LaneAt(val at4: Int, val tables4: Int, val statics: List<Motion.Source.Record>, val font: Motion.Font?, val d: Int, val fx: Motion.Effects,
              val stepOneMs: Long, val stepMs: Double, val steps: Int)
 
 /** A stretch's program and its parameters P0..P3. */
@@ -262,26 +269,9 @@ class WindowLanes(private val say: (String) -> Unit) {
         return null
     }
 
-    private fun build(env: Env, spec: LaneSpec, region: IntRange, i: Int, stepOne: Long, stepMs: Double): Pair<LanePlan, ByteArray>? {
-        val base = region.first + i * AREA_BYTES
-        val end = base + AREA_BYTES
-        var off = base
-        val statics = ArrayList<Pair<Int, ByteArray>>()
-        val recs = spec.statics.map { g ->
-            val enc = TextureCacheImage.encode(g)
-            Motion.Source.Record(off / 4, g.w, g.h, enc.size, enc).also { statics += off to enc; off += (enc.size + 3) / 4 * 4 }
-        }
-        val plan = try { spec.plan(LaneAt(off / 4, (off + PROGRAM_MAX) / 4, recs, env.d, env.fx!!, stepOne, stepMs, spec.steps)) }
-            catch (e: LintError) { strike("its program cannot be built (${e.message})"); end("its program cannot be built", true); return null }
-        val parts = statics + plan.program.records.map { (o4, b) -> o4 * 4 to b }
-        val top = parts.maxOf { (o, b) -> o + b.size }
-        if (parts.any { (o, _) -> o < base } || top > end) {
-            strike("its records do not fit their area of $AREA_BYTES B (${top - base} B)"); end("its records do not fit", true); return null
-        }
-        val blob = ByteArray((top - base + 3) / 4 * 4)
-        for ((o, b) in parts) System.arraycopy(b, 0, blob, o - base, b.size)
-        return plan to blob
-    }
+    private fun build(env: Env, spec: LaneSpec, region: IntRange, i: Int, stepOne: Long, stepMs: Double): Pair<LanePlan, ByteArray>? =
+        try { area(spec, region.first + i * AREA_BYTES, env.d, env.fx!!, stepOne, stepMs) }
+        catch (e: LintError) { strike("its program cannot be built or placed (${e.message})"); end("its program cannot be built or placed", true); null }
 
     private fun nextTag(): Int = TAG + (tags++ and 0xFFF)
 
@@ -364,7 +354,46 @@ class WindowLanes(private val say: (String) -> Unit) {
         }
     }
 
+    /** One area's parts before its program: the statics from its base, then the font's glyph records and its table. */
+    internal class Layout(val parts: List<Pair<Int, ByteArray>>, val statics: List<Motion.Source.Record>, val font: Motion.Font?, val at4: Int, val tables4: Int)
+
     companion object {
+        /** Where an area's parts go — the one placement [build] and [tableRoom] share: from [base] the statics (v2 image
+         *  records), the font's glyph records (v1) and its 448-B table (stage S, ruling C/5), each 4-aligned; the program
+         *  at `at4` after them and its tables from `tables4` ([PROGRAM_MAX] on). A code with no glyph names the first
+         *  record (never read: only codes a cell or an alphabet names are walked, §7.6). */
+        internal fun layout(statics: List<Gray8>, glyphs: Map<Int, TextureCache.Image>, base: Int): Layout {
+            var off = base
+            val parts = ArrayList<Pair<Int, ByteArray>>()
+            fun put(b: ByteArray): Int { val at = off; parts += at to b; off += (b.size + 3) / 4 * 4; return at }
+            val recs = statics.map { g -> val enc = TextureCacheImage.encode(g); Motion.Source.Record(put(enc) / 4, g.w, g.h, enc.size, enc) }
+            val font = if (glyphs.isEmpty()) null else {
+                val gl = glyphs.toSortedMap().mapValues { (_, img) -> val enc = img.encode(); Motion.Glyph.of(put(enc) / 4, enc) }
+                val first = gl.values.first().off4
+                Motion.Font(off / 4, IntArray(224) { gl[it + 32]?.off4 ?: first }, gl.values.toList()).also { put(it.bytes) }
+            }
+            return Layout(parts, recs, font, off / 4, (off + PROGRAM_MAX) / 4)
+        }
+
+        /** One stretch planned into the area at [base] (`WindowLanes.place`; Music's rehearsal writes one the same way): its
+         *  program and parameters, and the area's bytes from [base] to its top record's end (gaps zero). A plan that
+         *  cannot be built, or whose records leave the area, is a [LintError]. */
+        fun area(spec: LaneSpec, base: Int, d: Int, fx: Motion.Effects, stepOne: Long, stepMs: Double): Pair<LanePlan, ByteArray> {
+            val l = layout(spec.statics, spec.glyphs, base)
+            val plan = spec.plan(LaneAt(l.at4, l.tables4, l.statics, l.font, d, fx, stepOne, stepMs, spec.steps))
+            val parts = l.parts + plan.program.records.map { (o4, b) -> o4 * 4 to b }
+            val top = parts.maxOf { (o, b) -> o + b.size }
+            if (parts.any { (o, _) -> o < base } || top > base + AREA_BYTES)
+                throw LintError("its records do not fit their area of $AREA_BYTES B (${top - base} B)")
+            val blob = ByteArray((top - base + 3) / 4 * 4)
+            for ((o, b) in parts) System.arraycopy(b, 0, blob, o - base, b.size)
+            return plan to blob
+        }
+
+        /** The bytes an area leaves a program's tables after [statics], the font of [glyphs] and the program's own room
+         *  ([PROGRAM_MAX]): what a planner fits a stretch in (Scope's T, ruling 4). */
+        fun tableRoom(statics: List<Gray8>, glyphs: Map<Int, TextureCache.Image>): Int = AREA_BYTES - layout(statics, glyphs, 0).tables4 * 4
+
         /** The lanes' tags: one a stretch, cycling through 0x1000 (≥ 36 h of 32-s stretches; 4.5 h of 4-s ones), apart
          *  from the wrap's 0xB000, a transition's 0xC000 / 0xD000 and the notice's 0xE000. */
         const val TAG = 0xA000

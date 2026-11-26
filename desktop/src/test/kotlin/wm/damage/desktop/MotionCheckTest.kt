@@ -30,7 +30,11 @@ class MotionCheckTest {
             val out = ByteArrayOutputStream()
             assertEquals(0, MotionCheck.run(dir, out = PrintStream(out, true)), out.toString())
             assertTrue("ALL HOLD" in out.toString(), out.toString())
-            assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") && !it.startsWith("wheel-") }, "one strip and one text per test program and per transition, nothing else")
+            assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") && !it.startsWith("wheel-") && !it.startsWith("music-") }, "one strip and one text per test program and per transition, nothing else")
+            // Music's stage S: Scope's lane, one strip and text per scene, each holding
+            val scenes = wm.damage.core.windows.music.ScopeRehearsal.scenes().map { "music-scope-${it.name}" }
+            assertEquals(scenes.flatMap { listOf("$it.png", "$it.txt") }.sorted(), files(dir).filter { it.startsWith("music-") }, "Scope's strips")
+            for (n in scenes) assertTrue("checks: all hold" in Files.readString(dir.resolve("$n.txt")), "$n:\n${Files.readString(dir.resolve("$n.txt"))}")
             // C3 DW-0: the wheel's notches (d 0 and 8, n 3, 5 and 9, down, up and both wraps) and his burst, each holding
             assertEquals(2 * 3 * 4 + 1, files(dir).count { it.startsWith("wheel-") && it.endsWith(".png") }, "the wheel's strips: ${files(dir).filter { it.startsWith("wheel-") }}")
             for (f in files(dir).filter { it.startsWith("wheel-") && it.endsWith(".txt") && it != "wheel-staging.txt" })
@@ -104,7 +108,7 @@ class MotionCheckTest {
             val under = Files.walk(home).use { s -> s.filter { it != home }.map { home.relativize(it).toString() }.toList() }
             assertTrue(under.all { it == ".java" || it == ".java/fonts" || it.startsWith(".java/fonts/") },
                 "nothing under the home directory but the JDK's font cache: $under")
-            assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") && !it.startsWith("wheel-") }, "the strips in DIR, nothing else (and the scroll and wheel strips)")
+            assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") && !it.startsWith("wheel-") && !it.startsWith("music-") }, "the strips in DIR, nothing else (and the scroll, wheel and Scope strips)")
             assertTrue(files(dir).any { it.startsWith("scroll-") }, "the scroll strips in DIR")
         } finally { home.toFile().deleteRecursively(); dir.toFile().deleteRecursively() }
     }

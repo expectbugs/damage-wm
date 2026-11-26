@@ -23,7 +23,9 @@ import wm.damage.core.transport.Arm
  */
 class MusicLaneFuzzTest {
 
-    enum class Timing(val period: Int, val steps: Int) { DEFAULT(16, 3), STAGE4(46, 6), BAR(128, 255) }
+    /** Stage S adds SCOPE: Music Mode's Scope lane at P 34 and the T its room gives, a new area written at every link
+     *  (the ring of three) — its layout event switches the visualizer to Bars and back. */
+    enum class Timing(val period: Int, val steps: Int) { DEFAULT(16, 3), STAGE4(46, 6), BAR(128, 255), SCOPE(34, LaneRig.SCOPE_T) }
 
     private fun lenMs(t: Timing) = t.steps * t.period * 1000L / 1024
 
@@ -190,6 +192,47 @@ class MusicLaneFuzzTest {
         assertTrue(!s.stalled(8_000, false, 2_000) && !s.stalled(20_000, true, 2_005), "a resume after a long pause")
     }
 
+    // ---------------------------------------------------------------------------------------------- stage S: the ring
+    /** Scope's chain (stage S): a new area written at every link, through the ring of three in turn (0, 1, 2, 0, …), each
+     *  written and proven before its PLAY-AFTER goes and none landing while a stretch that reads it is open on either lens
+     *  (`FIRMWARE.md` §7.11 — such a write would close it); every stretch drawn whole, the chain never ended. */
+    @Test
+    fun scopesChainWritesANewAreaAtEachLinkThroughTheRing() {
+        val t = Timing.SCOPE
+        val r = LaneRig(31, t.period, t.steps, fixed = true, scope = true)
+        r.pump()
+        r.runUntil(r.nowMs + 7 * lenMs(t) + 500)
+        val lane = r.sent
+        assertTrue(lane.size >= 7, "a stretch a stretch's length: ${lane.size} — ${r.notes.takeLast(6)}")
+        assertEquals(0L, lane[0][3], "the first is a PLAY")
+        assertTrue(lane.drop(1).all { it[3] == 1L }, "the rest are PLAY-AFTERs: ${lane.map { it[3] }}")
+        val areas = r.areasWritten()
+        assertEquals(areas.indices.map { (areas[0] + it) % WindowLanes.AREAS }, areas, "the areas in turn: $areas")
+        assertTrue(areas.size in lane.size..lane.size + 1, "one area written a link: ${areas.size} writes, ${lane.size} stretches sent")
+        assertEquals(emptyList(), r.ringMeets, "no area written while a stretch reading it is open")
+        val drew = r.bodies.filter { it[1] and 0xF000 == WindowLanes.TAG && it[2] == 0 }
+        assertTrue(drew.size >= 6, "RIGHT said ${drew.size} stretches drew their last step")
+        for (b in drew) assertEquals(t.steps, b[3] + b[4], "drawn + folded = T for tag 0x%04x".format(b[1]))
+        assertTrue(r.bodies.none { it[1] and 0xF000 == WindowLanes.TAG && it[2] != 0 }, "no lane stretch closed or refused: ${r.bodies.map { it.toList() }}")
+        assertTrue(r.notes.none { "ends" in it }, "the chain never ended: ${r.notes.filter { "ends" in it }}")
+        println("MusicLaneFuzzTest: Scope's area writes (modeled, the rig's wire record), T ${t.steps} at P ${t.period} (${lenMs(t)} ms a stretch): " +
+            r.writeBytes.joinToString { "${it[0]} B (${it[1]} B deflated)" })
+    }
+
+    /** The anchor (ruling 6): a chain's first stretch is planned again at every pump while its area's write is proven —
+     *  here 600 ms, pumped every 50 ms — and its area is written once, not again each time the place crosses a column. */
+    @Test
+    fun scopesFirstStretchIsWrittenOnceWhileItsWriteIsProven() {
+        val t = Timing.SCOPE
+        val r = LaneRig(32, t.period, t.steps, fixed = true, scope = true)
+        r.proofExtra = 600
+        r.pump()
+        val until = r.nowMs + 1_200
+        while (r.nowMs < until) { r.runUntil(r.nowMs + 50); r.pump() }
+        assertTrue(r.sent.isNotEmpty() && r.sent[0][3] == 0L, "the chain started: ${r.notes.takeLast(4)}")
+        assertEquals(1, r.areasWritten().size, "one area write before the first PLAY: ${r.notes}")
+    }
+
     // ------------------------------------------------------------------------------------------------- the walk
     @Test
     fun theCancelEnvelopeAtThreeTimings() {
@@ -199,6 +242,7 @@ class MusicLaneFuzzTest {
         for (t in Timing.entries) {
             var stretches = 0; var seams = 0; var restarts = 0; var strikesOff = 0; var events = 0
             var samePump = 0; var nextPumpSeqs = 0; var nextPump = 0; var splits = 0; var leftOpen = 0; var stallSeqs = 0; var stalls = 0
+            var writes = 0; var raw = 0L; var zw = 0L
             val why = HashMap<String, Int>()
             for (seed in 1..n.toLong()) {
                 val f = walk(seed * 7919 + t.ordinal, t)
@@ -206,23 +250,24 @@ class MusicLaneFuzzTest {
                 stretches += f.stretches; seams += f.seams; restarts += f.restarts; strikesOff += f.off; events += f.events
                 samePump += f.samePump; nextPump += f.nextPump; if (f.nextPump > 0) nextPumpSeqs++; splits += f.splits
                 stalls += f.stalls; if (f.stalls > 0) stallSeqs++
+                writes += f.writes.size; raw += f.writes.sumOf { it[0].toLong() }; zw += f.writes.sumOf { it[1].toLong() }
                 leftOpen += f.fails.count { "are open on a lens" in it }
                 for (w in f.strikes) why.merge(if ("reason" in w) w else w.replace(Regex("[0-9]+"), "N"), 1, Int::plus)
             }
             figures.append("${t.name} (P ${t.period}, T ${t.steps}): $n sequences, $events events, $stretches stretches drawn, $seams seams checked whole, " +
                 "$restarts chain ends, $strikesOff sequences off for strikes; a chain started in the pump that ended one: $samePump; " +
                 "started at the next pump with no area written ($nextPump, in $nextPumpSeqs sequences); releases a later frame wrote: $splits; an ended chain's instance found open: $leftOpen; " +
-                "stalls of 1-6 s: $stalls in $stallSeqs sequences\n" + why.entries.sortedByDescending { it.value }.joinToString("") { "    strike ×${it.value}: ${it.key}\n" })
+                "stalls of 1-6 s: $stalls in $stallSeqs sequences; area writes $writes (mean ${if (writes > 0) raw / writes else 0} B, ${if (writes > 0) zw / writes else 0} B deflated)\n" + why.entries.sortedByDescending { it.value }.joinToString("") { "    strike ×${it.value}: ${it.key}\n" })
         }
         println("MusicLaneFuzzTest (modeled, the firmware model on a virtual clock):\n$figures")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }
 
     private class Walk(val fails: List<String>, val stretches: Int, val seams: Int, val restarts: Int, val off: Int, val events: Int,
-                       val strikes: List<String>, val samePump: Int, val nextPump: Int, val splits: Int, val stalls: Int)
+                       val strikes: List<String>, val samePump: Int, val nextPump: Int, val splits: Int, val stalls: Int, val writes: List<IntArray>)
 
     private fun walk(seed: Long, t: Timing): Walk {
-        val r = LaneRig(seed, t.period, t.steps)
+        val r = LaneRig(seed, t.period, t.steps, scope = t == Timing.SCOPE)
         val fails = ArrayList<String>()
         val len = lenMs(t)
         var events = 0
@@ -280,8 +325,9 @@ class MusicLaneFuzzTest {
         for (b in drew) if (b[3] + b[4] != t.steps) fails += "tag 0x%04x drew %d + folded %d, not T %d".format(b[1], b[3], b[4], t.steps)
         fails += r.noticeClosedByLane
         if (r.startsInTheEndingPump > 0) fails += "${r.startsInTheEndingPump} chain(s) started in the pump that ended one (its frame held the slots)"
+        fails += r.ringMeets                                     // stage S: no area written under an open stretch reading it
         val strikes = r.notes.filter { "a strike" in it }.map { it.substringAfter("this session): ").take(90) }
         return Walk(fails, r.notes.count { "drew its last step" in it }, drew.size, r.notes.count { "the chain ends" in it }, if (r.lanes.off != null) 1 else 0, events, strikes,
-            r.startsInTheEndingPump, r.startsAtTheNextPump, r.splits, stalls)
+            r.startsInTheEndingPump, r.startsAtTheNextPump, r.splits, stalls, r.writeBytes)
     }
 }

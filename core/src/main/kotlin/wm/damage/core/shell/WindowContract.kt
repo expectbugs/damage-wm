@@ -141,7 +141,8 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
 
     /**
      * Music's motion update, stage L (`WindowLanes.kt`): the held lanes this window wants the glasses to animate now —
-     * rects inside [content] it keeps painting as today while the glasses draw them on their own clock — or null. Called
+     * rects inside [content] (the safe rect in the window's exclusive mode) it keeps painting as today while the glasses
+     * draw them on their own clock, each inside one plane — or null. Called
      * on the loop at each pump while this window is in front (WINDOW mode focused, or exclusive), no overlay, list or
      * transition over it, and [ShellServices.lanesInForce]. Only Music implements it in this update.
      */
@@ -263,6 +264,8 @@ interface ShellServices {
      *  on a bit-11 build, the 256 KiB session's slice, the cache count readable, a mirror that models the engine, and the
      *  lanes not off for the session. A window paints the look its lanes draw while it is; otherwise as below stage 5. */
     fun lanesInForce(): Boolean = false
+    /** Stage S: the window in front's lanes are open on the glasses now (their cells held): read at a paint, on the loop. */
+    fun lanesHeld(): Boolean = false
 
     /** Raise an internal notification (§4.5). The §16.5 signature (2026-09-01):
      *  [thread] is the coalescing key (same source+thread replaces/merges),
