@@ -338,6 +338,12 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     /** What is in front changed in the rules' terms (a message is a front's own only while that front stands). */
     private fun frontChanged() { frontGen++; noteFrontInBurst() }
+    /** C3 DW-2a: a new front generation with no `front` call of the rules (a Back or an uncover under which the rules' front
+     *  stays, a start ending a run): its take is the standing front's, so (10)'s declaration reads that take's burst —
+     *  without it a notch there paid by its burst's own owe was judged undeclared (stage 5, seed 100101345: a Back under a
+     *  cover, then a notch) */
+    private fun frontKept() { frontGen++
+        frontTakenSeq[frontGen - 1]?.let { frontTakenSeq[frontGen] = it }; frontInBurst[frontGen - 1]?.let { frontInBurst[frontGen] = it } }
 
     /** Slot 0 changing lists (pin 13's shape): the leaving list's local still drawing on RIGHT. */
     private fun slot0Changes() {
@@ -1282,8 +1288,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             reach2("an emergency notice cancels the wheel"); noticeWaits = true; cancelWheel(); return
         }
         if (covered || trans || (window && !win1)) return; covered = true; frontGen++; noteFrontInBurst(); rules.front(null, rowNow()); if (noticeTimer) noticeOwed = true; pumpSoon() }
-    fun uncover() { if (!covered) return; covered = false; frontGen++
-        if (!window) rules.front(bound, row) else if (win1 && l1Bound && staged1Key == win1Key) { noteFrontInBurst(); rules.front(bound1, row1) }
+    fun uncover() { if (!covered) return; covered = false
+        if (!window) { frontGen++; rules.front(bound, row) } else if (win1 && l1Bound && staged1Key == win1Key) { frontChanged(); rules.front(bound1, row1) } else frontKept()
         pumpSoon() }
     fun openWindow() {
         if (window || covered || wheelOpen) return
@@ -1340,7 +1346,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (wheelOpen) { cancelWheel(); return }     // C3 DW-2a: a double tap inside the wheel cancels it (`Shell` 1777)
         if (!window) return
         val from1 = win1
-        window = false; win1 = false; frontGen++
+        window = false; win1 = false; if (covered || trans) frontKept() else frontChanged()
         if (from1) reach("return: list 1 → Main")
         if (run > 0 && list1 && !covered && !trans) { if (from1) reach("transition list 1 → Main (Back with a run)"); startRun(run); rules.front(null, row) }
         else if (!covered && !trans) { if (from1) slot0Changes(); rules.front(bound, row) }
@@ -1902,7 +1908,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
         deferAreas = emptyList()                        // the start's keyframe ends every motion's wait
         // K1-2 stage 4b: a start ends a transition's run (its frames are gone with the keyframe); the lane's wake is put back
-        if (trans) { trans = false; frontGen++ }
+        if (trans) { trans = false; frontKept() }
         if (list1 && ready1At != Long.MAX_VALUE && !l1Bound) at(maxOf(now, ready1At)) { pumpSoon() }
         // C3 DW-2a: a start clears the wheel's offer (`Shell.localSessionStart`, 3298); it is offered again once the block
         // is counted again — an open wheel left open across the start is phone-drawn and binds mid-open

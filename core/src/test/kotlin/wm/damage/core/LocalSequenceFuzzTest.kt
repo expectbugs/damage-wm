@@ -1777,6 +1777,8 @@ class LocalSequenceFuzzTest {
         for (seed in seeds) {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             if (seed in reachSeedsFor()) reachedBy[seed] = v.counted.keys
+            // C3 DW-2a: `LOCAL_FUZZ_KEYS=1` prints each sequence's list-1 and wheel reach keys (choosing a named reach seed's keys)
+            if (System.getenv("LOCAL_FUZZ_KEYS") != null) println("KEYS seed $seed: " + v.counted.keys.filter { it.startsWith(L1) || it.startsWith(W2) }.sorted().joinToString(" ; "))
             for (f in v.failed) fails += "seed $seed: $f"
             if (v.failed.isNotEmpty()) println("SEQUENCE seed $seed: ${v.sequence.joinToString(" | ")}")    // K1-2 stage 4b
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
