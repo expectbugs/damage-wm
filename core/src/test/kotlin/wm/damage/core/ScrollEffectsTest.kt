@@ -159,7 +159,8 @@ class ScrollEffectsTest {
                         listOf(pan.rules[0].arg, pan.rules[3].arg), "$what0: P0's and P3's rules take the margin")
                     assertNull(s5.wrapPan(1) ?: s5.wrapPan(-1), "$what0: no wrap pan (the wrap notch fires on the glasses)")
                 }
-                assertEquals(ScrollEffects.timing(e, l, s5.listD, s5.bandD, m, true), s5.period to s5.t, "$what0: the fast DRAW path's fit")
+                // (C3 DM-2b: of what plays — Scramble on this rig, with no runs, plays Depth, said)
+                assertEquals(ScrollEffects.timing(s5.plays, l, s5.listD, s5.bandD, m, true), s5.period to s5.t, "$what0: the fast DRAW path's fit")
                 assertEquals(if (e == ScrollEffect.NONE) 1 else s5.t, s5.pan(ListStaging.WHOLE, 1).program.T, "$what0: the pans' T is the fit's")
                 val list = s5.boundList(1)
                 var n = 0
@@ -517,6 +518,165 @@ class ScrollEffectsTest {
             }
         }
         println("DM2a-matrix (BoxFace, modeled): the model's END = Main's paint = belief at $n notches; the fit at 256 KiB:\n" + fit.joinToString("\n"))
+    }
+
+    // ------------------------------------------------------------------------------- C3 DM-2b: Scramble and its cells
+
+    /** Main drawn through a cached text whose atlas holds its faces (the phone with `Cached text` on): Scramble's runs. */
+    private fun cachedRig(h: Int) = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows(), cached = true)
+
+    /** Each cell box a notch's cell tracks draw on [left]'s lens with the parameters [p], clipped to its track's area, with
+     *  its cell: the selected list (P2) at the track's offset. */
+    private fun cellBoxes(prog: wm.damage.core.motion.MotionProgram, p: IntArray, left: Boolean): List<Pair<Rect, Motion.Cell>> {
+        val out = ArrayList<Pair<Rect, Motion.Cell>>()
+        prog.resolve(p, staticOnly = false).forEachIndexed { ti, segs ->
+            val area = prog.tracks[ti].area(left)
+            for (r in segs) {
+                val tb = r.cells ?: continue
+                val x0 = if (left) r.xL else r.xR
+                for (c in tb.lists[r.aux0].cells) Rect(x0 + c.bx, r.y + c.by, c.bw, c.bh).intersect(area)?.let { out += it to c }
+            }
+        }
+        return out
+    }
+
+    /**
+     * C3 DM-2b, Scramble (the DM spec §1.4, §5's pins; the DM-2 spec §1): at stage 5 on Main drawn through its atlas, at
+     * EVERY cursor a notch lands on, both directions, the four heights, both caches — the model's END is Main's own paint at
+     * the new cursor in the program's areas, and so is belief's; every bound program's first read range lies inside Main's
+     * region (D1: private records, no atlas byte) and its step budget inside 80 % of the cap. The picture: outside every
+     * cell box it is END from step 1 (nothing moves); at step 1 the old letters stand in their boxes (at least half of them:
+     * a cell whose noise starts at step 1 shows noise); at the middle step some box holds neither its old picture nor END's
+     * (an alphabet glyph). Where the records do not fit the staging is Depth's, said.
+     */
+    @Test
+    fun scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b() {
+        var n = 0
+        val fit = ArrayList<String>()
+        for (h in heights) {
+            val rig = cachedRig(h)
+            for (cache in caches) {
+                val ms = stage5(h, cache, ScrollEffect.SCRAMBLE, rig)
+                val what0 = "$h ${cache / 1024} KiB Scramble"
+                if (ms.recordEffect == null) {
+                    assertEquals(ScrollEffect.DEPTH, ms.plays.effect, "$what0: its records given up, Depth plays")
+                    assertTrue(ms.plays.why != null, "$what0: said")
+                    fit += "h$h ${cache / 1024} KiB: plays Depth — ${ms.plays.why}"
+                    continue
+                }
+                assertEquals(ScrollEffects.Plays(ScrollEffect.SCRAMBLE, true), ms.plays, "$what0: its own version-2 pans at stage 5")
+                assertEquals(listOf("programs", "Scramble's records"), ms.blobs.takeLast(2).map { it.name }, "$what0: the records last")
+                val cacheImg = cacheOf(ms)
+                var oldCells = 0; var oldShown = 0; var noisy = 0
+                for (nt in notches(ms)) {
+                    Motion.play(nt.pan.program, ListStaging.SLOT, ms.period, 1, 0, nt.p)
+                    val range = nt.pan.program.firstRange(nt.p)
+                    assertTrue(range.first >= ms.regionStart && range.last < ms.end, "$what0 ${nt.c}→${nt.to}: the read range $range inside Main's ${ms.regionStart}..${ms.end}")
+                    assertTrue(nt.pan.program.cost(nt.p) * 100 <= Motion.BUDGET_CAP * ListStaging.BUDGET_PCT, "$what0 ${nt.c}→${nt.to}: inside 80 % of the cap")
+                    for (left in listOf(true, false)) {
+                        val start = rig.truth(nt.c, left)
+                        val base = panel(start)
+                        val what = "$what0 step ${nt.pan.step} ${nt.c}→${nt.to} left=$left"
+                        val end = Motion.endOnModel(nt.pan.program, nt.p, cacheImg, base, base, left, tag = 7)
+                        assertEquals(0, differModel(end, rig.truth(nt.to, left), nt.pan.areas(left)), "$what: px where the model's END is not Main's paint at ${nt.to}")
+                        val belief = start.copy().also { ms.paintEnd(nt.pan, nt.p, left, it) }
+                        assertEquals(0, differModel(end, belief, nt.pan.areas(left)), "$what: px where belief's END is not the model's")
+                        val boxes = cellBoxes(nt.pan.program, nt.p, left)
+                        val one = Motion.stepOnModel(nt.pan.program, nt.p, cacheImg, base, base, left, tag = 7, k = 1)
+                        val inBox = BooleanArray(wm.damage.core.geom.Geometry.PANEL_W * wm.damage.core.geom.Geometry.PANEL_H)
+                        for ((r, _) in boxes) for (y in r.y until r.bottom) for (x in r.x until r.right) inBox[y * wm.damage.core.geom.Geometry.PANEL_W + x] = true
+                        var outside = 0
+                        for (r in nt.pan.areas(left)) for (y in r.y until r.bottom) for (x in r.x until r.right)
+                            if (!inBox[y * wm.damage.core.geom.Geometry.PANEL_W + x] && nibble(one, x, y) != nibble(end, x, y)) outside++
+                        assertEquals(0, outside, "$what: px outside every cell box where step 1 is not END (something moves)")
+                        val mid = Motion.stepOnModel(nt.pan.program, nt.p, cacheImg, base, base, left, tag = 7, k = ms.t / 2)
+                        val endG = rig.truth(nt.to, left)
+                        for ((b, c) in boxes) {
+                            fun same(pic: ByteArray, want: Gray8) = (b.y until b.bottom).all { y -> (b.x until b.right).all { x -> nibble(pic, x, y) == wm.damage.core.gfx.Pack.level(want[x, y]) } }
+                            if (c.old != 32) { oldCells++; if (same(one, start)) oldShown++ }
+                            if (!same(mid, start) && !same(mid, endG)) noisy++
+                        }
+                    }
+                    n++
+                }
+                assertTrue(oldCells > 0 && oldShown * 2 >= oldCells, "$what0: at step 1 the old letters stand in $oldShown of $oldCells old-role boxes")
+                assertTrue(noisy > 0, "$what0: at step ${ms.t / 2} no box holds an alphabet glyph")
+                if (cache == CfwModes.CACHE2_MAX_RIDERS) fit += "h$h: P ${ms.period} (${"%.1f".format(ms.period * 1000.0 / 1024)} ms) T ${ms.t}, " +
+                    "${ms.pan(ListStaging.WHOLE, 1).areaPx} px a step, C ${"%,d".format(ms.pans.maxOf { p -> notches(ms).filter { it.pan === p }.maxOf { p.program.cost(it.p) } })} u at most; " +
+                    "the records ${ms.blobs.last().bytes.size} B, a pan slot ${ms.progSlot} B, the free span ${ms.freeSpan} B; old letters at step 1 in $oldShown of $oldCells boxes"
+            }
+        }
+        assertTrue(n > 0, "Scramble played somewhere")
+        println("DM2b-scramble (BoxFace through its atlas, modeled): the model's END = Main's paint = belief at $n notches; the fit:\n" + fit.joinToString("\n"))
+    }
+
+    /**
+     * C3 DM-2b, the records rule for Scramble (decisions DW 1, DW 2, EP 2; the DM-2 spec §8): Depth → Scramble → Depth on
+     * Main at stage 5 — each change a full staging (NoRoom, its reason the records); Scramble's own Auto re-make at a T'
+     * its lists' noise allows keeps its records; one at a T' with T' − N < 1 is NoRoom, said (a full staging is owed); a
+     * staging whose records were given up (Depth, said) re-makes Depth's pans for Scramble's own re-makes and asks no
+     * further staging; without Scramble's runs (cached text off) its records are not made — Depth, said.
+     */
+    @Test
+    fun aChangeIntoOrOutOfScrambleIsAFullStagingAndItsReMakesKeepItsDecision_DM2b() {
+        val fx = MainLocalCheck.effectsAt(true)
+        val m = ListStaging.ScrollMotion.DEFAULT
+        var played = 0
+        for (h in heights) {
+            val rig = cachedRig(h)
+            for (cache in caches) {
+                val what0 = "$h ${cache / 1024}"
+                val depth = stage5(h, cache, ScrollEffect.DEPTH, rig)
+                val sc = stage5(h, cache, ScrollEffect.SCRAMBLE, rig)
+                if (sc.recordEffect == null) {
+                    // its own re-make keeps the staging's decision: Depth's pans, programs only, no further staging
+                    sc.periodInForce = sc.period + 8
+                    val again = sc.remake(m.copy(effect = ScrollEffect.SCRAMBLE), fx)
+                    assertEquals(ScrollEffect.DEPTH, (again as? ListStaging.Remake.Owed)?.programs?.plays?.effect, "$what0: given up, Scramble's re-make plays Depth's pans: ${(again as? ListStaging.Remake.NoRoom)?.why}")
+                    continue
+                }
+                played++
+                val into = depth.remake(m.copy(effect = ScrollEffect.SCRAMBLE), fx)
+                assertTrue(into is ListStaging.Remake.NoRoom && "Scramble's records are staging records" in into.why, "$what0: into Scramble: ${(into as? ListStaging.Remake.NoRoom)?.why}")
+                val out = sc.remake(m.copy(effect = ScrollEffect.DEPTH), fx)
+                assertTrue(out is ListStaging.Remake.NoRoom && "Scramble's records are staging records" in out.why, "$what0: out of Scramble: ${(out as? ListStaging.Remake.NoRoom)?.why}")
+                val noise = maxOf(1, sc.t / 3)
+                // Auto at a period that keeps T' − N ≥ 1: its own pans, its records kept
+                val okPeriod = (sc.period * sc.t) / (noise + 1)
+                sc.periodInForce = okPeriod
+                val tOk = ScrollEffects.stepsAt(m.copy(effect = ScrollEffect.SCRAMBLE), okPeriod, sc.t)
+                if (tOk != sc.t && tOk - noise >= 1) {
+                    val auto = assertNotNull((sc.remake(m.copy(effect = ScrollEffect.SCRAMBLE), fx) as? ListStaging.Remake.Owed)?.programs, "$what0: Scramble's Auto re-make to $tOk")
+                    assertEquals(ScrollEffect.SCRAMBLE to true, auto.plays.effect to auto.plays.v2, "$what0: Scramble's own pans at the new T ${auto.t}")
+                }
+                // Auto at a period whose T' leaves no step past the noise: NoRoom, said. T' is at least MIN_STEPS (3), so
+                // the branch is reached only by a staging whose N is 3 or more (T ≥ 9): at the default length where the
+                // staging's T is that long, else Scramble staged at a length that gives it (his `Scroll length` row)
+                val lm = if (sc.t >= 9) m.copy(effect = ScrollEffect.SCRAMBLE)
+                    else m.copy(effect = ScrollEffect.SCRAMBLE, lengthMs = (10 * sc.period * 1000 + 1023) / 1024)
+                val ls = if (sc.t >= 9) sc else stage5(h, cache, ScrollEffect.SCRAMBLE, rig, lm)
+                assertTrue(ls.recordEffect == ScrollEffect.SCRAMBLE && ls.t >= 9, "$what0: precondition: Scramble staged at ${lm.lengthMs} ms with T ${ls.t} ≥ 9: ${ls.plays}")
+                val longPeriod = ls.period * ls.t
+                ls.periodInForce = longPeriod
+                val tShort = ScrollEffects.stepsAt(lm, longPeriod, ls.t)
+                assertTrue(tShort - maxOf(1, ls.t / 3) < 1, "$what0: precondition: T' $tShort − N ${maxOf(1, ls.t / 3)} < 1")
+                val refused = ls.remake(lm, fx)
+                assertTrue(refused is ListStaging.Remake.NoRoom && "Scramble's re-made pans were refused" in refused.why, "$what0: T' − N < 1 owes a full staging, said: ${(refused as? ListStaging.Remake.Owed)?.programs?.plays}")
+                // a full staging that still refuses (the region one word short of the records) ends at Depth, said, and its
+                // re-makes for Scramble keep that: Depth's pans, no further staging
+                val region = CfwModes.mainRegion(cache, true)
+                val short = ListStaging.build(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, cache, region.first, sc.end - 4, widths = listOf(ListStaging.WHOLE),
+                    motion = m.copy(effect = ScrollEffect.SCRAMBLE), stage5 = true, fx = fx, text = rig.text, runs = rig.cachedText)
+                assertTrue(short.recordEffect == null && short.plays.effect == ScrollEffect.DEPTH && short.plays.why!!.startsWith("does not fit"), "$what0: said: ${short.plays}")
+                short.periodInForce = longPeriod
+                val kept = short.remake(m.copy(effect = ScrollEffect.SCRAMBLE), fx)
+                assertEquals(ScrollEffect.DEPTH, (kept as? ListStaging.Remake.Owed)?.programs?.plays?.effect, "$what0: the given-up staging's re-make: ${(kept as? ListStaging.Remake.NoRoom)?.why}")
+                // without the runs (cached text off): Depth, said
+                val plain = stage5(h, cache, ScrollEffect.SCRAMBLE, MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows()))
+                assertTrue(plain.recordEffect == null && plain.plays.effect == ScrollEffect.DEPTH && "cached text is off" in plain.plays.why!!, "$what0: no runs: ${plain.plays}")
+            }
+        }
+        assertTrue(played > 0, "Scramble's records fit somewhere")
     }
 
     // ------------------------------------------------------------------------------- C3 DM-1: Crush and Flip

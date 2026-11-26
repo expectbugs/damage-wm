@@ -86,17 +86,8 @@ object CellLists {
             val kern = kernOf(d.spec)
             val level = Pack.level(d.level)
             val out = groups.getOrPut(d.spec to disparityOf(d.rect)) { ArrayList() }
-            var px = d.x
-            var prev: Char? = null
-            for (ch in d.text) {
-                prev?.let { px += kern(it, ch) }        // `CachedText.blit`'s pen: the adjust, then the glyph's width
-                prev = ch
-                val i = ch.code - TextureCache.FIRST_CHAR
-                if (i !in entry.images.indices) break
-                val w = entry.images[i].w
-                if (ch != ' ' && entry.packs(ch) && Rect(px, d.y, maxOf(w, face.widestAlpha), face.lineH).overlaps(area))
-                    out += Glyph(px, d.y, ch.code, w, level)
-                px += w
+            pens(d, entry, kern) { px, ch, w ->
+                if (Rect(px, d.y, maxOf(w, face.widestAlpha), face.lineH).overlaps(area)) out += Glyph(px, d.y, ch.code, w, level)
             }
         }
         val lists = ArrayList<Group>()
@@ -108,6 +99,33 @@ object CellLists {
         if (lists.size > MAX_LISTS) return Screen.NoFit("its text needs ${lists.size} cell lists (${groups.size} face and plane groups, " +
             "${lists.sumOf { it.glyphs.size }} cells) — a half holds $MAX_LISTS")
         return Screen.Cells(lists)
+    }
+
+    /** Each packed glyph of the run [d] at its pen — `CachedText.blit`'s pen: the adjust, then the glyph's width — with
+     *  its code and width ([entry]'s image; a space and a code the entry does not pack give none). */
+    private inline fun pens(d: TextDraw, entry: GlyphAtlas.Entry, kern: (Char, Char) -> Int, each: (Int, Char, Int) -> Unit) {
+        var px = d.x
+        var prev: Char? = null
+        for (ch in d.text) {
+            prev?.let { px += kern(it, ch) }
+            prev = ch
+            val i = ch.code - TextureCache.FIRST_CHAR
+            if (i !in entry.images.indices) break
+            val w = entry.images[i].w
+            if (ch != ' ' && entry.packs(ch)) each(px, ch, w)
+            px += w
+        }
+    }
+
+    /** C3 DM-2b: the packed glyphs of a picture's [runs] (its own coordinates), each with its face — by [screen]'s pen
+     *  and kerning arithmetic ([entryOf] the atlas's entry of a face, null: its runs give none; [kernOf] its kerning). */
+    fun glyphs(runs: List<TextDraw>, entryOf: (FontSpec) -> GlyphAtlas.Entry?, kernOf: (FontSpec) -> (Char, Char) -> Int): List<Pair<FontSpec, Glyph>> {
+        val out = ArrayList<Pair<FontSpec, Glyph>>()
+        for (d in runs) {
+            val entry = entryOf(d.spec) ?: continue
+            pens(d, entry, kernOf(d.spec)) { px, ch, w -> out += d.spec to Glyph(px, d.y, ch.code, w, Pack.level(d.level)) }
+        }
+        return out
     }
 
     /** A half's lists laid out in the cache: [table] (its lists in [screen]'s order; null for a screen with no text the

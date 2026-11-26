@@ -749,7 +749,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         val onRelay = !onTarget && rel != null && g === rel
         if (!onTarget && !onRelay) return false
         if (bm.w !in 1..CfwModes.MAX_TEXTURE_DIM || bm.h !in 1..CfwModes.MAX_TEXTURE_DIM) return false
-        val quiet = onRelay && surveyed != null                 // [survey]: no use counted, nothing recorded
+        val quiet = onRelay && surveyed != null && !surveyCounted   // [survey]: no use counted, nothing recorded
         if (!quiet) synchronized(seen) {
             val info = seenImages.getOrPut(key) {
                 // bounded: a thumbnail shelf scrolled through decodes a new
@@ -766,7 +766,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         val e = atlas?.image(key) ?: return false
         blitImage(g, x, y, e.image, lv)
         if (onTarget) recordImage(x, y, e.image, key, lv)
-        else if (onRelay && !quiet) {
+        else if (onRelay && surveyed == null) {
             val box = Rect(x + relayDx, y + relayDy, e.image.w, e.image.h)
             if (relayKeep.contains(box)) recordImage(box.x, box.y, e.image, key, lv)
         }
@@ -1027,7 +1027,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         val onTarget = surface === target
         val rel = relay
         val onRelay = !onTarget && rel != null && surface === rel
-        val quiet = onRelay && surveyed != null                 // [survey]: nothing counted, runs to the survey's list
+        val quiet = onRelay && surveyed != null && !surveyCounted   // [survey]: nothing counted, runs to the survey's list
         if ((onTarget || onRelay) && !quiet) synchronized(seen) {
             if (seen.add(font)) seenVersion++
             val r = Rect(x, y, maxOf(1, base.measure(text, font)), base.metrics(font).let { it.ascent + it.descent })
@@ -1081,7 +1081,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
                 // counted where the character goes out as PIXELS: the target, or a slide's strip on its
                 // way there — not a strip rendered for staging (the relay that keeps nothing,
                 // `Shell.NO_RECORDS`), which goes up inside a cache write
-                if (code >= 0 && !quiet && (onTarget || (onRelay && relayKeep.w > 0))) unpacked++
+                if (code >= 0 && !quiet && (onTarget || (onRelay && relayKeep.w > 0 && surveyed == null))) unpacked++
             }
         }
         if (runStart >= 0) cachedRun(surface, x + runX, y, text.substring(runStart), e, font, level, kern, onTarget, onRelay,
@@ -1121,8 +1121,10 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
     }
 
     private var relay: Gray8? = null
-    /** Set while [survey] runs: the relay's text runs go here and nothing is counted. */
+    /** Set while [survey] runs: the relay's text runs go here and nothing is counted ([surveyCounted]: counted as the
+     *  staging's relay counts them). */
     private var surveyed: ArrayList<TextDraw>? = null
+    private var surveyCounted = false
     private var relayDx = 0
     private var relayDy = 0
     private var relayKeep = Rect(0, 0, 0, 0)
@@ -1145,11 +1147,16 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
      * packing: a thumbnail shown once stays unpacked), no record in the frame's lists. What a screen's text is, for
      * Encode's cells. On the loop, one at a time; a relay opened inside it (a row temp) is surveyed too.
      */
-    fun survey(tmp: Gray8, block: () -> Unit): List<TextDraw> {
-        val prev = surveyed
+    fun survey(tmp: Gray8, block: () -> Unit): List<TextDraw> = survey(tmp, false, block)
+
+    /** C3 DM-2b: [survey] — [counted]: and the draws counted as the staging's relay (`Shell.NO_RECORDS`) counts them (a
+     *  face seen, its characters noted, an icon's use counted, so the atlas learns what Main's rows draw; no unpacked
+     *  count, no record in the frame's lists) — what Scramble's cells are made from while Main's rows are painted for a staging. */
+    fun survey(tmp: Gray8, counted: Boolean, block: () -> Unit): List<TextDraw> {
+        val prev = surveyed; val pc = surveyCounted
         val out = ArrayList<TextDraw>()
-        surveyed = out
-        try { via(tmp, 0, 0, Rect(0, 0, tmp.w, tmp.h), block) } finally { surveyed = prev }
+        surveyed = out; surveyCounted = counted
+        try { via(tmp, 0, 0, Rect(0, 0, tmp.w, tmp.h), block) } finally { surveyed = prev; surveyCounted = pc }
         return out
     }
 

@@ -17,10 +17,11 @@ import wm.damage.core.wire.TextureCache
  *  them ([id]) and the `Scroll effect` row shows them ([word]), in the order his plan gives them (None first). C3 DM-1:
  *  Flip and Crush, version-2 programs at stage 5 with their fallbacks below it ([ScrollEffects.plays]). C3 DM-2a: Matrix,
  *  version 2 on Main at stage 5, its records part of the staging ([ScrollEffects.hasRecords]); Depth below it and on a
- *  window's list. Glitch and Scramble/Encode are not built as scroll effects. */
+ *  window's list. C3 DM-2b: Scramble, the same on Main (its cells and private faces the staging's records). The row
+ *  follows this order (no ordinal is stored or sent: the settings keep [id]). Glitch is not built as a scroll effect. */
 enum class ScrollEffect(val id: String, val word: String) {
     NONE("none", "None"), DEPTH("depth", "Depth"), SLIDE("slide", "Slide"), FLIP("flip", "Flip"), FALL("fall", "Fall"), CRUSH("crush", "Crush"),
-    MATRIX("matrix", "Matrix");
+    SCRAMBLE("scramble", "Scramble"), MATRIX("matrix", "Matrix");
 
     companion object {
         val DEFAULT = DEPTH
@@ -90,8 +91,9 @@ object ScrollEffects {
      *  name, and the staging's [form] (K1-2 stage 2). */
     class Staged(val layout: Layout, val listD: Int, val bandD: Int, private val band0: Motion.Source.Record?, val records: List<Motion.Source.Record>,
                  val form: ListForm = ListForm.MAIN_BANDS,
-                 /** C3 DM-2a: Matrix's rain record where the staging holds its records ([RainRecords]); null otherwise. */
-                 val rain: Motion.Rain? = null) {
+                 /** C3 DM-2a, DM-2b: the effect's records where the staging holds them ([EffectRecords]: Matrix's rain,
+                  *  Scramble's cells); null otherwise. */
+                 val recs: EffectRecords? = null) {
         val band: Motion.Source.Record get() = band0 ?: throw LintError("a window list stages no band forms (the K1-2 spec §2.1: the strip alone)")
     }
 
@@ -115,7 +117,7 @@ object ScrollEffects {
 
     /** The same, by whether the gate gives a token ([v2Here]: EFFECTS in force) — for what is said or fitted before a build. */
     fun playsAt(asked: ScrollEffect, v2Here: Boolean): Plays = when {
-        asked != ScrollEffect.CRUSH && asked != ScrollEffect.FLIP && asked != ScrollEffect.MATRIX -> Plays(asked, false)
+        asked != ScrollEffect.CRUSH && asked != ScrollEffect.FLIP && asked != ScrollEffect.MATRIX && asked != ScrollEffect.SCRAMBLE -> Plays(asked, false)
         v2Here -> Plays(asked, true)
         else -> fallback(asked, NOT_STAGE5)
     }
@@ -123,17 +125,18 @@ object ScrollEffects {
     /** Why a fallback plays below stage 5. */
     const val NOT_STAGE5 = "EFFECTS is not in force (version 2 only at ladder stage 5 on a DamageCaps bit-11 build)"
 
-    /** D3: Crush → Slide, Matrix → Depth (decisions AD's D3), Flip → its height turn (version 1); [why] said. */
+    /** D3: Crush → Slide, Scramble and Matrix → Depth (decisions AD's D3), Flip → its height turn (version 1); [why] said. */
     fun fallback(asked: ScrollEffect, why: String): Plays = when (asked) {
         ScrollEffect.CRUSH -> Plays(ScrollEffect.SLIDE, false, why)
-        ScrollEffect.MATRIX -> Plays(ScrollEffect.DEPTH, false, why)
+        ScrollEffect.MATRIX, ScrollEffect.SCRAMBLE -> Plays(ScrollEffect.DEPTH, false, why)
         else -> Plays(asked, false, why)
     }
 
     /** C3 DM-2a, the records rule (the DM-2 spec §1; decisions DV 2, DW 1–4): whether what plays as [e] draws records that
-     *  are part of the list's staging ([RainRecords]) — laid last in it, given up first where it does not fit, and changed
-     *  only by a full staging (a programs-only re-make into or out of such an effect is refused, `ListStaging.remake`). */
-    fun hasRecords(e: ScrollEffect): Boolean = e == ScrollEffect.MATRIX
+     *  are part of the list's staging ([EffectRecords]: Matrix's rain, C3 DM-2b Scramble's cells) — laid last in it, given
+     *  up first where it does not fit, and changed only by a full staging (a programs-only re-make into or out of such an
+     *  effect is refused, and one whose pans come back refused, `ListStaging.remake`). */
+    fun hasRecords(e: ScrollEffect): Boolean = e == ScrollEffect.MATRIX || e == ScrollEffect.SCRAMBLE
 
     /** K1-2 stage 2: what plays for [asked] on a staging of [form]. Main's: [plays]. A window list's (stage 5 only: its
      *  programs are version 2, source windows, so [fx] is never null there): the effects of [WINDOW_EFFECTS] themselves;
@@ -184,6 +187,8 @@ object ScrollEffects {
             ListStaging.Rule(CfwModes.KIND_PITCH, marginA * l.rowH),
             ListStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH),
             ListStaging.Rule(CfwModes.KIND_ARG, 0))
+        // C3 DM-2b: Scramble's P2 is the cursor before the move (kind 3, `FIRMWARE.md` §7.8): its cell tables' index
+        p.effect == ScrollEffect.SCRAMBLE && p.v2 -> rules(l, marginA, step).let { listOf(it[0], it[1], ListStaging.Rule(CfwModes.KIND_CURSOR, 0), it[3]) }
         p.effect != ScrollEffect.CRUSH || !p.v2 -> rules(l, marginA, step)
         else -> listOf(
             ListStaging.Rule(CfwModes.KIND_PITCH, (marginA - kA - (if (step > 0) 1 else 0)) * l.rowH),
@@ -222,7 +227,9 @@ object ScrollEffects {
         return (l.rowsAbove + l.rowsBelow) * l.rowH * rowW + bandTracks(e) * bandH * (rowW + kotlin.math.abs(listD - bandD)) +
             (if (e == ScrollEffect.CRUSH) l.rowH * rowW else 0) +
             // C3 DM-2a (decisions DW 5: every track's area): Matrix's T0 and its rain, each over the list's whole area
-            (if (e == ScrollEffect.MATRIX) 2 * rowW * rainH(l) else 0)
+            (if (e == ScrollEffect.MATRIX) 2 * rowW * rainH(l) else 0) +
+            // C3 DM-2b: Scramble's cell tracks — one over each row area, two over the band
+            (if (e == ScrollEffect.SCRAMBLE) (l.rowsAbove + l.rowsBelow) * l.rowH * rowW + 2 * bandH * (rowW + kotlin.math.abs(listD - bandD)) else 0)
     }
 
     /** The bytes one step of [e]'s pan decodes at [l] on the fast DRAW path (`FIRMWARE.md` §7.12: each DRAW of a record
@@ -263,11 +270,14 @@ object ScrollEffects {
      *  [rainCells]) — on
      *  K1-1's rule ([ListStaging.timingOf]); one step for None (at the fitted period: the swap at once). */
     fun timing(p: Plays, l: Layout, listD: Int, bandD: Int, motion: ListStaging.ScrollMotion, stage5: Boolean,
-               form: ListForm = ListForm.MAIN_BANDS): Pair<Int, Int> {
+               form: ListForm = ListForm.MAIN_BANDS,
+               /** C3 DM-2b: the cells a step of Scramble's draws ([ScrambleText.cellsPerStep]); read for Scramble alone. */
+               cells: Int = 0): Pair<Int, Int> {
         val e = p.effect
         val area = areaPx(e, l, listD, bandD, form)
         val m = if (e == ScrollEffect.NONE) motion.copy(frames = 0) else motion
-        val pt = if (stage5) ListStaging.timingOf(ListStaging.fastStepMs(area, walkBytes(e, l, form), pixelPx(p, l, listD, bandD), rainCells(e, l)), m) else ListStaging.timing(area, m)
+        val pt = if (stage5) ListStaging.timingOf(ListStaging.fastStepMs(area, walkBytes(e, l, form), pixelPx(p, l, listD, bandD), rainCells(e, l),
+            if (e == ScrollEffect.SCRAMBLE) cells else 0), m) else ListStaging.timing(area, m)
         return if (e == ScrollEffect.NONE) pt.first to 1 else pt
     }
 
@@ -335,6 +345,7 @@ object ScrollEffects {
             fx ?: throw LintError("§7.11: a window list's pans are version 2 (source windows), built only through the gate (EFFECTS in force)"))
         if (e == ScrollEffect.CRUSH) return crush(s, strip, kA, kB, step, t, at4, tables, fx!!)
         if (e == ScrollEffect.MATRIX) return matrix(s, strip, kA, kB, step, t, at4, fx ?: throw LintError("§7.11: Matrix's pans are version 2, built only through the gate (EFFECTS in force)"))
+        if (e == ScrollEffect.SCRAMBLE) return scramble(s, strip, kA, kB, step, t, at4, fx ?: throw LintError("§7.11: Scramble's pans are version 2, built only through the gate (EFFECTS in force)"))
         if (e == ScrollEffect.FLIP) return flip(p.v2, s, strip, kA, kB, step, t, at4, tables, fx)
         val l = s.layout
         val cx = l.content.x
@@ -555,39 +566,148 @@ object ScrollEffects {
     /** The face the noise is drawn in: Main's row face (`MainSurface`'s), through the shell's styled text. */
     val NOISE_FACE = FontSpec(Face.SYSTEM, 18)
 
-    /** C3 DM-2a: Matrix's staging records laid from byte [at] — the noise set's glyph records, its private table, the
-     *  alphabet and the rain record — as one blob of [bytes]; [rain] what its pans name. */
-    class RainRecords(val at: Int, val bytes: ByteArray, val rain: Motion.Rain)
+    /** C3 DM-2b: Scramble's seed (h0): a constant of ours, as the rain's (decisions DW 10, EP 10 — no source names one; any
+     *  u16 serves). The fire's tag is mixed into it (opt bit 7), so each notch's noise differs and both lenses draw alike;
+     *  `v5-dm-cells-fire` pins its bytes. */
+    const val SCRAMBLE_SEED = 0x5343
 
-    /**
-     * C3 DM-2a (the DM spec §1.4's D1, §1.5; the DM-2 spec §1, "faces and alphabet"): Matrix's records at [l] laid from byte
-     * [at], each 4-byte aligned — the noise set ([NOISE_CODES] drawn in [NOISE_FACE] through [text] as the atlas draws a
-     * face's glyphs, `GlyphAtlas`'s render: an advance-width box the face's ink height tall, quantised to 4 bits), private
-     * copies inside the staging, so no atlas write ever meets a bound program's read range (§7.6); its private 224-entry
-     * table (each alphabet code its own glyph, every other entry the first glyph, never read); the alphabet; and the rain
-     * record: [rainCols] columns of [RAIN_CW], cells the face's height, reveal 0 (not in place: a bound program may hold
-     * it, §7.2), spread R = ⌈[rainH] / ch⌉. A code the face cannot draw, or an off4 past the u16 reach: refused
-     * ([LintError]; Matrix then plays Depth, said).
-     */
-    fun rainRecords(l: Layout, text: TextRasterizer, at: Int): RainRecords {
-        if (at % 4 != 0) throw LintError("Matrix's records at $at are not 4-byte aligned")
-        val h = text.metrics(NOISE_FACE).let { it.ascent + it.descent }.coerceIn(1, CfwModes.MAX_TEXTURE_DIM)
+    /** C3 DM-2a, DM-2b — the one records holder (the records rule, [hasRecords]): an effect's staging records laid from
+     *  byte [at] as one blob of [bytes], and what its pans name — Matrix's rain record ([rain]) or Scramble's cell tables
+     *  ([cells]). */
+    class EffectRecords(val at: Int, val bytes: ByteArray, val rain: Motion.Rain? = null, val cells: CellTables? = null)
+
+    /** C3 DM-2b: Scramble's seven cell tables, each indexed by the cursor before the move (P2, kind 3): the rows above and
+     *  below the band for each step ([above], [below]), the band's old-role lists ([bandOld]: row c's) and its new-role
+     *  lists for each step ([bandNew]: row (c + step) mod n's). */
+    class CellTables(val above: Map<Int, Motion.CellTable>, val below: Map<Int, Motion.CellTable>, val bandOld: Motion.CellTable,
+                     val bandNew: Map<Int, Motion.CellTable>)
+
+    /** A records blob as it is laid: each part 4-byte aligned from byte [at]. */
+    private class Blob4(val at: Int) {
         val out = java.io.ByteArrayOutputStream()
         fun here4() = (at + out.size()) / 4
         fun put(b: ByteArray) { out.write(b); repeat((4 - b.size % 4) % 4) { out.write(0) } }
-        val glyphs = NOISE_CODES.map { c ->
+    }
+
+    /** The noise set laid into [b]: [NOISE_CODES] drawn in [NOISE_FACE] through [text] as the atlas draws a face's glyphs
+     *  (`GlyphAtlas`'s render: an advance-width box the face's ink height tall, quantised to 4 bits) — private copies
+     *  inside the staging, so no atlas write ever meets a bound program's read range (§7.6). A code the face cannot
+     *  draw: refused ([LintError]; the effect then plays Depth, said). */
+    private fun noise(text: TextRasterizer, b: Blob4, who: String): List<Motion.Glyph> {
+        val h = text.metrics(NOISE_FACE).let { it.ascent + it.descent }.coerceIn(1, CfwModes.MAX_TEXTURE_DIM)
+        return NOISE_CODES.map { c ->
             val s = c.toChar().toString()
             val adv = if (text.covers(s, NOISE_FACE)) text.measure(s, NOISE_FACE) else 0
-            if (adv !in 1..CfwModes.MAX_TEXTURE_DIM) throw LintError("Matrix's noise face $NOISE_FACE cannot draw '$s' (its advance $adv)")
+            if (adv !in 1..CfwModes.MAX_TEXTURE_DIM) throw LintError("$who's noise face $NOISE_FACE cannot draw '$s' (its advance $adv)")
             val g = Gray8(adv, h).also { text.draw(it, 0, 0, s, NOISE_FACE, 255) }
             val rec = TextureCache.Image(adv, h, ByteArray(adv * h) { Pack.level(g.pix[it].toInt() and 0xFF).toByte() }).encode()
-            Motion.Glyph.of(here4(), rec).also { put(rec) }
+            Motion.Glyph.of(b.here4(), rec).also { b.put(rec) }
         }
-        val font = Motion.Font(here4(), IntArray(224) { i -> glyphs[NOISE_CODES.indexOf(i + 32).coerceAtLeast(0)].off4 }, glyphs).also { put(it.bytes) }
-        val alphabet = Motion.Alphabet(here4(), NOISE_CODES).also { put(it.bytes) }
-        val rain = Motion.Rain(here4(), rainCols(l), RAIN_TRAIL, RAIN_CW, h, font, alphabet, headLvl = 15, tailLvl = RAIN_TAIL_LVL, reveal = 0,
-            fillLvl = 0, spread = (rainH(l) + h - 1) / h, flicker = RAIN_FLICKER).also { put(it.bytes) }
-        return RainRecords(at, out.toByteArray(), rain)
+    }
+
+    /**
+     * C3 DM-2a (the DM spec §1.4's D1, §1.5; the DM-2 spec §1, "faces and alphabet"): Matrix's records at [l] laid from byte
+     * [at], each 4-byte aligned — the noise set ([noise]); its private 224-entry table (each alphabet code its own glyph,
+     * every other entry the first glyph, never read); the alphabet; and the rain record: [rainCols] columns of [RAIN_CW],
+     * cells the face's height, reveal 0 (not in place: a bound program may hold it, §7.2), spread R = ⌈[rainH] / ch⌉. An
+     * off4 past the u16 reach: refused ([LintError]; Matrix then plays Depth, said).
+     */
+    fun rainRecords(l: Layout, text: TextRasterizer, at: Int): EffectRecords {
+        if (at % 4 != 0) throw LintError("Matrix's records at $at are not 4-byte aligned")
+        val b = Blob4(at)
+        val glyphs = noise(text, b, "Matrix")
+        val h = glyphs[0].h
+        val font = Motion.Font(b.here4(), IntArray(224) { i -> glyphs[NOISE_CODES.indexOf(i + 32).coerceAtLeast(0)].off4 }, glyphs).also { b.put(it.bytes) }
+        val alphabet = Motion.Alphabet(b.here4(), NOISE_CODES).also { b.put(it.bytes) }
+        val rain = Motion.Rain(b.here4(), rainCols(l), RAIN_TRAIL, RAIN_CW, h, font, alphabet, headLvl = 15, tailLvl = RAIN_TAIL_LVL, reveal = 0,
+            fillLvl = 0, spread = (rainH(l) + h - 1) / h, flicker = RAIN_FLICKER).also { b.put(it.bytes) }
+        return EffectRecords(at, b.out.toByteArray(), rain = rain)
+    }
+
+    /** C3 DM-2b: Main's text as Scramble's cells take it — each row's packed glyphs in its row form ([rows]) and in its band
+     *  form ([bands]), each with its face (`CellLists.glyphs` of the runs `ListStaging.Paint` recorded), and the atlas's
+     *  entry of every face they name (the glyph images the pictures were blitted from: the private copies' source). */
+    class ScrambleText(val rows: List<List<Pair<FontSpec, CellLists.Glyph>>>, val bands: List<List<Pair<FontSpec, CellLists.Glyph>>>,
+                       val entries: Map<FontSpec, wm.damage.core.comp.GlyphAtlas.Entry>) {
+        /** The cells one step draws inside the tracks' areas at the worst cursor (modeled): at cursor c in step d, the old
+         *  role of the rows a track shows before the move and the new role of those it shows after, and the band's two
+         *  lists — the fit's cell term ([timing]). */
+        fun cellsPerStep(l: Layout, ring: Boolean): Int {
+            val n = rows.size
+            fun cnt(r: Int) = if (ring) rows[r.mod(n)].size else rows.getOrNull(r)?.size ?: 0
+            return (0 until n).maxOf { c -> intArrayOf(1, -1).maxOf { d ->
+                (1..l.rowsAbove).sumOf { cnt(c - it) + cnt(c + d - it) } + (1..l.rowsBelow).sumOf { cnt(c + it) + cnt(c + d + it) } +
+                    bands[c].size + bands[(c + d).mod(n)].size } }
+        }
+    }
+
+    /**
+     * C3 DM-2b (the DM spec §1.4; the DM-2 spec §1): Scramble's records at [l] laid from byte [at], each part 4-byte aligned
+     * — the noise set ([noise]); one private 224-entry table per face [text] names, with private copies of its glyphs (the
+     * atlas's images): a code the text uses names its own copy, so does an alphabet code the face packs, the other
+     * alphabet codes the noise glyph, every other entry the first noise glyph (never read), so every alphabet code is a
+     * real glyph in every table (§7.11); the alphabet ([NOISE_CODES]); the cell lists; the seven tables ([CellTables]).
+     *
+     * Cells: every glyph of a strip row s (Main's row [stripRow]`[s]`, none on a blank margin row; Main's row r is strip row
+     * r + [margin]) twice — new-role (old =
+     * new = 32, a mask) at its final place, by = (s − d)·rowH + y, and old-role (old = its code, new = 32) at its start
+     * place, by = s·rowH + y — fill 0, its run's level, its box its glyph's width and the table's widest alphabet glyph by
+     * the face's line and the table's tallest alphabet glyph, so a cell's fill repaints all it drew the step before. A
+     * direction's lists are chunks of [k] strip rows, new-role cells first (old letters draw over the masks), starting
+     * every k − w + 1 rows (w = k_rows + 1, the window a track shows over a notch), so each window lies in one; each row
+     * table maps cursor c to the chunk holding its window — above: Main's rows c − kA .. c (a notch down) or c − kA − 1 ..
+     * c − 1 (up); below: c + 1 .. c + kB + 1 or c .. c + kB. The band's lists are each row's band form's glyphs, old-role
+     * and new-role. Noise N = max(1, ⌊[t] / 3⌋) in every list. A list with no glyph holds one cell that draws nothing
+     * (32, 32, no fill: §7.6's 1..512). Past 512 cells, past the u16 reach, a face the atlas does not hold, or no text at
+     * all: refused ([LintError]; Scramble then plays Depth, said).
+     */
+    fun scrambleRecords(l: Layout, text: ScrambleText, stripRow: IntArray, margin: Int, noiseText: TextRasterizer, at: Int, t: Int, k: Int): EffectRecords {
+        if (at % 4 != 0) throw LintError("Scramble's records at $at are not 4-byte aligned")
+        val all = (text.rows + text.bands).flatten()
+        if (all.isEmpty()) throw LintError("Main's rows draw no text the atlas holds")
+        val b = Blob4(at)
+        val noise = noise(noiseText, b, "Scramble")
+        val noiseOf = NOISE_CODES.indices.associate { NOISE_CODES[it] to noise[it] }
+        class Private(val font: Motion.Font, val boxW: Int, val boxH: Int)
+        val faces = all.map { it.first }.distinct().associateWith { spec ->
+            val e = text.entries[spec] ?: throw LintError("the face $spec is not in the atlas")
+            val codes = (all.filter { it.first == spec }.map { it.second.code } + NOISE_CODES.filter { e.packs(it.toChar()) }).distinct().sorted()
+            val own = codes.associateWith { c -> e.images[c - TextureCache.FIRST_CHAR].encode().let { rec -> Motion.Glyph.of(b.here4(), rec).also { b.put(rec) } } }
+            val alpha = NOISE_CODES.map { own[it] ?: noiseOf.getValue(it) }
+            val font = Motion.Font(b.here4(), IntArray(224) { i -> (own[i + TextureCache.FIRST_CHAR] ?: noiseOf[i + TextureCache.FIRST_CHAR] ?: noise[0]).off4 },
+                own.values + noise).also { b.put(it.bytes) }
+            Private(font, alpha.maxOf { it.w }, maxOf(e.lineH, alpha.maxOf { it.h }))
+        }
+        val alphabet = Motion.Alphabet(b.here4(), NOISE_CODES).also { b.put(it.bytes) }
+        val steps = maxOf(1, t / 3)
+        fun cell(g: Pair<FontSpec, CellLists.Glyph>, by: Int, old: Int) = faces.getValue(g.first).let { f ->
+            Motion.Cell(g.second.x, by, minOf(255, maxOf(g.second.w, f.boxW)), minOf(255, f.boxH), f.font, old, 32, fill = 0, level = g.second.level) }
+        val blank = Motion.Cell(0, 0, 0, 0, faces.values.first().font, 32, 32)
+        fun list(cells: List<Motion.Cell>) = Motion.CellList(b.here4(), alphabet, steps, cells.ifEmpty { listOf(blank) }).also { b.put(it.bytes) }
+        val n = text.rows.size
+        val stripRows = stripRow.size
+        val m = margin
+        val w = maxOf(l.rowsAbove, l.rowsBelow) + 1
+        if (k < w || k > stripRows) throw LintError("Scramble's chunks of $k strip rows do not hold a window of $w in a strip of $stripRows")
+        val every = k - w + 1
+        fun rowOf(s: Int) = stripRow[s].let { if (it < 0) emptyList() else text.rows[it] }
+        fun table(lists: List<Motion.CellList>) = Motion.CellTable(b.here4(), lists).also { b.put(it.bytes) }
+        val above = HashMap<Int, Motion.CellTable>(); val below = HashMap<Int, Motion.CellTable>()
+        for (d in intArrayOf(1, -1)) {
+            val chunks = (0..maxOf(0, stripRows - w) / every).map { j ->
+                val rs = j * every until minOf(stripRows, j * every + k)
+                list(rs.flatMap { s -> rowOf(s).map { cell(it, (s - d) * l.rowH + it.second.y, 32) } } +
+                    rs.flatMap { s -> rowOf(s).map { cell(it, s * l.rowH + it.second.y, it.second.code) } })
+            }
+            fun chunkAt(x: Int) = chunks[x.coerceIn(0, maxOf(0, stripRows - w)) / every]
+            above[d] = table(List(n) { c -> chunkAt(c + m - l.rowsAbove - (if (d < 0) 1 else 0)) })
+            below[d] = table(List(n) { c -> chunkAt(c + m + (if (d > 0) 1 else 0)) })
+        }
+        val bandOld = text.bands.map { gs -> list(gs.map { cell(it, it.second.y, it.second.code) }) }
+        val bandNew = text.bands.map { gs -> list(gs.map { cell(it, it.second.y, 32) }) }
+        val oldT = table(bandOld)
+        val newT = intArrayOf(1, -1).associateWith { d -> table(List(n) { c -> bandNew[(c + d).mod(n)] }) }
+        return EffectRecords(at, b.out.toByteArray(), cells = CellTables(above, below, oldT, newT))
     }
 
     /**
@@ -603,7 +723,7 @@ object ScrollEffects {
      * END: at step T every head is at R + trail, so no cell is lit and reveal 0 leaves the rows — Depth's END (pinned).
      */
     private fun matrix(s: Staged, strip: Motion.Source.Record, kA: Int, kB: Int, step: Int, t: Int, at4: Int, fx: Motion.Effects): MotionProgram {
-        val rain = s.rain ?: throw LintError("Matrix's rain is a record of the staging, and this staging holds none (a full staging with Matrix in force lays it)")
+        val rain = s.recs?.rain ?: throw LintError("Matrix's rain is a record of the staging, and this staging holds none (a full staging with Matrix in force lays it)")
         val l = s.layout
         val r = Rects(l, kA, kB, s.listD, s.bandD)
         val cx = r.cx; val dL = s.listD; val dB = s.bandD; val shift = dL - dB
@@ -625,6 +745,51 @@ object ScrollEffects {
                     lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = ease, n = swap, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))
                 draw(s.band, x = cx - dL, xR = cx + dL, y = l.lens.y, dx = shift, dxR = -shift,
                     lvl0 = MainPan.LVL_BACK, lvl1 = 15, ease = ease, n = t - swap, prefs = listOf(Motion.Pref(1, Motion.Field.SRC)))
+            }
+        }
+    }
+
+    /**
+     * C3 DM-2b, Scramble (the DM spec §1.4; his words, `MOTION.md` §7: the rows stay in place and the letters change in
+     * random order to the new ones): seven per-lens tracks, version 2, pitch −rowH; P0 and P3 Depth's kind 2, P1 kind 1
+     * (the entering band form), P2 kind 3 (the cursor before the move, `FIRMWARE.md` §7.8), every cell track's index —
+     * - T1, T2: the rows above and below the band (level 0): the strip, y ← P0 and ← P3, one pitch in ONE step, then held —
+     *   nothing moves after step 1;
+     * - T3, the band (level 0): the entering band form (← P1) in one step, then held;
+     * - T4, T5, inside T1 and T2 (backdrop none): the rows' cells ([CellTables.above], [CellTables.below] for [step]),
+     *   offset by y ← P0 and ← P3 as the strip, over T;
+     * - T6, T7, inside T3 (backdrop none): the band's new-role cells ([CellTables.bandNew]), then its old-role ones
+     *   ([CellTables.bandOld]) — masks first, so the old letters draw over them — over T.
+     * Every cell track seeded with [SCRAMBLE_SEED] and the fire's tag, its levels 15. END: at step T every cell is settled
+     * on its new code 32 (§7.6: no fill, no glyph), so T1–T3 alone show — Depth's END (pinned at every cursor).
+     */
+    internal fun scramble(s: Staged, strip: Motion.Source.Record, kA: Int, kB: Int, step: Int, t: Int, at4: Int, fx: Motion.Effects): MotionProgram {
+        val tb = s.recs?.cells ?: throw LintError("Scramble's cells are records of the staging, and this staging holds none (a full staging with Scramble in force lays them)")
+        val l = s.layout
+        val r = Rects(l, kA, kB, s.listD, s.bandD)
+        val cx = r.cx; val dL = s.listD; val dB = s.bandD
+        val cursor = Motion.Pref(2, Motion.Field.AUX0)
+        return Motion.program2(at4, fx, records = s.records) {
+            track(r.aL, r.aR, Motion.Backdrop.Level(0)) {
+                draw(strip, x = cx - dL, xR = cx + dL, y = 0, dy = -step * l.rowH, n = 1, prefs = listOf(Motion.Pref(0, Motion.Field.Y)))
+            }
+            track(r.bL, r.bR, Motion.Backdrop.Level(0)) {
+                draw(strip, x = cx - dL, xR = cx + dL, y = 0, dy = -step * l.rowH, n = 1, prefs = listOf(Motion.Pref(3, Motion.Field.Y)))
+            }
+            track(r.nL, r.nR, Motion.Backdrop.Level(0)) {
+                draw(s.band, x = cx - dB, xR = cx + dB, y = l.lens.y, n = 1, prefs = listOf(Motion.Pref(1, Motion.Field.SRC)))
+            }
+            track(r.aL, r.aR, Motion.Backdrop.None) {
+                cells(tb.above.getValue(step), n = t, x = cx - dL, xR = cx + dL, seed = SCRAMBLE_SEED, mixTag = true, prefs = listOf(cursor, Motion.Pref(0, Motion.Field.Y)))
+            }
+            track(r.bL, r.bR, Motion.Backdrop.None) {
+                cells(tb.below.getValue(step), n = t, x = cx - dL, xR = cx + dL, seed = SCRAMBLE_SEED, mixTag = true, prefs = listOf(cursor, Motion.Pref(3, Motion.Field.Y)))
+            }
+            track(r.nL, r.nR, Motion.Backdrop.None) {
+                cells(tb.bandNew.getValue(step), n = t, x = cx - dB, xR = cx + dB, y = l.lens.y, seed = SCRAMBLE_SEED, mixTag = true, prefs = listOf(cursor))
+            }
+            track(r.nL, r.nR, Motion.Backdrop.None) {
+                cells(tb.bandOld, n = t, x = cx - dB, xR = cx + dB, y = l.lens.y, seed = SCRAMBLE_SEED, mixTag = true, prefs = listOf(cursor))
             }
         }
     }
