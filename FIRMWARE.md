@@ -1429,7 +1429,7 @@ is stated there.
   switcher's wheel keeps its pictures and programs resident as the region's first tenant from its end (at most 20 KiB,
   a cell per registered window): staged in idle after Main's staging, after a window's list in front is staged and
   counted (the block's place reserved by its size first, so the list is laid out under it; decisions DF finding 2), after
-  the first wanted strip of a document Page staging serves in front is written or given up (its place reserved the same
+  the first wanted strip of a document Page staging serves in front is written or refused (its place reserved the same
   way; decisions DM 3, DP 9), and before Page staging's other strips; rewritten in place record by record while the
   wheel is not bound — closed, or open before its offer holds, when only what the offer needs is written (the block
   where none is placed, the item table for this open's order, the programs for its geometry; CK A5) — not placed past
