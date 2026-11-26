@@ -22,6 +22,7 @@ import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.shell.ShellServices
 import wm.damage.core.shell.ShellSettings
+import wm.damage.core.shell.StagedRecord
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.SimTransport
@@ -900,7 +901,7 @@ class OracleWalkTest {
                     "(by window ${c.l1ByWindow}); ${c.mainLocal} on Main's list, ${c.mainDrew} drew; $owed transition(s) owed, $whole whole; " +
                     "${rig.shell.divergencesReported} divergence(s) reported; steps digest %08x".format(c.trace.toString().hashCode()))
                 println("$tag: the wheel — ${c.chords} chord(s), ${c.boundAtOpen} open(s) bound at the open, ${c.boundMidOpen} mid-open " +
-                    "(the start's first: ${c.firstMidOpen}), ${c.neverBound} never bound; ${c.l2Local} local event(s) on list 2, ${c.l2Drew} notch(es) drew; " +
+                    "(the start's first: ${c.firstMidOpen}; its chord at start ${c.startTries}), ${c.neverBound} never bound; ${c.l2Local} local event(s) on list 2, ${c.l2Drew} notch(es) drew; " +
                     "${c.wheelCommits} commit(s), ${c.wheelCancels} cancel(s)")
                 println("$tag steps:${c.trace}")
                 println("$tag: Files' \"Open on PC\" taken ${rig.filesOpened.get()} time(s), counted and not run; provider calls refused ${rig.filesRefused}")
@@ -933,6 +934,8 @@ class OracleWalkTest {
          *  click) and cancels; and, from the shell's own `wheel` note at each close, the opens bound at the open, bound
          *  mid-open and never bound, and whether the first open (the start's chord) bound mid-open. */
         var chords = 0; var l2Local = 0; var l2Drew = 0; var wheelCommits = 0; var wheelCancels = 0
+        /** C3 DW-2b: the session starts it took to post the start's chord before the block was counted (1 when the first did). */
+        var startTries = 0
         var boundAtOpen = 0; var boundMidOpen = 0; var neverBound = 0; var firstMidOpen = false
         val l1ByWindow = java.util.TreeMap<String, Int>()
         val trace = StringBuilder()
@@ -963,17 +966,33 @@ class OracleWalkTest {
             rig.ready("$tag boot (open $win)")
             rig.assertOracle("$tag boot (open $win)")
         }
-        val clears = rig.shell.stageClears
-        rig.shell.stop()
-        rig.shell.start()
-        val up0 = System.currentTimeMillis()
-        while (!(rig.shell.stageClears > clears && rig.transport.state.value.effects)) {
-            if (System.currentTimeMillis() - up0 > 60_000) throw AssertionError("$tag: no new stage-5 session after 60 s")
-            delay(5)
+        // Decided and posted in ONE turn of the loop: the session is up and the block is not counted, and the chord queued
+        // there is handled before anything that could count it (an ack and the count's answer are messages queued after
+        // it), so the open is unbound by construction; a check after the chord would race the bind mid-open (gate g1,
+        // h=352). A start whose block was counted before that turn ("late") is rebuilt again, at most START_TRIES times.
+        var posted = false
+        while (!posted) {
+            if (++c.startTries > START_TRIES) throw AssertionError("$tag: the block was counted before the first turn after the start, $START_TRIES start(s) running")
+            val clears = rig.shell.stageClears
+            rig.shell.stop()
+            rig.shell.start()
+            val up0 = System.currentTimeMillis()
+            var verdict = "wait"
+            while (verdict == "wait") {
+                if (System.currentTimeMillis() - up0 > 60_000) throw AssertionError("$tag: no new stage-5 session after 60 s")
+                verdict = rig.shell.onLoop {
+                    when {
+                        !(rig.shell.stageClears > clears && rig.transport.state.value.effects) -> "wait"
+                        rig.shell.wheelBoundForTest().first != null ||
+                            rig.shell.wheelRecordsForTest().any { it.state == StagedRecord.State.PROVEN } -> "late"
+                        else -> { chord(rig); "posted" }
+                    }
+                }
+                if (verdict == "wait") delay(5)
+            }
+            posted = verdict == "posted"
         }
-        chord(rig)
-        assertTrue(rig.shell.onLoop { rig.shell.switcherIsOpen && rig.shell.wheelBoundForTest().first == null },
-            "$tag: the chord right after the start opens the wheel, not bound (its block is not counted yet)")
+        assertTrue(rig.shell.onLoop { rig.shell.switcherIsOpen }, "$tag: the chord right after the start opens the switcher")
         rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // the spin is the phone's until the bind
         c.chords++
         rig.ready("$tag the chord right after the start")
@@ -1093,6 +1112,8 @@ class OracleWalkTest {
         const val WINDOW_LIST_HANDOFF_EVERY = 11
         /** C3 DW-2: how often the window-list walk fires the chord (the wheel's open) when the wheel is not open already. */
         const val WHEEL_EVERY = 9
+        /** C3 DW-2b: the session starts the walk's boot may take to meet the block not counted at its first turn. */
+        const val START_TRIES = 5
         /** K1-2 stage 4c: the windows the window-list walk opens, in rotation (Settings at its categories or a category). */
         val WINDOW_LIST_HANDOFFS: List<Pair<String, String?>> = listOf(
             "settings" to null, "files" to null, "settings" to "cat:Global", "surfaces" to null, "files" to null, "settings" to "cat:Files",
