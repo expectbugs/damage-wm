@@ -28,8 +28,12 @@ and what you only read. Every figure is marked measured (with where) or modeled.
 A JVM runs only through `private/tools/jvm` or `private/tools/gate`, with `ulimit -v 12582912` and an outer bound;
 `cat /proc/self/cgroup` must print `0::/claude-work`. No agents. End your own jobs by pid, never `pkill -f`.
 
-**Waiting costs him.** Each time you wake, your whole context is paid for again. Start a run as ONE background job
-and end your turn; never end a turn on a status line.
+**Waiting costs him.** Each time you wake, your whole context is paid for again, and a turn you end while your own
+job still runs wakes the lead too (measured 2026-11-25: an eighth of the lead's usage went to such wakes). Start a
+run as ONE background job whose command ends with `; touch FILE`, then wait for it inside your turn:
+`private/tools/waitdone FILE` as a foreground command with the tool's `timeout` at 300000, again each time it prints
+`STILL RUNNING`, with no text between the calls. End your turn before the result only after an hour of that. Never
+end a turn on a status line.
 
 **The report** (the file the brief names): its first line is the verdict; then the findings in order of what he
 would see or lose; what you looked at and found right, a line each; what you did not reach. Plain engineering

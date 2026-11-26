@@ -224,7 +224,9 @@ Since then:
   agent types (`.claude/agents/`: `damage-builder`, `damage-reader`, `damage-packer`), which hold the standing lane
   rules. A builder gets a PACK (`private/packs/<stage>.md`, about 300 lines, every line cited), not a reading list,
   and a stage is cut so that its builder ends well under 400k tokens. Long runs go through `private/tools/gate` as
-  ONE background job, and a lane ends its turn only with a result. A finished branch lands through
+  ONE background job, and a lane ends its turn only with a result: it waits for its own short chain inside its turn
+  (`private/tools/waitdone`; a lane that stops to wait wakes the lead — 2026-11-25: 66 such wakes in one day), and the
+  whole suite runs once, at the merge, as the lead's job, over every branch that is ready. A finished branch lands through
   `private/tools/land` (merge, rows, gate, `main`) as one job. The lead does not answer interim notices. Not used:
   a one-hour cache for lanes (measured: no net saving).
 
