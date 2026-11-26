@@ -678,8 +678,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             // row the cursor names (the act is on that row, the picture up to a motion late — class A's shape before the
             // notch's report; his taps come ≥ 696 ms after a scroll message, [LocalSequenceFuzzTest.A_KEY]'s note)
             y < 50 -> { val kind = 1 + r.nextInt(2); val tap = r.nextBoolean(); val d = if (tap) 12L + r.nextInt(69) else r.nextInt(41).toLong()
-                if (tap) { gesture(0); at(now + d) { reach2("a notch racing the close (12–80 ms after the tap that commits)"); gesture(kind) }
-                    "a tap, then a notch +$d ms" }
+                // the event runs to its notch, so the next driven gesture comes ≥ 30 ms after it, as between any two events
+                if (tap) { val t0 = now; gesture(0); runUntil(now + d); reach2("a notch racing the close (12–80 ms after the tap that commits)"); gesture(kind)
+                    "a tap at $t0, then a notch +$d ms" }
                 else { gesture(kind); at(now + d) { if (wheelOpen) { reach2("a notch racing the close (0–40 ms before a cancel)"); cancelWheel() } }
                     "a notch, then a cancel +$d ms" } }
             y < 60 -> { val a = arms[r.nextInt(3)]
