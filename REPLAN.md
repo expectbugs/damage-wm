@@ -530,8 +530,8 @@ to him at the sitting before it (the previous deploy), so a "go" costs no sittin
 (0.70, §89, §91) · C2 (flashed 11-19, §94) · C3, the effects build of §17.3 item 8 (flashed 11-20, §99; not the
 offline-home C3 of row G). **In progress:** K1, the motion kit's shell part (§17.3 items 6 and 8; from APK 0.83,
 §100, §101) · S1-4's first half (Music) and S1-5 (Games, Main and Settings on the PC's record, the Settings page, the
-sync channel removed) built, reviewed and on `main`, not deployed (§97) · R-b's health view and Music's motion update
-(`MUSIC.md` §14, §17.3 item 9) in work. **Not started:** S2, K2–K4, Reminders, S3, G.
+sync channel removed) built, reviewed and on `main`, not deployed (§97) · R-b's health view the same (§17.4) · Music's
+motion update (`MUSIC.md` §14, §17.3 item 9) in work. **Not started:** S2, K2–K4, Reminders, S3, G.
 
 | build | contains | he sees in daily use | needs from him (sittings) | before it starts | gate |
 |---|---|---|---|---|---|
@@ -823,7 +823,7 @@ machine (done for build work: the `claude-work` cgroup; the later agents get the
 later agents: what he opens, acts on and dismisses, on which surface, when (small; designed with L0).
 
 **R-b, the health view, as shaped on 2026-11-23** (the lead's recommendations; Adam: "I like your recommendations.
-Go ahead and add them"). Not designed further than this; its design pass comes with its turn.
+Go ahead and add them"). Designed and built since; what runs is `IMPLEMENTATION.md`, "The health view".
 - **One record on the PC**, described and presented like a window's, its lines in `CONTRACT.md`'s `value` shape (a
   state of live, stale or last known, the source's time, a reason), so that every surface and the later agents read
   the same thing. The pieces that exist are gathered into it, not rebuilt: the per-source health lines inside
