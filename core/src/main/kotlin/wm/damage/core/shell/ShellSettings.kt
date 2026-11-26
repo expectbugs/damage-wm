@@ -316,7 +316,7 @@ data class ShellSettings(
         /** K1-1: the `Scroll effect` row's order (the stored ids). */
         val SCROLL_EFFECTS: List<String> = wm.damage.core.motion.ScrollEffect.entries.map { it.id }
         /** K1-2 stage 3c (decisions CV): an app's `Scroll effect` as stored — "default", then what a window's list plays
-         *  itself (None, Depth, Slide, Fall); Crush and Flip on the window form are a later stage. */
+         *  itself (None, Depth, Slide, Fall); Crush, Flip and Matrix on the window form are a later stage. */
         val APP_SCROLL_EFFECTS: List<String> = listOf("default") + wm.damage.core.motion.ScrollEffects.WINDOW_EFFECTS.map { it.id }
         /** Build C3 (DP2): a tier's checked effects as stored — the ids that tier offers, once each, in its rows' order. */
         fun tierEffects(t: wm.damage.core.motion.Transitions.Tier, ids: List<String>): List<String> =

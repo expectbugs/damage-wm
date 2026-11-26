@@ -1708,8 +1708,9 @@ at 160 KiB in the shared stage reserve (from byte 98,304, staged when Main comes
 its return), at 256 KiB in a region of Main's own below the reserve (bytes [98,304, 229,376), with the atlas over the
 96 KiB below it, decisions AU.1, `CfwModes.mainRegion`; an atlas made before BIND was armed leaves Main in the shared
 reserve). With Matrix in force (stage 5) its records — its noise glyphs, their font table, the alphabet and the rain
-record, 1,380 B at 352 with the test face (M) — lie last, past the pan slots, and are given up first where the staging
-does not fit (Matrix then plays Depth, said). The list is offered — its
+record, 1,892 B at every height with the PC's face (I: counted offline by `--local-check`, not on his pair) — lie
+last, past the pan slots, and are given up first where the staging does not fit (Matrix then plays Depth, said). The
+list is offered — its
 SETs sent — only after field 17 counts every write; the first staging is about 44 KB, about 5–6 s on the phone's link
 before the first local notch (I). Rows are kept current as P9 says. **A window's list** (glasses list 1, §7.11; ladder
 stage 5 on a 256 KiB session only) lies in the same region above Main's records: its strip, then its pan slots, laid
@@ -2469,10 +2470,11 @@ one-period wait; with this it is drawn a few ms late.
   stages with pitch = +row height and draws its strip tracks as windows at fixed y's; the strip carries margins (blank
   rows, or on a ring list the other end's rows, §7.8) so that no window leaves the record (5). Main's other effects
   stage with pitch = −row height. **An effect change keeps the list's staging,** except into or out of Matrix, whose
-  records are part of the staging: that change is staged again whole. Otherwise its programs alone are re-made into
-  the spare pan slot, counted (field 17) and then SET; where the change moves Main between the two pitches its LIST
-  carries the new pitch ahead of those SETs (the pitch switch, S6, below); a window's list keeps +row height for every
-  effect, so its SETs go alone. A staging with no spare pan slot is staged again whole.
+  records are part of the staging: that change is staged again whole — with Main in front (made while Settings covers
+  Main it waits for the return, so a pass through Matrix to another effect re-makes the programs alone). Otherwise its
+  programs alone are re-made into the spare pan slot, counted (field 17) and then SET; where the change moves Main
+  between the two pitches its LIST carries the new pitch ahead of those SETs (the pitch switch, S6, below); a window's
+  list keeps +row height for every effect, so its SETs go alone. A staging with no spare pan slot is staged again whole.
 - **A window's list** (decisions BC, CV, DA): a window's list of two rows or more is staged and bound only at stage 5
   on a 256 KiB session — at 160 KiB and below stage 5 nothing of it is sent — as glasses list 1 in slot 0, entries
   3–5 (Main's list is list 0, entries 0–2, in the same slot: the list in front holds it, §6.7). A list of more rows

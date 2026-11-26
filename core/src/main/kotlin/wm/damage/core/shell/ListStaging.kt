@@ -646,7 +646,18 @@ class ListStaging private constructor(
 
     sealed class Remake {
         class Owed(val programs: Programs) : Remake()
-        class NoRoom(val why: String) : Remake()
+        /** [records]: refused by the records rule ([recordsRule]) — the shell acts on it only with the list in front. */
+        class NoRoom(val why: String, val records: Boolean = false) : Remake()
+    }
+
+    /** C3 DM-2a, the records rule (decisions DV 2, DW 1): an effect's records are part of the staging, so a change into or
+     *  out of one is staged again whole — never pans re-made beside records that are not there, or left behind. Why pans
+     *  for [want] (with [fx], the gate's token now) break it here, or null. */
+    fun recordsRule(want: ScrollMotion, fx: Motion.Effects?): String? {
+        val wantRecords = ScrollEffects.playsFor(want.effect, form, fx).effect.takeIf { ScrollEffects.hasRecords(it) }
+        if (wantRecords != recordEffect) return "${(wantRecords ?: recordEffect)!!.word}'s records are staging records " +
+            "(${if (wantRecords != null) "this staging holds none" else "this staging holds them"}): a change into or out of it is staged again whole"
+        return null
     }
 
     /** Why the pans in force are not what [want] asks — the scroll rows changed, or under Auto the period in force gives
@@ -660,8 +671,9 @@ class ListStaging private constructor(
 
     /** The pans for [want] laid out in the free slot (the effect's own timing on a change of the rows; under Auto the
      *  steps at the period in force otherwise), or why they cannot be: no spare slot, or they do not fit it (a full
-     *  staging is then owed). C3 DM-1: [fx] the gate's token as the link state gives it now (null below stage 5) — Crush
-     *  and Flip are made in version 2 with it and checked at every cursor, their fallback otherwise ([ScrollEffects.plays]). */
+     *  staging is then owed). C3 DM-1: [fx] the gate's token as the link state gives it now (null below stage 5) — Crush,
+     *  Flip and Matrix are made in version 2 with it and checked at every cursor, their fallback otherwise
+     *  ([ScrollEffects.plays]). C3 DM-2a: a change into or out of an effect with records is refused ([recordsRule]). */
     fun remake(want: ScrollMotion, fx: Motion.Effects? = null): Remake {
         val slots = progSlots ?: return Remake.NoRoom("Main's region holds no spare programs slot")
         val why = remakeOwed(want) ?: return Remake.NoRoom("nothing to re-make")
@@ -669,11 +681,7 @@ class ListStaging private constructor(
         val to = 1 - activeProgs
         val specs = pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }
         val asked = ScrollEffects.playsFor(want.effect, form, fx)
-        // C3 DM-2a, the records rule (decisions DV 2, DW 1): an effect's records are part of the staging, so a change into
-        // or out of one is staged again whole — never pans re-made beside records that are not there, or left behind
-        val wantRecords = asked.effect.takeIf { ScrollEffects.hasRecords(it) }
-        if (wantRecords != recordEffect) return Remake.NoRoom("${(wantRecords ?: recordEffect)!!.word}'s records are staging records " +
-            "(${if (wantRecords != null) "this staging holds none" else "this staging holds them"}): a change into or out of it is staged again whole")
+        recordsRule(want, fx)?.let { return Remake.NoRoom(it, records = true) }
         // DM-0: the rules' P0 and P3 by the strip's own margin (k + 1 on a ring strip; `layout.rowsAbove` was one row short there)
         val made = lay(staged, asked, fx, slots[to], specs, margin, rows, ring, itemOffs, { recordOf(it) }) { pl ->
             if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form) else periodInForce to ScrollEffects.stepsAt(want, periodInForce, t) }

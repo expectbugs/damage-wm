@@ -446,10 +446,10 @@ class ScrollEffectsTest {
                 val m = ListStaging.ScrollMotion.DEFAULT
                 val depth = stage5(h, cache, ScrollEffect.DEPTH, rig)
                 val into = depth.remake(m.copy(effect = ScrollEffect.MATRIX), fx)
-                assertTrue(into is ListStaging.Remake.NoRoom && "Matrix's records are staging records" in into.why, "$h ${cache / 1024}: into Matrix: ${(into as? ListStaging.Remake.NoRoom)?.why}")
+                assertTrue(into is ListStaging.Remake.NoRoom && into.records && "Matrix's records are staging records" in into.why, "$h ${cache / 1024}: into Matrix: ${(into as? ListStaging.Remake.NoRoom)?.why}")
                 val mx = stage5(h, cache, ScrollEffect.MATRIX, rig)
                 val out = mx.remake(m.copy(effect = ScrollEffect.DEPTH), fx)
-                assertTrue(out is ListStaging.Remake.NoRoom && "Matrix's records are staging records" in out.why, "$h ${cache / 1024}: out of Matrix: ${(out as? ListStaging.Remake.NoRoom)?.why}")
+                assertTrue(out is ListStaging.Remake.NoRoom && out.records && "Matrix's records are staging records" in out.why, "$h ${cache / 1024}: out of Matrix: ${(out as? ListStaging.Remake.NoRoom)?.why}")
                 mx.periodInForce = mx.period + 8
                 val auto = assertNotNull((mx.remake(m.copy(effect = ScrollEffect.MATRIX), fx) as? ListStaging.Remake.Owed)?.programs, "$h ${cache / 1024}: Matrix's Auto re-make")
                 assertEquals(ScrollEffect.MATRIX to true, auto.plays.effect to auto.plays.v2, "$h ${cache / 1024}: Matrix's own pans at the new T ${auto.t}")
