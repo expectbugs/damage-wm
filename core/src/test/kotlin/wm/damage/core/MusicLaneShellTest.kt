@@ -7,6 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,6 +45,56 @@ private fun cut(packed: ByteArray, box: Rect): ByteArray {
     val o = java.io.ByteArrayOutputStream()
     for (y in box.y until box.bottom) o.write(packed, y * stride + box.x / 2, (box.w + 1) / 2)
     return o.toByteArray()
+}
+
+/** Stage SF2 (`MM-S-V2-review.md` 1): RIGHT's [strip] at every panel change from [watch] to [stop] — a picture only when it
+ *  differs from the last — each with whether an instance of the chain that was open at the watch's start ([watch]'s tags,
+ *  taken on the loop together with the change that ends it) was still open on RIGHT at that present. */
+private class StripRec(val sim: GlassFirmwareSim, val strip: Rect) : GlassFirmwareSim.SimDiag {
+    class Pic(val atMs: Long, val bytes: ByteArray, val oldOpen: Boolean)
+    @Volatile private var old: Set<Int>? = null
+    @Volatile var t0 = 0L
+    val pics = java.util.concurrent.CopyOnWriteArrayList<Pic>()
+    fun watch(oldTags: Set<Int>) { t0 = System.currentTimeMillis(); old = oldTags }
+    fun stop() { old = null }
+    override fun event(kind: String, detail: String) {}
+    override fun notify(arm: Arm, packet: ByteArray) {}
+    override fun panelChanged(arm: Arm) {
+        val o = old ?: return
+        if (arm != Arm.RIGHT) return
+        val c = cut(sim.right.panel.copyOf(), strip)
+        if (pics.isNotEmpty() && pics.last().bytes.contentEquals(c)) return
+        pics += Pic(System.currentTimeMillis(), c, (0 until 4).any { s -> sim.motionTagIn(Arm.RIGHT, s)?.let { it in o } == true })
+    }
+    /** The pictures from the first with nothing of the old chain open on RIGHT: what the panel showed after its close. */
+    fun afterClose(): List<Pic> = pics.dropWhile { it.oldOpen }
+}
+
+/** The places in [from]..[to] (5-ms steps, one pixel of Scope's pan) at which Scope's own paint of [strip] with [data] is
+ *  exactly the picture [pic] (`cut`'s bytes; [strip] starts on an even column). */
+private fun scopePlaces(pic: ByteArray, strip: Rect, data: wm.damage.core.windows.music.VizData, from: Long, to: Long): List<Long> {
+    check(strip.x % 2 == 0) { "the strip starts on an even column: $strip" }
+    val rowB = (strip.w + 1) / 2
+    val g = wm.damage.core.gfx.Gray8(Geometry.PANEL_W, Geometry.PANEL_H)
+    val out = ArrayList<Long>()
+    var q = from
+    while (q <= to) {
+        g.fillRect(strip, 0)
+        wm.damage.core.windows.music.ScopeViz.paint(g, strip, data, q)
+        val same = (0 until strip.h).all { y -> (0 until strip.w).all { x ->
+            val b = pic[y * rowB + (x shr 1)].toInt() and 0xFF
+            (if (x and 1 == 0) b shr 4 else b and 0x0F) == Pack.level(g[strip.x + x, strip.y + y]) } }
+        if (same) out += q
+        q += 5
+    }
+    return out
+}
+
+/** The journal's submit records in [lines] with an op whose box meets [r]. */
+private fun submitsMeeting(lines: List<String>, r: Rect): List<String> {
+    val box = Regex("\"box\":\"\\((-?\\d+),(-?\\d+) (\\d+)x(\\d+)\\)\"")
+    return lines.filter { "\"ev\":\"submit\"" in it && box.findAll(it).any { m ->
+        val (x, y, w, h) = m.destructured; Rect(x.toInt(), y.toInt(), w.toInt(), h.toInt()).overlaps(r) } }
 }
 
 class MusicLaneShellTest {
@@ -136,6 +187,10 @@ class MusicLaneShellTest {
         }
 
         fun laneTagIn(arm: Arm): Int? = (0..1).firstNotNullOfOrNull { s -> sim.motionTagIn(arm, s)?.takeIf { it and 0xF000 == WindowLanes.TAG } }
+        /** Stage SF2: every lane tag open on [arm] now. */
+        fun laneTags(arm: Arm): Set<Int> = (0 until 4).mapNotNull { s -> sim.motionTagIn(arm, s)?.takeIf { it and 0xF000 == WindowLanes.TAG } }.toSet()
+        /** The journal's lines. */
+        fun lines(): List<String> = if (!Files.exists(journal)) emptyList() else Files.readAllLines(journal)
 
         /** Open the Music menu at Now Playing and take the row labelled [label] (by name, never by counting notches). */
         suspend fun menuPick(label: String) {
@@ -190,14 +245,30 @@ class MusicLaneShellTest {
         /** Stage SF (finding 1): pause half a second past a whole second of the place (the strip's last once-a-second
          *  paint is then ≈ 100 px behind), wait for the chain to close on both lenses and the shell to settle, then the
          *  oracle at the pause: both lenses' whole panels are the truth (exclusive mode has no planes: `composed` on each),
-         *  and the strip is Scope's own paint at the paused place, within 2 px. */
+         *  and the strip is Scope's own paint at the paused place, within 2 px. Stage SF2 (`MM-S-V2-review.md` 1): and
+         *  EVERY picture of RIGHT's strip from the chain's close to the settle is that paint, within 2 px, in ONE flush —
+         *  before the cure the release frame showed the strip's last once-a-second paint first (≈ 90 px back) for one flush. */
         suspend fun pauseShowsTheTruth(data: wm.damage.core.windows.music.VizData, strip: Rect, what: String) {
             until("$what: half a second past a whole second", 3_000) { onLoop { player.positionMs() } % 1000 in 450..600 }
-            player.pause()
+            val rec = StripRec(sim, strip)
+            sim.attachListener(rec)
+            val j0 = lines().size
+            onLoop { rec.watch(laneTags(Arm.RIGHT)); player.pause() }
             until("$what: the chain closed on both lenses") { laneTagIn(Arm.RIGHT) == null && laneTagIn(Arm.LEFT) == null && !onLoop { shell.lanesOpenForTest } }
             until("$what: settled") { shell.isQuiescent() }
             delay(300)
+            rec.stop(); sim.detachListener(rec)
             val (truth, pos) = onLoop { assertEquals(emptyList(), shell.comp.planes, "$what: exclusive mode has no planes"); shell.comp.composed.copy() to player.positionMs() }
+            val after = rec.afterClose()
+            assertTrue(after.isNotEmpty(), "$what: RIGHT's strip was written after the chain closed (${rec.pics.size} picture(s), none after the close)")
+            for ((i, p) in after.withIndex()) {
+                assertFalse(p.oldOpen, "$what: picture ${i + 1} after the close (+${p.atMs - rec.t0} ms) is a step of the ended chain")
+                if (scopePlaces(p.bytes, strip, data, pos - 10, pos + 10).isEmpty()) fail(
+                    "$what, paused at $pos ms: picture ${i + 1} of ${after.size} after the chain closed (+${p.atMs - rec.t0} ms) is Scope's paint " +
+                    "at the paused place within 2 px — it is at ${scopePlaces(p.bytes, strip, data, pos - 1_500, pos + 400).let { q -> if (q.isEmpty()) "no place" else "${q.first() - pos}..${q.last() - pos} ms" }}")
+            }
+            val flushes = submitsMeeting(lines().drop(j0), strip)
+            assertEquals(1, flushes.size, "$what: ONE flush writes the strip from the pause to the settle: ${flushes.map { it.substringAfter("\"label\":").take(160) }}")
             val stride = (Geometry.PANEL_W + 1) / 2
             fun lv(p: ByteArray, x: Int, y: Int): Int { val b = p[y * stride + (x shr 1)].toInt() and 0xFF; return if (x and 1 == 0) b shr 4 else b and 0x0F }
             for ((name, panel) in listOf("LEFT" to sim.left.panel.copyOf(), "RIGHT" to sim.right.panel.copyOf())) {
@@ -441,6 +512,9 @@ class MusicLaneShellTest {
     // ------------------------------------------------------------------------------------------------ stage S: Scope
     /** A made-up RMS envelope (40 s: loud and quiet passages and a silence) — never a file of his. */
     private val SCOPE_DATA = wm.damage.core.windows.music.ScopeRehearsal.envelope(IntArray(2_000) { i -> if (i % 500 in 400..449) 0 else 1 + (i * 7 + i / 25) % 15 })
+    /** Stage SF2 (the review's "observed, not chased"): the rig's second track's own made-up envelope (15 s, no silence), so
+     *  a picture of the strip shows which track it came from. */
+    private val SCOPE_DATA_2 = wm.damage.core.windows.music.ScopeRehearsal.envelope(IntArray(750) { i -> 1 + (i * 11 + i / 7) % 15 })
     /** Synced lyrics whose line changes every 400 ms, each line digits (so [DigitText] draws it differently). */
     private val LYRICS = wm.damage.core.windows.music.Lyrics("test", (0 until 100).joinToString("\n") { i ->
         "[%02d:%02d.%02d]%s".format(i * 400 / 60_000, i * 400 / 1000 % 60, i * 400 % 1000 / 10, "$i".repeat(4)) })
@@ -596,6 +670,109 @@ class MusicLaneShellTest {
                 r.player.play()
                 r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
                 r.until("at $h: back at Now Playing") { !r.shell.exclusiveMode && r.shell.isQuiescent() }
+            }
+        } finally { r.stop() }
+    }
+
+    /** Stage SF2 (`MM-S-V2-review.md` 1, the class swept): a chain that ends with no pause — the visualizer changed away
+     *  from Scope through the window's record (as from another surface: the row reaches the presenter, which only posts its
+     *  render) — shows no picture of Scope on RIGHT's strip after its close: the strip's first write after the close is
+     *  the new visualizer's, not Scope's last once-a-second paint. */
+    @Test
+    fun aVisualizerChangedAwayFromScopeShowsNoScopePictureAfterTheChainCloses(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.lib.vizFor = { SCOPE_DATA }
+            r.up()
+            r.scopeMode()
+            r.until("Scope's chain open") { r.shell.isQuiescent() && r.held()?.second?.h == 64 && r.laneTagIn(Arm.RIGHT) != null }
+            val strip = r.held()!!.second
+            delay(1_200)
+            r.until("half a second past a whole second", 3_000) { r.onLoop { r.player.positionMs() } % 1000 in 450..600 }
+            val rec = StripRec(r.sim, strip)
+            r.sim.attachListener(rec)
+            val pos = r.onLoop { rec.watch(r.laneTags(Arm.RIGHT)); r.win.appSettings().first { it.name == "Visualizer" }.apply("Bars"); r.player.positionMs() }
+            r.until("the bar's chain") { r.shell.isQuiescent() && r.held()?.second?.h == 6 && r.laneTagIn(Arm.RIGHT) != null }
+            delay(300)
+            rec.stop(); r.sim.detachListener(rec)
+            val after = rec.afterClose()
+            assertTrue(after.isNotEmpty(), "RIGHT's strip was written after Scope's chain closed (${rec.pics.size} picture(s))")
+            for ((i, p) in after.withIndex()) {
+                val q = scopePlaces(p.bytes, strip, SCOPE_DATA, pos - 1_500, pos + 400)
+                if (q.isNotEmpty()) fail("picture ${i + 1} of ${after.size} after Scope's chain closed (+${p.atMs - rec.t0} ms) is Scope's paint at " +
+                    "${q.first() - pos}..${q.last() - pos} ms from the change")
+            }
+        } finally { r.stop() }
+    }
+
+    /** Stage SF2 (`MM-S-V2-review.md` 2): with the deflated cache write in force, each of Scope's areas written while its
+     *  chain runs goes as ONE stage message under 1 KB on the wire — not a deflated first piece and a raw second (the
+     *  transport deflates one waiting message at a time; a 4.5–5.4 KB area went as 3,064 B + the rest). */
+    @Test
+    fun scopesAreaGoesAsOneDeflatedMessageWhileItsChainRuns(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.lib.vizFor = { SCOPE_DATA }
+            r.up()
+            r.scopeMode()
+            r.until("Scope's chain open") { r.shell.isQuiescent() && r.held()?.second?.h == 64 && r.laneTagIn(Arm.RIGHT) != null }
+            val j0 = r.lines().size
+            delay(9_500)                                         // three links of ≈ 2.9 s
+            val lines = r.lines()
+            val done = lines.filter { "\"ev\":\"done\"" in it }.associate {
+                Regex("\"id\":(\\d+)").find(it)!!.groupValues[1] to Regex("\"bytes\":(\\d+)").find(it)!!.groupValues[1].toInt() }
+            fun stageNote(l: String) = "\"ev\":\"note\",\"kind\":\"stage\"" in l && "the held lanes' area" in l
+            val firsts = lines.drop(j0).filter { stageNote(it) && "submitted as flush" in it }
+            val more = lines.drop(j0).filter { stageNote(it) && ": piece " in it }
+            val said = firsts.map { l ->
+                val d = l.substringAfter("\"detail\":\"").substringBefore("\"")
+                val id = d.substringAfter("submitted as flush ").substringBefore(" ")
+                "$d -> ${done[id]} B on the wire"
+            }
+            println("SF2 area writes while the chain ran: ${said.joinToString("; ")}; later pieces: ${more.size}")
+            assertTrue(firsts.size >= 2, "an area a link while the chain ran: $said")
+            assertEquals(emptyList(), more.map { it.substringAfter("\"detail\":\"").substringBefore("\"") }, "no area went as a second piece")
+            for (l in firsts) {
+                val d = l.substringAfter("\"detail\":\"").substringBefore("\"")
+                assertTrue("piece 1 of 1 " in d, "one message: $d")
+                val id = d.substringAfter("submitted as flush ").substringBefore(" ")
+                val b = assertNotNull(done[id], "flush $id done: $d")
+                assertTrue(b < 1_024, "under 1 KB on the wire: $b B — $d")
+            }
+        } finally { r.stop() }
+    }
+
+    /** Stage SF2 (the review's "observed, not chased"): the rig's two tracks have their own envelopes, so a picture shows
+     *  which track it came from; at a track change while Scope's chain runs, no picture of RIGHT's strip after the ended
+     *  chain's close is the old track's. Each picture's places on both tracks are printed for the report. */
+    @Test
+    fun aTrackChangeShowsNoPictureOfTheOldTrackAfterTheChainCloses(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.lib.vizFor = { id -> if (id == 2) SCOPE_DATA_2 else SCOPE_DATA }
+            r.up()
+            r.scopeMode()
+            r.until("Scope's chain open") { r.shell.isQuiescent() && r.held()?.second?.h == 64 && r.laneTagIn(Arm.RIGHT) != null }
+            val strip = r.held()!!.second
+            r.until("past 2 s, half a second past a whole second", 20_000) { r.onLoop { r.player.positionMs() }.let { it > 2_000 && it % 1000 in 450..600 } }
+            val rec = StripRec(r.sim, strip)
+            r.sim.attachListener(rec)
+            val (old, tags) = r.onLoop { val p = r.player.positionMs(); val t = r.laneTags(Arm.RIGHT); rec.watch(t); r.player.next(); p to t }
+            r.until("the second track's chain on the strip", maxMs = 8_000) {
+                r.shell.isQuiescent() && r.held()?.second?.h == 64 && r.laneTagIn(Arm.RIGHT).let { it != null && it !in tags } }
+            delay(300)
+            rec.stop(); r.sim.detachListener(rec)
+            assertEquals(2, r.onLoop { r.player.state.track?.id }, "the second track plays")
+            fun rng(q: List<Long>, ref: Long) = if (q.isEmpty()) "-" else "${q.first() - ref}..${q.last() - ref}"
+            println("SF2 track change at the old track's $old ms: " + rec.pics.joinToString("; ") { p ->
+                "+${p.atMs - rec.t0} ms ${if (p.oldOpen) "(old chain open)" else ""} old ${rng(scopePlaces(p.bytes, strip, SCOPE_DATA, old - 1_500, old + 400), old)} " +
+                    "new ${rng(scopePlaces(p.bytes, strip, SCOPE_DATA_2, -300, 1_000), 0)}" })
+            val after = rec.afterClose()
+            assertTrue(after.isNotEmpty(), "RIGHT's strip was written after the old chain closed (${rec.pics.size} picture(s))")
+            for ((i, p) in after.withIndex()) {
+                val q = scopePlaces(p.bytes, strip, SCOPE_DATA, old - 1_500, old + 400)
+                if (q.isNotEmpty()) fail("picture ${i + 1} of ${after.size} after the old chain closed (+${p.atMs - rec.t0} ms) is the old track's Scope " +
+                    "at ${q.first() - old}..${q.last() - old} ms from the change")
             }
         } finally { r.stop() }
     }
