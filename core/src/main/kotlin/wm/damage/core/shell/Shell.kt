@@ -4708,9 +4708,6 @@ class Shell(
     /** Extra bumps seen this session (a count anomaly to read, never a reason to drop a record). */
     private var stageForeignBumps = 0L
     private var stageFullSaid = false
-    /** C3 DW-2: the strip that last found the reserve holding only pinned records ([pumpStage]) — the wheel's hold for the
-     *  first strip ends on it ([pageStagingFirst]). Cleared with the registry ([stageClear], [stagePagesClear]). */
-    private var stageWaitsFor: StageKey? = null
     /** Records the compositor may draw from right now (harnesses read it across threads). */
     @Volatile var stagedProvenCount = 0
         private set
@@ -4748,7 +4745,6 @@ class Shell(
     private fun stagePagesClear(why: String) {
         val gone = stage.records.values.filter { it.key !is RegionStageKey }
         for (r in gone) stage.remove(r)
-        stageWaitsFor = null
         // a write of one in flight completes as any other: its ack is counted, its record is no longer in the registry
         stageClears++                                  // harnesses count a boundary by it
         comp.placements = emptyList()
@@ -4761,7 +4757,6 @@ class Shell(
     private fun stageClear(why: String?) {
         val had = stage.records.size
         stage.clear()
-        stageWaitsFor = null
         stageInFlight = null; stageInFlightRec = null
         stageCursor = null                 // build SPLIT: a part-written record goes with the registry, never named
         // 0.64: NOT the count's reading. It is the cache's, about every acked write, and a clear of
@@ -4819,16 +4814,17 @@ class Shell(
      * behind it, its place reserved. It ends when that strip's record is in the registry, or at any lasting refusal or
      * failure of Page staging: the row off, staging off for the session, DRAW2, the lease or the cache check not in force,
      * no cached text or its atlas failed or absent, no document served, no content key, a region or a step no record
-     * takes, no wanted line, the strip refused for size or waiting on a reserve that holds only pinned records. Not while
-     * the switcher is open ([windowListFirst]'s rule: Page staging writes nothing then at stage 5, and the wheel's lane
-     * writes what the offer needs). Every transient return of [pumpStage] is also a gate of [pumpWheel] ahead of the
+     * takes, no wanted line, the strip refused for size. A reserve that holds only pinned records does not end it: a
+     * scroll unpins records, and an open lifts it (C3 DWF-V finding 1, decisions EL 1). Not while the switcher is open
+     * ([windowListFirst]'s rule: Page staging writes nothing then at stage 5, and the wheel's lane writes what the offer
+     * needs). Every transient return of [pumpStage] is also a gate of [pumpWheel] ahead of the
      * placement (the C3 DW-2b report lists each return and what ends the hold for it).
      */
     private fun pageStagingFirst(st: LinkState): Boolean {
         if (switcher.open || settings.pageStaging != "on" || stageFailed || !st.draw2 || !st.leaseHeld || !transport.cacheCheckSupported) return false
         if (cachedText == null || settings.cachedText != "on" || atlasFailed || atlas == null) return false
         val k = stagedDoc()?.let { stagePlan(it) }?.wanted?.firstOrNull() ?: return false
-        return !stage.records.containsKey(k) && k !in stageRefused && k != stageWaitsFor
+        return !stage.records.containsKey(k) && k !in stageRefused
     }
 
     /** The idle pump's staging step, after the atlas's: one reading launched, or one strip rendered
@@ -4896,12 +4892,10 @@ class Shell(
             }
             val evicted = ring.place(rec, pinned)
             if (evicted == null) {
-                stageWaitsFor = k
                 if (!stageFullSaid) { stageFullSaid = true; journal.note("stage", "the reserve holds only pinned records (${ring.bytesHeld} B) — $k waits") }
                 continue
             }
             stageFullSaid = false
-            stageWaitsFor = null                  // C3 DW-F item 2: placed, so nothing waits on this record any more
             for (e in evicted) stage.records.remove(e.key)
             stage.records[k] = rec
             stageSubmit(rec, st)
