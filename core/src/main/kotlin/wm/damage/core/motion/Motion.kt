@@ -660,8 +660,8 @@ object Motion {
     }
 
     /** Build C3 (§7.2 "where a program may run"): what a SET, a fire and a COMMIT refuse (5) of a program — OWN, and
-     *  `self` (build C2); `new` and in-place tracks are OWN programs' already. The SET builders call it before naming
-     *  [program]. */
+     *  `self` (build C2); `new` and in-place tracks are OWN programs' already. In product code only [commit] calls it; a
+     *  staging's bound pans are checked at every cursor by `ListStaging.checkEveryCursor`. */
     fun checkBound(program: MotionProgram): MotionProgram {
         if (program.own) throw LintError("§7.2: an OWN program runs only by PLAY or PLAY-AFTER — a SET, a fire or a COMMIT refuses it (5)")
         if (program.tracks.any { it.usesSelf }) throw LintError("§6.2/§7.2: a SET, a fire or a COMMIT refuses `self` (5)")

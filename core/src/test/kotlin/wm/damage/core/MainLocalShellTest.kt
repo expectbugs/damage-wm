@@ -22,6 +22,7 @@ import wm.damage.core.gfx.IconKind
 import wm.damage.core.local.BoundList
 import wm.damage.core.local.LocalRules
 import wm.damage.core.local.Taps
+import wm.damage.core.motion.ScrollEffect
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
 import wm.damage.core.shell.ListStaging
@@ -1076,30 +1077,58 @@ class MainLocalShellTest {
      * Depth → Matrix with Main in front on a link that takes time (20 ms a packet down, 30 up), four notches 400 ms apart
      * from 4 ms after the drop — the first can race RIGHT's unbind. Every notch is counted (the row moves one a notch,
      * whoever drew it), Matrix is staged and bound, and the oracle holds after its staging and after a Matrix notch.
+     * C3 DM-2aV: the notches the glasses drew (both lenses' S moved and each lens's slot holds that S's instance) are
+     * counted and printed (measured in the rig; not asserted, the rate is the DM-2aV report's), and the leg out of
+     * Matrix runs the same.
      */
     @Test
     fun notchesWhileMatrixIsStagedOnALinkThatTakesTimeAreEachCounted_DM2aF(): Unit = runBlocking {
+        notchesDuringTheReStaging(ScrollEffect.DEPTH, ScrollEffect.MATRIX)
+    }
+
+    @Test
+    fun notchesWhileMatrixIsLeftOnALinkThatTakesTimeAreEachCounted_DM2aV(): Unit = runBlocking {
+        notchesDuringTheReStaging(ScrollEffect.MATRIX, ScrollEffect.DEPTH)
+    }
+
+    private suspend fun notchesDuringTheReStaging(from: ScrollEffect, to: ScrollEffect) {
         val r = Rig(Taps.REPORT, stage = 5, link = 20L to 30L, features = 0xdff)
         try {
             r.up()
+            fun plays(e: ScrollEffect, not: ListStaging?) = r.onLoop { r.shell.mainBinding.staging }.let { it != null && it !== not &&
+                it.plays.effect == e && (e != ScrollEffect.MATRIX || it.recordEffect == ScrollEffect.MATRIX) } &&
+                r.onLoop { r.shell.mainBoundForTest().first } != null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39
+            if (from != ScrollEffect.DEFAULT) {
+                r.shell.updateSettings { it.copy(scrollEffect = from.id) }
+                r.until("${from.word} staged and bound", 60_000) { plays(from, null) }
+                r.settle("after ${from.word}'s staging")
+            }
             val d0 = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+            assertEquals(from, d0.plays.effect, "the leg starts on ${from.word}")
             val n = r.list().count
             val row0 = r.row()
-            r.shell.updateSettings { it.copy(scrollEffect = "matrix") }
-            r.until("Depth's staging dropped") { r.onLoop { r.shell.mainBinding.staging } !== d0 }
+            r.shell.updateSettings { it.copy(scrollEffect = to.id) }
+            r.until("${from.word}'s staging dropped") { r.onLoop { r.shell.mainBinding.staging } !== d0 }
             delay(4)
-            repeat(4) { r.fire(CfwModes.EV_UPROLL); delay(400) }
-            r.until("Matrix staged and bound", 60_000) { r.onLoop { r.shell.mainBinding.staging }?.recordEffect == wm.damage.core.motion.ScrollEffect.MATRIX &&
-                r.onLoop { r.shell.mainBoundForTest().first } != null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
-            r.settle("after Matrix's staging")
+            var glasses = 0
+            repeat(4) {
+                val s0 = Arm.entries.map { a -> synchronized(r.sim) { r.sim.bindForTest(a).seq } }
+                r.fire(CfwModes.EV_UPROLL)
+                if (Arm.entries.withIndex().all { (i, a) -> synchronized(r.sim) { r.sim.bindForTest(a).seq.let { sa ->
+                        sa != s0[i] && r.sim.motionForTest(a).slots[ListStaging.SLOT]?.tag == sa } } }) glasses++
+                delay(400)
+            }
+            r.until("${to.word} staged and bound", 60_000) { plays(to, d0) }
+            println("DM2aV ${from.word} → ${to.word}: $glasses of 4 notches during the re-staging drawn by the glasses")
+            r.settle("after ${to.word}'s staging")
             assertEquals((row0 + 4).mod(n), r.row(), "every notch counted: four rows on from $row0 (of $n)")
-            r.assertOracle("after Matrix's staging")
+            r.assertOracle("after ${to.word}'s staging")
             val pan = r.onLoop { r.shell.mainBinding.staging!!.pan(ListStaging.WHOLE, 1) }
             r.fire(CfwModes.EV_UPROLL)
-            for (a in Arm.entries) r.until("$a plays Matrix's notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]?.prog4 } == pan.prog4 }
-            delay(r.motionMs() + r.q() + 300); r.settle("after Matrix's notch")
-            assertEquals((row0 + 5).mod(n), r.row(), "Matrix's notch counted")
-            r.assertOracle("after Matrix's notch")
+            for (a in Arm.entries) r.until("$a plays ${to.word}'s notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]?.prog4 } == pan.prog4 }
+            delay(r.motionMs() + r.q() + 300); r.settle("after ${to.word}'s notch")
+            assertEquals((row0 + 5).mod(n), r.row(), "${to.word}'s notch counted")
+            r.assertOracle("after ${to.word}'s notch")
         } finally { r.close() }
     }
 
