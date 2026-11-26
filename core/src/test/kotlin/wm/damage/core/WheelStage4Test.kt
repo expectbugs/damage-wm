@@ -195,8 +195,9 @@ class WheelStage4Test {
     @Test
     fun theComparisonFollowsTheSwitchersMessagesAndNotWhereACacheWriteFalls_DWF() {
         val want = assertNotNull(file("stage4-h352.txt"), "the recording")
+        fun write(l: String) = !l.startsWith("#") && isCacheWrite(l)
         fun frame(l: String) = !l.startsWith("#") && !isCacheWrite(l)
-        val i = (0 until want.size - 3).first { isCacheWrite(want[it]) && isCacheWrite(want[it + 1]) && frame(want[it + 2]) && frame(want[it + 3]) }
+        val i = (0 until want.size - 3).first { write(want[it]) && write(want[it + 1]) && frame(want[it + 2]) && frame(want[it + 3]) }
         val later = want.take(i) + want.subList(i + 2, i + 4) + want.subList(i, i + 2) + want.drop(i + 4)
         assertTrue(later != want, "the moved write changes the exact order")
         assertNull(difference(want, later), "a cache write one frame later in its act")

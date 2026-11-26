@@ -349,7 +349,8 @@ class WheelBindTest {
      * C3 DW-F (decisions EE 1; `C3-V2DW-a.md` F1): a notch the glasses draw on the bound wheel repaints the panel only, as a
      * notch the phone draws does — the window behind the panel is not composed again (`composeContent`'s count) — and the
      * frame it settles on, on both lenses, is the one a phone-drawn notch to the same row leaves (both with the preview of
-     * that row's window painted, after the burst's SETTLE). Over a window, where Main's rest cannot compose in between.
+     * that row's window painted, after the burst's SETTLE), the status bar's rows aside (its throughput readout moves with
+     * every ack). Over a window, where Main's rest cannot compose in between.
      */
     @Test
     fun anAdoptedWheelNotchPaintsThePanelOnlyAndSettlesAsAPhoneDrawnNotch_DWF(): Unit = runBlocking {
@@ -378,9 +379,15 @@ class WheelBindTest {
             r.until("the phone's notch reached row $row1") { r.row() == row1 }
             previewed("after the phone's notch")
             val phone = panels()
-            for ((k, lens) in listOf("LEFT", "RIGHT").withIndex())
-                assertTrue(adopted[k].contentEquals(phone[k]), "$lens: the adopted notch's frame is the phone-drawn notch's " +
-                    "(${adopted[k].indices.count { adopted[k][it] != phone[k][it] }} px differ)")
+            // the status bar's rows are left out: its throughput cell reads the link's moving averages (`K/s · ms`), which
+            // change with every ack, so two moments a second apart differ there whichever notch came before
+            val w = Geometry.PANEL_W
+            val bar = r.onLoop { r.shell.layout.statusBar }
+            val differ = listOf("LEFT", "RIGHT").mapIndexedNotNull { k, lens ->
+                val d = adopted[k].indices.filter { it / w !in bar.y until bar.bottom && adopted[k][it] != phone[k][it] }
+                if (d.isEmpty()) null else "$lens ${d.size} px in x ${d.minOf { it % w }}..${d.maxOf { it % w }}, y ${d.minOf { it / w }}..${d.maxOf { it / w }}"
+            }
+            assertTrue(differ.isEmpty(), "the adopted notch's frame is the phone-drawn notch's: ${differ.joinToString("; ")}")
         } finally { r.close() }
     }
 
