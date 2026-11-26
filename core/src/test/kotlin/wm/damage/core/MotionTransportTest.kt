@@ -1795,6 +1795,44 @@ class MotionTransportTest {
     /** A mode-19 list of one 2,000 B entry at [off4] that deflates well. */
     private fun zlist(off4: Int) = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(off4, ByteArray(2000) { (it / 100).toByte() })), 160 * 1024)
 
+    /** C3 OM-1P (the OM second pass's finding 1, `C3-OM1-V2.md`; its probe, placed): only a record that NEWLY names mode
+     *  25 withdraws it. At ladder stage 5 ZWRITE (bit 5) is armed before BIND and EFFECTS (`ARM_ORDER`), so their
+     *  FLAGS_SET replies are RIGHT records read with ZWRITE in force — and RIGHT's refusal record still stands from the
+     *  session before (sticky until the next refusal or mode 7 sub 0, which the start sends after the warmup). A session
+     *  that ended on a refused mode 25 is followed by one whose first list still goes as mode 25, and the withdrawal is
+     *  said once (the first session's), not again at the second start.
+     *  Mutation watched: `P-zw-judge-differs-OMF` (the `rec != before` term removed: the second session goes mode 19 and
+     *  the withdrawal is said twice). */
+    @Test
+    fun aRefusalStandingFromTheSessionBeforeLeavesMode25OnAtAStage5Start_OMP(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0xdff }
+        val t = StartRig(glass, scope)
+        collect(t)
+        t.devProbe("c1", "5")
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "stage 5: ZWRITE, BIND and EFFECTS in force")
+        val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        glass.imageObserver = { arm, img -> if (arm == Arm.RIGHT && (img[0].toInt() == 19 || img[0].toInt() == 25)) right += img }
+        // A: one entry at off4 0xFFFF (256 KiB), past the 160 KiB cache — RIGHT refuses it (5) and its record names 25
+        val a = zlist(1000).also { it[1] = 0xFF.toByte(); it[2] = 0xFF.toByte() }
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(a)), 0, "ATLAS"))
+        waitUntil(10_000, message = { "A reached RIGHT" }) { right.size >= 1 }
+        assertEquals(25, right[0][0].toInt(), "A went deflated")
+        waitUntil(10_000, message = { "RIGHT refused A: ${glass.refusalRecord(Arm.RIGHT)}" }) { (glass.refusalRecord(Arm.RIGHT)[0] and 0x7F) == 25 }
+        t.devProbe("telemetry", "read")
+        waitUntil(10_000, message = { "the withdrawal said: $notes" }) { has("glass", "mode 25 refused by RIGHT") }
+        t.endLink("test: the session ends")
+        assertEquals(listOf(25, 5), glass.refusalRecord(Arm.RIGHT).take(2).let { listOf(it[0] and 0x7F, it[1]) },
+            "the refusal stands on RIGHT's record across the session's end")
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "stage 5 again")
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(4000))), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the second session's write reached RIGHT" }) { right.size >= 2 }
+        assertEquals(25, right[1][0].toInt(), "the next session deflates: a refusal standing from before is no new record")
+        assertEquals(1, notes.count { it.first == "glass" && "mode 25 refused by RIGHT" in it.second }, "said once, the first session's: $notes")
+        t.stop()
+    }
+
     /** OM-1 (spec §5 pin 1), as OM-1F left it: a second list submitted right behind the first, before any reply, goes
      *  deflated too; a read after both sends nothing again (both landed: two bumps). */
     @Test

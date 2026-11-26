@@ -17,7 +17,8 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   2026-11-20 12:33 (`HANDOFF.md` §99); the rollback is C2's `b3f04453…`, kept in `fws/`. Stage 5 (the transitions)
   is armed since 2026-11-21 12:41 on his word (§101.1). The way back from stage 5 without a session: `python3
   tools/ladder.py 4` (`DAILY.md`).
-- **His phone runs APK 0.83; 0.84 is staged (11-22, `main` `f9ddf1b4`) and the PC runs it** (§101): the ring list
+- **His phone and the PC run 0.84** (staged 11-22 01:06 from `main` `f9ddf1b4`; he installed it that day — his word of
+  11-26, and the PC's setup log shows the staged file fetched) (§101): the ring list
   for Main's wrap, the fast-path fit (Depth 19 steps a notch), the transitions' end rule counted from RIGHT's own
   report, the mirror's cheaper loops, `Animations` as one row per tier with sub menus, Matrix as rain that wipes,
   Warp's and Flip's fit raised to the glass, Crush and Flip as scroll effects, the wheel's stage-5 margins. Its new
@@ -150,7 +151,7 @@ The order is `REPLAN.md` §17.3 (every run sized first and both meters read, §1
    feeds on 2026-11-13; measured 11-21 on both of the PC's network paths: HTTP 404. The service still asks every 15
    minutes and logs the refusal. His word on what replaces the source, then the change.
 
-**What waits on him:** his install of APK 0.84; any change of the ladder's stage and any flash, per lens. Also his,
+**What waits on him:** any change of the ladder's stage and any flash, per lens. Also his,
 whenever he likes: S1-3's four calls in §89.5 (each reversible); a hardware watchdog for the PC (R-c); the fork's
 records' move to `c1`; which alerts are urgent; deleting the phone's old `feed/` folder.
 

@@ -769,10 +769,12 @@ on both lenses (the meeting's row 11).
   per message. Cache writes were 61 % of the image lane's bytes and per-message deflate took them
   to 57 % (M, `HANDOFF.md` §68, v1-era traffic). **The phone (as built):** it sends a mode 25 in place of every
   mode-19 message while ZWRITE is in force and the deflated form is smaller, never from the motion API. Field 17's
-  count is the only judge of a mode 25 (R1.18): a refused one is a missing write, which the shell's count finds
-  (pending, short, shortfall) and writes again with the rest of its interval. A refusal record that newly names 25
-  turns mode 25 off for the session, said once (R2 B-N6), so that write goes again as mode 19; the phone sends nothing
-  again on the record itself, which cannot say which write it names (C3 OM-1F).
+  count is the only judge of a mode 25 (R1.18): a refused one is a missing write, which the shell's count finds short
+  (pending, short, shortfall). The staged records and first-time atlas messages of that interval are written again; an
+  atlas message that was itself a re-send is not sent a third time (`cache/lost` says so), and a transition's write is
+  not written again (RIGHT's END CRC keyframes). A refusal record that newly names 25 turns mode 25 off for the
+  session, said once (R2 B-N6), so what is written again goes as mode 19; the phone sends nothing again on the record
+  itself, which cannot say which write it names (C3 OM-1F).
 - **The cache pointer's release:** claimed by one exchange like the slots and the scratch (FBW-2, `HANDOFF.md` §76);
   a release point withdraws it inside its masked section or, finding the engine's busy word held (by the copy
   hook or the ui_task), leaves the withdrawal to the holder's settlement (§5.11). No wire change.
@@ -1707,12 +1709,13 @@ its return), at 256 KiB in a region of Main's own below the reserve (bytes [98,3
 96 KiB below it, decisions AU.1, `CfwModes.mainRegion`; an atlas made before BIND was armed leaves Main in the shared
 reserve). With Matrix or Scramble in force (stage 5) the effect's records lie last, past the pan slots, and are given
 up first where the staging does not fit (the effect then plays Depth, said): Matrix's — its noise glyphs, their font
-table, the alphabet and the rain record, 1,380 B at 352 with the test face (M); Scramble's — the noise glyphs, one
-private font per face the rows' text uses (its own copies of the glyphs that text names), the alphabet, each strip
-row's cells in chunks of strip rows and the seven cell tables that pick a chunk by the cursor before the move (kind 3),
-29,436 B at 352 with the test face through its atlas (M). Scramble's cells are the rows' text runs recorded
-while the rows are painted for the staging (cached text off: Depth, said); a row's text that changes later keeps its
-old cells until the next full staging — the settled picture is the row's paint. The list is offered — its
+table, the alphabet and the rain record, 1,892 B at every height with the PC's face (I: counted offline by
+`--local-check`, not on his pair); Scramble's — the noise glyphs, one private font per face the rows' text uses (its own
+copies of the glyphs that text names), the alphabet, each strip row's cells in chunks of strip rows and the seven cell
+tables that pick a chunk by the cursor before the move (kind 3), 29,436 B at 352 with the test face through its atlas
+(M). Scramble's cells are the rows' text runs recorded while the rows are painted for the staging (cached text off:
+Depth, said); a row's text that changes later keeps its old cells until the next full staging — the settled picture is
+the row's paint. The list is offered — its
 SETs sent — only after field 17 counts every write; the first staging is about 44 KB, about 5–6 s on the phone's link
 before the first local notch (I). Rows are kept current as P9 says. **A window's list** (glasses list 1, §7.11; ladder
 stage 5 on a 256 KiB session only) lies in the same region above Main's records: its strip, then its pan slots, laid
@@ -1806,8 +1809,11 @@ bound 0x4000 below now reaches the lens a lagging numbering leaves behind, so th
 firmware's S at the entry match is proved by `v4-fail` (3 and 14 carry S); S6, the empty table clearing entries
 only — no phone path reaches it (every re-made table goes through the start's bind batch, whose LIST and SETTLE
 replace the list before a fire can read it), and it is proved on the firmware's side (its host pin, `v4-list`); S21L,
-a LIST lost on LEFT alone — it heals without the riding LIST, since LEFT's refusal fails the flush's ack and the table
-goes again (P1; I).
+a LIST lost on LEFT alone — in the host harness it heals without the riding LIST, since the runner reads each lens's
+return, so LEFT's refusal fails the flush and the table goes again (P1); on the glasses the image ack goes out before
+the decode, so a refusal on LEFT, reason 11 included, fails no ack and reaches the phone by no path today (LEFT sends
+nothing; there is no inter-lens report) — read in the fork's source on 2026-11-26, the ack's order not re-checked at
+instruction level that day.
 
 **No vector can prove** (one thread, one lens at a time, no UART): the inter-lens answer-and-drop order, a lost 115 or
 stock message, LVGL holding the gate, a release point on another task during a fire, step 1 within a time slice, the
@@ -2472,12 +2478,15 @@ one-period wait; with this it is drawn a few ms late.
   stages with pitch = +row height and draws its strip tracks as windows at fixed y's; the strip carries margins (blank
   rows, or on a ring list the other end's rows, §7.8) so that no window leaves the record (5). Main's other effects
   stage with pitch = −row height. **An effect change keeps the list's staging,** except into or out of Matrix or
-  Scramble, whose records are part of the staging: that change is staged again whole, as is a re-make with records in
-  force whose pans come back as the fallback (Scramble at a T that leaves its noise no step); a full staging that
-  still does not fit plays Depth, said, and its re-makes keep that. Otherwise its programs alone are re-made into
-  the spare pan slot, counted (field 17) and then SET; where the change moves Main between the two pitches its LIST
-  carries the new pitch ahead of those SETs (the pitch switch, S6, below); a window's list keeps +row height for every
-  effect, so its SETs go alone. A staging with no spare pan slot is staged again whole.
+  Scramble, whose records are part of the staging: that change is staged again whole — with Main in front (made while
+  Settings covers Main it waits for the return, so a pass through Matrix or Scramble to another effect re-makes the
+  programs alone) — as is a re-make with records in force whose pans come back as the fallback (Scramble at a T that
+  leaves its noise no step). A staging that gave the effect's records up (it then plays Depth, said) keeps Depth's pans
+  while that effect is asked: Auto's re-makes re-make its programs alone, and a change of the effect asked stages again.
+  Otherwise its programs alone are re-made into the spare pan slot, counted (field 17) and then SET; where the change
+  moves Main between the two pitches its LIST carries the new pitch ahead of those SETs (the pitch switch, S6, below); a
+  window's list keeps +row height for every effect, so its SETs go alone. A staging with no spare pan slot is staged
+  again whole.
 - **A window's list** (decisions BC, CV, DA): a window's list of two rows or more is staged and bound only at stage 5
   on a 256 KiB session — at 160 KiB and below stage 5 nothing of it is sent — as glasses list 1 in slot 0, entries
   3–5 (Main's list is list 0, entries 0–2, in the same slot: the list in front holds it, §6.7). A list of more rows
@@ -2797,7 +2806,7 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 | the in-place base (b = d, OWN only) | with the instance | — | d | display task under the word; each lens moves its own picture | once per present | the overlay (carried along when shown); later tracks (§7.2's fold rule) |
 | G(b → k) | built per present | — | (b, k) and the levels | — | once | DRAW's ramp |
 | GLYPHS: the schedule (stateless), the read range | with the instance | a write over a named record closes it | the read range | written by the ui_task under the word, read by the hook under it | once per step; each (font, code) walked once a walk for the first four fonts (§7.6) | mode 18's glyph check (reused); the atlas planner (phone) |
-| the seed and the tag | — | — | h0 after substitution, the tag | LEFT's S ahead after a dropped answer draws other noise on LEFT until SETTLE | once | the fire's S |
+| the seed and the tag | — | — | h0 after substitution, the tag | LEFT's S ahead after a dropped answer draws other noise on LEFT on every later fire until a release point or a restart (a SETTLE ends only the picture then on the lens) | once | the fire's S |
 | the instance's path bit; the kept start per record segment and the kept record geometry | with the instance; the start and geometry recomputed at RETARGET (the path kept) | — (the walk that keeps them is the opening message's or the RETARGET's) | the instance; its record bytes are closed on meet | written on the ui_task under the word, read by the hook under it; a FLAGS_SET never touches them | once per present | every renderer of a record; an instance opened with EFFECTS clear runs C2's path to its end |
 | the byte table | built per track and step | — | the track's level ramp or G | display task only, under the word | once per track and step | the 16-entry LUT and G |
 | the step budget and each instance's C | C with the instance (written at its walk, replaced at a RETARGET) | — (a refusal changes nothing) | the program, its parameters and its records as walked; both lenses' rects; the slots drawing after the closes and the recorded triples | ui_task under the word | once per walk; each slot's C read once per sum | the values checks before it; PLAY-AFTER's waiting test (the chain rule reads the same triple) |
@@ -2927,7 +2936,8 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   and `v5-x3-hint`, and the `v5-ship-*` files — the shipped programs played as acts (transitions, scroll effects, the
   notice, the ring list; C3 X3D and SVR; a window's list bound as list 1, the `v5-ship-list1-*` acts, K1-2 stage 4;
   the app switcher's wheel, five `v5-ship-wheel-*` acts — opening with notches, a yield, Main's late report, a commit
-  to a window, a cancel — C3 DW-3), the wheel's hand-made `v5-dw-fire` (both wheel programs bound on ring lists: fires
+  to a window, a cancel — C3 DW-3; every act captured again after OM-1, each cache write that shrinks sent as mode
+  25, §5.9 — C3 OM-V), the wheel's hand-made `v5-dw-fire` (both wheel programs bound on ring lists: fires
   mid-list and at both wraps, the COMMITs of the reports, the report-only tap), and Music's four held-lane shapes
   (`v5-mml-*`: the bar and its chain, stage L; Scope and its chain, stage S), all filled by the fork's runner.
   The differential fuzz (`firmware/fuzz_vectors.py`; each switch's text is its docstring) has a switch per build —

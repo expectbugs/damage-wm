@@ -13247,7 +13247,7 @@
   "expect": [
    "aStagingWithoutRecordsIsTodaysAndRecordsAreGivenUpFirst_DM2a"
   ],
-  "note": "C3 DM-2a (decisions DW 3, DV 2): a staging without records sizes its pan slot over Matrix too — at stage 5 Matrix's pans are made with no rain record and the staging is refused (caught by that LintError, not by the byte comparison)",
+  "note": "C3 DM-2a (decisions DW 3): a staging without records lays its pan slot over Matrix's pans too — made there with no rain record, so the assembly's LintError refuses the staging; that refusal is what fails. It does not prove today's bytes kept: Matrix's slot (872 B) is under the largest of the others (1,020–1,028 B), so the slot's size would not move (the 96-digest table holds the bytes; C3-DM2a-V1-b.md)",
   "from": "DM-2a"
  },
  {
@@ -13255,7 +13255,7 @@
   "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "track(wL, wR, Motion.Backdrop.None) { rain(rain, t, x = 0, xR = 0, seed = RAIN_SEED, mixTag = true) }",
+    "track(wL, wR, Motion.Backdrop.None) { rain(rain, t, x = 0, xR = 0, prefs = listOf(Motion.Pref(1, Motion.Field.H0))) }",
     "track(wL, wR, Motion.Backdrop.None) { wait(t) }"
    ]
   ],
@@ -13265,7 +13265,7 @@
   "expect": [
    "matrixsRainFallsThroughTheRowsAndIsGoneAtT_DM2a"
   ],
-  "note": "C3 DM-2a: Matrix's pans with no rain — Depth's picture at every step",
+  "note": "C3 DM-2a: Matrix's pans with no rain — Depth's picture at every step (re-pointed at DM-2aF's line)",
   "from": "DM-2a"
  },
  {
@@ -13273,8 +13273,8 @@
   "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "const val RAIN_SEED = 0x4D58",
-    "const val RAIN_SEED = 0x4D59"
+    "prefs = listOf(Motion.Pref(1, Motion.Field.H0))) }",
+    "prefs = listOf(Motion.Pref(2, Motion.Field.H0))) }"
    ]
   ],
   "tests": [
@@ -13283,7 +13283,7 @@
   "expect": [
    "mainsMatrixPansInVDmRainFireAreTheProductsBytes_DM2a"
   ],
-  "note": "C3 DM-2a (decisions DW 7, 10): the product's pans leave v5-dm-rain-fire's bytes (the seed the vector pins)",
+  "note": "C3 DM-2a (decisions DW 7), re-pointed by DM-2aF (EV 1): the rain seeded from another parameter (P2, the leaving row's form) — the product's pans leave v5-dm-rain-fire's bytes (h0 ← P1 the vector pins)",
   "from": "DM-2a"
  },
  {
@@ -13374,13 +13374,14 @@
    ]
   ],
   "tests": [
+   "*MotionTransportTest.aRefusalStandingFromTheSessionBeforeLeavesMode25OnAtAStage5Start_OMP*",
    "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*"
   ],
   "expect": [
-   "(no pin: reached only by a RIGHT record that arrives after the start's arming and before its fid-ring clear (mode 7 sub 0 empties fields 23-25, FIRMWARE.md section 4) while a mode-25 refusal stands from before the session; run once by C3-OM1F against the 5_9 test's second session, nothing failed)"
+   "aRefusalStandingFromTheSessionBeforeLeavesMode25OnAtAStage5Start_OMP"
   ],
-  "note": "only a NEW record naming 25 withdraws: a refusal standing on RIGHT's record from before the session is its baseline (the C1 list's P-zw-judge-differs re-pointed, C3-OM1F)",
-  "from": "C1 / C3-OM1F"
+  "note": "only a NEW record naming 25 withdraws: a refusal standing on RIGHT's record from the session before is its baseline. Reached at every stage-4 and stage-5 start (ZWRITE is armed before BIND and EFFECTS, whose FLAGS_SET replies carry the standing record; the start's mode 7 sub 0 comes after the warmup). Caught by the stage-5 pin (C3-OM1-V2 finding 1's probe, placed by C3-OM1P); the 5_9 test (stage 1) does not see it",
+  "from": "C1 / C3-OM1F / C3-OM1P"
  },
  {
   "id": "OMF-start-keeps-off",
@@ -13419,5 +13420,139 @@
   ],
   "note": "C3-OM1F: the withdrawal of mode 25 is said once, naming the count as the judge (no silent failure)",
   "from": "C3-OM1F"
+ },
+ {
+  "id": "OM1P-shortfall-keeps",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                for (r in lost) stage.remove(r)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aMissingPieceOfAStagedRecordIsFoundByTheCountAndWrittenAgainOnce*",
+   "*StagingTest.aRefusedMode25PieceOfAStagedRecordGoesAgainAsMode19_OMP*"
+  ],
+  "expect": [
+   "aMissingPieceOfAStagedRecordIsFoundByTheCountAndWrittenAgainOnce",
+   "aRefusedMode25PieceOfAStagedRecordGoesAgainAsMode19_OMP"
+  ],
+  "note": "C3-OM1P: a shortfall drops the staged records acked in its interval, so their owner writes them again (left in the registry, the record stays acked and unproven, staging holds behind it, and nothing is written again)",
+  "from": "C3-OM1P"
+ },
+ {
+  "id": "DM2aF-rain-tag",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "prefs = listOf(Motion.Pref(1, Motion.Field.H0))) }",
+    "prefs = listOf(Motion.Pref(1, Motion.Field.H0)), mixTag = true) }"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.matrixsRainIsOnePictureOnBothLensesWhateverTheirS_DM2aF*",
+   "*ScrollEffectsTest.noBoundProgramMixesTheTagIntoASeed_DM2aF*"
+  ],
+  "expect": [
+   "matrixsRainIsOnePictureOnBothLensesWhateverTheirS_DM2aF",
+   "noBoundProgramMixesTheTagIntoASeed_DM2aF"
+  ],
+  "note": "C3 DM-2aF (decisions EV 1): Matrix's rain with the fire's tag mixed into its seed again — the staging's check refuses it, so Matrix plays Depth (said) and both pins see it; the per-lens rain itself was watched on the unfixed tree (watch-unfixed)",
+  "from": "DM-2aF"
+ },
+ {
+  "id": "DM2aF-bound-tag-refusal",
+  "file": "shell/ListStaging.kt",
+  "edits": [
+   [
+    "if (pan.program.tracks.any { t -> t.segments.any { (it.verb == Motion.PIECES || it.verb == Motion.GLYPHS) && it.opt and 0x80 != 0 } })",
+    "if (false && pan.program.tracks.any { t -> t.segments.any { (it.verb == Motion.PIECES || it.verb == Motion.GLYPHS) && it.opt and 0x80 != 0 } })"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theStagingsCheckRefusesABoundPanThatMixesTheTag_DM2aF*"
+  ],
+  "expect": [
+   "theStagingsCheckRefusesABoundPanThatMixesTheTag_DM2aF"
+  ],
+  "note": "C3 DM-2aF (decisions EV 1, the class): the staging's check of a bound pan no longer refuses a seed mixed with the fire's tag — an effect to come (Scramble) could give each eye its own picture",
+  "from": "DM-2aF"
+ },
+ {
+  "id": "DM2aF-cover-defers",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (r.records && !inFront()) return false",
+    "if (false && r.records && !inFront()) return false"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.throughMatrixOnToNoneUnderACoverKeepsTheStaging_DM2aF*",
+   "*MainLocalShellTest.throughMatrixOnToCrushUnderACoverKeepsTheStaging_DM2aF*",
+   "*MainLocalShellTest.matrixKeptUnderACoverIsOneFullStagingOnTheReturn_DM2aF*"
+  ],
+  "expect": [
+   "throughMatrixOnToNoneUnderACoverKeepsTheStaging_DM2aF",
+   "throughMatrixOnToCrushUnderACoverKeepsTheStaging_DM2aF",
+   "matrixKeptUnderACoverIsOneFullStagingOnTheReturn_DM2aF"
+  ],
+  "note": "C3 DM-2aF (decisions EV 2): a change into Matrix under the Settings cover drops Main's staging there and then, even when he only passes through the row (each leg: a drop under the cover)",
+  "from": "DM-2aF"
+ },
+ {
+  "id": "DM2aF-return-acts",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "inFront() && ms.progSlots != null && ms.remakeOwed(motionInForce()) != null && !listBindBurstOpen() ->",
+    "false && inFront() && ms.progSlots != null && ms.remakeOwed(motionInForce()) != null && !listBindBurstOpen() ->"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.matrixKeptUnderACoverIsOneFullStagingOnTheReturn_DM2aF*"
+  ],
+  "expect": [
+   "matrixKeptUnderACoverIsOneFullStagingOnTheReturn_DM2aF"
+  ],
+  "note": "C3 DM-2aF (decisions EV 2): Matrix kept under the cover is acted on only by the idle re-make after the return — the return's offer SETs the old pans first, and a notch can fire them against Matrix",
+  "from": "DM-2aF"
+ },
+ {
+  "id": "DM2aF-givenup-stays",
+  "file": "shell/ListStaging.kt",
+  "edits": [
+   [
+    "        return if (ScrollEffects.hasRecords(p.effect) && recordEffect == null && want.effect == motion?.effect) plays else p",
+    "        return p"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aStagingThatGaveMatrixsRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2aF*"
+  ],
+  "expect": [
+   "aStagingThatGaveMatrixsRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2aF"
+  ],
+  "note": "C3 DM-2aF (C3-DM2b-V1-a.md §3): the records rule's exception off — a staging that gave Matrix's records up is staged again whole at every Auto re-make a slow notch owes (and gives them up again)",
+  "from": "DM-2aF"
+ },
+ {
+  "id": "DM2aF-rain-one-code",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "IntArray(224) { i -> glyphs[NOISE_CODES.indexOf(i + 32).coerceAtLeast(0)].off4 }",
+    "IntArray(224) { glyphs[0].off4 }"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.matrixsRainFallsThroughTheRowsAndIsGoneAtT_DM2a*"
+  ],
+  "expect": [
+   "matrixsRainFallsThroughTheRowsAndIsGoneAtT_DM2a"
+  ],
+  "note": "C3 DM-2aF (decisions FA 2): every entry of the noise set's private font table names the first glyph — the rain draws one code whatever it picks; seen only on a face whose codes differ (NoisyText)",
+  "from": "DM-2aF"
  }
 ]

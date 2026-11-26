@@ -485,7 +485,10 @@ internal object ShipVectors {
      *  the cursor is on the last row ([atLast]) or on row 0. The steps and the period are the staging's at stage 5, read
      *  at the capture and said (the fast-path fit changes them: the re-play row compares the programs). */
     data class RingSpec(override val name: String, val effect: ScrollEffect, val height: Int, val form: RingForm,
-                        val taps: Taps = Taps.REPORT, val atLast: Boolean = false) : Act
+                        val taps: Taps = Taps.REPORT, val atLast: Boolean = false,
+                        /** C3 DM-2aF (decisions FA 3): captured with [NoisyText], whose glyphs differ code by code, where a fill
+                         *  must see which glyph the firmware draws (Matrix's noise); else [FakeText]. */
+                        val noisy: Boolean = false) : Act
 
     /**
      * C3 SVR: at 288 and 352 (the heights where his eight rows wrap, so Main is a ring list), each Scroll effect's NOTCHES
@@ -551,12 +554,12 @@ internal object ShipVectors {
     }
 
     /** C3 stage DM-2a (decisions DW 6): Matrix on Main at stage 5 — its ring NOTCHES at 352 (a notch down and up mid-list,
-     *  then the two wraps), its rain records staged with the list; unfilled until the fork's fill (`DM2_UNFILLED`). */
-    fun dm2aActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-matrix-352", ScrollEffect.MATRIX, 352, RingForm.NOTCHES))
+     *  then the two wraps), its rain records staged with the list; unfilled until the fork's fill (`DM2A_UNFILLED`). */
+    fun dm2aActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-matrix-352", ScrollEffect.MATRIX, 352, RingForm.NOTCHES, noisy = true))
 
     /** C3 stage DM-2b (decisions DW 6, EP 4): Scramble on Main at stage 5 — Matrix's twin: its ring NOTCHES at 352, its
      *  cells and private faces staged with the list from Main's runs through the atlas; unfilled until the fork's fill
-     *  (`DM2_UNFILLED`). */
+     *  (`DM2B_UNFILLED`). */
     fun dm2bActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-scramble-352", ScrollEffect.SCRAMBLE, 352, RingForm.NOTCHES))
 
     /** C3 stage X2MX2 (decisions CM (2)): Crush's notch on Main's ring list at 352 answered only after its END ([RingForm.LATE]). */
@@ -883,7 +886,7 @@ internal object ShipVectors {
     }
 
     private suspend fun captureRing(spec: RingSpec): Captured {
-        val r = TransitionShellTest.Rig(stage = 5, kib256 = true, taps = spec.taps, nRows = MAIN_WINDOWS)
+        val r = TransitionShellTest.Rig(stage = 5, kib256 = true, taps = spec.taps, nRows = MAIN_WINDOWS, text = if (spec.noisy) NoisyText() else FakeText())
         try {
             // the slots whose instances place the act's events: Main's pans (0, 1); with a transition, its halves (2, 3) too
             val slots = if (spec.form == RingForm.TAP || spec.form == RingForm.UNDER_BACK) listOf(0, 1, 2, 3) else listOf(0, 1)

@@ -6291,7 +6291,7 @@ class Shell(
      * base ([wheelBase]) down to Main's staging's end: Main wins an overlap, and a list already staged where the block goes
      * yields (`wheelPlace`, the one place a block is laid out). Kept while Main, the clock or a screen that is not a list is in front (Settings →
      * Main → Settings writes nothing); another list in front replaces it; a row count, layout or planes change of its own
-     * view makes a new staging (a new mark). Its effect is Global `Animations`' (Crush and Flip play their fallback on the
+     * view makes a new staging (a new mark). Its effect is Global `Animations`' (Crush, Flip and Matrix play their fallback on the
      * window form, decisions CV); an effect change re-makes its pans alone, as Main's. Its rows' keys are null: a changed row
      * is found by the compose compare ([composeCompare], stage 3b) and the round-robin. Notes under `liststage`.
      */
@@ -6662,6 +6662,11 @@ class Shell(
             // FF: so does its fit, at every height — the fast path's programs never stay bound while fires run C2's path
             // (a hand disarm), nor C2's fit while every fire runs the fast path (a staging made before EFFECTS landed)
             st.bind && ms.stage5 != st.effects -> "the stage-5 form and fit ${if (ms.stage5) "no longer match: EFFECTS is not in force" else "are wanted: EFFECTS is in force"}"
+            // C3 DM-2aF (decisions EV 2): the records rule, left standing while the list is covered (he may only be passing
+            // through the row, `listBindReprogram`), is acted on here with the list in front — before the offer, so no SET
+            // names the old pans and no notch fires them against the effect asked now
+            inFront() && ms.progSlots != null && ms.remakeOwed(motionInForce()) != null && !listBindBurstOpen() ->
+                ms.recordsRule(motionInForce(), effectsToken(st))?.let { "the motion changed (${ms.motion?.words()} → ${motionInForce().words()}) and $it: a full staging is owed" }
             else -> null
         }
         if (why != null) { listBindDrop(why); return }
@@ -6965,6 +6970,9 @@ class Shell(
         val p = when (val r = ms.remake(want, effectsToken(st))) {
             is ListStaging.Remake.Owed -> r.programs
             is ListStaging.Remake.NoRoom -> {
+                // C3 DM-2aF (decisions EV 2): under a cover the records rule is left standing — the staging stays, his
+                // return acts on it ([listBindPoll], before the offer); a step on through the row re-makes the pans alone
+                if (r.records && !inFront()) return false
                 // Auto's steps alone stay as they are where there is no slot; a change of the rows is a full staging
                 if (ms.motion != want) listBindDrop("the motion changed (${ms.motion?.words()} → ${want.words()}) and ${r.why}: a full staging is owed")
                 return ms.motion != want
@@ -8176,7 +8184,7 @@ class Shell(
                     it.copy(depth = v.toIntOrNull() ?: ShellSettings.GLOBAL_DEPTH) }) }),
             // K1-2 stage 3c (the K1-2 spec §4; decisions BC O8, CV; MOTION.md §7: one Scroll effect per app, in its own
             // category): what this app's list plays on the glasses — "default" is `Animations`' choice, and where that is
-            // Crush or Flip the row says what a window's list plays instead, as Main's row says its fallback. Shown only at
+            // Crush, Flip or Matrix the row says what a window's list plays instead, as Main's row says its fallback. Shown only at
             // ladder stage 5 ([settingsApps]): below it no window list is bound, so the row would do nothing
             HostSetting(APP_SCROLL_ROW, { appScrollOptions() },
                 { settings.appStyle(id).scrollEffect.let { v -> if (v == "default") appScrollDefault() else wm.damage.core.motion.ScrollEffect.byId(v)?.word ?: appScrollDefault() } },
@@ -8186,8 +8194,8 @@ class Shell(
     }
 
     /** K1-2 stage 3c: the per-app `Scroll effect` row's name, its options (the "default" option first, then what a window's
-     *  list plays itself) and its "default" option's words — "default", or "default (plays Slide)" where `Animations`' Crush
-     *  or Flip plays its fallback on a window's list (decisions CV). */
+     *  list plays itself) and its "default" option's words — "default", or "default (plays Slide)" where `Animations`'
+     *  Crush, Flip or Matrix plays its fallback on a window's list (decisions CV). */
     private fun appScrollOptions(): List<String> = listOf(appScrollDefault()) + wm.damage.core.motion.ScrollEffects.WINDOW_EFFECTS.map { it.word }
     private fun appScrollDefault(): String {
         val g = wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT

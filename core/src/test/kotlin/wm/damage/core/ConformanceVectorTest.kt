@@ -98,19 +98,26 @@ class ConformanceVectorTest {
         // the ship acts K1-2 stage 1 moved, C3 stage X2MX2's Warp, Flip and Encode acts and its new Crush act, and SV3's
         // new act (ended with SV3's comparison, X10T), Music's stage L's two lane shapes and K1-2 stage 4f's list-1 acts
         // with the four ring-tap acts it wrote again (both ended with K1-2 stage 4h's comparison), and C3 stage DW-3's for
-        // the app switcher's acts with the acts DW-3 and DW-3h wrote again (ended with DW-3h's comparison) — are gone:
-        // every unfilled file in the repo fails like any other.
-        // C3 stages DM-2a and DM-2b, one exception for their new files (decisions DW 6, 7, EP 3) — `v5-dm-rain-fire` and
-        // `v5-dm-cells-fire` (`make_vectors.py`) and Main's Matrix and Scramble ship acts — exactly the names in
-        // [DM2_UNFILLED], which wait for the fork's fill (F1): reported "not filled" with a count and run through the model
-        // ([theUnfilledVectorsRunThroughTheModel]); a filled one names the exception stale. The comparison after the fill
-        // removes this exception.
-        val dm2 = out.notFilled.filter { it.substringBefore(" (") in DM2_UNFILLED }
-        if (dm2.isNotEmpty()) println("ConformanceVectorTest: ${dm2.size} DM-2 vector(s) not filled until the comparison: ${dm2.joinToString("; ")}")
-        for (n in out.notFilled - dm2.toSet())
+        // the app switcher's acts with the acts DW-3 and DW-3h wrote again (ended with DW-3h's comparison), and C3 stage
+        // OM-V's for every ship act written again after OM-1 (ended with OM-V's comparison) — are gone: every unfilled
+        // file in the repo fails like any other.
+        // C3 stage DM-2a, one exception for its two new files (decisions DW 6, 7) — `v5-dm-rain-fire` (`make_vectors.py`) and
+        // Main's Matrix ship act — exactly the names in [DM2A_UNFILLED], which wait for the fork's fill (F1, after DM-2b):
+        // reported "not filled" with a count and run through the model ([theUnfilledVectorsRunThroughTheModel]); a filled
+        // one names the exception stale. The comparison after the fill removes this exception.
+        val dm2a = out.notFilled.filter { it.substringBefore(" (") in DM2A_UNFILLED }
+        if (dm2a.isNotEmpty()) println("ConformanceVectorTest: ${dm2a.size} DM-2a vector(s) not filled until the comparison: ${dm2a.joinToString("; ")}")
+        // C3 stage DM-2b, one exception for its two new files (decisions DW 6, 7, EP 3) — `v5-dm-cells-fire` (`make_vectors.py`)
+        // and Main's Scramble ship act — exactly the names in [DM2B_UNFILLED], held as DM-2a's are; the comparison after
+        // the fill removes it.
+        val dm2b = out.notFilled.filter { it.substringBefore(" (") in DM2B_UNFILLED }
+        if (dm2b.isNotEmpty()) println("ConformanceVectorTest: ${dm2b.size} DM-2b vector(s) not filled until the comparison: ${dm2b.joinToString("; ")}")
+        for (n in out.notFilled - dm2a.toSet() - dm2b.toSet())
             out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
-        for (m in DM2_UNFILLED) if (Files.exists(dir.resolve("$m.json")) && out.notFilled.none { it.startsWith("$m ") })
-            out.problems += "$m: filled — the stage DM-2 exception DM2_UNFILLED is stale, remove it"
+        for (m in DM2A_UNFILLED) if (Files.exists(dir.resolve("$m.json")) && out.notFilled.none { it.startsWith("$m ") })
+            out.problems += "$m: filled — the stage DM-2a exception DM2A_UNFILLED is stale, remove it"
+        for (m in DM2B_UNFILLED) if (Files.exists(dir.resolve("$m.json")) && out.notFilled.none { it.startsWith("$m ") })
+            out.problems += "$m: filled — the stage DM-2b exception DM2B_UNFILLED is stale, remove it"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -831,11 +838,16 @@ class ConformanceVectorTest {
             val x2 = "v5-ship-select-warp-352"
             for (n in listOf(x2, "${x2}2"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
-            // C3 stages DM-2a's and DM-2b's exception holds exactly their four names: each is reported, not failed, and a name
-            // that only begins like one fails like any other; the comparison after the fork's fill removes this block and the filter
-            val dm2 = DM2_UNFILLED.sorted()
-            assertEquals(listOf("v5-dm-cells-fire", "v5-dm-rain-fire", "v5-ship-ring-matrix-352", "v5-ship-ring-scramble-352"), dm2, "stages DM-2a's and DM-2b's names")
-            for (n in dm2 + dm2.map { "${it}2" })
+            // C3 stage DM-2a's exception holds exactly its two names: each is reported, not failed, and a name that only
+            // begins like one fails like any other; the comparison after the fork's fill removes this block and the filter
+            val dm2a = DM2A_UNFILLED.sorted()
+            assertEquals(listOf("v5-dm-rain-fire", "v5-ship-ring-matrix-352"), dm2a, "stage DM-2a's names")
+            for (n in dm2a + dm2a.map { "${it}2" })
+                Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
+            // C3 stage DM-2b's exception, the same for its two names
+            val dm2b = DM2B_UNFILLED.sorted()
+            assertEquals(listOf("v5-dm-cells-fire", "v5-ship-ring-scramble-352"), dm2b, "stage DM-2b's names")
+            for (n in dm2b + dm2b.map { "${it}2" })
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
@@ -873,7 +885,9 @@ class ConformanceVectorTest {
      * 3a) written again, and the list-1 acts ([ShipVectors.list1Acts], compared on their ring form too); filled at K1-2
      * stage 4h's comparison. C3 DW-3: the wheel's acts ([ShipVectors.wheelActs], compared on [ShipVectors.wheelForms]) and
      * the 64 acts whose session writes the wheel's block, written again; C3 DW-3h: the 37 stage-5 160 KiB acts that stage
-     * Main, written again in today's form; filled at DW-3h's comparison.
+     * Main, written again in today's form; filled at DW-3h's comparison. C3 OM-V: every act written again for OM-1's form
+     * of its cache writes (mode 19 now mode 25, the same inflated bytes; their programs compare as before); filled at
+     * OM-V's comparison, but Main's Matrix act, which waits under [DM2A_UNFILLED].
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
@@ -944,10 +958,14 @@ class ConformanceVectorTest {
         /** Stage X3D's model-follows-§7.3 file (`make_vectors.py`): a hinted present with an owner open (the R1.21 row's
          *  names). */
         const val X3_HINT = "v5-x3-hint"
-        /** C3 stages DM-2a and DM-2b (`private/c3-design/C3-DM2a-built.md`, `C3-DM2b-built.md`; decisions DW 6, 7, EP 3):
-         *  their new files, waiting for the fork's fill (F1) — `v5-dm-rain-fire` and `v5-dm-cells-fire` (`make_vectors.py`)
-         *  and Main's Matrix and Scramble ship acts. Exactly these names; the comparison after the fill removes the set. */
-        val DM2_UNFILLED = setOf("v5-dm-rain-fire", "v5-ship-ring-matrix-352", "v5-dm-cells-fire", "v5-ship-ring-scramble-352")
+        /** C3 stage DM-2a (`private/c3-design/C3-DM2a-built.md`; decisions DW 6, 7): its two new files, waiting for the fork's
+         *  fill (F1, after DM-2b) — `v5-dm-rain-fire` (`make_vectors.py`) and Main's Matrix ship act. Exactly these names;
+         *  the comparison after the fill removes the set. */
+        val DM2A_UNFILLED = setOf("v5-dm-rain-fire", "v5-ship-ring-matrix-352")
+        /** C3 stage DM-2b (`private/c3-design/C3-DM2b-built.md`, `C3-DM2bF-built.md`; decisions DW 6, 7, EP 3, FA 3): its
+         *  two files, waiting for the fork's fill — `v5-dm-cells-fire` (`make_vectors.py`) and Main's Scramble ship act.
+         *  Exactly these names; the comparison after the fill removes the set. */
+        val DM2B_UNFILLED = setOf("v5-dm-cells-fire", "v5-ship-ring-scramble-352")
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
     }
