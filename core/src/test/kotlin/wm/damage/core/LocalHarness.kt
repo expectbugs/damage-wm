@@ -64,6 +64,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     val l1Rnd = java.util.Random(seed * 31 + 17)
     /** C3 DW-2a: the wheel's own draws (its rows and order, the lane's count, a commit's window, a notice's kind). */
     val w2Rnd = java.util.Random(seed * 37 + 29)
+    /** C3 DW-2a: the close after an open racing a notch (its own stream: adding it moved no other draw). */
+    private val w3Rnd = java.util.Random(seed * 41 + 3)
     val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = if (ring) 0xDFF else 0x5FF; it.clockIsOsTick = true }
     /** The flags each start arms: stage 4's, and EFFECTS at stage 5 (a ring list needs it, `FIRMWARE.md` §7.8). */
     private val armed = ARMED or (if (ring) DamageMsg.FLAG_EFFECTS else 0)
@@ -662,7 +664,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             y < 60 -> if (openWheel(r.nextInt(5) == 0)) "open the wheel" else "open the wheel (not now)"
             y < 80 -> { val kind = 1 + r.nextInt(2); val d = r.nextInt(41).toLong()
                 gesture(kind)
-                at(now + d) { if (openWheel()) reach2("an open racing a notch (0–40 ms after it)") }
+                // half the time the phone closes it again 10–100 ms later (an emergency notice, the PC closing the
+                // switcher), while the open's flush may still wait behind the notch's motion: the wheel's SETs then still
+                // owed at the close (decisions DP 6: the row that drops a leaving list's owed SETs). A stream of its own,
+                // so no other draw of the sequence moves
+                at(now + d) { if (openWheel()) { reach2("an open racing a notch (0–40 ms after it)")
+                    if (w3Rnd.nextBoolean()) { val d2 = 10L + w3Rnd.nextInt(91)
+                        at(now + d2) { if (wheelOpen) { reach2("a close 10–100 ms after an open racing a notch"); cancelWheel() } } } } }
                 "a notch, the wheel opened +$d ms" }
             else -> { val a = arms[r.nextInt(3)]
                 if (!trans) { lose27 = "clear" to a; if (openWheel()) reach2("an open with its CLEARs lost on ${a.joinToString("+")}") }

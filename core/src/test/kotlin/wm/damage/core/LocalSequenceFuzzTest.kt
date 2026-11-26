@@ -1584,7 +1584,16 @@ class LocalSequenceFuzzTest {
      * wheel ride them as on any seed). The gate-sized run fails when a named seed stops reaching a key it is named for
      * ([namedSeedsReach]): the row's pin would otherwise stop meeting its guard without a word. The default timing's.
      */
-    private val REACH_GATE_SEEDS: Map<Long, List<String>> = mapOf()
+    private val REACH_GATE_SEEDS: Map<Long, List<String>> = mapOf(
+        // DW2a-supersede-any-list: the close onto Main with a CLEAR of the wheel's tap entry 0 owed (Main's entry 0 too)
+        424200653L to listOf("$W2 a close onto main", "$W2 a commit by the tap rule"),
+        // DW2a-tap-on-phones-row (spec §7.2's seeded case: the tap acted on the phone's row)
+        101032L to listOf("$W2 a commit by the tap rule"),
+        // K12S4b-rebind-only-from-none (4b's first failing seed): a front changing straight from one list to the other
+        701297L to listOf("$L1 return: list 1 → Main", "$L1 window change: Main → list 1, a new staging"),
+        // K12S4b-discard-names-row-handed (4b's first failing seed): a report of the list not in front, answered
+        100564L to listOf("$L1 pin 13: a list-1 report answered with Main in front (Apply(type=1))",
+            "$L1 pin 13: a list-0 report answered with list 1 in front (Apply(type=2))"))
     private fun reachSeedsFor(): Map<Long, List<String>> = if (timing == null || timing == Timing.DEFAULT) REACH_GATE_SEEDS else emptyMap()
 
     /** C3 DW-2a: every named reach seed of [named] reached every key it is named for ([reachedBy]: seed → the keys its run
