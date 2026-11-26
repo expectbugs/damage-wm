@@ -1611,7 +1611,8 @@ up to 9 at 480, the current line HEAD-bright, the scheduler flushing a line ahea
 the visualizer strip (608 × 48 at 288/352, × 64 at 416/480, at the bottom, Bars · Scope · Pulse ·
 Meter at 4/8/12 Hz — each frame ONE rect), the queue peek (next two above the strip — **one at
 288**, the same ladder), the seven-segment **medium** clock top-right, and the PC link line under
-it.
+it. At ladder stage 5 the card's bar is a continuous fill the glasses grow and Scope is played by
+the glasses (`MUSIC.md` §14.2).
 
 🔴 **A returned rect is a PROMISE, and every band is sized by MEASURED ink** (2026-09-05;
 `CLAUDE.md`'s standing rule). `paintExclusive` is the one place a window declares its own damage;
@@ -1772,7 +1773,7 @@ the end state.
 
 On the fork's builds the glasses also play motion from programs the phone writes — Main's `Scroll effect`, the
 notice's timer and arrivals, the full-screen transitions at ladder stage 5 — ruled by `MOTION.md` §7 (its contract
-`FIRMWARE.md` §5–§7, its rows §4.2's `Animations`).
+`FIRMWARE.md` §5–§7, its rows §4.2's `Animations`); at stage 5 also Music's bar and Scope (`MUSIC.md` §14.2).
 
 ### 6.3 Rules
 
