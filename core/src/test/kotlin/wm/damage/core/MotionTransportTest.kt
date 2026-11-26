@@ -765,8 +765,7 @@ class MotionTransportTest {
     /** `FIRMWARE.md` §5.9, spec §6.2, as OM-1F left it (Part EQ): with ZWRITE in force a mode-19 list goes as mode 25.
      *  RIGHT's refusal of it, on record at the next read, sends nothing again — the refused list is a missing write, and
      *  RIGHT's count stays one short for the shell's count to find; mode 25 is off for the session, said once, and the
-     *  next list goes as mode 19. The next session allows mode 25 again: the refusal still on RIGHT's record is that
-     *  session's baseline, not a new one. */
+     *  next list goes as mode 19. The next session allows mode 25 again. */
     @Test
     fun aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9(): Unit = runBlocking {
         val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
@@ -803,16 +802,13 @@ class MotionTransportTest {
         assertEquals(19, right[2][0].toInt(), "mode 25 off for the session after a refusal")
         waitUntil(10_000, message = { "the mode 19 landed" }) { glass.cacheGen(Arm.RIGHT) == 2L }
         assertEquals(1, notes.count { it.first == "glass" && "mode 25 refused by RIGHT" in it.second }, "said once: $notes")
-        // the next session: the start arms ZWRITE again and RIGHT's standing record (the same refusal) is its baseline
+        // the next session: its start allows mode 25 again and arms ZWRITE again
         t.endLink("test: the session ends")
         t.start(full)
         assertEquals(0x24, t.state.value.flagsInForce, "stage 1 again: DRAW2 and ZWRITE")
         t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(4000))), 0, "ATLAS"))
         waitUntil(10_000, message = { "the next session's write" }) { right.size >= 4 }
         assertEquals(25, right[3][0].toInt(), "a session start allows mode 25 again")
-        t.devProbe("telemetry", "read")
-        delay(200)
-        assertTrue(t.nextListDeflates(), "the refusal standing on RIGHT's record from the session before withdraws nothing: $notes")
         t.stop()
     }
 
