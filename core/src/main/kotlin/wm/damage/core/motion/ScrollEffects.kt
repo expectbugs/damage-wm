@@ -97,8 +97,9 @@ object ScrollEffects {
 
     /**
      * C3 DM-1 (D3 as ruled, decisions AD): what one notch draws for an asked effect — [effect]'s own program, of version 2
-     * where [v2] (Crush; Flip's width turn), or its fallback: Slide for Crush, Flip's height turn (version 1) for Flip.
-     * Every other effect plays itself in version 1. [why] says why a fallback plays (null when the effect plays itself).
+     * where [v2] (Crush; Flip's width turn; Matrix), or its fallback: Slide for Crush, Flip's height turn (version 1) for
+     * Flip, Depth for Matrix. Every other effect plays itself in version 1 on Main (a window list's every form is version
+     * 2, [playsFor]). [why] says why a fallback plays (null when the effect plays itself).
      */
     data class Plays(val effect: ScrollEffect, val v2: Boolean, val why: String? = null) {
         /** The words the `Scroll effect` row adds for [asked] when this is not its own program ("" when it is). */
@@ -323,8 +324,8 @@ object ScrollEffects {
     /**
      * What plays' ([p]) pan at off4 [at4]: [kA] rows above the band and [kB] below drawn from [strip] (a strip slot or the
      * wrap's record) one notch in [step] (+1 down, −1 up) over [t] steps (one for None); [tables] are its own ([tables]
-     * at [t], already placed); [fx] the gate's token for a version-2 form (Crush, Flip's width turn: refused without it).
-     * Three per-lens tracks (four for Slide and Fall, five for Crush): the rows above the band and the rows below it — the
+     * at [t], already placed); [fx] the gate's token for a version-2 form (Crush, Flip's width turn, Matrix: refused
+     * without it). Three per-lens tracks (four for Slide and Fall, five for Crush and Matrix): the rows above the band and the rows below it — the
      * strip drawn twice, one pitch apart (decisions F) — and the band over both planes' x on each lens.
      */
     fun program(p: Plays, s: Staged, strip: Motion.Source.Record, kA: Int, kB: Int, step: Int, t: Int, at4: Int,
@@ -547,9 +548,6 @@ object ScrollEffects {
     const val RAIN_TRAIL = 6
     const val RAIN_TAIL_LVL = 3
     const val RAIN_FLICKER = 2
-    /** The rain's seed (h0): a constant of ours (decisions DW 10 — no source names one; any u16 serves). The fire's tag is
-     *  mixed into it (opt bit 7), so each notch's rain differs and both lenses draw alike; `v5-dm-rain-fire` pins its bytes. */
-    const val RAIN_SEED = 0x4D58
     /** The noise set's codes (the DM spec §1.4): 16, so every alphabet code is a real glyph in the private table (§7.11). */
     val NOISE_CODES: IntArray = "0123456789ABCDEF".map { it.code }.toIntArray()
     /** The face the noise is drawn in: Main's row face (`MainSurface`'s), through the shell's styled text. */
@@ -598,7 +596,10 @@ object ScrollEffects {
      *   area every step, so the rain inside it may have backdrop none (§7.2); T1, T2 and T4 draw every pixel of it again;
      * - T1, T2: Depth's rows above and below the band (the strip, y ← P0 and ← P3, one pitch on ease-out);
      * - T3, W, backdrop none: the rain ([Staged.rain], GLYPHS kind 1) at the area's corner on each lens, linear over T,
-     *   seeded with [RAIN_SEED] and the fire's tag — drawn before the band, so it falls behind it;
+     *   drawn before the band, so it falls behind it; its seed is h0 ← P1, the entering row's band form (kind 1: its off4,
+     *   the item table's entry), never mixed with the fire's tag (C3 DM-2aF, decisions EV 1: a bound fire's tag is each
+     *   lens's own S, `FIRMWARE.md` §6.4, and the two S can differ — a seed with it would give each eye its own rain). Both
+     *   lenses compute P1 from the cursor, so the rain is one picture on both and differs from row to row;
      * - T4: Depth's band (P2 back and dim, then P1 forward and bright).
      * END: at step T every head is at R + trail, so no cell is lit and reveal 0 leaves the rows — Depth's END (pinned).
      */
@@ -618,7 +619,7 @@ object ScrollEffects {
             track(r.bL, r.bR, Motion.Backdrop.Level(0)) {
                 draw(strip, x = cx - dL, xR = cx + dL, y = 0, dy = -step * l.rowH, ease = ease, n = t, prefs = listOf(Motion.Pref(3, Motion.Field.Y)))
             }
-            track(wL, wR, Motion.Backdrop.None) { rain(rain, t, x = 0, xR = 0, seed = RAIN_SEED, mixTag = true) }
+            track(wL, wR, Motion.Backdrop.None) { rain(rain, t, x = 0, xR = 0, prefs = listOf(Motion.Pref(1, Motion.Field.H0))) }
             track(r.nL, r.nR, Motion.Backdrop.Level(0)) {
                 val swap = ListStaging.swapOf(t)
                 draw(s.band, x = cx - dB, xR = cx + dB, y = l.lens.y, dx = -shift, dxR = shift,

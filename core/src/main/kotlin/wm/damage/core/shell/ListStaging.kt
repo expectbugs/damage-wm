@@ -646,7 +646,30 @@ class ListStaging private constructor(
 
     sealed class Remake {
         class Owed(val programs: Programs) : Remake()
-        class NoRoom(val why: String) : Remake()
+        /** [records]: refused by the records rule ([recordsRule]) — the shell acts on it only with the list in front. */
+        class NoRoom(val why: String, val records: Boolean = false) : Remake()
+    }
+
+    /** C3 DM-2a, the records rule (decisions DV 2, DW 1): an effect's records are part of the staging, so a change into or
+     *  out of one is staged again whole — never pans re-made beside records that are not there, or left behind. Why pans
+     *  for [want] (with [fx], the gate's token now) break it here, or null. C3 DM-2aF (decisions EP 2): what [want] plays
+     *  is [playsHere]'s, so a staging that gave its records up re-makes its fallback's pans alone. */
+    fun recordsRule(want: ScrollMotion, fx: Motion.Effects?): String? {
+        val wantRecords = playsHere(want, fx).effect.takeIf { ScrollEffects.hasRecords(it) }
+        if (wantRecords != recordEffect) return "${(wantRecords ?: recordEffect)!!.word}'s records are staging records " +
+            "(${if (wantRecords != null) "this staging holds none" else "this staging holds them"}): a change into or out of it is staged again whole"
+        return null
+    }
+
+    /** C3 DM-2aF (decisions EP 2; `C3-DM2b-V1-a.md` §3): what [want] plays on this staging — [ScrollEffects.playsFor]'s
+     *  answer, except where this staging gave the asked effect's records up (they did not fit, or could not be made:
+     *  [recordEffect] null while that effect draws records): it keeps its fallback ([plays], its reason with it) while
+     *  the same effect is asked, so Auto's re-makes are the fallback's pans alone, as Depth's are. A change of the effect
+     *  asked, the rows or the cache stages again. Without it every slow notch's re-make was a full staging that gave the
+     *  records up again. */
+    private fun playsHere(want: ScrollMotion, fx: Motion.Effects?): ScrollEffects.Plays {
+        val p = ScrollEffects.playsFor(want.effect, form, fx)
+        return if (ScrollEffects.hasRecords(p.effect) && recordEffect == null && want.effect == motion?.effect) plays else p
     }
 
     /** Why the pans in force are not what [want] asks — the scroll rows changed, or under Auto the period in force gives
@@ -660,20 +683,17 @@ class ListStaging private constructor(
 
     /** The pans for [want] laid out in the free slot (the effect's own timing on a change of the rows; under Auto the
      *  steps at the period in force otherwise), or why they cannot be: no spare slot, or they do not fit it (a full
-     *  staging is then owed). C3 DM-1: [fx] the gate's token as the link state gives it now (null below stage 5) — Crush
-     *  and Flip are made in version 2 with it and checked at every cursor, their fallback otherwise ([ScrollEffects.plays]). */
+     *  staging is then owed). C3 DM-1: [fx] the gate's token as the link state gives it now (null below stage 5) — Crush,
+     *  Flip and Matrix are made in version 2 with it and checked at every cursor, their fallback otherwise
+     *  ([ScrollEffects.plays]). C3 DM-2a: a change into or out of an effect with records is refused ([recordsRule]). */
     fun remake(want: ScrollMotion, fx: Motion.Effects? = null): Remake {
         val slots = progSlots ?: return Remake.NoRoom("Main's region holds no spare programs slot")
         val why = remakeOwed(want) ?: return Remake.NoRoom("nothing to re-make")
         val reset = motion != want
         val to = 1 - activeProgs
         val specs = pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }
-        val asked = ScrollEffects.playsFor(want.effect, form, fx)
-        // C3 DM-2a, the records rule (decisions DV 2, DW 1): an effect's records are part of the staging, so a change into
-        // or out of one is staged again whole — never pans re-made beside records that are not there, or left behind
-        val wantRecords = asked.effect.takeIf { ScrollEffects.hasRecords(it) }
-        if (wantRecords != recordEffect) return Remake.NoRoom("${(wantRecords ?: recordEffect)!!.word}'s records are staging records " +
-            "(${if (wantRecords != null) "this staging holds none" else "this staging holds them"}): a change into or out of it is staged again whole")
+        val asked = playsHere(want, fx)
+        recordsRule(want, fx)?.let { return Remake.NoRoom(it, records = true) }
         // DM-0: the rules' P0 and P3 by the strip's own margin (k + 1 on a ring strip; `layout.rowsAbove` was one row short there)
         val made = lay(staged, asked, fx, slots[to], specs, margin, rows, ring, itemOffs, { recordOf(it) }) { pl ->
             if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form) else periodInForce to ScrollEffects.stepsAt(want, periodInForce, t) }
@@ -909,8 +929,8 @@ class ListStaging private constructor(
                       *  or false, today's form byte for byte. C3 FF: and at every height the programs take the fast DRAW
                       *  path's fit ([ScrollEffects.timing]); false: C2's fit, every byte as before. */
                      stage5: Boolean = false,
-                     /** C3 DM-1: the gate's token ([Motion.effects]) as the link state gives it at this staging — Crush and Flip
-                      *  are staged in version 2 only with it; never kept (decisions W, D-6). */
+                     /** C3 DM-1: the gate's token ([Motion.effects]) as the link state gives it at this staging — Crush, Flip
+                      *  and Matrix are staged in version 2 only with it; never kept (decisions W, D-6). */
                      fx: Motion.Effects? = null,
                      /** K1-2 stage 1 (O12): per row, the largest band form a row whose band form changed in the last staging
                       *  drew ([bandSeen], carried by window; 0: none) — that row gets the largest slot. */
@@ -1232,7 +1252,7 @@ class ListStaging private constructor(
         /**
          * C3 DM-1 (D3 as ruled): the pans of [plays0] at the [timing] it gives, laid out from [off] — and a version-2 form
          * checked at every cursor a notch lands on ([checkEveryCursor]); a form the check refuses gives way to its fallback
-         * (Crush → Slide, Flip → its height turn), the refusal said in [Laid.plays]. [n] rows, [ring] and [itemOffs] are the
+         * (Crush → Slide, Flip → its height turn, Matrix → Depth), the refusal said in [Laid.plays]. [n] rows, [ring] and [itemOffs] are the
          * staging's (the parameters the glasses compute).
          */
         internal fun lay(staged: ScrollEffects.Staged, plays0: ScrollEffects.Plays, fx: Motion.Effects?, off: Int, specs: List<PanSpec>, marginA: Int,
@@ -1259,9 +1279,13 @@ class ListStaging private constructor(
          * C3 DM-1 (the DM spec §1.2's "windows inside the strip", §1.6's budget): [pan] with the parameters the glasses
          * compute at EVERY cursor a notch of its step lands on (`FIRMWARE.md` §6.2 step 9; on a [ring] list kinds 1 and 2 at
          * the virtual row, §7.8) — every source window inside its record (5), every value (12), and its step budget C at
-         * most [BUDGET_PCT] % of the cap (§7.12, the DSL's calculator). A [LintError] names the first that is not.
+         * most [BUDGET_PCT] % of the cap (§7.12, the DSL's calculator). A [LintError] names the first that is not. C3 DM-2aF
+         * (decisions EV 1): and no seed mixed with the fire's tag — a bound fire's tag is each lens's own S (§6.4), which can
+         * differ between the lenses, so a seed with it (opt bit 7 of PIECES or GLYPHS, §7.2) would draw each eye its own.
          */
         internal fun checkEveryCursor(pan: Pan, n: Int, ring: Boolean, itemOffs: IntArray) {
+            if (pan.program.tracks.any { t -> t.segments.any { (it.verb == Motion.PIECES || it.verb == Motion.GLYPHS) && it.opt and 0x80 != 0 } })
+                throw LintError("a bound program's seed mixes the fire's tag (opt bit 7, §7.2): a local fire's tag is each lens's own S (§6.4), so each eye would draw its own")
             cursors@ for (c in 0 until n) {
                 val v = c + pan.step
                 if (!ring && v !in 0 until n) continue                   // the edge: nothing plays there
