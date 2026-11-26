@@ -1870,6 +1870,10 @@ class MusicGlasses(
      *  the song that paint showed (while the chain is open the strip repaints once a second, ruling 8). */
     private var stripZero = Long.MIN_VALUE
     private var mmVizSecond: Long? = null
+    /** Stage SF2: Scope's lane was offered ([lanes]) since the strip was last painted with no chain open — a chain may
+     *  have held it since, its picture in the truth as old as that paint (a seek's release paint, then a chain held
+     *  until a pause inside the same second, with no once-a-second paint between). */
+    private var stripLaned = false
     /** [lanes]' last answer was a spec: while the paint is behind the place an open chain is kept, and none is offered
      *  once there was none (after a pause or a stall). */
     private var lanesAnswered = false
@@ -1894,7 +1898,10 @@ class MusicGlasses(
     private fun digitsReserve(durS: String): Int =
         maxOf(tx.measure(durS.replace(Regex("[0-9]"), "0"), fSmall), tx.measure(durS.replace(Regex("[0-9]"), "8"), fSmall))
 
-    override fun lanes(content: Rect): LaneSpec? = lanesNow().also { lanesAnswered = it != null }
+    override fun lanes(content: Rect): LaneSpec? = lanesNow().also {
+        lanesAnswered = it != null
+        if (it != null && scopeTruth() && scopeData() != null) stripLaned = true      // stage SF2: Scope's strip is the set
+    }
 
     private fun lanesNow(): LaneSpec? {
         val now = clock()
@@ -2040,12 +2047,14 @@ class MusicGlasses(
         // the visualizer: one rect per frame, on its own pacing. Stage S: Scope's strip is its lane's truth — at the place
         // the time line shows, its zero kept — and while its chain is open on the glasses it repaints once a second and as
         // soon as the song's zero moves past it (ruling 8; the compositor holds the cells, so no byte goes). The first paint
-        // after the chain has ended repaints it once more, at the place shown now (`second` is null then, `mmVizSecond` the
-        // last held paint's): a pause starts no frame loop, and the strip there would stay its last once-a-second paint
+        // with no chain open after its lane was offered repaints it once more, at the place shown now ([stripLaned]; stage
+        // SF2: the shell makes that paint in the pump that takes the release): a pause starts no frame loop, and the strip
+        // there would stay the last paint a chain held — a once-a-second paint, or a seek's release paint
         val held = scopeHeld()
         val second = if (held) Math.floorDiv(shownPos(), 1000L) else null
-        if (l.viz != null && (full || mmVizDue || second != mmVizSecond || (held && behind(stripZero)))) {
+        if (l.viz != null && (full || mmVizDue || (held && (second != mmVizSecond || behind(stripZero))) || (!held && stripLaned))) {
             mmVizDue = false; mmVizSecond = second
+            if (!held) stripLaned = false
             val r = Viz.byName(vizName)
             if (r != null) {
                 val truth = scopeTruth()
