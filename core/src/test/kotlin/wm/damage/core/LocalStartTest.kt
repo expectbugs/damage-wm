@@ -19,7 +19,7 @@ import wm.damage.core.gfx.IconKind
 import wm.damage.core.local.Taps
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.shell.ShellSettings
@@ -157,7 +157,7 @@ class LocalStartTest {
         val b = unhex(r.images.drop(before).first { CfwModes.carriesBind(unhex(it)) })
         val t27 = subs(b).filter { it[0].toInt() == 27 && it[1].toInt() in 0..1 }    // the idle SETTLE's riding LIST aside (U.1)
         assertEquals(1, t27.size, "one SET or CLEAR")
-        assertTrue(t27[0].contentEquals(CfwModes.bindClear(MainStaging.ENTRY_TAP)), "the tap entry's CLEAR")
+        assertTrue(t27[0].contentEquals(CfwModes.bindClear(ListStaging.ENTRY_TAP)), "the tap entry's CLEAR")
         r.shell.stop()
     }
 

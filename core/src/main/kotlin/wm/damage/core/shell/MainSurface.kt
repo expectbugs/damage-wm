@@ -47,7 +47,7 @@ class MainSurface(
     fun focusedWindow(): DamageWindow? = windows().getOrNull(model.cursor)
 
     // ------------------------------------------------------------------ build C2: Main's bound list (stage DM2)
-    /** Main's list as staged on the glasses, set by the shell ([MainBinding]) once every record is counted (field 17)
+    /** Main's list as staged on the glasses, set by the shell ([ListBinding]) once every record is counted (field 17)
      *  and cleared when the staging goes; null while nothing staged is counted. Loop-confined, like the model. */
     override var offered: wm.damage.core.local.BoundList? = null
 
@@ -67,7 +67,7 @@ class MainSurface(
     override fun shift(from: wm.damage.core.local.BoundList, to: wm.damage.core.local.BoundList): Int = 0
 
     /** What a row's staged picture is drawn from, compared at every compose: a change marks the row for its re-stage
-     *  (`MainBinding`). The theme's icons and the faces are not in it: a round-robin repaint catches those. The progress
+     *  (`ListBinding`). The theme's icons and the faces are not in it: a round-robin repaint catches those. The progress
      *  is the bar's lit blocks, as both forms draw it (decisions AL.1: a playing track's position moves at every read). */
     /** B082: the window a row shows (its identity across stagings: a row that changed keeps its segment room). */
     internal fun rowIdentity(index: Int): String? = windows().getOrNull(index)?.id

@@ -148,7 +148,7 @@ class MainBindShellTest {
      * Decisions X: a row whose band form changes (its detail) is re-staged into a free slot and switched by one write of
      * the item table — a new list with the same mark, the old one its `previous` until that flush is acknowledged; a row
      * whose row form changes (its line) withdraws the list, writes its strip segment and offers the list again; a row's
-     * second re-stage waits for [wm.damage.core.shell.MainBinding.RESTAGE_PACE_MS]. No full staging.
+     * second re-stage waits for [wm.damage.core.shell.ListBinding.RESTAGE_PACE_MS]. No full staging.
      */
     @Test
     fun aRowWhosePictureChangesIsRestagedWithTheMarkKept_DM2(): Unit = runBlocking {

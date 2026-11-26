@@ -23,8 +23,8 @@ import wm.damage.core.local.Taps
 import wm.damage.core.motion.ScrollEffect
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
-import wm.damage.core.shell.MainBinding
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListBinding
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.shell.ShellSettings
@@ -241,7 +241,7 @@ class WindowListShellTest {
         val at = r.right.size
         val snaps = r.notes("snapback").size
         val s = r.fire(eventId)
-        for (a in Arm.entries) r.until("$what: $a plays the notch in slot 0") { synchronized(r.sim) { r.sim.motionForTest(a).slots[MainStaging.SLOT] != null } }
+        for (a in Arm.entries) r.until("$what: $a plays the notch in slot 0") { synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT] != null } }
         delay(((e.program!!.T + 1) * e.period * 1000L) / 1024 + r.q() + 300)
         r.settle("$what: after")
         val want = if (list.ring) (row0 + e.step).mod(list.count) else row0 + e.step
@@ -794,20 +794,20 @@ class WindowListShellTest {
             r.windowBound("offered again")
             println("K12S3b adjusted value: row 3 re-staged $took ms after the adjust level was left (on the rig); " +
                 "${r.notes("liststage").lastOrNull { it.startsWith("row 3 re-staged") }}")
-            assertTrue(took < MainBinding.RESTAGE_PACE_MS, "within 5 s: $took ms")
+            assertTrue(took < ListBinding.RESTAGE_PACE_MS, "within 5 s: $took ms")
             assertTrue(r.onLoop { r.shell.windowListBinding.staging } === ms, "the same staging (a row re-staged keeps it)")
             // the next notch: RIGHT's panel at its END — read before the first image RIGHT takes after the motion's end
             val l = r.onLoop { r.shell.layout }
             val go = java.util.concurrent.atomic.AtomicBoolean(false)
             val end = java.util.concurrent.atomic.AtomicReference<Gray8?>(null)
             r.onImage = { _ ->
-                if (go.get() && end.get() == null && synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.SLOT]?.drawing != true })
+                if (go.get() && end.get() == null && synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.SLOT]?.drawing != true })
                     end.set(r.panel(false))
             }
             r.settle("before the notch")
             val e = assertNotNull(r.list().entryFor(CfwModes.EV_UPROLL))
             r.fire(CfwModes.EV_UPROLL)
-            r.until("RIGHT plays the notch") { synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.SLOT]?.drawing == true } }
+            r.until("RIGHT plays the notch") { synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.SLOT]?.drawing == true } }
             go.set(true)
             delay(((e.program!!.T + 1) * e.period * 1000L) / 1024 + r.q() + 300)
             r.settle("after the notch")
@@ -1073,7 +1073,7 @@ class WindowListShellTest {
             r.open("settings")
             r.windowBound("Settings")
             val (mw0, p0, t) = r.onLoop { Triple(r.shell.stepWindowsForTest().first, r.shell.periodInForceForTest(), r.shell.mainBinding.staging!!.t) }
-            r.onLoop { r.shell.localBodyForTest(wm.damage.core.transport.TransportEvent.LocalBody(MainStaging.SLOT, 0x7ABC,
+            r.onLoop { r.shell.localBodyForTest(wm.damage.core.transport.TransportEvent.LocalBody(ListStaging.SLOT, 0x7ABC,
                 wm.damage.core.wire.DamageMsg.OUTCOME_DREW, null, drawn = t.toLong(), folded = 0L, endCrc = 1L, stepUs = 60_000L)) }
             r.done("the body read")
             assertEquals(mw0, r.onLoop { r.shell.stepWindowsForTest().first }, "Main's measured window unchanged")
@@ -1468,7 +1468,7 @@ class WindowListShellTest {
         } finally { r.close() }
     }
 
-    /** Item 2's class, the re-stage (`MainStaging.restage`'s tail laid out again): a bound window list whose row 1 (on
+    /** Item 2's class, the re-stage (`ListStaging.restage`'s tail laid out again): a bound window list whose row 1 (on
      *  screen) starts drawing noise in one-pixel runs — the strip's tail cannot be padded. The staging is dropped with the
      *  reason, and the next is refused at its layout with the padding's note — no `pump-error`; the list drawn by the phone
      *  as today. Without: a NullPointerException in the pump at every turn, the row marked again each time. */

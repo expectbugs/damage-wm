@@ -17,7 +17,7 @@ import wm.damage.core.motion.ScrollEffect
 import wm.damage.core.motion.ScrollEffects
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.MainLocalCheck
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.shell.ContentKit
 import wm.damage.core.shell.ShellSettings
 import wm.damage.core.shell.WindowListCheck
@@ -35,7 +35,7 @@ class ScrollEffectsTest {
     private val caches = listOf(CfwModes.CACHE2_MAX, CfwModes.CACHE2_MAX_RIDERS)
 
     private fun staging(h: Int, cache: Int, e: ScrollEffect = ScrollEffect.DEPTH, rig: MainLocalCheck.MainRig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())) =
-        rig.staging(cache, CfwModes.mainRegion(cache, true), MainStaging.ScrollMotion.DEFAULT.copy(effect = e))
+        rig.staging(cache, CfwModes.mainRegion(cache, true), ListStaging.ScrollMotion.DEFAULT.copy(effect = e))
 
     /** Today's Depth programs (APK 0.82, `main` at 39afb77), read on the unchanged tree with this rig: per height and cache,
      *  the pans in order (strip slot : step) and the SHA-256 of their records back to back. K1-2 stage 1 (O1): at 256 KiB
@@ -52,7 +52,7 @@ class ScrollEffectsTest {
         (480 to 256) to ("0:1,0:-1" to "99a6314e4dbbc6742b27dbc304cc827bcb203e9662689579f7bd256324e5a499"),
     )
 
-    private fun digest(pans: List<MainStaging.Pan>): String {
+    private fun digest(pans: List<ListStaging.Pan>): String {
         val md = java.security.MessageDigest.getInstance("SHA-256")
         for (p in pans) md.update(p.program.bytes)
         return md.digest().joinToString("") { "%02x".format(it) }
@@ -89,10 +89,10 @@ class ScrollEffectsTest {
                     assertEquals(depthRules, ms.pans.map { p -> p.rules.map { it.kind to it.arg } }, "$what0: the rules are Depth's")
                     var n = 0
                     for (pan in ms.pans) for (cPrime in -1..ms.rows) {
-                        val p = (if (pan.strip == MainStaging.WRAP_STRIP) ms.wrapParams(pan, cPrime) else ms.params(pan, cPrime)) ?: continue
+                        val p = (if (pan.strip == ListStaging.WRAP_STRIP) ms.wrapParams(pan, cPrime) else ms.params(pan, cPrime)) ?: continue
                         val c = cPrime - pan.step
                         val to = cPrime.mod(ms.rows)
-                        Motion.play(pan.program, MainStaging.SLOT, ms.period, 1, 0, p)
+                        Motion.play(pan.program, ListStaging.SLOT, ms.period, 1, 0, p)
                         for (left in listOf(true, false)) {
                             val end = rig.truth(c, left).copy().also { ms.paintEnd(pan, p, left, it) }
                             assertEquals(0, differ(end, rig.truth(to, left), pan.areas(left)), "$what0 strip ${pan.strip} step ${pan.step} $c→$cPrime left=$left: px where END is not Main's paint at $to")
@@ -104,7 +104,7 @@ class ScrollEffectsTest {
                         n++
                     }
                     assertTrue(n >= 2 * (ms.rows - 1), "$what0: $n notches checked")
-                    val whole = ms.pan(MainStaging.WHOLE, 1)
+                    val whole = ms.pan(ListStaging.WHOLE, 1)
                     // C3 DM-1: by what plays (Crush plays Slide below stage 5; Flip's height turn draws Depth's areas)
                     assertEquals(ScrollEffects.areaPx(ms.plays.effect, ms.layout, ms.listD, ms.bandD), whole.areaPx, "$what0: the fitted area is the tracks' own")
                     assertEquals(if (e == ScrollEffect.NONE) 1 else ms.t, whole.program.T, "$what0: T")
@@ -132,12 +132,12 @@ class ScrollEffectsTest {
         for (h in heights) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
             for (cache in caches) for (e in ScrollEffect.entries) {
-                val m = MainStaging.ScrollMotion.DEFAULT.copy(effect = e)
+                val m = ListStaging.ScrollMotion.DEFAULT.copy(effect = e)
                 val s5 = rig.staging(cache, CfwModes.mainRegion(cache, true), m, stage5 = true)
                 val s4 = rig.staging(cache, CfwModes.mainRegion(cache, true), m)
                 val what0 = "$h ${cache / 1024} KiB ${e.word} at stage 5"
                 val l = s5.layout
-                val wraps = MainStaging.ringFits(l, s5.rows)
+                val wraps = ListStaging.ringFits(l, s5.rows)
                 assertEquals(wraps, s5.ring, "$what0: the ring form exactly where Main's paint wraps")
                 assertTrue(s5.stage5 && !s4.stage5, "$what0: each staging records the EFFECTS it was made under")
                 val k = l.rowsAbove
@@ -157,7 +157,7 @@ class ScrollEffectsTest {
                     assertNull(s5.wrapPan(1) ?: s5.wrapPan(-1), "$what0: no wrap pan (the wrap notch fires on the glasses)")
                 }
                 assertEquals(ScrollEffects.timing(e, l, s5.listD, s5.bandD, m, true), s5.period to s5.t, "$what0: the fast DRAW path's fit")
-                assertEquals(if (e == ScrollEffect.NONE) 1 else s5.t, s5.pan(MainStaging.WHOLE, 1).program.T, "$what0: the pans' T is the fit's")
+                assertEquals(if (e == ScrollEffect.NONE) 1 else s5.t, s5.pan(ListStaging.WHOLE, 1).program.T, "$what0: the pans' T is the fit's")
                 val list = s5.boundList(1)
                 var n = 0
                 for (pan in s5.pans) for (cPrime in -1..s5.rows) {
@@ -167,7 +167,7 @@ class ScrollEffectsTest {
                     val le = list.entries.first { !it.isTap && it.step == pan.step }
                     val p = (list.predict(c, le) as? wm.damage.core.local.BoundList.Fire.Drew)?.p ?: continue
                     val to = cPrime.mod(s5.rows)
-                    Motion.play(pan.program, MainStaging.SLOT, s5.period, 1, 0, p)
+                    Motion.play(pan.program, ListStaging.SLOT, s5.period, 1, 0, p)
                     for (left in listOf(true, false)) {
                         val end = rig.truth(c, left).copy().also { s5.paintEnd(pan, p, left, it) }
                         assertEquals(0, differ(end, rig.truth(to, left), pan.areas(left)), "$what0 strip ${pan.strip} step ${pan.step} $c→$cPrime left=$left: px where END is not Main's paint at $to")
@@ -203,7 +203,7 @@ class ScrollEffectsTest {
         for (h in heights) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
             for (cache in caches) for (e in ScrollEffect.entries) {
-                val m = MainStaging.ScrollMotion.DEFAULT.copy(effect = e)
+                val m = ListStaging.ScrollMotion.DEFAULT.copy(effect = e)
                 val s5 = rig.staging(cache, CfwModes.mainRegion(cache, true), m, stage5 = true)
                 val s4 = rig.staging(cache, CfwModes.mainRegion(cache, true), m)
                 val what = "$h ${cache / 1024} KiB ${e.word}"
@@ -211,8 +211,8 @@ class ScrollEffectsTest {
                 assertEquals(ScrollEffects.timing(e, s4.layout, s4.listD, s4.bandD, m, false), s4.period to s4.t, "$what: C2's fit below stage 5")
                 if (e == ScrollEffect.NONE) assertEquals(1, s5.t, "$what: None one step")
                 // the band's swap keeps its 2-of-5 proportion at the fitted T (Depth's two band segments)
-                if (e == ScrollEffect.DEPTH) assertEquals(listOf(MainStaging.swapOf(s5.t), s5.t - MainStaging.swapOf(s5.t)),
-                    s5.pan(MainStaging.WHOLE, 1).program.tracks[2].segments.map { it.steps }, "$what: the swap's proportion")
+                if (e == ScrollEffect.DEPTH) assertEquals(listOf(ListStaging.swapOf(s5.t), s5.t - ListStaging.swapOf(s5.t)),
+                    s5.pan(ListStaging.WHOLE, 1).program.tracks[2].segments.map { it.steps }, "$what: the swap's proportion")
                 for (pan in s5.pans) for (cPrime in -1..s5.rows) {
                     val p = s5.params(pan, cPrime) ?: continue
                     val c = pan.program.cost(p)
@@ -221,7 +221,7 @@ class ScrollEffectsTest {
                 }
                 if (cache == CfwModes.CACHE2_MAX_RIDERS) {
                     fit += "h$h ${e.word}: stage 5 P ${s5.period} (${"%.1f".format(s5.period * 1000.0 / 1024)} ms) T ${s5.t} = ${"%.0f".format(s5.t * s5.period * 1000.0 / 1024)} ms; " +
-                        "stage 4 P ${s4.period} T ${s4.t}; the fast step ${"%.1f".format(MainStaging.fastStepMs(ScrollEffects.areaPx(e, s5.layout, s5.listD, s5.bandD), ScrollEffects.walkBytes(e, s5.layout)))} ms (modeled)"
+                        "stage 4 P ${s4.period} T ${s4.t}; the fast step ${"%.1f".format(ListStaging.fastStepMs(ScrollEffects.areaPx(e, s5.layout, s5.listD, s5.bandD), ScrollEffects.walkBytes(e, s5.layout)))} ms (modeled)"
                     bytes += "h$h ${e.word}: the programs record ${s5.blobs.last().bytes.size} B at T ${s5.t} (stage 4 ${s4.blobs.last().bytes.size} B at T ${s4.t}); " +
                         "a pan slot ${s5.progSlot} B (${s4.progSlot}); the staging ${s5.end - s5.start} B of the region's ${s5.regionEnd - s5.regionStart} (${s4.end - s4.start})"
                 }
@@ -230,13 +230,13 @@ class ScrollEffectsTest {
         // a fixed count: spread over the length, never under the fitted period; Auto uncapped (D8: the `Scroll frames` row is his cap)
         val rig = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows())
         val cache = CfwModes.CACHE2_MAX_RIDERS
-        fun at(m: MainStaging.ScrollMotion) = rig.staging(cache, CfwModes.mainRegion(cache, true), m, stage5 = true).let { it.period to it.t }
-        assertEquals(31 to 10, at(MainStaging.ScrollMotion(300, 10)), "10 frames over 300 ms: P ⌈307.2 / 10⌉, above the fit's 16")
-        assertEquals(16 to 40, at(MainStaging.ScrollMotion(300, 40)), "40 frames: never under the fitted period (the motion runs longer)")
-        assertEquals(16 to 51, at(MainStaging.ScrollMotion(800, 0)), "800 ms Auto: ⌊819.2 / 16⌋ steps, no cap")
+        fun at(m: ListStaging.ScrollMotion) = rig.staging(cache, CfwModes.mainRegion(cache, true), m, stage5 = true).let { it.period to it.t }
+        assertEquals(31 to 10, at(ListStaging.ScrollMotion(300, 10)), "10 frames over 300 ms: P ⌈307.2 / 10⌉, above the fit's 16")
+        assertEquals(16 to 40, at(ListStaging.ScrollMotion(300, 40)), "40 frames: never under the fitted period (the motion runs longer)")
+        assertEquals(16 to 51, at(ListStaging.ScrollMotion(800, 0)), "800 ms Auto: ⌊819.2 / 16⌋ steps, no cap")
         // the programs-only re-make of a stage-5 staging (an effect changed) takes the same fit
-        val d5 = rig.staging(cache, CfwModes.mainRegion(cache, true), MainStaging.ScrollMotion.DEFAULT, stage5 = true)
-        val ps = assertNotNull((d5.remake(MainStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.SLIDE)) as? MainStaging.Remake.Owed)?.programs)
+        val d5 = rig.staging(cache, CfwModes.mainRegion(cache, true), ListStaging.ScrollMotion.DEFAULT, stage5 = true)
+        val ps = assertNotNull((d5.remake(ListStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.SLIDE)) as? ListStaging.Remake.Owed)?.programs)
         assertEquals(listOf(16, 19, 16), listOf(ps.period, ps.t, ps.periodInForce), "a re-make at stage 5: Slide on the fast fit")
         println("FF-fit (modeled)\n" + fit.joinToString("\n") + "\nFF-bytes (BoxFace)\n" + bytes.joinToString("\n") +
             "\nFF-budget: the largest C ${"%,d".format(worst)} u (${"%.1f".format(worst * 100.0 / Motion.BUDGET_CAP)} % of the cap) at $worstAt")
@@ -249,7 +249,7 @@ class ScrollEffectsTest {
     fun slideAndFallDrawTheBandInTwoTracksAndFallOnItsTable_K11() {
         for (e in listOf(ScrollEffect.SLIDE, ScrollEffect.FALL)) {
             val ms = staging(352, CfwModes.CACHE2_MAX_RIDERS, e)
-            val pr = ms.pan(MainStaging.WHOLE, 1).program
+            val pr = ms.pan(ListStaging.WHOLE, 1).program
             assertEquals(4, pr.tracks.size, "${e.word}: four tracks")
             assertTrue(pr.tracks[3].backdrop is Motion.Backdrop.None && pr.tracks[2].areaL == pr.tracks[3].areaL && pr.tracks[2].areaR == pr.tracks[3].areaR, "${e.word}: the second band track over the first's area")
             for (s in pr.tracks.drop(2).flatMap { it.segments }) assertEquals(15 to 15, s.lvl0 to s.lvl1, "${e.word}: the band forms at full level")
@@ -277,23 +277,23 @@ class ScrollEffectsTest {
         val ms = staging(352, CfwModes.CACHE2_MAX_RIDERS)
         val slots = assertNotNull(ms.progSlots, "352 at 256 KiB holds a spare pan slot")
         assertEquals(46 to 6, ms.period to ms.t)
-        val d = MainStaging.ScrollMotion.DEFAULT
+        val d = ListStaging.ScrollMotion.DEFAULT
         assertNull(ms.remakeOwed(d), "nothing owed at the staging's own motion")
         ms.periodInForce = 55
         assertTrue(ms.remakeOwed(d)!!.contains("55"), "${ms.remakeOwed(d)}")
-        val p = assertNotNull((ms.remake(d) as? MainStaging.Remake.Owed)?.programs)
+        val p = assertNotNull((ms.remake(d) as? ListStaging.Remake.Owed)?.programs)
         assertEquals(listOf(5, 55, 46, 1, slots[1]), listOf(p.t, p.periodInForce, p.period, p.slot, p.off), "Auto at P 55: T 5, the floor kept, slot 1")
         val old = ms.pans.first().prog4
         ms.switchTo(p)
         assertEquals(listOf(5, 46, 55), listOf(ms.t, ms.period, ms.periodInForce))
-        assertEquals(5, ms.pan(MainStaging.WHOLE, 1).program.T)
+        assertEquals(5, ms.pan(ListStaging.WHOLE, 1).program.T)
         assertTrue(ms.programAt(old).T == 6, "the old pan still named until released")
         ms.releasePrograms()
         assertTrue(runCatching { ms.programAt(old) }.isFailure, "released")
         assertNull(ms.remakeOwed(d), "nothing owed once T follows P")
         // a change of the effect: its own fit, the period in force reset to it, back into slot 0
         val slide = d.copy(effect = ScrollEffect.SLIDE)
-        val ps = assertNotNull((ms.remake(slide) as? MainStaging.Remake.Owed)?.programs)
+        val ps = assertNotNull((ms.remake(slide) as? ListStaging.Remake.Owed)?.programs)
         assertEquals(0, ps.slot)
         assertEquals(ps.period, ps.periodInForce, "a new effect starts from its own fit")
         assertTrue(ps.reset)
@@ -321,34 +321,34 @@ class ScrollEffectsTest {
             assertEquals(slots[0] + ms.progSlot, slots[1], "$h: the slots back to back")
             assertTrue(ms.end <= ms.regionEnd, "$h: inside the region")
             for (e in ScrollEffect.entries) if (e != ScrollEffect.DEPTH)
-                assertTrue(ms.remake(MainStaging.ScrollMotion.DEFAULT.copy(effect = e)) is MainStaging.Remake.Owed, "$h ${cache / 1024}: ${e.word} fits the slot")
+                assertTrue(ms.remake(ListStaging.ScrollMotion.DEFAULT.copy(effect = e)) is ListStaging.Remake.Owed, "$h ${cache / 1024}: ${e.word} fits the slot")
         }
         // a region a little short of the spare slot: the staging gives the slot up and nothing else
         val rig = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows())
         val cache = CfwModes.CACHE2_MAX_RIDERS
         val region = CfwModes.mainRegion(cache, true)
         val full = rig.staging(cache, region)
-        val short = MainStaging.build(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, cache, region.first, full.end - 4,
-            widths = listOf(MainStaging.WHOLE), motion = MainStaging.ScrollMotion.DEFAULT)
+        val short = ListStaging.build(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, cache, region.first, full.end - 4,
+            widths = listOf(ListStaging.WHOLE), motion = ListStaging.ScrollMotion.DEFAULT)
         assertNull(short.progSlots, "the spare slot given up")
         assertTrue(short.wrap != null, "the wrap kept")
         assertEquals(digest(full.pans), digest(short.pans), "the same pans")
-        assertTrue(short.remake(MainStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.SLIDE)) is MainStaging.Remake.NoRoom)
+        assertTrue(short.remake(ListStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.SLIDE)) is ListStaging.Remake.NoRoom)
     }
 
     // ------------------------------------------------------------------------------- C3 DM-1: Crush and Flip
 
     /** C3 X2DM1a: motions at whose T the step nearest half is not the first step past it, for Crush at 352 (225 ms Auto: 14
      *  steps; `Scroll frames` 4 and 8). */
-    private val otherSplits = listOf(MainStaging.ScrollMotion(225, 0), MainStaging.ScrollMotion(300, 4), MainStaging.ScrollMotion(300, 8))
+    private val otherSplits = listOf(ListStaging.ScrollMotion(225, 0), ListStaging.ScrollMotion(300, 4), ListStaging.ScrollMotion(300, 8))
 
     private fun stage5(h: Int, cache: Int, e: ScrollEffect, rig: MainLocalCheck.MainRig,
-                       m: MainStaging.ScrollMotion = MainStaging.ScrollMotion.DEFAULT.copy(effect = e)) =
+                       m: ListStaging.ScrollMotion = ListStaging.ScrollMotion.DEFAULT.copy(effect = e)) =
         rig.staging(cache, CfwModes.mainRegion(cache, true), m, stage5 = true)
 
     /** The cache as the staging writes it — every record at its offset (the programs' own records are written by the
      *  model's renderer itself, `Motion.stepOnModel`). */
-    private fun cacheOf(ms: MainStaging): ByteArray = ByteArray(ms.cacheSize).also { c -> for (b in ms.blobs) b.bytes.copyInto(c, b.off) }
+    private fun cacheOf(ms: ListStaging): ByteArray = ByteArray(ms.cacheSize).also { c -> for (b in ms.blobs) b.bytes.copyInto(c, b.off) }
 
     private fun panel(g: Gray8): ByteArray = wm.damage.core.gfx.Pack.rect(g, Rect(0, 0, wm.damage.core.geom.Geometry.PANEL_W, wm.damage.core.geom.Geometry.PANEL_H))
 
@@ -363,9 +363,9 @@ class ScrollEffectsTest {
 
     /** One notch as the glasses fire it on [ms]'s bound list: [pan] from row [c] to row [to] with the parameters [p] (the
      *  list's prediction — at the virtual row across a ring list's wrap, `FIRMWARE.md` §7.8). */
-    private class Notch(val pan: MainStaging.Pan, val c: Int, val to: Int, val p: IntArray)
+    private class Notch(val pan: ListStaging.Pan, val c: Int, val to: Int, val p: IntArray)
 
-    private fun notches(ms: MainStaging, activeOnly: Boolean = false): List<Notch> {
+    private fun notches(ms: ListStaging, activeOnly: Boolean = false): List<Notch> {
         val list = ms.boundList(1)
         val out = ArrayList<Notch>()
         for (pan in ms.pans) {
@@ -384,7 +384,7 @@ class ScrollEffectsTest {
      * and Flip (version 2, the width turn) — at EVERY cursor a notch lands on, both directions, both strips at 256 KiB,
      * across the wrap on a ring list (288, 352), at the four heights on both caches — the model's END (`Motion.endOnModel`,
      * the renderers the conformance vectors check) is Main's own paint at the new cursor in the program's areas, and so is
-     * the phone's belief (`MainStaging.paintEnd`); every PLAY passes the offline checks, the step budget among them.
+     * the phone's belief (`ListStaging.paintEnd`); every PLAY passes the offline checks, the step budget among them.
      */
     @Test
     fun crushAndFlipEndAtMainsPaintOnTheModelAtEveryCursor_DM1() {
@@ -398,7 +398,7 @@ class ScrollEffectsTest {
                 assertEquals(if (e == ScrollEffect.CRUSH) ms.layout.rowH else -ms.layout.rowH, ms.boundList(1).pitch, "$what0: the list's pitch (S6)")
                 val cacheImg = cacheOf(ms)
                 for (nt in notches(ms)) {
-                    Motion.play(nt.pan.program, MainStaging.SLOT, ms.period, 1, 0, nt.p)
+                    Motion.play(nt.pan.program, ListStaging.SLOT, ms.period, 1, 0, nt.p)
                     for (left in listOf(true, false)) {
                         val base = panel(rig.truth(nt.c, left))
                         val end = Motion.endOnModel(nt.pan.program, nt.p, cacheImg, base, base, left)
@@ -429,7 +429,7 @@ class ScrollEffectsTest {
     @Test
     fun crushRunsInTwoPhasesAndItsCoversLeaveNoGap_DM1() {
         var steps = 0
-        for ((h, m) in heights.map { it to MainStaging.ScrollMotion.DEFAULT } + otherSplits.map { 352 to it }) {
+        for ((h, m) in heights.map { it to ListStaging.ScrollMotion.DEFAULT } + otherSplits.map { 352 to it }) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
             val cache = CfwModes.CACHE2_MAX_RIDERS
             val ms = stage5(h, cache, ScrollEffect.CRUSH, rig, m.copy(effect = ScrollEffect.CRUSH))
@@ -548,10 +548,10 @@ class ScrollEffectsTest {
      */
     @Test
     fun flipTurnsTheBandToOneColumnAtTheMiddleStep_DM1() {
-        for ((h, m) in heights.map { it to MainStaging.ScrollMotion.DEFAULT } + otherSplits.drop(1).map { 352 to it }) {
+        for ((h, m) in heights.map { it to ListStaging.ScrollMotion.DEFAULT } + otherSplits.drop(1).map { 352 to it }) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
             val cache = CfwModes.CACHE2_MAX_RIDERS
-            for (st5 in if (m == MainStaging.ScrollMotion.DEFAULT) listOf(true, false) else listOf(true)) {
+            for (st5 in if (m == ListStaging.ScrollMotion.DEFAULT) listOf(true, false) else listOf(true)) {
                 val ms = if (st5) stage5(h, cache, ScrollEffect.FLIP, rig, m.copy(effect = ScrollEffect.FLIP)) else staging(h, cache, ScrollEffect.FLIP, rig)
                 assertEquals(ScrollEffects.Plays(ScrollEffect.FLIP, st5, if (st5) null else ScrollEffects.NOT_STAGE5), ms.plays, "$h stage ${if (st5) 5 else 4}: Flip's form")
                 val cacheImg = cacheOf(ms)
@@ -647,7 +647,7 @@ class ScrollEffectsTest {
         val shapes = ArrayList<String>()
         for (h in heights) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
-            for (m0 in listOf(MainStaging.ScrollMotion.DEFAULT) + otherSplits) for (e in listOf(ScrollEffect.CRUSH, ScrollEffect.FLIP)) {
+            for (m0 in listOf(ListStaging.ScrollMotion.DEFAULT) + otherSplits) for (e in listOf(ScrollEffect.CRUSH, ScrollEffect.FLIP)) {
                 val m = m0.copy(effect = e)
                 val ms = stage5(h, CfwModes.CACHE2_MAX_RIDERS, e, rig, m)
                 val t = ms.t
@@ -735,14 +735,14 @@ class ScrollEffectsTest {
                 for (nt in notches(ms)) {
                     val c = nt.pan.program.cost(nt.p)
                     if (c > worst) { worst = c; at = "step ${nt.pan.step} ${nt.c}→${nt.to}" }
-                    assertTrue(c * 100 <= Motion.BUDGET_CAP * MainStaging.BUDGET_PCT, "$what ${nt.c}→${nt.to}: C $c past 80 % of the cap")
+                    assertTrue(c * 100 <= Motion.BUDGET_CAP * ListStaging.BUDGET_PCT, "$what ${nt.c}→${nt.to}: C $c past 80 % of the cap")
                 }
                 assertTrue(ms.end <= ms.regionEnd && ms.start >= ms.regionStart, "$what: inside Main's region")
                 if (cache == CfwModes.CACHE2_MAX_RIDERS) assertNotNull(ms.progSlots, "$what: the spare pan slot at 256 KiB")
                 val ms4 = staging(h, cache, e, rig)
-                val step = MainStaging.fastStepMs(ScrollEffects.areaPx(e, ms.layout, ms.listD, ms.bandD), ScrollEffects.walkBytes(e, ms.layout), ScrollEffects.pixelPx(ms.plays, ms.layout, ms.listD, ms.bandD))
+                val step = ListStaging.fastStepMs(ScrollEffects.areaPx(e, ms.layout, ms.listD, ms.bandD), ScrollEffects.walkBytes(e, ms.layout), ScrollEffects.pixelPx(ms.plays, ms.layout, ms.listD, ms.bandD))
                 table += "h$h ${cache / 1024} KiB ${e.word}: step ${"%.1f".format(step)} ms, P ${ms.period} T ${ms.t} (n1 ${ScrollEffects.halfStep(ms.t)}); " +
-                    "C worst ${"%,d".format(worst)} u (${"%.1f".format(worst * 100.0 / Motion.BUDGET_CAP)} %) at $at; one pan ${ms.pan(MainStaging.WHOLE, 1).program.bytes.size} B, " +
+                    "C worst ${"%,d".format(worst)} u (${"%.1f".format(worst * 100.0 / Motion.BUDGET_CAP)} %) at $at; one pan ${ms.pan(ListStaging.WHOLE, 1).program.bytes.size} B, " +
                     "programs record ${ms.blobs.last().bytes.size} B, pan slot ${ms.progSlot} B ${if (ms.progSlots != null) "×2" else "(no spare slot)"}, staging ${ms.end - ms.start} B of the region's " +
                     "${ms.regionEnd - ms.regionStart}; stage 4: ${ms4.plays.effect.word}${if (ms4.plays.v2) "" else " v1"} P ${ms4.period} T ${ms4.t}, pan slot ${ms4.progSlot} B"
             }
@@ -765,17 +765,17 @@ class ScrollEffectsTest {
         val band = Motion.Source.Record(4000, rowW, l.lens.h, 3000)
         val n = 8
         val items = IntArray(n) { band.off4 }
-        fun lay(e: ScrollEffect, strip: Motion.Source.Record, margin: Int) = MainStaging.lay(
+        fun lay(e: ScrollEffect, strip: Motion.Source.Record, margin: Int) = ListStaging.lay(
             ScrollEffects.Staged(l, rig.listD, rig.bandD, band, listOf(strip, band)), ScrollEffects.plays(e, fx), fx, 30000,
-            listOf(1, -1).map { MainStaging.PanSpec(MainStaging.WHOLE, l.rowsAbove, l.rowsBelow, it, 0) }, margin, n, false, items, { strip }) { 16 to 19 }
+            listOf(1, -1).map { ListStaging.PanSpec(ListStaging.WHOLE, l.rowsAbove, l.rowsBelow, it, 0) }, margin, n, false, items, { strip }) { 16 to 19 }
         val margin = l.rowsAbove
         val good = Motion.Source.Record(1000, rowW, (n + 2 * margin) * l.rowH, 20_000)
         assertEquals(ScrollEffects.Plays(ScrollEffect.CRUSH, true), lay(ScrollEffect.CRUSH, good, margin).plays, "Main's strip: Crush plays itself")
         // a strip whose Crush pans cost between 80 % and the whole cap (the record's L counted whole): refused offline
         val big = Motion.Source.Record(1000, rowW, (n + 2 * margin) * l.rowH, 76_000)
         val staged = ScrollEffects.Staged(l, rig.listD, rig.bandD, band, listOf(big, band))
-        val unchecked = MainStaging.layPans(staged, ScrollEffects.Plays(ScrollEffect.CRUSH, true), 19, 30000,
-            listOf(1, -1).map { MainStaging.PanSpec(MainStaging.WHOLE, l.rowsAbove, l.rowsBelow, it, 0) }, margin, fx) { big }.first
+        val unchecked = ListStaging.layPans(staged, ScrollEffects.Plays(ScrollEffect.CRUSH, true), 19, 30000,
+            listOf(1, -1).map { ListStaging.PanSpec(ListStaging.WHOLE, l.rowsAbove, l.rowsBelow, it, 0) }, margin, fx) { big }.first
         val c = unchecked.maxOf { pn -> pn.program.cost(intArrayOf(0, band.off4, band.off4, (margin - pn.step) * l.rowH)) }
         assertTrue(c * 100 > Motion.BUDGET_CAP * 80 && c <= Motion.BUDGET_CAP, "the dear strip's Crush costs between 80 % and the cap: $c")
         val dear = lay(ScrollEffect.CRUSH, big, margin)
@@ -794,7 +794,7 @@ class ScrollEffectsTest {
 
     /**
      * K1-2 stage 1 (decisions BQ (5), BC O12): at the four heights on both caches, stage 4 and 5, each row's band form lies
-     * in a slot of its own size with a quarter's slack ([MainStaging.slack], the wheel's cells' pattern), the spare in the
+     * in a slot of its own size with a quarter's slack ([ListStaging.slack], the wheel's cells' pattern), the spare in the
      * largest; a row whose band form changed in the last staging (`bandRoom`) gets the largest; the records lie back to
      * back inside `[start, end)` with none over another, and the region's free span is the region less that extent; a
      * short region gives the band room up with the strip's (never a refusal for its sake).
@@ -806,8 +806,8 @@ class ScrollEffectsTest {
             val region = CfwModes.mainRegion(cache, true)
             val what = "$h ${cache / 1024} KiB stage ${if (s5) 5 else 4}"
             val ms = rig.staging(cache, region, stage5 = s5)
-            val big = MainStaging.slack(ms.bands.maxOf { it.encoded.size })
-            for ((i, b) in ms.bands.withIndex()) assertEquals(MainStaging.slack(b.encoded.size), b.slot, "$what: row $i's band slot is its own size")
+            val big = ListStaging.slack(ms.bands.maxOf { it.encoded.size })
+            for ((i, b) in ms.bands.withIndex()) assertEquals(ListStaging.slack(b.encoded.size), b.slot, "$what: row $i's band slot is its own size")
             assertEquals(listOf(big, big), ms.free.values.toList(), "$what: two spares, the largest")
             assertTrue(ms.bands.any { it.slot < big }, "$what: the shape guard — some row's slot is smaller than the largest")
             val spans = (ms.blobs.map { it.off until it.off + it.bytes.size } + ms.bands.map { it.off until it.off + it.slot } +
@@ -818,21 +818,21 @@ class ScrollEffectsTest {
             assertEquals(region.last + 1 - ms.end, ms.freeSpan, "$what: the free span is the region less the staging")
             assertEquals(region.first, ms.start, "$what: from the region's first byte")
             // a row whose band form changed in the last staging: the largest slot (its own last largest counted in it)
-            val paint = MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
+            val paint = ListStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
             val room = IntArray(ms.rows).also { it[3] = big + 400 }
-            val roomy = MainStaging.assemble(paint, rig.listD, rig.bandD, cache, region.first, region.last + 1, listOf(MainStaging.WHOLE),
-                MainStaging.ScrollMotion.DEFAULT, stage5 = s5, fx = if (s5) MainLocalCheck.effectsAt(true) else null, bandRoom = room)
-            val big2 = MainStaging.slack(maxOf(ms.bands.maxOf { it.encoded.size }, big + 400))
+            val roomy = ListStaging.assemble(paint, rig.listD, rig.bandD, cache, region.first, region.last + 1, listOf(ListStaging.WHOLE),
+                ListStaging.ScrollMotion.DEFAULT, stage5 = s5, fx = if (s5) MainLocalCheck.effectsAt(true) else null, bandRoom = room)
+            val big2 = ListStaging.slack(maxOf(ms.bands.maxOf { it.encoded.size }, big + 400))
             assertEquals(big2, roomy.bands[3].slot, "$what: the changing row's slot is the largest, its own last one counted")
             assertEquals(listOf(big2, big2), roomy.free.values.toList(), "$what: the spares as large")
-            for (i in roomy.bands.indices) if (i != 3) assertEquals(MainStaging.slack(roomy.bands[i].encoded.size), roomy.bands[i].slot, "$what: row $i its own size")
+            for (i in roomy.bands.indices) if (i != 3) assertEquals(ListStaging.slack(roomy.bands[i].encoded.size), roomy.bands[i].slot, "$what: row $i its own size")
         }
         // a region that holds the staging only without the band room: the room given up, never a refusal
         val rig = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows())
         val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
-        val paint = MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
-        val plain = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(MainStaging.WHOLE), MainStaging.ScrollMotion.DEFAULT)
-        val short = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, plain.end, listOf(MainStaging.WHOLE), MainStaging.ScrollMotion.DEFAULT,
+        val paint = ListStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
+        val plain = ListStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(ListStaging.WHOLE), ListStaging.ScrollMotion.DEFAULT)
+        val short = ListStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, plain.end, listOf(ListStaging.WHOLE), ListStaging.ScrollMotion.DEFAULT,
             bandRoom = IntArray(plain.rows) { 6_000 })
         assertEquals(plain.bands.map { it.slot }, short.bands.map { it.slot }, "the band room given up where the region cannot hold it")
         // and it goes with the strip's room, before the wrap's record (B082's order): the wrap kept as it was
@@ -846,7 +846,7 @@ class ScrollEffectsTest {
      * slot the move before freed) — the first into a spare, the second into the row's own old slot where it fits, else
      * the other spare. (2) Two rows whose band forms grow past their own slots, in turn, then the first again: the only
      * free slots are then the two rows' own old ones, so it is `Outgrown` (a full staging, a new mark), and in the next
-     * staging — by the room carried by window ([wm.damage.core.shell.MainBinding.bandRoomFor]) — both rows have the
+     * staging — by the room carried by window ([wm.damage.core.shell.ListBinding.bandRoomFor]) — both rows have the
      * largest slot and move as before. After every move: every write inside `[start, end)` (the free span untouched),
      * the staging's extent kept, and the END of every pan at every cursor both ways on the model — drawn from the cache
      * as written — Main's own paint at the new cursor, and belief's.
@@ -858,14 +858,14 @@ class ScrollEffectsTest {
         class Run(val s5: Boolean, prep: (List<MainLocalCheck.SampleRow>) -> Unit = {}) {
             val rows = MainLocalCheck.sampleRows().also(prep)
             val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
-            val b = wm.damage.core.shell.MainBinding()
+            val b = wm.damage.core.shell.ListBinding()
             val ids = rows.map { it.id }
-            lateinit var ms: MainStaging
+            lateinit var ms: ListStaging
             lateinit var img: ByteArray
             fun stage() {
-                val paint = MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
-                ms = MainStaging.assemble(paint, rig.listD, rig.bandD, cache, region.first, region.last + 1, listOf(MainStaging.WHOLE),
-                    MainStaging.ScrollMotion.DEFAULT, room = b.roomFor(ids), stage5 = s5, fx = if (s5) MainLocalCheck.effectsAt(true) else null,
+                val paint = ListStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
+                ms = ListStaging.assemble(paint, rig.listD, rig.bandD, cache, region.first, region.last + 1, listOf(ListStaging.WHOLE),
+                    ListStaging.ScrollMotion.DEFAULT, room = b.roomFor(ids), stage5 = s5, fx = if (s5) MainLocalCheck.effectsAt(true) else null,
                     bandRoom = b.bandRoomFor(ids))
                 b.begin(ms, emptyList(), List(ms.rows) { rig.surface.rowKey(it) }, 0L, ids)
                 img = cacheOf(ms)
@@ -873,7 +873,7 @@ class ScrollEffectsTest {
             init { stage() }
             fun endsHold(what: String) {
                 for (nt in notches(ms, activeOnly = true)) {
-                    Motion.play(nt.pan.program, MainStaging.SLOT, ms.period, 1, 0, nt.p)
+                    Motion.play(nt.pan.program, ListStaging.SLOT, ms.period, 1, 0, nt.p)
                     for (left in listOf(true, false)) {
                         val pb = panel(rig.truth(nt.c, left))
                         val end = Motion.endOnModel(nt.pan.program, nt.p, img, pb, pb, left)
@@ -893,7 +893,7 @@ class ScrollEffectsTest {
                 val freeBefore = ms.free.toMap()
                 val end0 = ms.end
                 return when (val r = ms.restage(row, rig.view, rig.kit, { _, f -> f() })) {
-                    is MainStaging.Restage.Changed -> {
+                    is ListStaging.Restage.Changed -> {
                         val mv = assertNotNull(r.band, "$what: the band form changed")
                         assertEquals(freeBefore.filter { it.value >= mv.encoded.size }.minByOrNull { it.value }!!.value, mv.slot, "$what: the smallest free slot that holds it")
                         for (w in r.writes) { assertTrue(w.off >= ms.start && w.off + w.bytes.size <= ms.end, "$what: ${w.what} at ${w.off} inside the staging"); w.bytes.copyInto(img, w.off) }
@@ -903,7 +903,7 @@ class ScrollEffectsTest {
                         endsHold("$what ($out)")
                         out
                     }
-                    is MainStaging.Restage.Outgrown -> "outgrown (${r.why})"
+                    is ListStaging.Restage.Outgrown -> "outgrown (${r.why})"
                     else -> throw AssertionError("$what: $r")
                 }
             }
@@ -983,7 +983,7 @@ class ScrollEffectsTest {
                 val what0 = "$h ${sample.id} ${e.word}"
                 assertEquals(ListForm.STRIP_WINDOWS, ms.form, what0)
                 assertTrue(ms.bands.isEmpty() && ms.wrap == null && ms.blobs.map { it.name } == listOf("strip", "programs"), "$what0: the strip and the programs alone: ${ms.blobs.map { it.name }}")
-                assertEquals(MainStaging.ringFits(l, ms.rows), ms.ring, "$what0: a ring list exactly where the list's paint wraps")
+                assertEquals(ListStaging.ringFits(l, ms.rows), ms.ring, "$what0: a ring list exactly where the list's paint wraps")
                 assertEquals(region256.last + 1, ms.end, "$what0: laid out down from its top")
                 assertEquals(e, ms.plays.effect, "$what0: the form plays its own effect")
                 val list = ms.boundList(1, list = WindowListCheck.LIST, entryIds = WindowListCheck.ENTRIES)
@@ -1003,7 +1003,7 @@ class ScrollEffectsTest {
                     for (c in 0 until ms.rows) {
                         val f = list.predict(c, entry) as? BoundList.Fire.Drew ?: continue
                         val to = f.cursor; val p = f.p!!
-                        Motion.play(pan.program, MainStaging.SLOT, ms.period, 1, 0, p)          // the offline checks at these P
+                        Motion.play(pan.program, ListStaging.SLOT, ms.period, 1, 0, p)          // the offline checks at these P
                         for (left in listOf(true, false)) {
                             val areas = pan.areas(left)
                             val end = rig.truth(c, left).copy().also { ms.paintEnd(pan, p, left, it) }
@@ -1070,10 +1070,10 @@ class ScrollEffectsTest {
         val rig = WindowListCheck.WindowRig(BoxFace, 352, WindowListCheck.Sample.GLOBAL)
         val crush = rig.staging(ScrollEffect.CRUSH, region256.first, region256.last + 1)
         assertTrue(crush.plays.effect == ScrollEffect.SLIDE && crush.motion?.effect == ScrollEffect.CRUSH && crush.plays.why == ScrollEffects.WINDOW_NOT_YET, "Crush on a window list: ${crush.plays}")
-        val m = MainStaging.ScrollMotion.DEFAULT
+        val m = ListStaging.ScrollMotion.DEFAULT
         val cache = CfwModes.CACHE2_MAX_RIDERS
-        assertFailsWith<LintError>("below stage 5") { MainStaging.buildWindow(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, cache, m, null) }
-        assertFailsWith<LintError>("at 160 KiB") { MainStaging.buildWindow(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, m, MainLocalCheck.effectsAt(true), 0, 160 * 1024) }
+        assertFailsWith<LintError>("below stage 5") { ListStaging.buildWindow(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, cache, m, null) }
+        assertFailsWith<LintError>("at 160 KiB") { ListStaging.buildWindow(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, m, MainLocalCheck.effectsAt(true), 0, 160 * 1024) }
         val full = rig.staging(ScrollEffect.DEPTH, region256.first, region256.last + 1)
         val need = full.end - full.start
         val floorTight = region256.last + 1 - (need - full.progSlot)
@@ -1093,7 +1093,7 @@ class ScrollEffectsTest {
             rig.values["${rig.app}/1"] = "On"
             rig.repainted()
             val r0 = ms.restage(1, rig.view, rig.kit, { _, b -> b() })
-            val r = r0 as? MainStaging.Restage.Changed ?: throw AssertionError("$h: row 1 changed, re-staged as $r0")
+            val r = r0 as? ListStaging.Restage.Changed ?: throw AssertionError("$h: row 1 changed, re-staged as $r0")
             assertTrue(r.band == null && r.wrapWrites.isEmpty() && r.strip.isNotEmpty(), "$h: the strip's part alone")
             assertTrue(r.writes.all { w -> w.off >= ms.strip.off && w.off + w.bytes.size <= ms.strip.off + ms.strip.slot }, "$h: every write inside the strip's slot")
             ms.apply(r)

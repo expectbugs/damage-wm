@@ -1144,7 +1144,7 @@ at every fire (§6.2 step 10), so a local draw depends only on the cursor and th
   phone a round trip later, as today (§6.12) — below stage 5, and at stage 5 where Main's paint does not wrap; where it
   wraps, stage 5 binds a ring list and the wrap notch fires on the glasses (§7.8, §7.11). Past each end Main's strip carries what Main paints there — the other
   end's rows where Main has more rows than it shows (heights 288 and 352 with its 8 rows), blanks where it has not
-  (416, 480) — so a program's END is Main's own paint at every cursor (V-src `MainStaging.kt`, `ContentKit.wrapIndex`).
+  (416, 480) — so a program's END is Main's own paint at every cursor (V-src `ListStaging.kt`, `ContentKit.wrapIndex`).
 - **The tap press.** A tap entry has step 0, so **the cursor never moves.** Its program draws a press over the row at
   the lens's cursor (kind 2 = cursor × pitch, the row's place in the staged strip; kind 1 its item), two or three steps,
   then HOLD until the phone's answer or a SETTLE ends it. **It depicts "pressed" only — never the act's result** (no
@@ -1653,7 +1653,7 @@ good." His rule for every later motion: what moves, moves together.
 
 **The period is chosen so a step fits:** the fitted step time is 15.66 ms + 0.156 per 1,000 area pixels (the field-34
 slope, its base from the first trial's own steps at stage 4; decisions AU.3), P = ⌈⌈ms × 1.024⌉ × 1.10⌉ ticks inside
-16..128, and with `Scroll frames` Auto T is the most steps the `Scroll length` holds at P (`MainStaging.timing`,
+16..128, and with `Scroll frames` Auto T is the most steps the `Scroll length` holds at P (`ListStaging.timing`,
 `timingOf`; §7.12 for the fast path). At heights 288 / 352 / 416 / 480 the moving area is 114,688 / 152,832 / 190,976
 / 229,120 px a step per lens, the fitted step time 33.6 / 39.5 / 45.5 / 51.4 ms (M at 352, I at the other three), P
 39 / 46 / 52 / 59 ticks and, at the default 300 ms, T 7 / 6 / 5 / 5; the press plays T 3 at the same P (stage DM2;
@@ -2594,7 +2594,7 @@ over four walks a step); 26 u a byte of a record = its walk and at most one run'
 pixel of a byte fill or copy, about eight times the measured copy's rate (I); 3 u a pixel of the byte-table pass (I);
 1,024 u a track's setup — its clip, ease, levels and tables (I). Field 34 on the glasses checks them.
 
-**The phone's fit of a fast-path step** (phone code, `MainStaging.fastStepMs`; none of it is firmware, and none of
+**The phone's fit of a fast-path step** (phone code, `ListStaging.fastStepMs`; none of it is firmware, and none of
 its four figures is a rate of this budget — the rates above are upper bounds, not a step's time): for a list's bound
 programs staged with EFFECTS in force, the phone takes a step's drawing time as **0.5 ms + 0.036 µs a pixel of the
 tracks' areas + 0.156 µs a pixel written a pixel at a time + 0.20 µs a byte the step decodes** (k + 1 strip rows a
