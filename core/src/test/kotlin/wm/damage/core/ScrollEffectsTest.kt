@@ -527,14 +527,15 @@ class ScrollEffectsTest {
 
     /** Each cell box a notch's cell tracks draw on [left]'s lens with the parameters [p], clipped to its track's area, with
      *  its cell: the selected list (P2) at the track's offset. */
-    private fun cellBoxes(prog: wm.damage.core.motion.MotionProgram, p: IntArray, left: Boolean): List<Pair<Rect, Motion.Cell>> {
-        val out = ArrayList<Pair<Rect, Motion.Cell>>()
+    /** Each cell's box on the lens (clipped to its track's area), the cell, and its track's index. */
+    private fun cellBoxes(prog: wm.damage.core.motion.MotionProgram, p: IntArray, left: Boolean): List<Triple<Rect, Motion.Cell, Int>> {
+        val out = ArrayList<Triple<Rect, Motion.Cell, Int>>()
         prog.resolve(p, staticOnly = false).forEachIndexed { ti, segs ->
             val area = prog.tracks[ti].area(left)
             for (r in segs) {
                 val tb = r.cells ?: continue
                 val x0 = if (left) r.xL else r.xR
-                for (c in tb.lists[r.aux0].cells) Rect(x0 + c.bx, r.y + c.by, c.bw, c.bh).intersect(area)?.let { out += it to c }
+                for (c in tb.lists[r.aux0].cells) Rect(x0 + c.bx, r.y + c.by, c.bw, c.bh).intersect(area)?.let { out += Triple(it, c, ti) }
             }
         }
         return out
@@ -568,8 +569,13 @@ class ScrollEffectsTest {
                 assertEquals(listOf("programs", "Scramble's records"), ms.blobs.takeLast(2).map { it.name }, "$what0: the records last")
                 val cacheImg = cacheOf(ms)
                 var oldCells = 0; var oldShown = 0; var noisy = 0
+                // the band's own (T7, track index 6): a wrong table index puts another row's letters there
+                var bandOld = 0; var bandShown = 0
                 for (nt in notches(ms)) {
                     Motion.play(nt.pan.program, ListStaging.SLOT, ms.period, 1, 0, nt.p)
+                    // the staging's own parameters (its belief's, `ListStaging.params`) name the list's P2: the cursor before
+                    assertEquals(nt.c, ms.params(nt.pan, nt.to)!![2], "$what0 ${nt.c}→${nt.to}: the staging's P2 is the cursor before the move")
+                    assertEquals(nt.c, nt.p[2], "$what0 ${nt.c}→${nt.to}: the list's P2 is the cursor before the move")
                     val range = nt.pan.program.firstRange(nt.p)
                     assertTrue(range.first >= ms.regionStart && range.last < ms.end, "$what0 ${nt.c}→${nt.to}: the read range $range inside Main's ${ms.regionStart}..${ms.end}")
                     assertTrue(nt.pan.program.cost(nt.p) * 100 <= Motion.BUDGET_CAP * ListStaging.BUDGET_PCT, "$what0 ${nt.c}→${nt.to}: inside 80 % of the cap")
@@ -584,22 +590,24 @@ class ScrollEffectsTest {
                         val boxes = cellBoxes(nt.pan.program, nt.p, left)
                         val one = Motion.stepOnModel(nt.pan.program, nt.p, cacheImg, base, base, left, tag = 7, k = 1)
                         val inBox = BooleanArray(wm.damage.core.geom.Geometry.PANEL_W * wm.damage.core.geom.Geometry.PANEL_H)
-                        for ((r, _) in boxes) for (y in r.y until r.bottom) for (x in r.x until r.right) inBox[y * wm.damage.core.geom.Geometry.PANEL_W + x] = true
+                        for ((r, _, _) in boxes) for (y in r.y until r.bottom) for (x in r.x until r.right) inBox[y * wm.damage.core.geom.Geometry.PANEL_W + x] = true
                         var outside = 0
                         for (r in nt.pan.areas(left)) for (y in r.y until r.bottom) for (x in r.x until r.right)
                             if (!inBox[y * wm.damage.core.geom.Geometry.PANEL_W + x] && nibble(one, x, y) != nibble(end, x, y)) outside++
                         assertEquals(0, outside, "$what: px outside every cell box where step 1 is not END (something moves)")
                         val mid = Motion.stepOnModel(nt.pan.program, nt.p, cacheImg, base, base, left, tag = 7, k = ms.t / 2)
                         val endG = rig.truth(nt.to, left)
-                        for ((b, c) in boxes) {
+                        for ((b, c, ti) in boxes) {
                             fun same(pic: ByteArray, want: Gray8) = (b.y until b.bottom).all { y -> (b.x until b.right).all { x -> nibble(pic, x, y) == wm.damage.core.gfx.Pack.level(want[x, y]) } }
                             if (c.old != 32) { oldCells++; if (same(one, start)) oldShown++ }
+                            if (c.old != 32 && ti == 6) { bandOld++; if (same(one, start)) bandShown++ }
                             if (!same(mid, start) && !same(mid, endG)) noisy++
                         }
                     }
                     n++
                 }
                 assertTrue(oldCells > 0 && oldShown * 2 >= oldCells, "$what0: at step 1 the old letters stand in $oldShown of $oldCells old-role boxes")
+                assertTrue(bandOld > 0 && bandShown * 2 >= bandOld, "$what0: at step 1 the band's old letters stand in $bandShown of its $bandOld old-role boxes")
                 assertTrue(noisy > 0, "$what0: at step ${ms.t / 2} no box holds an alphabet glyph")
                 if (cache == CfwModes.CACHE2_MAX_RIDERS) fit += "h$h: P ${ms.period} (${"%.1f".format(ms.period * 1000.0 / 1024)} ms) T ${ms.t}, " +
                     "${ms.pan(ListStaging.WHOLE, 1).areaPx} px a step, C ${"%,d".format(ms.pans.maxOf { p -> notches(ms).filter { it.pan === p }.maxOf { p.program.cost(it.p) } })} u at most; " +
