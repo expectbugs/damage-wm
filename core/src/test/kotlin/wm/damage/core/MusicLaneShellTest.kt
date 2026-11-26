@@ -247,9 +247,10 @@ class MusicLaneShellTest {
          *  oracle at the pause: both lenses' whole panels are the truth (exclusive mode has no planes: `composed` on each),
          *  and the strip is Scope's own paint at the paused place, within 2 px. Stage SF2 (`MM-S-V2-review.md` 1): and
          *  EVERY picture of RIGHT's strip from the chain's close to the settle is that paint, within 2 px, in ONE flush —
-         *  before the cure the release frame showed the strip's last once-a-second paint first (≈ 90 px back) for one flush. */
-        suspend fun pauseShowsTheTruth(data: wm.damage.core.windows.music.VizData, strip: Rect, what: String) {
-            until("$what: half a second past a whole second", 3_000) { onLoop { player.positionMs() } % 1000 in 450..600 }
+         *  before the cure the release frame showed the strip's last once-a-second paint first (≈ 90 px back) for one flush.
+         *  [wait] false (the seek pin, `MM-SF2-V.md` 1): pause at once, with no wait for the place's half second. */
+        suspend fun pauseShowsTheTruth(data: wm.damage.core.windows.music.VizData, strip: Rect, what: String, wait: Boolean = true) {
+            if (wait) until("$what: half a second past a whole second", 3_000) { onLoop { player.positionMs() } % 1000 in 450..600 }
             val rec = StripRec(sim, strip)
             sim.attachListener(rec)
             val j0 = lines().size
@@ -578,13 +579,15 @@ class MusicLaneShellTest {
             val paints = r.onLoop { r.shell.exclusiveRepaintsForTest() } - paints0
             assertTrue(paints <= 5, "Music Mode repainted $paints times in 2 s while Scope's chain was open")
             val tagBefore = r.laneTagIn(Arm.RIGHT); val starts0 = r.starts()
-            // stage SF2: a seek to the middle of a second, so the pause below (450..600 ms past the second) comes before
-            // the time line's next tick — no paint with the new chain held between them (the gate's red: a seek to a whole
-            // second raced that tick, and the strip stayed the seek's release paint at the pause)
             r.onLoop { r.player.seekTo(20_100) }
             r.until("a new chain after the seek", maxMs = 3_000) { r.starts() > starts0 && r.laneTagIn(Arm.RIGHT).let { it != null && it != tagBefore } }
             assertTrue(r.notes("lane").any { "its key changed" in it }, "the seek changed the key: ${r.notes("lane").takeLast(4)}")
-            r.pauseShowsTheTruth(SCOPE_DATA, strip, "after the seek")
+            // stage SF2 (the focused read, `MM-SF2-V.md` 1): the pause comes at once after the new chain opens. A seek does not
+            // restart the time tick, so its first tick lands where the OLD place's second would have turned, anywhere in the
+            // second after the seek; a tick between the chain's open and the pause is a held paint, and that paint would let
+            // a broken `stripLaned` pass (measured by the read: caught at 1 of 7 phases with the half-second wait, 7 of 7 at
+            // once). The once-a-second case stays pinned by [aPauseShowsScopesStripAtThePausedPlaceAtEveryHeight].
+            r.pauseShowsTheTruth(SCOPE_DATA, strip, "after the seek", wait = false)
             val starts1 = r.starts()
             r.player.play()
             r.until("a chain again", maxMs = 3_000) { r.starts() > starts1 && r.laneTagIn(Arm.RIGHT) != null }
