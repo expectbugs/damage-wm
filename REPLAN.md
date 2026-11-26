@@ -823,7 +823,7 @@ machine (done for build work: the `claude-work` cgroup; the later agents get the
 later agents: what he opens, acts on and dismisses, on which surface, when (small; designed with L0).
 
 **R-b, the health view, as shaped on 2026-11-23** (the lead's recommendations; Adam: "I like your recommendations.
-Go ahead and add them"). Not designed further than this; its design pass comes with its turn.
+Go ahead and add them"). Designed and built since; what runs is `IMPLEMENTATION.md`, "The health view".
 - **One record on the PC**, described and presented like a window's, its lines in `CONTRACT.md`'s `value` shape (a
   state of live, stale or last known, the source's time, a reason), so that every surface and the later agents read
   the same thing. The pieces that exist are gathered into it, not rebuilt: the per-source health lines inside
