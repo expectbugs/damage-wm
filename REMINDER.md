@@ -26,62 +26,66 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   **Told to him at the staging:** a scroll effect stepped through several values at once comes back
   as the first for a moment (corrected on `main` since; 0.84 as staged still does it); the wheel is still
   phone-drawn.
-- **On `main` since 0.84 was staged, not on his devices** (the next build carries them): the fix for a scroll
-  effect changed in several steps under a cover; Encode's costs computed once an act; **Main on one strip with band
-  slots sized per row** (K1-2 stage 1: Main's region about 100 → 65 KB on the test rows, measured; about 49 KB left
-  for a window's list after the wheel's block on his rows, estimated — a row TITLE's change now withdraws Main's list
-  for under a second); **every transition fills its tier's length** (Warp and Flip 444 and 448 ms of a 450-ms
-  Select, modeled; a dense Encode page the same), the rain's plane never behind Global `Depth`; **the form of a
-  window's own list** (K1-2 stage 2: built and tested offline, nothing binds it yet); **the switcher wheel's
-  pictures resident on the glasses** (DW-1a: placed in Main's region, nothing bound — the wheel is still
-  phone-drawn); **Music's first half** (S1-4: Music on the PC's record and the PC as an output; gated on the merged
-  tree, `--music-check` passes; not deployed); test rigs that decided too early, read the real clock or read the
-  shell's collections off its loop (none a product defect); **a window's own list bound on the glasses** (K1-2
-  stage 3a: at stage 5 a window's list of two rows or more is staged, offered and bound beside Main; every Settings
-  list fits, the largest 17.5 KB on test rows, measured — four shipped acts now reach a bound list and are named as
-  moved until stage 4 re-captures them and the fork fills them, **so no build holding it goes onto his phone
-  before that comparison is at 0**); **each app's own `Scroll effect` row** (K1-2 stage 3c: at stage 5, in the
-  app's Settings category; a window's list plays its app's choice, "default" follows `Animations`); **a fixed
-  order for the faces one atlas message extends** (K1-2 stage 4d: the order no longer depends on the build; same
-  messages, same pictures); **Games on the PC's record** (S1-5 stage G; the home page's Games card has no page
-  until stage W, so no build holding it is staged before W); **a bound window list's rows kept current** (K1-2
-  stage 3b: a row on screen that changes is staged again by itself with the mark kept, an adjusted value when the
-  adjust level is left; Main's staging is kept across a window of another height; the first review's two defects
-  cured); the wheel block's three small review fixes; **stage H1 of the health view** (R-b: one health record on
-  the PC, thirteen lines; no surface shows it yet); **Settings on the PC's record** (S1-5 stage S: one description
-  of every row, every change through one door, the PC's Quiet hours read from the record; `Profiler`, `Diag
-  overlay` and `Head tracking` are removed and `Battery alert` is hidden, his word of 11-23); **the old phone–PC
-  sync removed** (S1-5 stage C: every window's state is the PC's record, so the stamped store's sync, its stamps
-  and tolerance, the four migrations that have run and `restoreStateLive` are gone — code and tests 1,640 lines
-  smaller; the deploy rule: the PC is restarted onto this only when he is about to install the APK that goes with
-  it); **Music's progress bar played by the glasses** (stage L of Music's motion update, at stage 5; the
-  two defects its first review found are cured — a still copy of the other view's bar after leaving Music Mode, the
-  elapsed time not ticking each second after a level is pushed and popped; its second review's findings are in
-  work; its two new program shapes are vector inputs the fork has not filled); **the Settings page** (S1-5 stage W
-  and the fix stage: every window's rows as a form in the browser, Music's record-backed rows among them; a change
-  the page could not send is drawn again from what it last heard; the lyric offset and each device's own rows —
-  Torrents' Poll, Feed's Images — are set on the glasses only); **the oracle walk enters windows whose list the
-  glasses hold** (K1-2 stage 4c). **On the integration branch, waiting for the next whole battery:** K1-2 stage 4a
-  (a list's rows are painted while a transition plays and written after it; a list too long to bind is no longer
-  painted first; a live list whose rows all change is staged anew once per view, not every 2 s), 4b (the sequence
-  fuzz drives a window's list; no product defect found) and 4e (`FIRMWARE.md`'s sentences for a window's list);
-  DW-1b's first stage (the wheel bound as a third list); the "Open on PC" opener as a required argument of the real
-  Files and Torrents providers (2026-11-25: a new test walk opened a file-manager window on his desktop; no test
-  can after this); the walk's stalls explained (two gaps in the test's doors; a stall now fails the walk); the
-  health page (R-b H3); the tests' temp folders kept under the build directory (the runs had left about ten
-  thousand folders in `/tmp`); a pong's ping answered before its number is written (a test's race; in use, rarely a
-  reconnect). **In work, on branches:** DW-1b's second stage (the `Switcher` row, the checks, the report's reading);
-  the health view's lane and phone half (R-b H2); Music's second fix stage; a small list stage (a fault in the
-  strip's padding for a row made of one-pixel runs; Main's own list under a transition). **Specified and ruled, not
-  started:** the rest of K1-2's stage 4 (the capture, the fork's fill, the comparison) and stage 5; DW-2 and DW-3;
-  R-b's review and fix stage (`REPLAN.md` §17.4; his three answers of 11-25: a notice after 5 minutes, disk alarm
-  under 2 % free and attention under 5 %, the tag in the link cell); the upgrade check on a copy of his PC data;
-  Music's focused read, then Scope and the lyric wipe.
-- **Owed before more is built on them:** the APK's `release` variant tried with him there (the phone runs the
-  mirror's loops 70–93 times slower than the PC — the debug build is suspected, not measured); a sweep of the whole
-  mutation list (`research/mutations-c2.json`, 624 rows) on the current tree, machine time only (the last whole
-  sweep: 0.77's tree, §92.11). The reading of Crush, Flip and Matrix is closed (two general passes and one focused
-  read each; no defect open): only an instrument or the glass reopens it.
+- **On `main` since 0.84 was staged, not on his devices** (the next build carries them): the fix for a scroll effect
+  changed in several steps under a cover; Encode's costs computed once an act; **Main on one strip with band slots
+  sized per row** (K1-2 stage 1: Main's region about 100 → 65 KB on the test rows, measured; about 49 KB left for a
+  window's list after the wheel's block on his rows, estimated — a row TITLE's change now withdraws Main's list for
+  under a second); **every transition fills its tier's length** (Warp and Flip 444 and 448 ms of a 450-ms Select,
+  modeled; a dense Encode page the same), the rain's plane never behind Global `Depth`; **the form of a window's own
+  list** (K1-2 stage 2: built and tested offline, nothing binds it yet); **the switcher wheel's pictures resident on
+  the glasses** (DW-1a: placed in Main's region, nothing bound — the wheel is still phone-drawn); **Music's first
+  half** (S1-4: Music on the PC's record and the PC as an output; gated on the merged tree, `--music-check` passes;
+  not deployed); test rigs that decided too early, read the real clock or read the shell's collections off its loop
+  (none a product defect); **a window's own list bound on the glasses** (K1-2 stage 3a: at stage 5 a window's list of
+  two rows or more is staged, offered and bound beside Main; every Settings list fits, the largest 17.5 KB on test
+  rows, measured — four shipped acts now reach a bound list and are named as moved until stage 4 re-captures them and
+  the fork fills them, **so no build holding it goes onto his phone before that comparison is at 0**); **each app's
+  own `Scroll effect` row** (K1-2 stage 3c: at stage 5, in the app's Settings category; a window's list plays its
+  app's choice, "default" follows `Animations`); **a fixed order for the faces one atlas message extends** (K1-2 stage
+  4d: the order no longer depends on the build; same messages, same pictures); **Games on the PC's record** (S1-5
+  stage G; the home page's Games card has no page until stage W, so no build holding it is staged before W); **a bound
+  window list's rows kept current** (K1-2 stage 3b: a row on screen that changes is staged again by itself with the
+  mark kept, an adjusted value when the adjust level is left; Main's staging is kept across a window of another
+  height; the first review's two defects cured); the wheel block's three small review fixes;  **Settings on the PC's
+  record** (S1-5 stage S: one description of every row, every change through one door, the PC's Quiet hours read from
+  the record; `Profiler`, `Diag overlay` and `Head tracking` are removed and `Battery alert` is hidden, his word of
+  11-23); **the old phone–PC sync removed** (S1-5 stage C: every window's state is the PC's record, so the stamped
+  store's sync, its stamps and tolerance, the four migrations that have run and `restoreStateLive` are gone — code and
+  tests 1,640 lines smaller; the deploy rule: the PC is restarted onto this only when he is about to install the APK
+  that goes with it); **Music's progress bar played by the glasses** (stage L of Music's motion update, at stage 5;
+  the two defects its first review found are cured — a still copy of the other view's bar after leaving Music Mode,
+  the elapsed time not ticking each second after a level is pushed and popped; its later reviews' findings are cured
+  (stages LF2 and LF3) and its reading is closed; its two new program shapes are vector inputs the fork has not
+  filled); **the Settings page** (S1-5 stage W and the fix stage: every window's rows as a form in the browser,
+  Music's record-backed rows among them; a change the page could not send is drawn again from what it last heard; the
+  lyric offset and each device's own rows — Torrents' Poll, Feed's Images — are set on the glasses only); **the oracle
+  walk enters windows whose list the glasses hold** (K1-2 stage 4c); K1-2 stage 4a (a list's rows are painted while a
+  transition plays and written after it; a list too long to bind is no longer painted first; a live list whose rows
+  all change is staged anew once per view, not every 2 s), 4b (the sequence fuzz drives a window's list; no product
+  defect found) and 4e (`FIRMWARE.md`'s sentences for a window's list); **the switcher wheel bound as a third list**
+  (DW-1b: at stage 5 its notches are drawn by the glasses from the block already resident there; a `Switcher` row,
+  Drum or None, on the `Animations` page); **the health view** (R-b, `REPLAN.md` §17.4: the PC's health record as
+  thirteen lines on a page of their own, the phone's own lines sent to the PC, and his three answers of 11-25 — a
+  notice after 5 minutes, the disk in alarm under 2 % free and attention under 5 %, a tag in the glasses' link cell,
+  drawn whole or as its first word with the dBm figure giving way to it; reviewed once, its fix stage built); the
+  "Open on PC" opener as a required argument of the real Files and Torrents providers (2026-11-25: a new test walk
+  opened a file-manager window on his desktop; no test can after this); the walk's stalls explained (two gaps in the
+  test's doors; a stall now fails the walk); the tests' temp folders kept under the build directory (the runs had left
+  about ten thousand folders in `/tmp`); a pong's ping answered before its number is written (a test's race; in use,
+  rarely a reconnect). **On the integration branch, waiting for the next whole battery:** the phone's start with a
+  lens it still holds a link to (stages BL and BLF, after 2026-11-25's morning, when the app scanned for a pair the
+  phone was still connected to: such a lens is said in the log and connected by its remembered address); K1-2 stage 4i
+  (three small items on the lists: both list lanes through one function, a fault in the strip's padding for a row made
+  of one-pixel runs, Main's own list under a transition). **In work, on branches:** the wake from Silent Mode keeping
+  the links (stage BW); Music's Scope (stage S); K1-2's capture (stage 4f); the sequence fuzz and the oracle walk
+  driving the wheel (DW-2). **Specified and ruled, not started:** the fork's fill and the comparison (K1-2 stages 4g
+  and 4h) and stage 5; the wheel's vectors (DW-3); Music's lyric wipe. **Run once, and again on the tree that is
+  deployed next:** the upgrade check on a copy of his PC data (23 checks held).
+- **Owed before more is built on them:** the APK's `release` variant tried with him there (the phone runs the mirror's
+  loops 70–93 times slower than the PC — the debug build is suspected, not measured); a sweep of the whole mutation
+  list (`research/mutations-c2.json`: 657 rows on `main`, 674 on the integration branch) on the current tree, machine
+  time only (the last whole sweep: 0.77's tree, §92.11). The reading of Crush, Flip and Matrix is closed (two general
+  passes and one focused read each; no defect open): only an instrument or the glass reopens it.
 - **Owed on glass from his earlier looks:** his answer to §97.1's question (in very fast scrolling, are the lenses
   a whole row apart, or the same row at different positions); at his next fast-scroll session the phone's `/log`
   pulled early (the late echoes' cause, §98.6, is inferred until a stock message's arrival is read there); C2's
@@ -103,13 +107,12 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   while rows travel 32; Warp, Flip and Explode centred on the larger height; a notice arriving within about 2 s
   after a fast burst can still double-move Main.
 - **No browser of his is approved yet;** he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
-- **The counts** (simulator; the last full battery, on `main` `6ed73da0`, 2026-11-25): the whole core suite
-  2,161 / 0, desktop 75 / 0; the conformance vectors'
-  classes 260 / 0 (247 files filled by the fork, 0 disagreements; Music's two new inputs named unfilled); the
-  sequence fuzz at its three timings 58 / 0 each; the walk twice; `--selfcheck` twice, `--games-check`,
-  `--feed-check`, `--music-check` and `--epub-check ~/books` pass; `--motion-check` and `--local-check` ALL HOLD;
-  the snapshot 99 + 98 scenes, 0 px outside the mask; the phone build and its wiring check; node 210; lint 0; the
-  mutation list 624 rows, every row applies (not swept whole since 0.77's tree).
+- **The counts** (simulator; the last full battery, on `main` `1946e93b`, 2026-11-25): the whole core suite 2,201 / 0,
+  desktop 77 / 0; the conformance vectors' classes 260 / 0 (247 files filled by the fork, 0 disagreements; Music's two
+  new inputs named unfilled); the sequence fuzz at its three timings 59 / 0 each; the walk twice; `--selfcheck` twice,
+  `--games-check`, `--feed-check`, `--music-check` and `--epub-check ~/books` pass; `--motion-check` and
+  `--local-check` ALL HOLD; the snapshot 99 + 98 scenes, 0 px outside the mask; the phone build and its wiring check;
+  node 217; lint 0; the mutation list 657 rows, every row applies (not swept whole since 0.77's tree).
 
 ## Open from the documents' audit (2026-11-23)
 
@@ -140,8 +143,8 @@ The order is `REPLAN.md` §17.3 (every run sized first and both meters read, §1
    scroll effects in other windows.
 2. **S1-4** (Music: his five answers are in, `REPLAN.md` §17.3 item 7; half A is on `main`, §97.5, and goes onto
    the PC and the phone with the next build; then his sitting, and half B after it), **S1-5** (his five answers of 11-23
-   and its lean spec, `REPLAN.md` §17.3 item 10), **R-b** (one health view on every surface, §17.4), then §16.1's
-   order. **Music's motion update** (his ask of 11-22: `MUSIC.md` §14): its first two stages — the bar with its
+   and its lean spec, `REPLAN.md` §17.3 item 10), **R-b** (one health view on every surface, §17.4: built and on
+   `main`; his look comes with the next build), then §16.1's order. **Music's motion update** (his ask of 11-22: `MUSIC.md` §14): its first two stages — the bar with its
    timer, then Scope — are built now on his word of 11-24; the rest keeps its place at K3 (`REPLAN.md` §17.3 item 9).
 3. **Reddit in Feed** (§91.5, §100.9): stale since 11-17 11:45, and not his network — Reddit ended its public RSS
    feeds on 2026-11-13; measured 11-21 on both of the PC's network paths: HTTP 404. The service still asks every 15
