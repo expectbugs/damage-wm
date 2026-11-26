@@ -4607,7 +4607,8 @@ def dm_scramble_prog(g, strip4, band4, above4, below4, band_new4, band_old4, ste
     rows above and below the band at level 0 (the strip at y ← P0 and y ← P3, one pitch in ONE step, then held); T3 the
     band at level 0 (the entering form, src ← P1, at the band's plane, one step); T4 and T5 the rows' cells (backdrop
     none, inside T1 and T2: aux0 ← P2, the cursor before the move by kind 3, and y ← P0 / P3) over T; T6 and T7 the band's
-    new-role then old-role cells (aux0 ← P2) over T — every cell track seeded with the tag mixed in (opt bit 7)."""
+    new-role then old-role cells (aux0 ← P2) over T — every cell track seeded with DM_SCRAMBLE_SEED alone, no tag mixed
+    in (C3 DM-2bF: opt bit 7 clear, as every program a bound list fires)."""
     lx, ly, lw, lh = g["lens"]
     rh, cx, rw, dL, dB, kA, kB = g["rowH"], g["cx"], g["rowW"], g["listD"], g["bandD"], g["kA"], g["kB"]
     bandW = rw + abs(dL - dB)
@@ -4615,9 +4616,9 @@ def dm_scramble_prog(g, strip4, band4, above4, below4, band_new4, band_old4, ste
     B = (rect(cx - dL, ly + lh, rw, kB * rh), rect(cx + dL, ly + lh, rw, kB * rh))
     N = (rect(cx - max(dL, dB), ly, bandW, lh), rect(cx + min(dL, dB), ly, bandW, lh))
     rows = lambda pr: d2(1, strip4, cx - dL, 0, dy=-step * rh, xR=cx + dL, pref0=pref(pr, F_Y))
-    rcells = lambda tb4, pr: gly(T, CELLS, tb4, x=cx - dL, xR=cx + dL, seed=DM_SCRAMBLE_SEED, opt=0x80,
+    rcells = lambda tb4, pr: gly(T, CELLS, tb4, x=cx - dL, xR=cx + dL, seed=DM_SCRAMBLE_SEED,
                                  pref0=pref(2, F_AUX0), pref1=pref(pr, F_Y))
-    bcells = lambda tb4: gly(T, CELLS, tb4, x=cx - dB, y=ly, xR=cx + dB, seed=DM_SCRAMBLE_SEED, opt=0x80, pref0=pref(2, F_AUX0))
+    bcells = lambda tb4: gly(T, CELLS, tb4, x=cx - dB, y=ly, xR=cx + dB, seed=DM_SCRAMBLE_SEED, pref0=pref(2, F_AUX0))
     return prog2(
         track(A, 0, rows(0)),
         track(B, 0, rows(3)),

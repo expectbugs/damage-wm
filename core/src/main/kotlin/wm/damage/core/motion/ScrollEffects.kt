@@ -564,9 +564,10 @@ object ScrollEffects {
     /** The face the noise is drawn in: Main's row face (`MainSurface`'s), through the shell's styled text. */
     val NOISE_FACE = FontSpec(Face.SYSTEM, 18)
 
-    /** C3 DM-2b: Scramble's seed (h0): a constant of ours, as the rain's (decisions DW 10, EP 10 — no source names one; any
-     *  u16 serves). The fire's tag is mixed into it (opt bit 7), so each notch's noise differs and both lenses draw alike;
-     *  `v5-dm-cells-fire` pins its bytes. */
+    /** C3 DM-2b: Scramble's seed (h0): a constant of ours (decisions DW 10, EP 10 — no source names one; any u16 serves).
+     *  C3 DM-2bF (decisions EZ 1, FA 1, EV 1's class rule): one seed on all four cell tracks and no fire tag mixed in (opt
+     *  bit 7 clear) — a bound fire's tag is each lens's own S, so a tag in the seed would draw each eye its own noise; a row
+     *  scrambles the same way each time it is passed. `v5-dm-cells-fire` pins its bytes. */
     const val SCRAMBLE_SEED = 0x5343
 
     /** C3 DM-2a, DM-2b — the one records holder (the records rule, [hasRecords]): an effect's staging records laid from
@@ -761,7 +762,7 @@ object ScrollEffects {
      *   offset by y ← P0 and ← P3 as the strip, over T;
      * - T6, T7, inside T3 (backdrop none): the band's new-role cells ([CellTables.bandNew]), then its old-role ones
      *   ([CellTables.bandOld]) — masks first, so the old letters draw over them — over T.
-     * Every cell track seeded with [SCRAMBLE_SEED] and the fire's tag, its levels 15. END: at step T every cell is settled
+     * Every cell track seeded with [SCRAMBLE_SEED] alone (no tag: C3 DM-2bF), its levels 15. END: at step T every cell is settled
      * on its new code 32 (§7.6: no fill, no glyph), so T1–T3 alone show — Depth's END (pinned at every cursor).
      */
     internal fun scramble(s: Staged, strip: Motion.Source.Record, kA: Int, kB: Int, step: Int, t: Int, at4: Int, fx: Motion.Effects): MotionProgram {
@@ -781,16 +782,16 @@ object ScrollEffects {
                 draw(s.band, x = cx - dB, xR = cx + dB, y = l.lens.y, n = 1, prefs = listOf(Motion.Pref(1, Motion.Field.SRC)))
             }
             track(r.aL, r.aR, Motion.Backdrop.None) {
-                cells(tb.above.getValue(step), n = t, x = cx - dL, xR = cx + dL, seed = SCRAMBLE_SEED, mixTag = true, prefs = listOf(cursor, Motion.Pref(0, Motion.Field.Y)))
+                cells(tb.above.getValue(step), n = t, x = cx - dL, xR = cx + dL, seed = SCRAMBLE_SEED, prefs = listOf(cursor, Motion.Pref(0, Motion.Field.Y)))
             }
             track(r.bL, r.bR, Motion.Backdrop.None) {
-                cells(tb.below.getValue(step), n = t, x = cx - dL, xR = cx + dL, seed = SCRAMBLE_SEED, mixTag = true, prefs = listOf(cursor, Motion.Pref(3, Motion.Field.Y)))
+                cells(tb.below.getValue(step), n = t, x = cx - dL, xR = cx + dL, seed = SCRAMBLE_SEED, prefs = listOf(cursor, Motion.Pref(3, Motion.Field.Y)))
             }
             track(r.nL, r.nR, Motion.Backdrop.None) {
-                cells(tb.bandNew.getValue(step), n = t, x = cx - dB, xR = cx + dB, y = l.lens.y, seed = SCRAMBLE_SEED, mixTag = true, prefs = listOf(cursor))
+                cells(tb.bandNew.getValue(step), n = t, x = cx - dB, xR = cx + dB, y = l.lens.y, seed = SCRAMBLE_SEED, prefs = listOf(cursor))
             }
             track(r.nL, r.nR, Motion.Backdrop.None) {
-                cells(tb.bandOld, n = t, x = cx - dB, xR = cx + dB, y = l.lens.y, seed = SCRAMBLE_SEED, mixTag = true, prefs = listOf(cursor))
+                cells(tb.bandOld, n = t, x = cx - dB, xR = cx + dB, y = l.lens.y, seed = SCRAMBLE_SEED, prefs = listOf(cursor))
             }
         }
     }

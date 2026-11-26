@@ -688,35 +688,44 @@ class ScrollEffectsTest {
      * of a PIECES or GLYPHS segment (`FIRMWARE.md` §7.2) — since a local fire's tag is each lens's own S. Every program the
      * stagings bind carries none: Main's pans for every effect at stage 5 (version 2) and below it (version 1), the four
      * heights, both caches, and its press; a window list's pans for every effect; the wheel's two notches, with motion and
-     * without (Matrix at stage 5 holds its rain, so the sweep reads a seeded verb). The refusal that holds it for an effect
-     * still to come (Scramble) is [theStagingsCheckRefusesABoundPanThatMixesTheTag_DM2aF].
+     * without (Matrix at stage 5 holds its rain, so the sweep reads a seeded verb). C3 DM-2bF (decisions EZ 1, FA 1):
+     * Scramble's pans too, staged on Main drawn through its atlas (its runs), where it plays itself at 256 KiB at every
+     * height — each of its cell tracks seeded with [ScrollEffects.SCRAMBLE_SEED] alone, no parameter into h0. The refusal
+     * that holds the class at the staging is [theStagingsCheckRefusesABoundPanThatMixesTheTag_DM2aF].
      */
     @Test
     fun noBoundProgramMixesTheTagIntoASeed_DM2aF() {
         fun mixes(p: wm.damage.core.motion.MotionProgram) = p.tracks.any { t -> t.segments.any { (it.verb == Motion.PIECES || it.verb == Motion.GLYPHS) && it.opt and 0x80 != 0 } }
         var n = 0
         var seeded = 0
+        var cells = 0
         for (h in heights) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            val crig = cachedRig(h)
             for (cache in caches) for (s5 in listOf(false, true)) for (e in ScrollEffect.entries) {
-                val ms = rig.staging(cache, CfwModes.mainRegion(cache, true), ListStaging.ScrollMotion.DEFAULT.copy(effect = e), stage5 = s5)
+                val ms = (if (e == ScrollEffect.SCRAMBLE) crig else rig).staging(cache, CfwModes.mainRegion(cache, true), ListStaging.ScrollMotion.DEFAULT.copy(effect = e), stage5 = s5)
                 val what = "$h ${cache / 1024} KiB stage ${if (s5) 5 else 4} ${e.word}"
                 if (s5 && e == ScrollEffect.MATRIX) assertEquals(ScrollEffects.Plays(ScrollEffect.MATRIX, true), ms.plays, "$what: Matrix plays itself")
+                if (s5 && e == ScrollEffect.SCRAMBLE && cache == CfwModes.CACHE2_MAX_RIDERS) assertEquals(ScrollEffects.Plays(ScrollEffect.SCRAMBLE, true), ms.plays, "$what: Scramble plays itself")
                 for (p in ms.pans.map { it.program } + ms.press.program) {
                     assertTrue(!mixes(p), "$what: a bound program at off4 ${p.at} mixes the tag into a seed")
                     if (p.tracks.any { t -> t.segments.any { it.verb == Motion.GLYPHS } }) seeded++
+                    for (sg in p.tracks.flatMap { it.segments }.filter { it.verb == Motion.GLYPHS && it.kind == Motion.CELLS }) {
+                        assertTrue(sg.h0 == ScrollEffects.SCRAMBLE_SEED && sg.prefs.none { it.target == Motion.Field.H0 }, "$what: a cell track's seed is not Scramble's one constant: h0 ${sg.h0}, ${sg.prefs}")
+                        cells++
+                    }
                     n++
                 }
             }
         }
-        assertTrue(seeded > 0, "the sweep read Matrix's rain")
+        assertTrue(seeded > 0 && cells > 0, "the sweep read Matrix's rain and Scramble's cells ($cells cell tracks)")
         val wrig = WindowListCheck.WindowRig(BoxFace, 352, WindowListCheck.Sample.GLOBAL)
         for (e in ScrollEffect.entries) for (p in wrig.staging(e, region256.first, region256.last + 1).pans) { assertTrue(!mixes(p.program), "a window list's ${e.word} pan mixes the tag"); n++ }
         for (none in listOf(false, true)) {
             val b = wm.damage.core.motion.WheelCheck.Rig(BoxFace, 352, 6, 8).block(none = none)
             for (step in intArrayOf(1, -1)) { assertTrue(!mixes(b.program(step)), "the wheel's ${if (step > 0) "down" else "up"} program (none $none) mixes the tag"); n++ }
         }
-        println("DM2aF-class: $n bound programs, $seeded with Matrix's rain, mix no tag")
+        println("DM2aF-class: $n bound programs, $seeded with Matrix's rain or Scramble's cells ($cells cell tracks), mix no tag")
     }
 
     /**
