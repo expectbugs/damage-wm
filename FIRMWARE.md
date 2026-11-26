@@ -1427,9 +1427,16 @@ is stated there.
   the atlas keeps 96 KiB, less the 4 KiB transition region with EFFECTS in force; the bound lists' region is 128 KiB,
   the stage reserve 32 (decisions AU.1); Main's band slots are sized per row, with two spare slots of the largest size. At stage 5 the
   switcher's wheel keeps its pictures and programs resident as the region's first tenant from its end (at most 20 KiB,
-  a cell per registered window): staged in idle after Main's staging and before Page staging, rewritten in place record
-  by record while the wheel is closed, not placed past 20 KiB, and dropped when Main's staging is laid out over it
-  (`wheel` notes; nothing binds it yet). Records that only an unbound list names (the switcher's wheel while it is not
+  a cell per registered window): staged in idle after Main's staging, after a window's list in front is staged and
+  counted (the block's place reserved by its size first, so the list is laid out under it; decisions DF finding 2), after
+  the first wanted strip of a document Page staging serves in front is written or given up (its place reserved the same
+  way; decisions DM 3, DP 9), and before Page staging's other strips; rewritten in place record by record while the
+  wheel is not bound — closed, or open before its offer holds, when only what the offer needs is written (the block
+  where none is placed, the item table for this open's order, the programs for its geometry; CK A5) — not placed past
+  20 KiB, and dropped when Main's staging is laid out over it. While the switcher is open it is bound as glasses list 2
+  once every condition of the offer holds (its item table this open's order, its programs this open's geometry, timing
+  and `Switcher` choice, every write counted); the `wheel` note at each close says whether it was bound at the open, or
+  after how long, and who drew each notch. Records that only an unbound list names (the switcher's wheel while it is not
   bound) may be rewritten in place; the list is offered again only once field 17 counts every such write. A staging that did not fit is tried again at each session start and when the rows' drawn content changes
   (decisions AF.6, AL.1: the key is what the rows draw, never a value that moves without the picture). COMMIT, DISCARD and SETTLE only while the lease is held and BIND is in force — never in Silent Mode, never
   into a released lease. Each of them that names a list rides behind that list's LIST with shift 0 (12 B, idempotent),
@@ -1452,7 +1459,10 @@ is stated there.
   ends it; the model applies COMMIT's END only, in stream order, painted from the phone's own copy of the staged
   records the COMMIT's program and P0..P3 name — the pictures the fire drew, current or older than the window's truth
   (P9, decisions X); **the batch's diff is taken with COMMIT's END applied**, so an adopting batch does not send the
-  list's area again; the truth oracle on the shadow stays exact.
+  list's area again; the truth oracle on the shadow stays exact. A bound program's area pair holds only pixels whose END
+  the phone paints from staged records. A surface whose plane regions give different lens footprints row by row clears a
+  margin of its disparity beside itself, so that one rectangle per lens is wholly its own (the switcher's wheel at stage
+  5: a d-px black margin either side of its panel, `DESIGN.md` §4.3).
 - **The bound list is the list in front.** The phone keeps entries bound only to the list in front: it CLEARs a list's
   entries in the batch that draws anything over it or in its place (another window, a modal, a popover, the keyboard)
   and SETs them again in the batch that brings it back. A fire that lands before the CLEAR fails P3's "in front" and is
@@ -1462,6 +1472,12 @@ is stated there.
   A + 1 − 0x4000, list, row), a burst open or not, because a gesture applied as today while the list was away moved
   the phone's row and not the lens's cursor (ruled 2026-11-19, decisions AF.2; counted `rebind`, not a snap-back; a
   DISCARD of a slot with no instance stops nothing and sets the cursor, §6.5). At a start the idle SETTLE follows it.
+  A surface that draws over a bound list and is itself bound — the switcher's wheel (`DESIGN.md` §4.3), glasses list 2
+  — is the list in front while it is open and offered: the list under it is CLEARed as under any cover, and the wheel's
+  entries (6 and 7 for its notches, the report-only tap at the first entry number it does not use, 0) are SET in the
+  same batch, after its LIST-RING; the return rule names the row of whichever list comes back. Two lists may share one
+  slot, one bound at a time; the slot's answer (P3) spans the change. An open wheel that is not offered is still a
+  cover: no list is in front under it.
 
 **Taps.**
 - **P11 the act is the phone's,** on a row of its own staging, always. Every irreversible act opens a CONFIRM worded by
@@ -1474,7 +1490,9 @@ is stated there.
   naming its target. **`report`:** one report-only tap entry (eventId 0, devType 4, step 0, the list's slot, prog
   0xFFFF; §6.3) beside the scroll entries: the lens draws nothing, the phone acts by the tap rule on the 115, and the
   click is its echo. **`glasses`:** one tap entry with the press program (eventId 0, devType 4, step 0, the list's slot,
-  the press program): the press picture too. **Switching** mid-session sends, in stream order, SET of the tap entry in
+  the press program): the press picture too. A list that stages no press program takes the report-only tap entry under
+  `glasses` as under `report` (the switcher's wheel: its centre is already at the screen plane, where a press would hold
+  the row in place, §6.9). **Switching** mid-session sends, in stream order, SET of the tap entry in
   its new form (on, or between `report` and `glasses`) or CLEAR of it (off); nothing else changes — no FLAGS_SET, no
   re-arm, no keyframe. A switch whose message does not land is repaired from the next tap 115's form (the table
   repair, below).
@@ -2419,7 +2437,10 @@ one-period wait; with this it is drawn a few ms late.
   own paint wraps; a list that paints blanks past its ends keeps LIST and its staged edge, and its wrap stays the
   phone's (the PLAY where the staging holds a wrap record, else the shell's frames)** — Main's eight rows wrap at 288
   and 352 (margins of k + 1 rows of the other end each side, so that a program at v = −1 or n reads only the strip; no
-  wrap record), and at 416 and 480 its wrap stays as it is below stage 5 (decisions AD, S2). **On a RING list the phone
+  wrap record), and at 416 and 480 its wrap stays as it is below stage 5 (decisions AD, S2). A list whose programs read
+  only kind-1 parameters needs no margins: the guarantee holds when the list's paint at cursor c shows item
+  (c + k) mod count at every place k its programs draw. The switcher's wheel does so at three entries or more and is
+  not bound at one or two (at two its paint shows the other entry above only). **On a RING list the phone
   measures a report's cursor against its row modulo the count (the shorter way round), in P3's bound and in the tap
   rule's condition 4, and predicts fields 10–14 at v = ((field 8 − step) mod count) + step when field 18 is 1** (S4); the
   answer is the COMMIT of the report's own parameters, naming the absolute cursor (field 8). **On a RING list the message

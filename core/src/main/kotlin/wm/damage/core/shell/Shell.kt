@@ -3271,7 +3271,9 @@ class Shell(
                 gestureBookkeeping(eventId?.let { wm.damage.core.local.BoundList.stockEvent(it) }
                     ?: if (v.row < was) EvenHubMsg.EV_SCROLL_TOP else EvenHubMsg.EV_SCROLL_BOTTOM)
                 scheduleSave()
-                composeContent()
+                // C3 DW-F item 1: the wheel's adopted notch paints what the phone's own wheel notch paints — the panel, the
+                // preview following at its settle — never the window behind it
+                if (boundSurface() === wheelBind) paintSwitcherFrame() else composeContent()
             }
             is wm.damage.core.local.LocalRules.Verdict.Act -> {
                 asInput()
@@ -4884,6 +4886,7 @@ class Shell(
                 continue
             }
             stageFullSaid = false
+            stageWaitsFor = null                  // C3 DW-F item 2: placed, so nothing waits on this record any more
             for (e in evicted) stage.records.remove(e.key)
             stage.records[k] = rec
             stageSubmit(rec, st)
