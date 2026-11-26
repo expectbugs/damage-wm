@@ -4691,6 +4691,9 @@ class Shell(
     /** Extra bumps seen this session (a count anomaly to read, never a reason to drop a record). */
     private var stageForeignBumps = 0L
     private var stageFullSaid = false
+    /** C3 DW-2: the strip that last found the reserve holding only pinned records ([pumpStage]) — the wheel's hold for the
+     *  first strip ends on it ([pageStagingFirst]). Cleared with the registry ([stageClear], [stagePagesClear]). */
+    private var stageWaitsFor: StageKey? = null
     /** Records the compositor may draw from right now (harnesses read it across threads). */
     @Volatile var stagedProvenCount = 0
         private set
@@ -4728,6 +4731,7 @@ class Shell(
     private fun stagePagesClear(why: String) {
         val gone = stage.records.values.filter { it.key !is RegionStageKey }
         for (r in gone) stage.remove(r)
+        stageWaitsFor = null
         // a write of one in flight completes as any other: its ack is counted, its record is no longer in the registry
         stageClears++                                  // harnesses count a boundary by it
         comp.placements = emptyList()
@@ -4740,6 +4744,7 @@ class Shell(
     private fun stageClear(why: String?) {
         val had = stage.records.size
         stage.clear()
+        stageWaitsFor = null
         stageInFlight = null; stageInFlightRec = null
         stageCursor = null                 // build SPLIT: a part-written record goes with the registry, never named
         // 0.64: NOT the count's reading. It is the cache's, about every acked write, and a clear of
@@ -4769,6 +4774,46 @@ class Shell(
         return focusedView() as? WindowView.DocView
     }
 
+    /** What Page staging stages for [v]: its layout's key, the strips' region, line height and step, the lines on screen,
+     *  and the strips the next notches expose — or null when [v] stages nothing (no content key; a region wider, or a step
+     *  taller, than a record may be). [pumpStage] writes from it and the wheel's hold reads its first strip
+     *  ([pageStagingFirst], C3 DW-2): one function, so the hold never waits for a strip the lane would not write. */
+    private class StagePlan(val key: Any, val region: Rect, val lineH: Int, val top: Int, val visible: Int, val wanted: List<StageKey>)
+    private fun stagePlan(v: WindowView.DocView): StagePlan? {
+        val key = v.contentKey() ?: return null
+        val region = docRegion(v)
+        val lineH = v.lineHeight
+        if (lineH <= 0 || region.w <= 0 || region.w > CfwModes.MAX_IMAGE2_W) return null
+        val step = v.stepLines().coerceAtLeast(1)
+        if (step * lineH > CfwModes.MAX_IMAGE2_H) return null     // a record is at most 2048 rows tall
+        val visible = kit.visibleLines(layout, v)
+        val top = v.model.topLine
+        val count = v.lineCount()
+        // the strips the next notches expose: ahead first (reading forward), one behind, then further ahead
+        val wanted = listOf(top + visible, top + visible + step, top - step, top + visible + 2 * step)
+            .filter { it >= 0 && it < count }
+            .map { StageKey(key, it, step, lineH, region.w) }
+        return StagePlan(key, region, lineH, top, visible, wanted)
+    }
+
+    /**
+     * C3 DW-2 (decisions DM 3, DP 9; amending CK A3's order of lanes as DF finding 2 did for a window's list): a document
+     * Page staging serves in front whose first wanted strip ([stagePlan]) is not written yet — the wheel's block waits
+     * behind it, its place reserved. It ends when that strip's record is in the registry, or at any lasting refusal or
+     * failure of Page staging: the row off, staging off for the session, DRAW2, the lease or the cache check not in force,
+     * no cached text or its atlas failed or absent, no document served, no content key, a region or a step no record
+     * takes, no wanted line, the strip refused for size or waiting on a reserve that holds only pinned records. Not while
+     * the switcher is open ([windowListFirst]'s rule: Page staging writes nothing then at stage 5, and the wheel's lane
+     * writes what the offer needs). Every transient return of [pumpStage] is also a gate of [pumpWheel] ahead of the
+     * placement (the C3 DW-2b report lists each return and what ends the hold for it).
+     */
+    private fun pageStagingFirst(st: LinkState): Boolean {
+        if (switcher.open || settings.pageStaging != "on" || stageFailed || !st.draw2 || !st.leaseHeld || !transport.cacheCheckSupported) return false
+        if (cachedText == null || settings.cachedText != "on" || atlasFailed || atlas == null) return false
+        val k = stagedDoc()?.let { stagePlan(it) }?.wanted?.firstOrNull() ?: return false
+        return !stage.records.containsKey(k) && k !in stageRefused && k != stageWaitsFor
+    }
+
     /** The idle pump's staging step, after the atlas's: one reading launched, or one strip rendered
      *  and written. True when it did something. */
     private suspend fun pumpStage(st: LinkState): Boolean {
@@ -4787,13 +4832,9 @@ class Shell(
         val v = stagedDoc() ?: return false
         noticeYield("page staging in front")          // build K1-4a (a): before any strip goes where the notice's programs are
         lanes.yieldSlice("page staging in front")     // stage L: and the held lanes' areas (his answer 6: Reader's in front)
-        val key = v.contentKey() ?: return false
-        val region = docRegion(v)
-        val lineH = v.lineHeight
-        if (lineH <= 0 || region.w <= 0 || region.w > CfwModes.MAX_IMAGE2_W) return false
-        val step = v.stepLines().coerceAtLeast(1)
-        if (step * lineH > CfwModes.MAX_IMAGE2_H) return false     // a record is at most 2048 rows tall
-        val gone = stage.retain(key, lineH, region.w)
+        val plan = stagePlan(v) ?: return false
+        val region = plan.region
+        val gone = stage.retain(plan.key, plan.lineH, region.w)
         if (gone.isNotEmpty()) { stageRecount(); journal.note("stage", "dropped ${gone.size} record(s) of another layout") }
         val ring = stage.ring ?: StageRing(st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind), st.cacheSize).also { stage.ring = it }
         // the count's base is owed before anything goes out (the backstop, as in `pumpAtlas`); the
@@ -4812,14 +4853,8 @@ class Shell(
         // repack, a reset, a sleep, a lapse and a session start ([atlasResendMissing]'s own clears).
         // The pump that follows the verdict brings staging back.
         if (atlasResendMissing > 0L) return false
-        val visible = kit.visibleLines(layout, v)
-        val top = v.model.topLine
-        val count = v.lineCount()
-        // the strips the next notches expose: ahead first (reading forward), one behind, then further ahead
-        val wanted = listOf(top + visible, top + visible + step, top - step, top + visible + 2 * step)
-            .filter { it >= 0 && it < count }
-            .map { StageKey(key, it, step, lineH, region.w) }
-        val pinned: (StagedRecord) -> Boolean = { r -> r.key in wanted || (r.firstLine < top + visible && r.firstLine + r.lines > top) }
+        val wanted = plan.wanted
+        val pinned: (StagedRecord) -> Boolean = { r -> r.key in wanted || (r.firstLine < plan.top + plan.visible && r.firstLine + r.lines > plan.top) }
         for (k in wanted) {
             if (stage.records.containsKey(k) || k in stageRefused) continue
             val want0 = ct.wantVersion; val seen0 = ct.seenVersion
@@ -4844,6 +4879,7 @@ class Shell(
             }
             val evicted = ring.place(rec, pinned)
             if (evicted == null) {
+                stageWaitsFor = k
                 if (!stageFullSaid) { stageFullSaid = true; journal.note("stage", "the reserve holds only pinned records (${ring.bytesHeld} B) — $k waits") }
                 continue
             }
@@ -6464,10 +6500,13 @@ class Shell(
     internal fun stepWindowsForTest(): Pair<List<Long>, List<Long>> = mainList.stepWindow.toList() to windowList.stepWindow.toList()
     /** Tests (on the loop): the window list's lane has nothing left to write — no window list wanted here (below stage 5,
      *  160 KiB, the window's list not in front: none, or Settings at its adjust level, a cover by design), or a staging for
-     *  the view in front counted, offered or refused for its key. */
+     *  the view in front counted, offered or refused for its key. C3 DW-2 (decisions DP 8): nothing left to write either
+     *  while the switcher is open — [pumpWindowList] writes nothing under it (decisions DA (c) 4: an open wheel is a cover);
+     *  met by the oracle walk's chord right after a session start with Settings in front, whose list is staged after the
+     *  close. */
     internal fun windowListLaneDoneForTest(): Boolean {
         val st = transport.state.value
-        if (!st.effects || !st.bind || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || !windowList.inFront()) return true
+        if (!st.effects || !st.bind || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || !windowList.inFront() || switcher.open) return true
         val b = windowList.mainBind
         return (b.staging != null && b.counted && windowList.surface.offered != null && windowListMatches()) ||
             (b.staging == null && windowList.mainBindRefusedFor != null && windowList.mainBindPaint == null)
@@ -7312,9 +7351,10 @@ class Shell(
             return false
         }
         // C3 DW-1b-2 (decisions DF finding 2): the block's place reserved by its size; a window's list in front still to be
-        // staged goes first, laid out under that place ([wheelBase]), and the block's write follows its count
+        // staged goes first, laid out under that place ([wheelBase]), and the block's write follows its count. C3 DW-2
+        // (decisions DM 3): so does a document's first strip, which lies in the stage reserve above Main's region
         wheel.reserved = size
-        if (windowListFirst()) return false
+        if (windowListFirst() || pageStagingFirst(st)) return false
         val base = WheelResident.baseFor(w.regionEnd, size)
         // K1-2 stage 3 (decisions BD O5, CV): a window's list staged where the block goes yields — its staging drops (its
         // entries are CLEARed in the flush that follows, before any write of the block's: the idle step never runs in a

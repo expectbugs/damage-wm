@@ -58,12 +58,13 @@ class WheelBindTest {
         override fun restoreState(state: JsonObject) {}
     }
 
-    /** A document of two hundred lines (Page staging stages its strips ahead while it is in front). */
-    private class Doc : DamageWindow("doc", "Doc", IconKind.READER) {
+    /** A document of two hundred lines (Page staging stages its strips ahead while it is in front; with [key] null it
+     *  stages nothing, as every `DocView` but Reader's). */
+    private class Doc(private val key: Any? = "doc") : DamageWindow("doc", "Doc", IconKind.READER) {
         val model = DocModel()
         override fun view() = WindowView.DocView(model, { 200 }, 24,
             { g, i, r -> for (k in 0..(i % 7)) g.fillRect(r.x + 6 + k * 30, r.y + 5, 20 + (i * 3) % 7, 12, 90 + 25 * ((i + k) % 6)) },
-            {}, stepLines = { 3 }, contentKey = { "doc" })
+            {}, stepLines = { 3 }, contentKey = { key })
         override fun summary() = Summary("doc")
         override fun saveState(): JsonObject = JsonObject(emptyMap())
         override fun restoreState(state: JsonObject) {}
@@ -86,12 +87,17 @@ class WheelBindTest {
         /** Every image either lens took, in order; RIGHT's alone. */
         val images = java.util.concurrent.CopyOnWriteArrayList<Pair<Arm, ByteArray>>()
         val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        /** C3 DW-2: when each of [images] was taken (ms, the PC's clock), index for index. */
+        val imageMs = java.util.concurrent.CopyOnWriteArrayList<Long>()
         /** The registered windows the wheel's cells are for, as ids (null: Main's entry; Settings is registered at the start). */
         val regs: List<String?> get() = listOf<String?>(null) + rows.map { it.id } + extra.map { it.id } + "settings"
 
         init {
             for (r in rows + extra) shell.register(r)
-            sim.imageObserver = { a, img -> images += a to img.copyOf(); if (a == Arm.RIGHT) right += img.copyOf() }
+            sim.imageObserver = { a, img ->
+                synchronized(images) { images += a to img.copyOf(); imageMs += System.currentTimeMillis() }
+                if (a == Arm.RIGHT) right += img.copyOf()
+            }
             scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
         }
 
@@ -880,6 +886,70 @@ class WheelBindTest {
             assertTrue(lastWrite >= 0 && firstSet >= 0 && firstSet < lastWrite,
                 "list 1 bound (its first SET, image $firstSet) before the block's last write (image $lastWrite)")
             assertEquals(yields0, r.notes("liststage").count { "the list yields" in it }, "the list never yields to the block: ${r.notes("liststage").takeLast(3)}")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 DW-2 (decisions DM 3, DP 9): at a session start with a document in front, Page staging's first strip goes before
+     * the wheel's block — the block's place reserved, its first write after the strip's first write (both read from the
+     * cache writes LEFT took: a strip lies in the stage reserve, the block in Main's region below it). Prints the strip's
+     * and the block's first writes in ms from the new session's first image (the simulator's link: modeled time).
+     */
+    @Test
+    fun aSessionStartWithADocumentInFrontWritesItsFirstStripBeforeTheBlock_DW2(): Unit = runBlocking {
+        val doc = Doc()
+        val r = Rig(extra = listOf(doc))
+        try {
+            r.up(); r.open("w0"); r.open("w1"); r.open("doc")
+            r.until("Page staging has staged strips") { r.onLoop { r.shell.pageStripsForTest().isNotEmpty() } }
+            r.done("the doc")
+            val clears = r.shell.stageClears
+            val from = r.images.size
+            r.shell.stop()
+            r.shell.start()
+            r.until("a new session") { r.shell.stageClears > clears && r.t.state.value.effects }
+            r.until("the doc in front again, a strip staged and the block placed") {
+                r.onLoop { r.shell.currentWindowId() == "doc" && r.shell.pageStripsForTest().isNotEmpty() && r.shell.wheelBlockForTest() != null } }
+            r.done("the new session")
+            val b = assertNotNull(r.block())
+            val strips = r.onLoop { r.shell.pageStripsForTest().map { it.first until it.first + it.second.size } }
+            val (imgs, ms) = synchronized(r.images) { r.images.toList() to r.imageMs.toList() }
+            val left = (from until imgs.size).filter { imgs[it].first == Arm.LEFT }
+            fun writesAt(i: Int, inside: (Int) -> Boolean) = (imgs[i].second[0].toInt() and 0x7F) in setOf(19, 25) &&
+                ShipVectors.cacheWrites(imgs[i].second).any { (off, _) -> inside(off) }
+            val firstStrip = left.firstOrNull { writesAt(it) { off -> strips.any { s -> off in s } } }
+            val firstBlock = left.firstOrNull { writesAt(it) { off -> off >= b.base && off < b.end } }
+            assertTrue(firstStrip != null && firstBlock != null, "the new session wrote a strip ($firstStrip) and the block ($firstBlock)")
+            val t0 = ms[from]
+            // what LEFT carried before the strip's first write, and of it the block's (the price of the order on the phone's link)
+            val ahead = left.filter { it < firstStrip }
+            val blockAhead = ahead.filter { writesAt(it) { off -> off >= b.base && off < b.end } }.sumOf { imgs[it].second.size }
+            val figures = "the first strip's write at ${ms[firstStrip] - t0} ms (image ${firstStrip - from}), the block's first write at " +
+                "${ms[firstBlock] - t0} ms (image ${firstBlock - from}) after the new session's first image (the simulator's link); LEFT carried " +
+                "${ahead.sumOf { imgs[it].second.size }} B before the strip, $blockAhead B of them the block's (its ${b.size} B in all)"
+            println("DW-2 a start with a document in front: $figures")
+            assertTrue(firstStrip < firstBlock, "the document's first strip before the block's first write: $figures")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 DW-2 (decisions DP 9: "the block never waits for a strip that will not come"): at a session start with a document
+     * in front that Page staging does not stage (no content key — Files', Games', Music's, Torrents' and Feed's documents),
+     * the wheel's block is placed and counted, no strip is written, and every lane comes to rest.
+     */
+    @Test
+    fun aSessionStartWithADocumentThatStagesNothingStillPlacesTheBlock_DW2(): Unit = runBlocking {
+        val r = Rig(extra = listOf(Doc(key = null)))
+        try {
+            r.up(); r.open("w0"); r.open("doc")
+            val clears = r.shell.stageClears
+            r.shell.stop()
+            r.shell.start()
+            r.until("a new session") { r.shell.stageClears > clears && r.t.state.value.effects }
+            r.until("the doc in front again and the block placed") { r.onLoop { r.shell.currentWindowId() == "doc" && r.shell.wheelBlockForTest() != null } }
+            r.done("the new session")
+            assertTrue(r.onLoop { r.shell.wheelRecordsForTest() }.all { it.state == StagedRecord.State.PROVEN }, "the block counted")
+            assertEquals(emptyList(), r.onLoop { r.shell.pageStripsForTest() }.map { it.first }, "no strip written for a document that stages nothing")
         } finally { r.close() }
     }
 
