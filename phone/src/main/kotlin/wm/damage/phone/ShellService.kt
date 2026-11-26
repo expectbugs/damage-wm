@@ -25,6 +25,7 @@ import kotlinx.coroutines.runBlocking
 import wm.damage.core.app.AppClient
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.CoreExecutor
+import wm.damage.core.app.PhoneHealth
 import wm.damage.core.app.WorkingCopy
 import wm.damage.core.bastion.AlertDelivery
 import wm.damage.core.bastion.AlertRecord
@@ -129,6 +130,8 @@ class ShellService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var coreExecutor: CoreExecutor? = null
     @Volatile private var workingCopy: WorkingCopy? = null
+    /** R-b H2: the phone's half of the health view, with the working copy (its sentence joins [displayStatus]). */
+    @Volatile private var phoneHealth: PhoneHealth? = null
     /** The PC's address, port and credential the app lane was built with: a stack built with others reconnects it. */
     private var appLink: Triple<String, Int, String>? = null
     /** S1-1 P4: Reader's source over the working copy and its presenter, built per stack, closed in [stopStack]. */
@@ -334,7 +337,10 @@ class ShellService : Service() {
      *  the remembered pair", "connecting RIGHT", ...). */
     fun displayStatus(): String {
         val d = transport?.state?.value?.detail?.takeIf { it.isNotEmpty() }
-        return if (d == null) statusLine else "$statusLine · $d"
+        val s = if (d == null) statusLine else "$statusLine · $d"
+        // R-b H2: the worst health line's sentence, while something is wrong
+        val h = phoneHealth?.view?.sentence.orEmpty()
+        return if (h.isEmpty()) s else "$s · $h"
     }
 
     /** PARTIAL_WAKE_LOCK while a GLASSES stack runs (whoever the driver is —
@@ -440,9 +446,10 @@ class ShellService : Service() {
         // §72: the shelf answers from its cache at once; a background refresh that finds a
         // changed listing asks the Reader to scan again (late-bound: the Reader takes `rc`)
         var onLibraryChanged: () -> Unit = {}
+        // R-b H2: the link cell's tag is the health view's (the app lane's reach), as it stands when this stack starts
+        sh.hostTag = phoneHealth?.view?.tag ?: wm.damage.core.shell.HostTag.NONE
         val rc = RemoteContent(
             prefs.host, prefs.contentPort, prefs.token, dataDir.resolve("bookcache"),
-            onState = { st -> sh.hostState = st },
             onNotice = { detail -> sh.services.notifyInternal("content", detail) },
             onLibraryChanged = { onLibraryChanged() },
         )
@@ -667,14 +674,12 @@ class ShellService : Service() {
             }
         }
 
-        // battery into the top bar's P cell; the host-link banner re-read on
-        // the same tick so "PC Nm" keeps counting
+        // battery into the top bar's P cell
         scope.launch {
             val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
             while (isActive) {
                 val pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                 if (pct in 1..100) sh.phoneBattery = Chrome.Battery(pct)
-                sh.hostState = rc.state()
                 delay(60_000)
             }
         }
@@ -868,6 +873,13 @@ class ShellService : Service() {
             val wc = WorkingCopy(dir.resolve("workcopy"), AppHost.WINDOWS, ex,
                 note = { line -> Journal.appendNote(journalFile, "workcopy", line) })
             workingCopy = wc
+            // R-b H2: the phone's health lines and the link cell's tag, for the service's life; on the lane before it
+            // connects, so the first welcome already asks for the PC's record of them
+            val ph = PhoneHealth(wc, ::glassesNow, "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", serviceScope,
+                onView = { v -> shell?.hostTag = v.tag })
+            wc.laneWatcher = ph
+            phoneHealth = ph
+            ph.start()
             wc.start(appClientFor(Prefs(this), wc))
             // S1-2 Q3: the PC's notices on this phone's glasses; nothing is adopted or popped until the PC shares
             // the window, and the cursor is kept beside the copy
@@ -922,11 +934,21 @@ class ShellService : Service() {
         return { stream -> AppClient(link.first, link.second, AppClient.Credential.Token(link.third), stream, wc, serviceScope) }
     }
 
+    /** R-b H2: one snapshot of the running stack's glasses side for [PhoneHealth] (volatile fields only). */
+    private fun glassesNow(): PhoneHealth.Glasses {
+        val sh = shell
+        return PhoneHealth.Glasses(sh?.statusLine, runningTarget != Prefs.Target.GLASSES, sh?.glassesBatteryPct,
+            (transport as? wm.damage.core.transport.CfwTransportBase)?.ladder)
+    }
+
     /** At the service's end, after the last stack: the lane ends, the copy saves what it has not and its writers
      *  finish what they were handed, then the executor and the service's scope end. */
     private fun closeWorkingCopy() {
         val wc = workingCopy
         workingCopy = null
+        phoneHealth?.close()
+        phoneHealth = null
+        wc?.laneWatcher = null
         try { noticeMirror?.close() } catch (e: Exception) { Log.w("workcopy", "notice mirror close: ${e.message}") }
         noticeMirror = null
         try {
@@ -1276,6 +1298,7 @@ class ShellService : Service() {
             .setSmallIcon(R.drawable.ic_damage)
             .setContentTitle("Damage")
             .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))     // R-b F: the health sentence, never cut to one line
             .setOngoing(true)
             .build()
     }

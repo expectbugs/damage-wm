@@ -383,7 +383,6 @@ class SubstrateTest {
                     gate.await()                       // held until the test releases it
                     return inner.openBook(id)
                 }
-                override fun state() = ""
             }
             val id = inner.library().single().id
             val reader = ReaderWindow(FakeText(), gated, scope)
@@ -434,7 +433,6 @@ class SubstrateTest {
             val counting = object : wm.damage.core.content.ContentProvider {
                 override fun library() = inner.library()
                 override fun openBook(id: String): java.nio.file.Path { opens.incrementAndGet(); return inner.openBook(id) }
-                override fun state() = ""
             }
             val id = inner.library().single().id
             val (shell, reader) = readerShell(tmp, counting, scope)

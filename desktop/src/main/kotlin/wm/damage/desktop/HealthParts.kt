@@ -62,6 +62,7 @@ fun startHealth(appNet: AppNet, appHost: AppHost, notices: NoticeCore, watcher: 
                 reader: ReaderCore, dataDir: Path, scope: CoroutineScope): HealthParts {
     val core = HealthCore(appHost, notices)
     appNet.register(core)
+    appNet.health = core                                       // R-b H2: the phone's `health` message lands here
     val stamp = "desktop " + (HealthParts::class.java.getResource("/damage-build.txt")?.readText()?.trim() ?: "unstamped")
     return HealthParts(core, appHost, appNet, watcher, alerts, reader, dataDir).also { it.start(scope, stamp) }
 }
@@ -153,8 +154,8 @@ class HealthParts(
         if (!copyGiven) return null
         val up = alerts.table().firstOrNull { it.id == BastionWatcher.COPY }
         val c = nightly ?: return if (up != null) Reading(up.text, HealthBand.ALARM,
-            "shown only: nothing is copied before the config is fixed and Damage restarts", alert = BastionWatcher.COPY,
-            since = up.raisedAt)
+            "shown only: nothing is copied before the config is fixed and Damage restarts", tag = COPY_TAG,
+            alert = BastionWatcher.COPY, since = up.raisedAt)
             else Reading("off: no backupDir in the config", HealthBand.ATTENTION, HealthCore.SHOWN_ONLY)
         if (up != null) return Reading(up.text, HealthBand.ALARM,
             if (c.running != null) "nothing is cancelled; a daily copy due while this one runs is skipped"
@@ -229,8 +230,8 @@ class HealthParts(
         /** Disk reads per cap read: 10 minutes. */
         const val CAP_EVERY = 10
         /** The glasses' words for the two PC lines that carry one (the phone composes the tag, H2). */
-        const val HUB_TAG = "hub"
-        const val COPY_TAG = "copy"
+        const val HUB_TAG = wm.damage.core.shell.HostTag.HUB
+        const val COPY_TAG = wm.damage.core.shell.HostTag.COPY
         private const val DISK_DOING = "shown only: nothing is cleaned automatically; read every minute"
         private const val CAP_DOING = "shown only: the group is made at the PC's start; read every 10 minutes"
         private const val ERROR_DOING = "shown only: each error's own path says what is done about it"
@@ -251,7 +252,9 @@ class HealthParts(
             val of = "of ${size(total)}"
             return when {
                 free < DISK_ALARM_FREE_PCT -> Reading("${tenths(free)} % free $of", HealthBand.ALARM, DISK_DOING,
-                    tag = "disk ${floor(100 - free).toInt()}%")
+                    // R-b H2: the link cell's vocabulary (`HostTag`) is measured with two digits, so a full disk's tag
+                    // reads 99 % too; the text is exact
+                    tag = wm.damage.core.shell.HostTag.disk(floor(100 - free).toInt()))
                 free < DISK_ATTENTION_FREE_PCT -> Reading("${tenths(free)} % free $of", HealthBand.ATTENTION, DISK_DOING)
                 else -> Reading("${floor(free).toInt()} % free $of", HealthBand.NORMAL, DISK_DOING)
             }

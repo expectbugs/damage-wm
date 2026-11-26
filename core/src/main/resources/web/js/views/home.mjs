@@ -5,8 +5,11 @@
 // Build S1-5, stage W: a window with no page in the browser (Games, whose card says `page: false`: Hold'em in the
 // browser is later, when he asks — decisions Part A answer 1) shows its summary and where it is played, and links
 // nowhere.
+// R-b stage H3: one line above the cards — the health record's summary ("All well", or the worst line), in its band,
+// linking to the Health page.
 
 import { h, icon, bar, keepFocus } from '../dom.mjs';
+import { SCOPE as HEALTH } from './health.mjs';
 
 export function homeView(ctx) {
   let root = null;
@@ -17,9 +20,19 @@ export function homeView(ctx) {
     // ruling 2.3 (5)'s class: Main is described again at every save point of any device; the focus stays
     keepFocus(root, 'data-key', () => root.replaceChildren(
       h('h1', { text: 'Damage' }),
+      healthLine(),
       cards === null ? h('p', { class: 'note', text: 'Reading the windows from the PC…' })
         : h('div', { class: 'cards' }, cards.map(card)),
     ));
+  }
+
+  /** The health record's summary as one link to the Health page; its band colours it (quiet when all is well). */
+  function healthLine() {
+    const d = ctx.desc(HEALTH);
+    const band = d && d.worst ? d.worst.band : 'normal';
+    return h('a', { href: '/w/health', class: `home-health band-${band}`, 'data-key': 'health', focus: true,
+      on: { click: (e) => { e.preventDefault(); ctx.go({ window: 'health' }); } } },
+      icon('pulse'), h('span', { text: d ? (d.summary && d.summary.line) || '' : 'Reading the PC’s health…' }));
   }
 
   function card(c) {
@@ -57,7 +70,7 @@ export function homeView(ctx) {
       return root;
     },
     onDesc(scope) {
-      if (scope === 'desc/main') draw();
+      if (scope === 'desc/main' || scope === HEALTH) draw();
     },
   };
 }

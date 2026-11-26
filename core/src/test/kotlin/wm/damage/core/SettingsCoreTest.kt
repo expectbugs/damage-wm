@@ -152,6 +152,10 @@ class SettingsCoreTest {
                 val want = labels("Animations · $t").flatMap { d -> if (d.type == "set") d.options.map { "${d.label} · ${it.second}" } else listOf(d.label) }
                 assertEquals(want, w.rowsForTest("Animations", t).map { it.first }, "Animations · $t")
             }
+            // C3 DW-1b-2: the main page — a row per tier, then its own rows (`Switcher`: the switcher is no tier), at stage 5
+            assertEquals(listOf("Scroll") + Transitions.Tier.entries.map { it.title } + "Popups" + labels("Animations").map { it.label },
+                w.rowsForTest("Animations").map { it.first }, "the main Animations page")
+            assertEquals("Switcher" to "Drum (default)", w.rowsForTest("Animations").last(), "the Switcher row at its default")
             // an app's style rows (`Scroll effect` is shown at ladder stage 5 only, so it is not on this shell's page)
             val games = r.shell.settingsApps().single { it.first == "Games" }.second
             val styles = SettingsCore.styleRows("games", "Games")

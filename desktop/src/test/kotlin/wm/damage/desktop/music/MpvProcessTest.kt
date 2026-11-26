@@ -26,7 +26,9 @@ import org.junit.After
  * removed in S1-4's fix stage.) After each test no child of this JVM is left running and the temp directory is gone.
  */
 class MpvProcessTest {
-    private val dir: Path = Files.createTempDirectory("mpvp")
+    // a short base of its own in /tmp, removed in tearDown: the socket is `<dir>/music/mpv.sock`, which under the build
+    // directory's test-tmp reaches 106 of a Unix socket path's 107 bytes in a 12-letter worktree (stage TMP)
+    private val dir: Path = Files.createTempDirectory(Path.of("/tmp"), "mpvp")
     private val procs = CopyOnWriteArrayList<MpvProcess>()
     private val others = CopyOnWriteArrayList<Process>()
 

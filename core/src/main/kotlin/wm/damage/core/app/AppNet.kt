@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -156,6 +157,13 @@ class AppNet(
     private val endListeners = CopyOnWriteArrayList<(Long) -> Unit>()
     /** R-b H1: told on the executor when a window served with a card moves ([addCardListener]). */
     private val cardListeners = CopyOnWriteArrayList<() -> Unit>()
+
+    /** R-b H2 (`RB-lean-spec.md` §4.4): the health record the phone's `health` message goes to; null (a tool, a test, a
+     *  host without one) says the message once per connection and ignores it. Set by the host builder before it listens. */
+    @Volatile var health: HealthCore? = null
+    /** Executor only: the connection whose `health` was taken last — only its end leaves the phone's lines `lastKnown`
+     *  (a reconnect's new connection may report before the old one's end is seen). */
+    private var healthConn: Long? = null
 
     /** A PC-served scope a connection holds: its provider, and the source version its last description carried. */
     private class Held(val p: Provider) {
@@ -375,6 +383,23 @@ class AppNet(
                         Log.i(TAG, "connection $id ended by the client (${(f["reason"] as? JsonPrimitive)?.contentOrNull ?: "no reason"})")
                         return
                     }
+                    // R-b H2: the phone's own lines, from the phone's credential only (never a page or another device)
+                    AppWire.HEALTH -> {
+                        val h = health
+                        if (h == null || conn.page || peer.device != Peer.PHONE.device) {
+                            if (unknown.add(t)) Log.w(TAG, "connection $id (${peer.device}) sent '$t', which only the phone " +
+                                "reports to a PC with a health record; ignored")
+                        } else {
+                            val raw = (f["lines"] as? JsonArray).orEmpty()
+                            val lines = raw.mapNotNull { e -> (e as? JsonObject)?.let { o -> HealthLine.parse(o) } }
+                            if (lines.size != raw.size) Log.w(TAG, "connection $id: ${raw.size - lines.size} of the phone's " +
+                                "${raw.size} health lines do not decode; left out")
+                            host.executor.execute("app health $id") {
+                                healthConn = id
+                                h.phone(lines, clock())
+                            }
+                        }
+                    }
                     // protocol growth stays additive: said once per kind per connection, never fatal
                     else -> if (unknown.add(t)) Log.w(TAG, "connection $id sent an unknown message '$t'; ignored")
                 }
@@ -392,6 +417,10 @@ class AppNet(
                 conns.remove(id)?.let { c ->
                     for (s in c.scopes + c.described.keys) used(c, "leave", s)
                     detachLives(c)
+                }
+                if (healthConn == id) {
+                    healthConn = null
+                    health?.phoneGone(clock())
                 }
                 ended(id, "its connection ended")
             }

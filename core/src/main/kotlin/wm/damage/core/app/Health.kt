@@ -6,8 +6,10 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import wm.damage.core.util.Log
 
@@ -27,7 +29,7 @@ enum class HealthBand(val wire: String) { NORMAL("normal"), ATTENTION("attention
 
 /** One line of the health record (§4.1). [since]: when its state began — the source's own instant when it has one,
  *  else when its band last changed. [asOf]: when what it shows last changed (a line is read again at its pace and
- *  published only on a change; `state` live says those reads succeed). [receivedAt]: a phone line's arrival. */
+ *  published only on a change; `state` live says those reads succeed). */
 data class HealthLine(
     val id: String,
     val label: String,
@@ -41,10 +43,9 @@ data class HealthLine(
     val reason: String? = null,
     val tag: String? = null,
     val alert: String? = null,
-    val receivedAt: Long? = null,
 ) {
-    /** True when [o] shows the same as this: everything but the two instants of reading. */
-    fun sameAs(o: HealthLine): Boolean = copy(asOf = 0, receivedAt = null) == o.copy(asOf = 0, receivedAt = null)
+    /** True when [o] shows the same as this: everything but the instant of reading. */
+    fun sameAs(o: HealthLine): Boolean = copy(asOf = 0) == o.copy(asOf = 0)
 
     fun json(): JsonObject = buildJsonObject {
         put("id", id)
@@ -53,13 +54,24 @@ data class HealthLine(
         put("band", band.wire)
         put("since", since)
         put("asOf", asOf)
-        receivedAt?.let { put("receivedAt", it) }
         put("source", source)
         put("state", state)
         reason?.let { put("reason", it) }
         put("doing", doing)
         tag?.let { put("tag", it) }
         alert?.let { put("alert", it) }
+    }
+
+    companion object {
+        /** A line as [json] wrote it (R-b H2: the phone's `health` message and the phone's copy of `desc/health`), or
+         *  null when its id, band or `since` does not decode (the caller says so). */
+        fun parse(o: JsonObject): HealthLine? {
+            fun s(k: String) = (o[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            fun n(k: String) = (o[k] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
+            val band = HealthBand.entries.firstOrNull { it.wire == s("band") } ?: return null
+            return HealthLine(s("id") ?: return null, s("label") ?: "", s("text") ?: "", band, n("since") ?: return null,
+                n("asOf") ?: 0L, s("source") ?: "", s("state") ?: "", s("doing") ?: "", s("reason"), s("tag"), s("alert"))
+        }
     }
 }
 
@@ -132,16 +144,16 @@ class HealthCore(
         put(old.copy(state = STALE, reason = "the read failed: $why"), host.clock())
     }
 
-    /** The phone's own lines as it reported them, [receivedAt] on the PC's clock (any thread). A line of another id is
+    /** The phone's own lines as it reported them, arrived [at] on the PC's clock (any thread). A line of another id is
      *  said and left out. */
-    fun phone(reported: List<HealthLine>, receivedAt: Long) = onExecutor("health phone") {
+    fun phone(reported: List<HealthLine>, at: Long) = onExecutor("health phone") {
         for (l in reported) {
             val old = lines[l.id]
             if (old == null || old.source != PHONE) {
                 Log.w(TAG, "the phone reported a health line '${l.id}' that is not one of its own: left out")
                 continue
             }
-            put(l.copy(label = old.label, source = PHONE, receivedAt = receivedAt), receivedAt)
+            put(l.copy(label = old.label, source = PHONE), at)
         }
     }
 
@@ -241,9 +253,10 @@ class HealthCore(
          *  health notice waits the same): how long a line is in alarm, with no alert of its own, before its one notice.
          *  His answer changes this constant and nothing else. */
         const val NOTICE_AFTER_MS = 5 * 60_000L
-        /** The notices' source and the Settings category that names them (shown whatever `Notify · Damage` says). */
+        /** The notices' source and the Settings category that names them: Global, whose `Notify · Damage` gates them on
+         *  the glasses (R-b H2; the shell's one gate, `Shell.noticeAllowed`). */
         const val SOURCE = "health"
-        const val GATED_BY = "Global"
+        const val GATED_BY = wm.damage.core.shell.Notifications.GLOBAL
 
         const val PC = "pc"
         const val PHONE = "phone"

@@ -17,6 +17,9 @@ import kotlinx.serialization.json.put
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.AppNet
 import wm.damage.core.app.DevicesCore
+import wm.damage.core.app.HealthBand
+import wm.damage.core.app.HealthCore
+import wm.damage.core.app.HealthLine
 import wm.damage.core.app.HostBackend
 import wm.damage.core.app.Levels
 import wm.damage.core.app.NoticeCore
@@ -199,6 +202,9 @@ fun main(args: Array<String>) {
     }
     // S1-2 Q3: the raiser, and the made-up other device that dismisses elsewhere
     val notices = NoticeCore(host)
+    // R-b H3: the health record as `startHealth` registers it; no reader runs here, the `health-*` words set its lines
+    val health = HealthCore(host, notices)
+    net.register(health)
     tscopes.core.attachNotices(torrents, torrents.epoch, notices)
     fscopes.core.startOnPc(host, notices) { f, k -> println("LOOK feed configure fetch ${f / 60_000} min keep ${k / 86_400_000} d") }
     var slow: CountDownLatch? = null
@@ -285,6 +291,12 @@ fun main(args: Array<String>) {
                 Thread.sleep(300); "files: ${filesPc.jobs.current()}" }
             "files" -> "files: ${filesPc.jobs.current()} · drop holds ${Files.list(look.drop).use { it.map { f -> f.fileName.toString() }.toList() }}" +
                 " · trash ${look.files.trashList().map { it.name }}"
+            // R-b H3: a made-up state of the health record (every line set, so the scenes' order does not matter)
+            "health-well", "health-attention", "health-alarm" -> {
+                lookHealth(health, word.removePrefix("health-"))
+                repeat(4) { host.executor.call {} }
+                "health: ${health.lines().filter { it.band != HealthBand.NORMAL }.map { "${it.id} ${it.band.wire}" }.ifEmpty { listOf("all normal") }}"
+            }
             "settings" -> {
                 val i = host.read(wm.damage.core.shell.SettingsCore.WINDOW).third.items["rec.settings.quietHours"]
                 "settings: record quietHours=${i?.value} by ${i?.by} · the PC's fold ${wm.damage.core.shell.SettingsCore.onHost(host).quietHours}" +
@@ -340,6 +352,38 @@ fun main(args: Array<String>) {
     CountDownLatch(1).await()
 }
 
+/** R-b H3: one made-up state of the health record — `well` (every line normal, the phone reporting in made-up words of
+ *  its own until H2 writes the real ones), `attention` (the hub not answering), `alarm` (the disk nearly full, the hub
+ *  not answering, the phone gone, the cap's read failing, a long error). Every reading is made up. */
+private fun lookHealth(health: HealthCore, kind: String) {
+    val now = System.currentTimeMillis()
+    val alarm = kind == "alarm"
+    val n = HealthBand.NORMAL
+    fun set(id: String, text: String, band: HealthBand, doing: String, since: Long? = null, tag: String? = null, stale: String? = null) =
+        health.set(id, HealthCore.Reading(text, band, doing, tag = tag, since = since, stale = stale))
+    set(HealthCore.SERVICE, "up; the record and its operation log are open", n, HealthCore.SHOWN_ONLY)
+    if (alarm) set(HealthCore.PHONE_LINE, "not attached", HealthBand.ATTENTION, "the phone connects again by itself; nothing is done on the PC", since = now - 120_000)
+    else set(HealthCore.PHONE_LINE, "attached", n, HealthCore.SHOWN_ONLY)
+    if (kind == "well") set(HealthCore.HUB, "answering", n, "asking every 10 s")
+    else set(HealthCore.HUB, "not answering: connection refused (made up)", HealthBand.ATTENTION, "asking every 10 s; the alert after 5 min", since = now - 180_000)
+    set(HealthCore.BACKUP, "the newest copy at 03:30 (made-up-copy)", n, "daily at 03:30", since = now - 10 * 3_600_000L)
+    set(HealthCore.CAP, "claude-work: 16 GiB, no swap", n, "shown only: the group is made at the PC's start; read every 10 minutes",
+        stale = if (alarm) "the read failed: /sys/fs/cgroup/made-up/memory.max: permission denied" else null)
+    set(HealthCore.BUILDS, "PC the real-server look (test code)", n, HealthCore.SHOWN_ONLY)
+    if (alarm) set(HealthCore.DISK, "1.6 % free of 3.6 TB", HealthBand.ALARM, "shown only: nothing is cleaned automatically; read every minute",
+        since = now - 420_000, tag = "disk 98%")
+    else set(HealthCore.DISK, "71 % free of 3.6 TB", n, "shown only: nothing is cleaned automatically; read every minute")
+    set(HealthCore.ERROR, if (alarm) "3 since the service's start; the last at %tR: could not write /home/made-up/a-folder-name-with-no-spaces-in-it-that-goes-on-for-a-long-way/record.json".format(now - 60_000)
+        else "none since the service's start", n, "shown only: each error's own path says what is done about it")
+    set(HealthCore.SOURCES, "all 6 live", n, "each window asks its own source again and says so in it")
+    fun line(id: String, text: String, doing: String) = HealthLine(id, id, text, n, now - 2_400_000, now, HealthCore.PHONE, HealthCore.LIVE, doing)
+    health.phone(listOf(line(HealthCore.REACH, "in reach (made up)", "the phone pings the PC every 15 s"),
+        line(HealthCore.GLASSES_LINK, "ok (made up)", "the session starts again by itself when it drops"),
+        line(HealthCore.GLASSES_BATTERY, "72 % (made up)", "shown only"),
+        line(HealthCore.GLASSES_STAGE, "stage 5, as stored (made up)", "armed at each session start")), now)
+    if (alarm) health.phoneGone(now - 120_000)
+}
+
 /** S1-2 Q5: the look's made-up Files tree (every name made up), under the run's own directory. */
 private class LookTree(val root: Path) {
     val home: Path = Files.createDirectories(root.resolve("home"))
@@ -372,7 +416,7 @@ private class LookTree(val root: Path) {
         Files.write(home.resolve("plan.pdf"), madeUpPdf())
         Files.writeString(slow.resolve("waits.txt"), "a made-up file in the folder whose stats wait\n")
         for (n in listOf("old draft.txt", "screenshots-from-the-made-up-trip.zip")) Files.writeString(home.resolve(n), "to the trash: $n\n")
-        val local = wm.damage.core.windows.files.LocalFilesProvider(books, root.resolve("trash"), null, mountsFile = root.resolve("no-mounts"))
+        val local = wm.damage.core.windows.files.LocalFilesProvider(books, root.resolve("trash"), opener = NoPcOpen(), decoder = null, mountsFile = root.resolve("no-mounts"))
         files = LookFiles(root, local, listOf(
             wm.damage.core.windows.files.FLocation("Home", home.toString(), "home", 4_000_000_000_000, 1_250_000_000_000),
             wm.damage.core.windows.files.FLocation("Pictures", pics.toString(), "mount", 4_000_000_000_000, 1_250_000_000_000),
@@ -435,7 +479,6 @@ private class LookFiles(private val root: Path, private val local: wm.damage.cor
     override fun mkdir(dir: String, name: String) = local.mkdir(inside(dir), name)
     override fun copy(src: String, destDir: String) = local.copy(inside(src), inside(destDir))
     override fun move(src: String, destDir: String) = local.move(inside(src), inside(destDir))
-    override fun openOnPc(path: String) = throw IllegalArgumentException("the look opens nothing on the PC")
 }
 
 /** S1-2 Q5: the look's thumbnails (the desktop's are AWT too: `FilesThumbs`), a picture fitted inside [px], as JPEG. */

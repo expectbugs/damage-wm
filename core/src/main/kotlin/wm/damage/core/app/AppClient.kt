@@ -40,11 +40,11 @@ class AppClient(
     private val listener: Listener,
     private val scope: CoroutineScope,
     private val contracts: Map<String, Int> = Contracts.MINE,
-    private val retryPacingMs: Long = 2_000,
+    val retryPacingMs: Long = 2_000,
     /** After a refusal (a refused credential, no lane this build speaks): nothing changes until a deploy. */
-    private val refusedPacingMs: Long = 30_000,
+    val refusedPacingMs: Long = 30_000,
     /** 0 = no ping task (a test calls [pingTick]). */
-    private val pingEveryMs: Long = 15_000,
+    val pingEveryMs: Long = 15_000,
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : AutoCloseable {
 
@@ -98,6 +98,9 @@ class AppClient(
 
         /** Stage L: a line on the PC–phone wall-clock difference ([ClockSkew]) for this device's journal. */
         fun clockSkew(line: String) {}
+
+        /** R-b H2: a PC-served scope's description (a `snap` that carries `desc`, outside the record's order). */
+        fun described(scope: String, desc: JsonObject) {}
     }
 
     @Volatile var reach: Reach = Reach.Unknown
@@ -112,6 +115,11 @@ class AppClient(
 
     /** A state line for the log and a diagnosis row: empty while connected. */
     @Volatile var stateLine: String = "connecting to $host…"
+        private set
+
+    /** R-b H2: the PC answered but refused this device (its credential, no lane this build speaks, or its record not
+     *  open) — [stateLine] says which; cleared by the next `welcome`. */
+    @Volatile var refused: Boolean = false
         private set
 
     @Volatile private var running = true
@@ -143,6 +151,9 @@ class AppClient(
     fun subscribe(scope: String, cursor: Cursor?): Boolean = write(AppWire.sub(scope, cursor))
 
     fun unsubscribe(scope: String): Boolean = write(AppWire.unsub(scope))
+
+    /** R-b H2: the phone's health lines to the PC; false (sent again at the next `welcome`) when there is no connection. */
+    fun health(lines: List<HealthLine>): Boolean = write(AppWire.health(lines))
 
     /**
      * One paced decision (C§9.3): a ping still unanswered from the last tick means the PC is out of reach — said once
@@ -205,6 +216,7 @@ class AppClient(
                                 val w = AppWire.parseWelcome(f)
                                 welcome = w
                                 refusedSaid = false
+                                refused = false
                                 downSaid = false
                                 setState("")
                                 answered()
@@ -216,21 +228,36 @@ class AppClient(
                                 for (s in say({ listener.subs(w) }) ?: emptyList()) write(AppWire.sub(s.scope, s.cursor))
                                 say { listener.welcome(w) }
                             }
-                            "snap" -> AppWire.parseSnap(f).let { say { listener.snap(it) } }
+                            // R-b H2: a PC-served scope's description carries `desc` and no place in the record's order
+                            "snap" -> {
+                                val d = f["desc"] as? JsonObject
+                                if (d != null) say { listener.described(AppWire.str(f, "scope"), d) }
+                                else AppWire.parseSnap(f).let { say { listener.snap(it) } }
+                            }
                             "chg" -> AppWire.parseChg(f).let { say { listener.change(it) } }
                             "ans" -> AppWire.parseAns(f).let { say { listener.answer(it) } }
                             "pong" -> {
-                                lastPong = AppWire.num(f, "k")
-                                (f["ms"] as? JsonPrimitive)?.longOrNull?.let { pc -> clockSample(lastPong, pc, clock()) }
+                                // the ping is answered before anything else is done with its pong, and [lastPong] is
+                                // written last: a tick that falls between the two (a test's, right after it has seen
+                                // the number; a real one, rarely) found the ping still unanswered and took the PC for
+                                // out of reach (2026-11-25: `PingTest` red once in a gate, the clock sample between them)
+                                val k = AppWire.num(f, "k")
+                                val got = clock()
                                 answered()
+                                (f["ms"] as? JsonPrimitive)?.longOrNull?.let { pc -> clockSample(k, pc, got) }
+                                lastPong = k
                             }
                             "end" -> {
                                 val reason = text(f, "reason") ?: "no reason"
                                 val detail = text(f, "detail")
                                 Log.w(TAG, "the PC ended the app lane: $reason${detail?.let { " ($it)" } ?: ""}")
-                                if (reason == AppWire.END_PROTO) {
+                                // R-b F: a PC whose record did not open refuses every lane until its next start —
+                                // said as a refusal ("PC no" on the glasses), not as a PC out of reach
+                                if (reason == AppWire.END_PROTO || reason == AppWire.END_NOT_OPEN) {
                                     pacing = refusedPacingMs
-                                    setState("the PC speaks another app lane (${detail ?: reason})")
+                                    refused = true
+                                    setState(if (reason == AppWire.END_PROTO) "the PC speaks another app lane (${detail ?: reason})"
+                                        else detail ?: "the PC's record is not open")
                                 }
                                 say { listener.ended(reason) }
                                 return@use
@@ -239,6 +266,7 @@ class AppClient(
                             "err" -> {
                                 val detail = text(f, "detail") ?: ""
                                 pacing = refusedPacingMs
+                                refused = true
                                 if (!refusedSaid) {
                                     refusedSaid = true
                                     Log.w(TAG, "the PC at $host refused the app lane ($detail); asked again every ${refusedPacingMs / 1000} s")

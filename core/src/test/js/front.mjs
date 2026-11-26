@@ -26,6 +26,7 @@ export function front(scene, real, secret) {
   const log = [];
   let ready = false;
   let held = null;
+  let cut = false; // R-b H3: the PC out of reach (`/__cut`) until `/__mend`
   const socks = new Set();
   // S1-2 Q5: a scene of the made-up device at control (LOOK_SECRET_CONTROL, its secret file) instead of the full one
   const sec = scene.control ? readFileSync(process.env.LOOK_SECRET_CONTROL, 'utf8').trim() : secret;
@@ -72,6 +73,9 @@ export function front(scene, real, secret) {
       const poll = () => (lines(`${dir}/ack`) > n ? own(200, 'text/plain', 'up again') : setTimeout(poll, 200));
       return poll();
     }
+    // R-b H3: the PC out of reach — every socket of the page ends and new ones are refused — and back in reach
+    if (url.pathname === '/__cut') { cut = true; for (const x of socks) x.destroy(); return own(204, 'text/plain', ''); }
+    if (url.pathname === '/__mend') { cut = false; return own(204, 'text/plain', ''); }
     if (url.pathname === '/__wait') return setTimeout(() => own(204, 'text/plain', ''), Number(url.searchParams.get('ms') || 0));
     if (url.pathname === '/__look.mjs') return own(200, TYPES.mjs, lookModule(scene.steps));
     if (url.pathname === '/__other') {
@@ -120,6 +124,7 @@ export function front(scene, real, secret) {
 
   // the socket: the upgrade goes through with the same three changes, then bytes both ways as they are
   server.on('upgrade', (req, sock, head) => {
+    if (cut) { sock.end('HTTP/1.1 503 Service Unavailable\r\n\r\n'); return; }
     const h = headsUp(req.headers);
     const upSock = connect(Number(up.port), up.hostname, () => {
       upSock.write(`${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(h).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`);
@@ -230,8 +235,39 @@ export function realScenes(book) {
       { fetch: '/__wait?ms=3000' }, { fetch: '/__ctl?mark' }, { fire: ['.reading', 'wheel'] }, { scroll: ['.reading', 400] },
       { fetch: '/__wait?ms=3000' }, { fetch: '/__ctl?mark' }, { fetch: '/__wait?ms=300' }, { click: '.side-toggle' },
       { click: '.chapters li:nth-child(3) button' }, { wait: '.chapters li:nth-child(3) button.current' }, { fetch: '/__wait?ms=3000' }, reach] },
-    // L1: the two pages no scene showed — Diagnosis, and Settings with a look picked (it stays on this browser)
-    'real-diag': { path: '/w/diag', steps: [{ wait: '.diag dl.facts' }, reach] },
+    // R-b H3: the Health page (Diagnosis merged into it as its lower half) — all well, a line in attention, one in alarm,
+    // the PC out of reach with the last state's age, back in reach with what changed meanwhile and no reload; home's
+    // line, well and in alarm. Each word sets every line.
+    'real-health': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-well' }, { wait: '.hl-summary.band-normal' },
+      { wait: '.hl[data-key="health:reach"]:not(:has(.hl-why))' }, { wait: '.hview dl.facts' }] },
+    'real-health-attention': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-attention' }, { wait: '.hl-summary.band-attention' },
+      { wait: '.hl[data-key="health:reach"]:not(:has(.hl-why))' }, { wait: '.hview dl.facts' }] },
+    'real-health-alarm': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hl[data-key="health:reach"] .hl-why' }, { wait: '.hview dl.facts' }] },
+    'real-health-away': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hview dl.facts' }, { fetch: '/__cut' }, { wait: '#reach:not([hidden])' }, { wait: '[data-key="diag:again"].dim' }] },
+    'real-health-back': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { fetch: '/__cut' }, { wait: '#reach:not([hidden])' }, { fetch: '/__ctl?health-attention' }, { fetch: '/__wait?ms=1000' }, { fetch: '/__mend' },
+      reach, { wait: '.hl-summary.band-attention' }, { gone: '[data-key="diag:again"].dim' }, { wait: '.hview dl.facts' }] },
+    // the lower rows (a long error wraps at 390 px) and the diagnosis, the page scrolled
+    'real-health-alarm-mid': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hview dl.facts' }, { scroll: ['main', 1100] }] },
+    'real-health-alarm-end': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hview dl.facts' }, { scroll: ['main', 6000] }] },
+    // R-b F (Part F item 6): the log box scrolled to its newest lines keeps its place through a line's change (the
+    // page's own words print its place before and after); the summary leads to the worst row; out of reach "Read
+    // again" is dim, and a press says why and keeps the diagnosis shown
+    'real-health-logkeep': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-well' }, { wait: '.hl-summary.band-normal' },
+      { wait: '.hview dl.facts' }, { scroll: ['main', 6000] }, { scroll: ['pre.log', 100000] }, { place: 'pre.log' },
+      { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' }, { place: 'pre.log' }] },
+    'real-health-worst': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm a' },
+      { click: '.hl-summary a' }, { fetch: '/__wait?ms=500' }, { place: 'main' }] },
+    'real-health-away-again': { path: '/w/health', steps: [{ wait: '.hl' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.hl-summary.band-alarm' },
+      { wait: '.hview dl.facts' }, { fetch: '/__cut' }, { wait: '[data-key="diag:again"].dim' }, { focus: '[data-key="diag:again"]' },
+      { click: '[data-key="diag:again"]' }, { wait: '.toast' }, { wait: '.hview dl.facts' }] },
+    'real-home-well': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__ctl?health-well' }, { wait: '.home-health.band-normal' }] },
+    'real-home-alarm': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__ctl?health-alarm' }, { wait: '.home-health.band-alarm' }] },
+    // L1: Settings with a look picked (it stays on this browser)
     'real-settings': { path: '/w/settings', steps: [{ wait: '.settings .looks' }, reach, { click: '.looks:last-of-type .choice:last-child input' }] },
     // S1-5 W: every setting as a form; Quiet hours changed through the page's own select, then read back in the record,
     // the PC's fold and the scratch shell (LookServer's word `settings` prints all three)

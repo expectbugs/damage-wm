@@ -1,0 +1,12 @@
+{"t": 1800000000000, "ev": "submit", "id": 1, "epoch": 1, "label": "MAIN", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "fill", "bytes": 18}]}
+{"t": 1800000000060, "ev": "done", "id": 1, "ok": true, "ackMs": 60, "bytes": 18}
+{"t": 1800000000100, "ev": "note", "kind": "local", "detail": "35=10 36=10 38=1 39=49 taps=report settles=1"}
+{"t": 1800000000200, "ev": "note", "kind": "wheel", "detail": "placed — the wheel's block at 211648: 9000 B; at 211648..220648 of Main's region (its end 229376)"}
+{"t": 1800000000900, "ev": "note", "kind": "wheel", "detail": "counted — the block's 9000 B at 211648..220648 proven on the glasses (field 17)"}
+{"t": 1800000005000, "ev": "note", "kind": "wheel", "detail": "closed — bound at the open (120 ms after the chord); 3 notch(es) drawn by the glasses, 0 by the phone; open 2400 ms"}
+{"t": 1800000006000, "ev": "note", "kind": "local", "detail": "35=14 36=14 38=3 39=49 taps=report settles=2"}
+{"t": 1800000009000, "ev": "note", "kind": "wheel", "detail": "kept — the programs (P 16 T 19 at Rect(200, 120, 240, 240) d 8) rewritten in place: 1060 B at 225000; 1 in-place write(s), 1060 B this process"}
+{"t": 1800000012000, "ev": "note", "kind": "wheel", "detail": "closed — bound 1180 ms after the chord, mid-open (at the open: the programs are not this open's geometry and timing); 2 notch(es) drawn by the glasses, 3 by the phone; open 3900 ms"}
+{"t": 1800000015000, "ev": "note", "kind": "wheel", "detail": "closed — bound at the open (160 ms after the chord); 4 notch(es) drawn by the glasses, 0 by the phone; open 2100 ms"}
+{"t": 1800000016000, "ev": "note", "kind": "local", "detail": "35=2 36=2 38=1 39=49 taps=report settles=1"}
+{"t": 1800000020000, "ev": "note", "kind": "wheel", "detail": "closed — never bound (the block is not placed (yet)); 0 notch(es) drawn by the glasses, 2 by the phone; open 1500 ms"}

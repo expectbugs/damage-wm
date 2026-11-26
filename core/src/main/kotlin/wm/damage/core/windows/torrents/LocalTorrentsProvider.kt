@@ -35,6 +35,10 @@ class LocalTorrentsProvider(
     private val tl: TorrentLeech?,
     private val dataDir: Path,
     private val scope: CoroutineScope,
+    /** "Open on PC": the host's opener of a payload path or the tracker page URL on its display. Required, never
+     *  defaulted (`C3-decisions` Part DG): the PC's host passes `xdg-open` (`desktop/Main.kt`); every test passes one
+     *  that opens nothing. */
+    private val opener: (String) -> Unit,
     private val idlePaceMs: Long = 15_000,
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : TorrentsProvider {
@@ -293,23 +297,7 @@ class LocalTorrentsProvider(
     }
 
     // ------------------------------------------------------------ open on PC
-    override fun openOnPc(target: String) {
-        val env = HashMap(System.getenv())
-        if (env["DISPLAY"].isNullOrEmpty()) env["DISPLAY"] = ":0.0"
-        val pb = ProcessBuilder("xdg-open", target)
-        pb.environment().putAll(env)
-        pb.redirectErrorStream(true)
-        val p = pb.start()
-        Thread({
-            try {
-                val out = p.inputStream.readBytes().toString(Charsets.UTF_8).trim()
-                val code = p.waitFor()
-                if (code != 0) Log.w("torrents", "xdg-open '$target' exited $code: ${out.take(200)}")
-            } catch (e: Exception) {
-                Log.w("torrents", "xdg-open '$target': ${e.message}")
-            }
-        }, "xdg-open-drain").apply { isDaemon = true }.start()
-    }
+    override fun openOnPc(target: String) = opener(target)
 
     override fun close() {
         running = false

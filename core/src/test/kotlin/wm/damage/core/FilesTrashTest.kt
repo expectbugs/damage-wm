@@ -48,7 +48,7 @@ class FilesTrashTest {
      *  as its volume test. */
     private fun provider(write: (Path, String) -> Unit = { f, t -> Persistence.writeAtomic(f, t, sync = true) },
                          sameVolume: (Path, Path) -> Boolean = { _, _ -> true }) =
-        LocalFilesProvider(tree.books, tree.trash, decoder = null, mountsFile = tree.root.resolve("no-mounts"),
+        LocalFilesProvider(tree.books, tree.trash, opener = tree.pc, decoder = null, mountsFile = tree.root.resolve("no-mounts"),
             manifestWriter = write, sameVolume = sameVolume)
 
     private fun slots(): List<String> =

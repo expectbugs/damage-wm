@@ -32,6 +32,8 @@ import wm.damage.core.wire.EvenHubMsg
  */
 object Snapshot {
     private val failures = ArrayList<String>()
+    /** Stage OP: the Files providers' "Open on PC" — a check opens nothing on the PC. */
+    private val opens = CheckOpensNothing()
     /** The shell every `save` samples through — see [save]. */
     private var snapShell: Shell? = null
 
@@ -52,6 +54,7 @@ object Snapshot {
             e.printStackTrace()
             failures.add("snapshot run crashed: $e")
         }
+        opens.failure()?.let { failures.add(it) }
         println("snapshots in $outDir")
         if (failures.isNotEmpty()) {
             println("snapshot: ${failures.size} FAILURE(S):")
@@ -105,8 +108,8 @@ object Snapshot {
         shell.register(tmuxWin)
         // build S1-2 J0, S1-3 close: Files' pinned world (`SceneFiles`: the locations, a made-up root, folder and trash);
         // the provider under it reads no mount table (`SelfCheck`'s precedent)
-        val sceneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages(),
-            mountsFile = tmp.resolve("no-mounts")), cfg.booksDir)
+        val sceneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), opens,
+            AwtImages(), mountsFile = tmp.resolve("no-mounts")), cfg.booksDir)
         // S1-2 Q5: Files' presenter on the scratch PC record (its rows), the provider behind the PC's job slot
         val filesPc = wm.damage.core.windows.files.FilesPc(pcRecord, sceneFiles, cfg.booksDir, null, null)
         val filesWin = wm.damage.core.windows.files.FilesGlasses(text, filesPc.core, filesPc.glassesSource(), filesPc.slotted,
@@ -618,8 +621,8 @@ object Snapshot {
         pcTorrents.attachNotices(torrentsScripted, torrentsScripted.epoch, pcNotices)
         // S1-2 Q5: Files on the scratch PC record behind its job slot, over the first arrangement's pinned world
         // (`SceneFiles`), served to the phone through the window channel
-        val phoneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages(),
-            mountsFile = tmp.resolve("no-mounts")), cfg.booksDir)
+        val phoneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), opens,
+            AwtImages(), mountsFile = tmp.resolve("no-mounts")), cfg.booksDir)
         val phoneFilesPc = wm.damage.core.windows.files.FilesPc(pcRecord, phoneFiles, cfg.booksDir, null, null)
         // bound to loopback, and gated like every listener (build W): the strict gate answers loopback only here
         val host = wm.damage.core.content.ContentHostServer(LocalContent(books), 0, token, app = net,
