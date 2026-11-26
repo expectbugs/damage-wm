@@ -664,9 +664,10 @@ class ListStaging private constructor(
     /** C3 DM-2aF (decisions EP 2; `C3-DM2b-V1-a.md` §3): what [want] plays on this staging — [ScrollEffects.playsFor]'s
      *  answer, except where this staging gave the asked effect's records up (they did not fit, or could not be made:
      *  [recordEffect] null while that effect draws records): it keeps its fallback ([plays], its reason with it) while
-     *  the same effect is asked, so Auto's re-makes are the fallback's pans alone, as Depth's are. A change of the effect
-     *  asked, the rows or the cache stages again. Without it every slow notch's re-make was a full staging that gave the
-     *  records up again. */
+     *  the same effect is asked, so Auto's re-makes are the fallback's pans alone, as Depth's are. A change to an effect
+     *  without records re-makes the pans alone too ([recordsRule]: no records on either side); a change back into the
+     *  effect with records stages again, as do the rows, the cache, the layout, the depth setting, the effects mode and
+     *  a session start. Without it every slow notch's re-make was a full staging that gave the records up again. */
     private fun playsHere(want: ScrollMotion, fx: Motion.Effects?): ScrollEffects.Plays {
         val p = ScrollEffects.playsFor(want.effect, form, fx)
         return if (ScrollEffects.hasRecords(p.effect) && recordEffect == null && want.effect == motion?.effect) plays else p
