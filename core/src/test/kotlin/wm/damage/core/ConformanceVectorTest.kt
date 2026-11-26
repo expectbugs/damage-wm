@@ -97,19 +97,10 @@ class ConformanceVectorTest {
         // acts MX2 and X1MX2 moved (ended with SV2's comparison, X9T) and C3 stage SV3's one exception for two stages —
         // the ship acts K1-2 stage 1 moved, C3 stage X2MX2's Warp, Flip and Encode acts and its new Crush act, and SV3's
         // new act (ended with SV3's comparison, X10T), Music's stage L's two lane shapes and K1-2 stage 4f's list-1 acts
-        // with the four ring-tap acts it wrote again (both ended with K1-2 stage 4h's comparison) — are gone: every
-        // unfilled file in the repo fails like any other.
-        // C3 stage DW-3, one exception for the wheel's capture, as DW-3h's first part leaves it: DW-3's 70 files are filled
-        // (the fork's fill X13F) but for the wheel's cancel act, written again; with it the 37 stage-5 160 KiB acts that
-        // stage Main, written again in today's form — exactly the names in [DW3_UNFILLED] — wait for the fork's second fill:
-        // reported "not filled" with a count and run through the model ([theUnfilledVectorsRunThroughTheModel]); a filled
-        // one names the exception stale. DW-3h's comparison removes this exception.
-        val dw3 = out.notFilled.filter { it.substringBefore(" (") in DW3_UNFILLED }
-        if (dw3.isNotEmpty()) println("ConformanceVectorTest: ${dw3.size} DW-3 vector(s) not filled until the comparison: ${dw3.joinToString("; ")}")
-        for (n in out.notFilled - dw3.toSet())
-            out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
-        for (m in DW3_UNFILLED) if (Files.exists(dir.resolve("$m.json")) && out.notFilled.none { it.startsWith("$m ") })
-            out.problems += "$m: filled — the stage DW-3 exception DW3_UNFILLED is stale, remove it"
+        // with the four ring-tap acts it wrote again (both ended with K1-2 stage 4h's comparison), and C3 stage DW-3's for
+        // the app switcher's acts with the acts DW-3 and DW-3h wrote again (ended with DW-3h's comparison) — are gone:
+        // every unfilled file in the repo fails like any other.
+        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -830,21 +821,13 @@ class ConformanceVectorTest {
             val x2 = "v5-ship-select-warp-352"
             for (n in listOf(x2, "${x2}2"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
-            // C3 stage DW-3's exception holds exactly its names: a wheel act is reported, not failed, and a name that only
-            // begins like it fails like any other. The four ended exceptions' names above that DW-3 held again (sv2, svr,
-            // x3t, sv2w) are filled since the fork's fill X13F and fail like any other; the comparison removes this block
-            // and the filter with the set.
-            val dw3 = "v5-ship-wheel-cancel-352"
-            assertTrue(dw3 in DW3_UNFILLED, "$dw3 is stage DW-3's name")
-            for (n in listOf(dw3, "${dw3}2"))
-                Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", "${dw3}2", X3_HINT, "${X3_HINT}2").filter { it !in DW3_UNFILLED }.map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
                 "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", dw3, "${dw3}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
         } finally {
             Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
             Files.delete(dir); Files.delete(other)
@@ -947,22 +930,5 @@ class ConformanceVectorTest {
         const val X3_HINT = "v5-x3-hint"
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
-        /** C3 stage DW-3 (`private/c3-design/C3-DW3-built.md`; decisions DQ (6), (11)) as DW-3h's first part leaves it
-         *  (`C3-DW3h-built.md`; decisions ED): the files waiting for the fork's second fill — the wheel's cancel act and the 37
-         *  stage-5 160 KiB ship acts that stage Main, each written again from one dump. Exactly these names; DW-3h's
-         *  comparison removes the set. */
-        val DW3_UNFILLED = setOf("v5-ship-wheel-cancel-352", "v5-ship-back-depth-rev-352", "v5-ship-back-depth-rev-480",
-            "v5-ship-back-depth-rev-off4-352", "v5-ship-back-depth-rev-off4-480", "v5-ship-back-explode-rev-352",
-            "v5-ship-back-explode-rev-480", "v5-ship-back-fall-rev-352", "v5-ship-back-fall-rev-480",
-            "v5-ship-back-glitch-rev-352", "v5-ship-back-glitch-rev-480", "v5-ship-lock-build-352",
-            "v5-ship-lock-build-480", "v5-ship-lock-build-rev-352", "v5-ship-lock-build-rev-480",
-            "v5-ship-lock-explode-352", "v5-ship-lock-explode-480", "v5-ship-lock-explode-rev-352",
-            "v5-ship-lock-explode-rev-480", "v5-ship-lock-fade-352", "v5-ship-lock-fade-480",
-            "v5-ship-lock-fade-rev-352", "v5-ship-lock-fade-rev-480", "v5-ship-lock-glitch-352",
-            "v5-ship-lock-glitch-480", "v5-ship-lock-glitch-rev-352", "v5-ship-lock-glitch-rev-480",
-            "v5-ship-select-depth-352", "v5-ship-select-depth-480", "v5-ship-select-depth-off4-352",
-            "v5-ship-select-depth-off4-480", "v5-ship-select-explode-352", "v5-ship-select-explode-480",
-            "v5-ship-select-fall-352", "v5-ship-select-fall-480", "v5-ship-select-glitch-352",
-            "v5-ship-select-glitch-480", "v5-ship-write-select-depth-352")
     }
 }
