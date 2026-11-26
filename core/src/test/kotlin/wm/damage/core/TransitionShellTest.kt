@@ -25,7 +25,7 @@ import wm.damage.core.motion.Transitions
 import wm.damage.core.motion.Transitions.Tier
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.shell.WindowView
@@ -1144,7 +1144,7 @@ class TransitionShellTest {
                 r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 } == true }
             r.until("Main's list bound on RIGHT") { r.sim.bindForTest(Arm.RIGHT).field39() == 0x31 }
             assertEquals(0, r.row(), "back on Main's first row")
-            for (a in Arm.entries) assertTrue(r.sim.bindForTest(a).lists[MainStaging.LIST].ring, "$a: the list as bound rings")
+            for (a in Arm.entries) assertTrue(r.sim.bindForTest(a).lists[ListStaging.LIST].ring, "$a: the list as bound rings")
             if (frame) {
                 val imgs = right(r)
                 val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
@@ -1181,7 +1181,7 @@ class TransitionShellTest {
             r.until("the Back's run ends") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
             r.until("the Back's CLOSE of slot 2 reaches RIGHT") { right(r).count { img -> subs(img).let { it.size == 1 && closeOf(it[0], 2) } } >= 1 }
             r.settle("after the Back")
-            noCloseUnderTheRun(r, act = 0, alsoNot = { playIn(it, MainStaging.WRAP_SLOT) })
+            noCloseUnderTheRun(r, act = 0, alsoNot = { playIn(it, ListStaging.WRAP_SLOT) })
             bothHalvesWhole(r, act = 1)
             r.assertOracle("at rest after the wrap notch under the Back")
             // C3 X3M0 (decisions BB (2)): a fire refused 19 is no evidence for the table repair — no SET, no `repair` note
@@ -1199,7 +1199,7 @@ class TransitionShellTest {
             r.until("the wrap's lone SETTLE reaches RIGHT") { right(r).drop(at).any { img -> subs(img).any { settleAt(it, cursor = 0) } } }
             r.recording = false
             r.notes("applied").drop(after).let { a -> assertTrue(a.size == 1 && a[0].contains(" drew ") && a[0].contains("wrapped"), "the glasses' own wrap (field 18): $a") }
-            assertTrue(right(r).drop(at).none { img -> subs(img).any { playIn(it, MainStaging.WRAP_SLOT) } }, "no PLAY in slot ${MainStaging.WRAP_SLOT} for the wrap")
+            assertTrue(right(r).drop(at).none { img -> subs(img).any { playIn(it, ListStaging.WRAP_SLOT) } }, "no PLAY in slot ${ListStaging.WRAP_SLOT} for the wrap")
             r.assertOracle("after the wrap")
         } finally { r.close() }
     }

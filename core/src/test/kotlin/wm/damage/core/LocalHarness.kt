@@ -40,7 +40,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                    /** C3 DM-0: a bit-11 build (0xdff) at stage 5 with the list bound as a ring list (LIST-RING): a wrap notch
                     *  fires on the lens like any other — the simulator's own model of a ring fire (`BindSim`), no copy here. */
                    val ring: Boolean = false,
-                   /** C3 FZ5: the press's steps — the fuzz's short press by default; the shell's `MainStaging.PRESS_T` (3, at
+                   /** C3 FZ5: the press's steps — the fuzz's short press by default; the shell's `ListStaging.PRESS_T` (3, at
                     *  the entries' period) in the fuzz's real timings. */
                    val tPress: Int = T_PRESS,
                    /** C3 DM-1 (S6): the list switches between the two pitch forms mid-session ([pitchSwitch]) — its scroll
@@ -87,7 +87,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         const val MODAL = 1
         const val BADGE_LEVEL = 14
         const val PERIOD = 16
-        /** Decisions AZ.4: the wrap's PLAY slot (`MainStaging.WRAP_SLOT`). */
+        /** Decisions AZ.4: the wrap's PLAY slot (`ListStaging.WRAP_SLOT`). */
         const val WRAP_SLOT = 1
         /** Build K1-4a: the notice's timer (`PopupPrograms`) over the band: the box is the band, its top rule 2 rows down,
          *  the bar's run 8 in from each end; flat (both lenses alike). */
@@ -259,7 +259,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private var table1Slot = 0
     /** List 1's effect form: its scroll entries play [scroll2] (an effect change re-makes the programs alone, decisions CV). */
     var l1Alt = false
-    /** The staging is a ring list (LIST-RING: its paint wraps, `MainStaging.ringFits`); drawn per staging on a ring build. */
+    /** The staging is a ring list (LIST-RING: its paint wraps, `ListStaging.ringFits`); drawn per staging on a ring build. */
     var ring1 = false
     var bound1: BoundList? = null
     /** When the window list's lane may bind a new staging (its rows painted, written and read; drawn per staging). */
@@ -1346,7 +1346,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (gs.isNotEmpty()) gapGestures[g] = gs
     }
     /** C3 FZ5: the staging holds a wrap record (true: stage 4's plain list, the default). False: a plain list at stage 5,
-     *  where no staging holds one (`MainStaging`: `noWrapRecord` when `ring`, and a list whose paint does not wrap has
+     *  where no staging holds one (`ListStaging`: `noWrapRecord` when `ring`, and a list whose paint does not wrap has
      *  none) — an edge goes as the phone's frames, as on a ring list here. */
     var wrapRecord = true
     /** C3 FZ5: scroll notches RIGHT fired, and those fired while a motion of the list (slot 0 or the wrap's) was still

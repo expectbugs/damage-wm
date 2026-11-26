@@ -7,7 +7,7 @@ import wm.damage.core.local.BoundList
  * P9): the state of Main's list as the glasses hold it — the staging, its records in the shell's stage registry, which
  * rows are stale and what their re-stage owes. Context for the reader: Adam's own glasses on his own firmware fork
  * (display-rendering work on a personal device). Nothing here sends or waits: the shell's pump writes ([Shell]'s
- * `pumpMainBind`), the cache count proves (field 17), and the shell tells this object what happened. Loop-confined.
+ * `pumpListBind`), the cache count proves (field 17), and the shell tells this object what happened. Loop-confined.
  *
  * **The six questions (`FORK.md` §3.8) for its state.**
  * - The staged records ([staging], [records]). (a) Written at a full staging — Main in front, BIND in force, the count
@@ -17,7 +17,7 @@ import wm.damage.core.local.BoundList
  *   take the shared reserve (`Staging.retain`), and at a full re-stage ([drop]: the layout, the planes, the rows or the
  *   region changed, a row outgrew its slot). (b) Each write's wait is the stage lane's — its FlushDone and the count's
  *   reading — and a failed one leaves the registry: a base record's loss drops the staging (it is staged again), and so
- *   does a re-stage's, booked or not (the focused read of B082, F1: an unbooked one may have left bytes the copy lacks). (c) Keyed on the staging object (`MainStageKey`) and the offsets it laid out;
+ *   does a re-stage's, booked or not (the focused read of B082, F1: an unbooked one may have left bytes the copy lacks). (c) Keyed on the staging object (`ListStageKey`) and the offsets it laid out;
  *   the list's [BoundList.mark] is the staging's identity. (d) The shell's loop only. (e) One read of the link state per
  *   pump. (f) Its siblings: Page staging (the same registry and lane).
  * - A row's stale mark ([stale]: [dirty], [owed]). Set by a key change at a compose ([keysChanged]; a window's list: its
@@ -35,13 +35,13 @@ import wm.damage.core.local.BoundList
  *   each pass and asks the loop back when the next row is due; writes only while Main is in front (never behind the clock), no burst is open
  *   (P9) and nothing else is in flight (the stage lane's own rule).
  */
-internal class MainBinding(
+internal class ListBinding(
     /** K1-2 stage 0: the list's number on the glasses and its entries' numbers (down, up, tap) — values its holder gives
-     *  (Main: [MainStaging.LIST], [MainStaging.ENTRIES]; decisions BD). */
-    private val listNo: Int = MainStaging.LIST, private val entryIds: IntArray = MainStaging.ENTRIES) {
-    var staging: MainStaging? = null
+     *  (Main: [ListStaging.LIST], [ListStaging.ENTRIES]; decisions BD). */
+    private val listNo: Int = ListStaging.LIST, private val entryIds: IntArray = ListStaging.ENTRIES) {
+    var staging: ListStaging? = null
         private set
-    /** The base records (the registry's own objects), in [MainStaging.blobs]' order. */
+    /** The base records (the registry's own objects), in [ListStaging.blobs]' order. */
     var records: List<StagedRecord> = emptyList()
         private set
     /** The list the staging makes, offered by `MainSurface` once every base record is counted. */
@@ -57,7 +57,7 @@ internal class MainBinding(
         private set
 
     /** A row's re-stage in flight or acked and not yet counted: the registry's record and what it wrote. */
-    class Patch(val row: Int, val record: StagedRecord, val restage: MainStaging.Restage.Changed) {
+    class Patch(val row: Int, val record: StagedRecord, val restage: ListStaging.Restage.Changed) {
         /** Its band switch has been acknowledged and the old slot released. */
         var released = false
     }
@@ -73,10 +73,10 @@ internal class MainBinding(
      * a write that fails or is called short leaves the registry and the re-make is owed again from the start. (c) Keyed
      * on the staging and the slot. (d) The shell's loop only. (e) One read of the record's state per poll. (f) Its
      * sibling was AD.2's strip switch (removed, K1-2 stage 1): the old pans stay a staging a report may name ([BoundList.
-     * previous], [MainStaging.programAt]) until the SETs naming the new ones landed with no burst open; their slot is
+     * previous], [ListStaging.programAt]) until the SETs naming the new ones landed with no burst open; their slot is
      * then the next re-make's (P9).
      */
-    class Reprogram(val record: StagedRecord, val programs: MainStaging.Programs) {
+    class Reprogram(val record: StagedRecord, val programs: ListStaging.Programs) {
         var switched = false
         var setsFlush: Long? = null
         var setsLanded = false
@@ -138,12 +138,12 @@ internal class MainBinding(
     var restageCount = 0; private set
 
     /** B082 (row slack): the segment room each row's window has earned by changing — the largest picture it drew in the
-     *  last staging and a margin ([MainStaging.roomFor]) — carried into the next staging by window. B083 (the focused read
+     *  last staging and a margin ([ListStaging.roomFor]) — carried into the next staging by window. B083 (the focused read
      *  of 0.82, S3): from that staging alone, so it comes down — a row that keeps changing keeps room for what it drew
      *  lately, one that stopped changing (a long title gone back) loses it, and every step walks less. */
     val roomById = HashMap<String, Int>()
     /** K1-2 stage 1 (O12): the band form a row's window drew when its band form last changed — the largest in that
-     *  staging ([MainStaging.bandSeen]) — carried into the next staging by window, where that row's band slot is the
+     *  staging ([ListStaging.bandSeen]) — carried into the next staging by window, where that row's band slot is the
      *  largest one; from that staging alone, as [roomById] (a row whose band form stopped changing gets its own size). */
     val bandRoomById = HashMap<String, Int>()
     private var ids: List<String?> = emptyList()
@@ -155,7 +155,7 @@ internal class MainBinding(
         val ms = staging ?: return
         for (r in 0 until minOf(ms.rows, ids.size)) {
             val id = ids[r] ?: continue
-            if (r < ms.changed.size && ms.changed[r]) roomById[id] = MainStaging.roomFor(ms.seenMax[r]) else roomById.remove(id)
+            if (r < ms.changed.size && ms.changed[r]) roomById[id] = ListStaging.roomFor(ms.seenMax[r]) else roomById.remove(id)
             if (ms.bandSeen[r] > 0) bandRoomById[id] = ms.bandSeen[r] else bandRoomById.remove(id)
         }
     }
@@ -167,7 +167,7 @@ internal class MainBinding(
     fun bandRoomFor(idsNow: List<String?>): IntArray { harvestRoom(); return IntArray(idsNow.size) { idsNow[it]?.let { id -> bandRoomById[id] } ?: 0 } }
 
     /** A new staging and its base records (placed, WANTED): the list made now carries a fresh mark. */
-    fun begin(ms: MainStaging, recs: List<StagedRecord>, keysNow: List<Any?>, nowMs: Long, idsNow: List<String?> = emptyList()) {
+    fun begin(ms: ListStaging, recs: List<StagedRecord>, keysNow: List<Any?>, nowMs: Long, idsNow: List<String?> = emptyList()) {
         harvestRoom()
         ids = idsNow
         staging = ms
@@ -264,7 +264,7 @@ internal class MainBinding(
         return list
     }
 
-    fun submitted(r: MainStaging.Restage.Changed, rec: StagedRecord, nowMs: Long) {
+    fun submitted(r: ListStaging.Restage.Changed, rec: StagedRecord, nowMs: Long) {
         val ms = staging!!
         ms.apply(r)
         if (r.band != null) list = ms.boundList(mark, previous = list, list = listNo, entryIds = entryIds)

@@ -642,7 +642,7 @@ exactly), and a window places its second lens line below the first line's measur
 the newly exposed row + mode 3 repaint of the lens }` — the shift moves every row on-device for
 zero pixel bytes, and the highlight never has to be erased because it never moves. With local input in force (the
 fork's ladder stage 4 and above) the glasses play the notch themselves from Main's staged rows — the bound list, with
-the `Scroll effect` row's motion (`core/…/shell/MainStaging.kt`, `MainBinding.kt`; `FIRMWARE.md` §6, `MOTION.md` §7).
+the `Scroll effect` row's motion (`core/…/shell/ListStaging.kt`, `ListBinding.kt`; `FIRMWARE.md` §6, `MOTION.md` §7).
 
 **The list wraps**, and **Settings is its last entry** — from the top row, **one scroll up lands on
 Settings**.

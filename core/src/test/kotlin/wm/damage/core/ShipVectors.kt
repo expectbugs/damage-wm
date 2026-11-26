@@ -18,7 +18,7 @@ import wm.damage.core.local.Taps
 import wm.damage.core.motion.PopupPrograms
 import wm.damage.core.motion.ScrollEffect
 import wm.damage.core.motion.Transitions
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.shell.Notifications
 import wm.damage.core.shell.Shell
 import wm.damage.core.sim.GlassFirmwareSim
@@ -491,7 +491,7 @@ internal object ShipVectors {
      * C3 SVR: at 288 and 352 (the heights where his eight rows wrap, so Main is a ring list), each Scroll effect's NOTCHES
      * act (None, Depth, Slide, Fall: their pans are four different programs at each height — no two give the same bytes);
      * the tap under `report` and under `glasses`, each on row 0 and on the last row, with Depth (the tap's press is one
-     * program whatever the Scroll effect, `MainStaging.Press`); and one each of UNDER_BACK, TABLE, BURST and BURST_EACH
+     * program whatever the Scroll effect, `ListStaging.Press`); and one each of UNDER_BACK, TABLE, BURST and BURST_EACH
      * at 352 (his height) with Depth. A LIST-RING whose shift wraps is not here: the shell sends none (every LIST it writes has
      * shift 0 — `MainSurface.shift` is 0 — so the modular shift is `v5-ring`'s alone, the firmware's own vector).
      */
@@ -679,8 +679,8 @@ internal object ShipVectors {
             idle(r, spec.name)
             rec.act.set(false)
             val act = rec.rightOfAct()
-            val wraps = act.sumOf { ss -> ss.count { playIn(it, MainStaging.WRAP_SLOT) } }
-            if (spec.form == ScrollForm.WRAP) check(wraps == 2) { "${spec.name}: $wraps wrap PLAY(s) in slot ${MainStaging.WRAP_SLOT}, not one each way" }
+            val wraps = act.sumOf { ss -> ss.count { playIn(it, ListStaging.WRAP_SLOT) } }
+            if (spec.form == ScrollForm.WRAP) check(wraps == 2) { "${spec.name}: $wraps wrap PLAY(s) in slot ${ListStaging.WRAP_SLOT}, not one each way" }
             else check(wraps == 0) { "${spec.name}: a wrap PLAY where none was asked" }
             val commits = act.sumOf { ss -> ss.count { isSub(it, 26, CfwModes.MOTION_COMMIT) } }
             val st = r.t.state.value
@@ -696,7 +696,7 @@ internal object ShipVectors {
                     // each pan to its last step: a DREW body at T, or (None, T 1) the COMMIT's body with the one step drawn
                     ScrollForm.NOTCHES -> check(closed == 0 && local.groupBy { it.tag }.let { g -> g.size == 2 && g.values.all { b -> b.maxOf { it.drawn ?: 0L } == spec.t.toLong() } }) {
                         "${spec.name}: not two pans whole on RIGHT: ${said(local, 0..1)}" }
-                    ScrollForm.WRAP -> check(drew.count { it.slot == MainStaging.WRAP_SLOT } == 2) { "${spec.name}: not two wraps whole on RIGHT: ${said(local, 0..1)}" }
+                    ScrollForm.WRAP -> check(drew.count { it.slot == ListStaging.WRAP_SLOT } == 2) { "${spec.name}: not two wraps whole on RIGHT: ${said(local, 0..1)}" }
                     ScrollForm.BURST -> check(drew.size == 1 && closed == 2) { "${spec.name}: not two pans cut and the last whole: ${said(local, 0..1)}" }
                 }
                 words += "RIGHT's bodies: ${said(local, 0..1)}"
@@ -828,7 +828,7 @@ internal object ShipVectors {
             val list = r.onLoop { r.shell.mainBoundForTest().first } ?: error("${spec.name}: Main's list not bound")
             val count = list.count
             check(list.ring && count == MAIN_WINDOWS + 1) { "${spec.name}: Main's bound list ring=${list.ring}, $count rows — not his eight rows as a ring list" }
-            check(synchronized(r.sim) { Arm.entries.all { r.sim.bindForTest(it).lists[MainStaging.LIST].ring } }) { "${spec.name}: a lens's list does not ring at the start" }
+            check(synchronized(r.sim) { Arm.entries.all { r.sim.bindForTest(it).lists[ListStaging.LIST].ring } }) { "${spec.name}: a lens's list does not ring at the start" }
             check(r.row() == 0) { "${spec.name}: Main's row is ${r.row()} at the start, not 0" }
             fun drawing(a: Arm, s: Int) = r.sim.motionForTest(a).slots[s]?.drawing == true
             /** One gesture's end: its burst closed (the lone SETTLE sent) and RIGHT handed a SETTLE since [from], neither lens
@@ -892,7 +892,7 @@ internal object ShipVectors {
                         synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 && it.d < it.T } } == true }
                     r.until("${spec.name}: Main's entries live on RIGHT") { r.sim.bindForTest(Arm.RIGHT).field39() and 0x30 == 0x30 }
                     check(r.row() == 0) { "${spec.name}: back on Main's row ${r.row()}, not 0" }
-                    check(synchronized(r.sim) { Arm.entries.all { r.sim.bindForTest(it).lists[MainStaging.LIST].ring } }) { "${spec.name}: a lens's list does not ring under the Back" }
+                    check(synchronized(r.sim) { Arm.entries.all { r.sim.bindForTest(it).lists[ListStaging.LIST].ring } }) { "${spec.name}: a lens's list does not ring under the Back" }
                     val applied0 = r.notes("applied").size
                     rec.fire(CfwModes.EV_DOWNROLL)
                     r.until("${spec.name}: the notch applied as today — the row is Main's last") { r.row() == count - 1 }
@@ -966,11 +966,11 @@ internal object ShipVectors {
                     rec.act.set(true)
                     val from = rec.events.size
                     for (k in 1..3) {
-                        val tag0 = synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.SLOT]?.tag }
+                        val tag0 = synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.SLOT]?.tag }
                         rec.fire(CfwModes.EV_UPROLL)
                         // the next notch as RIGHT's pan holds its step FAST_STEP: inside its motion, past Crush's phase 1
                         if (k < 3) r.until("${spec.name}: pan $k at its step $FAST_STEP on RIGHT") { synchronized(r.sim) {
-                            r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.SLOT]?.let { it.tag != tag0 && it.drawing && it.d >= FAST_STEP && it.d < it.T } == true } }
+                            r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.SLOT]?.let { it.tag != tag0 && it.drawing && it.d >= FAST_STEP && it.d < it.T } == true } }
                     }
                     ended(from, 3, "three notches down about 120 ticks apart")
                     r.settle("${spec.name}: after the three")
@@ -995,7 +995,7 @@ internal object ShipVectors {
                         r.until("${spec.name}: ${effect.word}: the pans re-made and switched", 15_000) { r.notes("mainstage").count { it.startsWith("pans switched") } > switched0 }
                         r.until("${spec.name}: ${effect.word}: both lenses hold the list at pitch $pitch and the re-made pans") {
                             val l = r.onLoop { r.shell.mainBoundForTest().first }
-                            l != null && l.pitch == pitch && synchronized(r.sim) { Arm.entries.all { a -> r.sim.bindForTest(a).let { b -> b.lists[MainStaging.LIST].let { it.pitch == pitch && it.ring } &&
+                            l != null && l.pitch == pitch && synchronized(r.sim) { Arm.entries.all { a -> r.sim.bindForTest(a).let { b -> b.lists[ListStaging.LIST].let { it.pitch == pitch && it.ring } &&
                                 b.entries.filterNotNull().firstOrNull { it.eventId == CfwModes.EV_UPROLL }?.prog == l.entryFor(CfwModes.EV_UPROLL)!!.prog4 } } } }
                         hold.set(false); start.onNotify = null
                         // the held report now, and its stock echo: refused by the switch's fresh mark (`restaged`), applied as today
@@ -1024,11 +1024,11 @@ internal object ShipVectors {
                         p.size >= wm.damage.core.wire.AaFrame.HEADER + wm.damage.core.wire.AaFrame.CRC && DamageMsg.parseApplied(StartRig.body(p)) != null) { held += p; null } else p }
                     val from = rec.events.size
                     rec.act.set(true)
-                    val tag0 = synchronized(r.sim) { Arm.entries.map { r.sim.motionForTest(it).slots[MainStaging.SLOT]?.tag } }
+                    val tag0 = synchronized(r.sim) { Arm.entries.map { r.sim.motionForTest(it).slots[ListStaging.SLOT]?.tag } }
                     rec.hook(CfwModes.EV_UPROLL)                            // row 0 → row 1, the hook alone
                     r.until("${spec.name}: the notch's report held") { held.size == 1 }
                     r.until("${spec.name}: the pan at its END on both lenses, unanswered") { synchronized(r.sim) { Arm.entries.withIndex().all { (i, a) ->
-                        r.sim.motionForTest(a).slots[MainStaging.SLOT]?.let { it.tag != tag0[i] && it.d >= it.T } == true } } }
+                        r.sim.motionForTest(a).slots[ListStaging.SLOT]?.let { it.tag != tag0[i] && it.d >= it.T } == true } } }
                     check(rec.rightFrom(from).none { ss -> ss.any { answerList(it) >= 0 } }) { "${spec.name}: the phone answered before the report was delivered" }
                     hold.set(false); start.onNotify = null
                     for (p in synchronized(held) { held.toList() }) start.deliver(Arm.RIGHT, p)
@@ -1063,7 +1063,7 @@ internal object ShipVectors {
                     val b = between.get() ?: error("${spec.name}: no notch fired while the re-stage's write was on its way with no entry on RIGHT")
                     check(b[1] == b[2]) { "${spec.name}: the notch in between took an S on RIGHT (${b[1]} → ${b[2]}): it matched an entry" }
                     check(r.row() == 1) { "${spec.name}: the notch in between did not move the row as today: row ${r.row()}" }
-                    check(synchronized(r.sim) { Arm.entries.all { r.sim.bindForTest(it).lists[MainStaging.LIST].let { l -> l.ring && l.cursor == 1 } } }) {
+                    check(synchronized(r.sim) { Arm.entries.all { r.sim.bindForTest(it).lists[ListStaging.LIST].let { l -> l.ring && l.cursor == 1 } } }) {
                         "${spec.name}: the return did not name the phone's row 1 on both lenses" }
                     val list1 = r.onLoop { r.shell.mainBoundForTest().first }!!
                     check(list1.entries.filter { !it.isTap }.map { it.prog4 }.toSet() == progs0 && list1.mark == list.mark) {
@@ -1098,7 +1098,7 @@ internal object ShipVectors {
             check((lists.isNotEmpty() || spec.form == RingForm.TAP) && lists.all { isSub(it, 27, CfwModes.BIND_LIST_RING) && it.size == 13 && it[12].toInt() == 1 }) {
                 "${spec.name}: a LIST of the act is not LIST-RING with flags 1: ${lists.map { hex(it) }}; the act's batches ${act.map { "[${shape(it)}]" }}; " +
                     "its answers ${subsOfAct.filter { answerList(it) >= 0 }.map { hex(it) }}" }
-            check(subsOfAct.none { playIn(it, MainStaging.WRAP_SLOT) }) { "${spec.name}: a PLAY in slot ${MainStaging.WRAP_SLOT} on a ring list" }
+            check(subsOfAct.none { playIn(it, ListStaging.WRAP_SLOT) }) { "${spec.name}: a PLAY in slot ${ListStaging.WRAP_SLOT} on a ring list" }
             for (ss in act) for ((i, s) in ss.withIndex()) if (answerList(s).let { it >= 0 && it != 0xFF })
                 check(ss.take(i).any { isSub(it, 27, CfwModes.BIND_LIST_RING) }) { "${spec.name}: an answer naming the list without a LIST-RING before it in its batch: ${shape(ss)}" }
             val commits = subsOfAct.filter { isSub(it, 26, CfwModes.MOTION_COMMIT) && it.size == 18 }
@@ -1141,7 +1141,7 @@ internal object ShipVectors {
             val vec = vector(spec.name, recorded, st.cacheSize / 1024, st.flagsInForce, finalCrc, ArrayList(), slots, ANY_TAG, applied) { _, bodies ->
                 check(bodies.none { it.outcome == DamageMsg.OUTCOME_REFUSED }) { "${spec.name}: a refusal on RIGHT: ${said(bodies, 0..3)}" }
                 check(bodies.filter { it.outcome == DamageMsg.OUTCOME_DREW }.all { (it.folded ?: 0L) == 0L }) { "${spec.name}: a step folded: ${said(bodies, 0..3)}" }
-                val pans = bodies.filter { it.slot == MainStaging.SLOT && it.tag?.let { g -> g and 0xC000 == 0 } == true }
+                val pans = bodies.filter { it.slot == ListStaging.SLOT && it.tag?.let { g -> g and 0xC000 == 0 } == true }
                 val halves = bodies.filter { it.slot in 2..3 && it.outcome == DamageMsg.OUTCOME_DREW && ((it.tag ?: 0) and 0xE000) == 0xC000 }
                 /** Each pan of [n] notches to its last step: a DREW body at T, or (None, T 1) the COMMIT's body with its one step. */
                 fun pansWhole(n: Int) = pans.filter { it.outcome != DamageMsg.OUTCOME_CLOSED }.groupBy { it.tag }.let { g -> g.size == n && g.values.all { b -> b.maxOf { it.drawn ?: 0L } == t.toLong() } }

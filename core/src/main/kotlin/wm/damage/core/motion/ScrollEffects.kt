@@ -4,7 +4,7 @@ import wm.damage.core.geom.Layout
 import wm.damage.core.geom.LintError
 import wm.damage.core.geom.Rect
 import wm.damage.core.shell.ContentKit
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.wire.CfwModes
 
 /** K1-1: the Scroll tier's effects (`MOTION.md` §7: one effect, no randomness), as `ShellSettings.scrollEffect` stores
@@ -38,12 +38,12 @@ enum class ListForm { MAIN_BANDS, STRIP_WINDOWS }
  * the entering row's band form, P2 the leaving row's, P3 the lower strip's start y), so a fire, a report and a COMMIT
  * read alike whichever effect is in force. Every effect's END is Main's own paint at the new cursor (`ScrollEffectsTest`,
  * `desktop --local-check`). Each effect's period is fitted on its own tracks' painted area ([areaPx], the fit of
- * [MainStaging.timing]; at stage 5 the fast DRAW path's, [timing]).
+ * [ListStaging.timing]; at stage 5 the fast DRAW path's, [timing]).
  *
  * - [ScrollEffect.NONE]: one step — the rows at their new place and the entering row's band form in the band.
  * - [ScrollEffect.DEPTH]: today's (stage DM0, decisions V; the programs of APK 0.82 byte for byte): the rows above and
  *   below the band pan one pitch with ease-out; in the band the leaving form goes back to the list's plane and dims over
- *   the swap ([MainStaging.swapOf]), then the entering one comes forward and brightens.
+ *   the swap ([ListStaging.swapOf]), then the entering one comes forward and brightens.
  * - [ScrollEffect.SLIDE]: the rows as Depth; in the band two tracks over its area — the leaving form slides out and the
  *   entering one slides in behind it, the band's height while the rows travel a pitch, both on the band's plane at
  *   full level (the second track's backdrop is `none`: the two forms abut at every step, so nothing shows between them).
@@ -143,33 +143,33 @@ object ScrollEffects {
      *  k, or k + 1 on a ring strip, C3 DM-0): P0 lens.y − (c + marginA) × rowH and P3 lens.bottom − (c + 1 + marginA) ×
      *  rowH (kind 2, c = c' − step), P1 the entering row's band form and P2 the leaving row's (kind 1). The same for every
      *  effect of pitch −rowH. */
-    fun rules(l: Layout, marginA: Int, step: Int): List<MainStaging.Rule> = listOf(
-        MainStaging.Rule(CfwModes.KIND_PITCH, l.lens.y + (step - marginA) * l.rowH),
-        MainStaging.Rule(CfwModes.KIND_ITEM, 0),
-        MainStaging.Rule(CfwModes.KIND_ITEM, -step),
-        MainStaging.Rule(CfwModes.KIND_PITCH, l.lens.bottom + (step - 1 - marginA) * l.rowH))
+    fun rules(l: Layout, marginA: Int, step: Int): List<ListStaging.Rule> = listOf(
+        ListStaging.Rule(CfwModes.KIND_PITCH, l.lens.y + (step - marginA) * l.rowH),
+        ListStaging.Rule(CfwModes.KIND_ITEM, 0),
+        ListStaging.Rule(CfwModes.KIND_ITEM, -step),
+        ListStaging.Rule(CfwModes.KIND_PITCH, l.lens.bottom + (step - 1 - marginA) * l.rowH))
 
     /** C3 DM-1: [p]'s rules. Crush (pitch +rowH, the DM spec §1.2): P0 the strip window both row tracks share — its first
      *  strip row, Main's row c' − k − 1 (a notch down) or c' − k (up): (M − k − 1) × rowH, resp. (M − k) × rowH, with M
      *  [marginA] and k the pan's rows above ([kA]); P1 the entering band form, P2 the leaving one (kind 1); P3 row c's own row in the
      *  strip, (M − step) × rowH. On a ring list kinds 1 and 2 take the virtual row (§7.8). Every other form: [rules]. */
-    fun rules(p: Plays, form: ListForm, l: Layout, marginA: Int, step: Int, kA: Int): List<MainStaging.Rule> = when {
+    fun rules(p: Plays, form: ListForm, l: Layout, marginA: Int, step: Int, kA: Int): List<ListStaging.Rule> = when {
         // K1-2 stage 2 (the K1-2 spec §2.1): the window form at pitch +rowH — P0 the strip window both row tracks share,
         // its first row Main's formula for Crush ((M − k − 1) × rowH down, (M − k) × rowH up; window kA + kB + 2 rows: down
         // [c' − 1 − kA, c' + kB], up [c' − kA, c' + kB + 1]), P1 the entering row c' (M × rowH, one row), P2 the leaving
         // row c' − step ((M − step) × rowH), P3 kind 0 (free: Crush on this form takes it later). On a ring list kind 2
         // takes the virtual row (§7.8), and the margins hold every window at v = −1 and v = n
         form == ListForm.STRIP_WINDOWS -> listOf(
-            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - kA - (if (step > 0) 1 else 0)) * l.rowH),
-            MainStaging.Rule(CfwModes.KIND_PITCH, marginA * l.rowH),
-            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH),
-            MainStaging.Rule(CfwModes.KIND_ARG, 0))
+            ListStaging.Rule(CfwModes.KIND_PITCH, (marginA - kA - (if (step > 0) 1 else 0)) * l.rowH),
+            ListStaging.Rule(CfwModes.KIND_PITCH, marginA * l.rowH),
+            ListStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH),
+            ListStaging.Rule(CfwModes.KIND_ARG, 0))
         p.effect != ScrollEffect.CRUSH || !p.v2 -> rules(l, marginA, step)
         else -> listOf(
-            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - kA - (if (step > 0) 1 else 0)) * l.rowH),
-            MainStaging.Rule(CfwModes.KIND_ITEM, 0),
-            MainStaging.Rule(CfwModes.KIND_ITEM, -step),
-            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH))
+            ListStaging.Rule(CfwModes.KIND_PITCH, (marginA - kA - (if (step > 0) 1 else 0)) * l.rowH),
+            ListStaging.Rule(CfwModes.KIND_ITEM, 0),
+            ListStaging.Rule(CfwModes.KIND_ITEM, -step),
+            ListStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH))
     }
 
     /** Flip's height turn's split of [t] steps (version 1, below stage 5 or refused): phase 1 takes ⌈t / 2⌉ (the leaving
@@ -207,11 +207,11 @@ object ScrollEffects {
      *  decodes from its kept start to the last source row its output inside the area takes): k + 1 strip rows for each
      *  of the two row tracks (a step between two places shows parts of k + 1 rows) and one band form per band track
      *  (Depth's two band segments draw one at a time); Crush's leaving row one row more. Rows and forms at the DM spec's
-     *  §1.6 sizes ([MainStaging.FAST_ROW_BYTES], [MainStaging.FAST_BAND_FORM_BYTES]; M-PC). */
+     *  §1.6 sizes ([ListStaging.FAST_ROW_BYTES], [ListStaging.FAST_BAND_FORM_BYTES]; M-PC). */
     fun walkBytes(e: ScrollEffect, l: Layout, form: ListForm = ListForm.MAIN_BANDS): Int =
-        (l.rowsAbove + 1 + l.rowsBelow + 1 + (if (e == ScrollEffect.CRUSH) 1 else 0)) * MainStaging.FAST_ROW_BYTES +
+        (l.rowsAbove + 1 + l.rowsBelow + 1 + (if (e == ScrollEffect.CRUSH) 1 else 0)) * ListStaging.FAST_ROW_BYTES +
             // K1-2 stage 2: a window list's band track draws one strip row (its row form), not a band form
-            bandTracks(e) * (if (form == ListForm.STRIP_WINDOWS) MainStaging.FAST_ROW_BYTES else MainStaging.FAST_BAND_FORM_BYTES)
+            bandTracks(e) * (if (form == ListForm.STRIP_WINDOWS) ListStaging.FAST_ROW_BYTES else ListStaging.FAST_BAND_FORM_BYTES)
 
     /** The pixels one step of what plays writes a pixel at a time on the fast DRAW path (`FIRMWARE.md` §7.12: "every draw
      *  whose width scales writes a pixel at a time"): Flip's width turn, its band's area; none for the rest (Crush's
@@ -221,27 +221,27 @@ object ScrollEffects {
 
     /** [e]'s period (OS ticks) and steps for [motion] at Main's [l] with the list at [listD] and the band at [bandD], as it
      *  plays where the gate gives a token exactly at stage 5 ([playsAt]) — see the [Plays] form. */
-    fun timing(e: ScrollEffect, l: Layout, listD: Int, bandD: Int, motion: MainStaging.ScrollMotion, stage5: Boolean): Pair<Int, Int> =
+    fun timing(e: ScrollEffect, l: Layout, listD: Int, bandD: Int, motion: ListStaging.ScrollMotion, stage5: Boolean): Pair<Int, Int> =
         timing(playsAt(e, stage5), l, listD, bandD, motion, stage5)
 
     /** What plays' ([p]) period (OS ticks) and steps for [motion]: on [areaPx] pixels a step, C2's fit
-     *  ([MainStaging.timing]) — or, C3 FF, with EFFECTS in force ([stage5]: every fire then runs the fast DRAW path,
-     *  `FIRMWARE.md` §7.12), the fast path's ([MainStaging.fastStepMs] of the area, [walkBytes] and, DM-1, [pixelPx]) — on
-     *  K1-1's rule ([MainStaging.timingOf]); one step for None (at the fitted period: the swap at once). */
-    fun timing(p: Plays, l: Layout, listD: Int, bandD: Int, motion: MainStaging.ScrollMotion, stage5: Boolean,
+     *  ([ListStaging.timing]) — or, C3 FF, with EFFECTS in force ([stage5]: every fire then runs the fast DRAW path,
+     *  `FIRMWARE.md` §7.12), the fast path's ([ListStaging.fastStepMs] of the area, [walkBytes] and, DM-1, [pixelPx]) — on
+     *  K1-1's rule ([ListStaging.timingOf]); one step for None (at the fitted period: the swap at once). */
+    fun timing(p: Plays, l: Layout, listD: Int, bandD: Int, motion: ListStaging.ScrollMotion, stage5: Boolean,
                form: ListForm = ListForm.MAIN_BANDS): Pair<Int, Int> {
         val e = p.effect
         val area = areaPx(e, l, listD, bandD, form)
         val m = if (e == ScrollEffect.NONE) motion.copy(frames = 0) else motion
-        val pt = if (stage5) MainStaging.timingOf(MainStaging.fastStepMs(area, walkBytes(e, l, form), pixelPx(p, l, listD, bandD)), m) else MainStaging.timing(area, m)
+        val pt = if (stage5) ListStaging.timingOf(ListStaging.fastStepMs(area, walkBytes(e, l, form), pixelPx(p, l, listD, bandD)), m) else ListStaging.timing(area, m)
         return if (e == ScrollEffect.NONE) pt.first to 1 else pt
     }
 
     /** Under Auto, the steps of [motion]'s length at the period in force [period] (decisions BF's measured period: K1-1
      *  item 4 — the steps follow it); a fixed count and None keep theirs. */
-    fun stepsAt(motion: MainStaging.ScrollMotion, period: Int, t: Int): Int =
+    fun stepsAt(motion: ListStaging.ScrollMotion, period: Int, t: Int): Int =
         if (motion.effect == ScrollEffect.NONE || motion.frames > 0) t
-        else kotlin.math.floor(motion.lengthMs * 1024.0 / 1000.0 / period).toInt().coerceAtLeast(MainStaging.MIN_STEPS)
+        else kotlin.math.floor(motion.lengthMs * 1024.0 / 1000.0 / period).toInt().coerceAtLeast(ListStaging.MIN_STEPS)
 
     /** Fall's ease over [t] steps (`FIRMWARE.md` §5.4 table: E[1..n], E[n] = 4096): E[j] = peak × (j / (t − 1))² up to
      *  the peak at t − 1, then 4096 at t; the peak is [FALL_OVERSHOOT_PCT] % past 4096. */
@@ -330,7 +330,7 @@ object ScrollEffects {
             when (e) {
                 // the leaving row's form (P2) goes back and dims, then the entering row's (P1) comes forward and brightens
                 ScrollEffect.DEPTH -> track(bandL, bandR, Motion.Backdrop.Level(0)) {
-                    val swap = MainStaging.swapOf(t)
+                    val swap = ListStaging.swapOf(t)
                     draw(s.band, x = cx - bandD, xR = cx + bandD, y = l.lens.y, dx = -shift, dxR = shift,
                         lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = ease, n = swap, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))
                     draw(s.band, x = cx - listD, xR = cx + listD, y = l.lens.y, dx = shift, dxR = -shift,
@@ -403,7 +403,7 @@ object ScrollEffects {
             val entering = listOf(Motion.Pref(1, Motion.Field.AUX0))
             when (e) {
                 ScrollEffect.DEPTH -> track(r.wL, r.wR, Motion.Backdrop.Level(0)) {
-                    val swap = MainStaging.swapOf(t)
+                    val swap = ListStaging.swapOf(t)
                     draw(strip, x = cx - dB, xR = cx + dB, y = bandY, dx = -shift, dxR = shift, lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = ease, n = swap,
                         windowRows = rowH, prefs = leaving)
                     draw(strip, x = cx - dL, xR = cx + dL, y = bandY, dx = shift, dxR = -shift, lvl0 = MainPan.LVL_BACK, lvl1 = 15, ease = ease, n = t - swap,

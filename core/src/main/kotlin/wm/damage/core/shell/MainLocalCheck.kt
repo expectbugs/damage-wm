@@ -27,13 +27,13 @@ import wm.damage.core.wire.Pb
  * [GlassFirmwareSim] driven message by message, its clock the OS tick.
  *
  * Per height (the four) and per cache (160 KiB: the shared reserve; 256 KiB: Main's own region), on a bit-10 build with
- * DRAW2, ENGINE and BIND in force: Main staged ([MainStaging]) and its list SET ([MainStaging.boundList]: the two scroll
+ * DRAW2, ENGINE and BIND in force: Main staged ([ListStaging]) and its list SET ([ListStaging.boundList]: the two scroll
  * entries and the press; LIST with its mark). Then, at EVERY cursor and for both directions, the gesture fired through
  * the simulator's input hook on both lenses (`FIRMWARE.md` §6.2):
  * - RIGHT's report (field 115) is what [BoundList.predict] says — the outcome, the cursor, the program and P0..P3;
  * - when it drew: after its last step the lens holds Main's OWN paint at the moved cursor in the program's areas (the
  *   compositor's truth of `ContentKit.paintList` over `MainSurface`), Main at the old cursor everywhere else; and the
- *   COMMIT that answers it writes END into the shadow — what [MainStaging.paintEndOf] puts into belief — byte for byte;
+ *   COMMIT that answers it writes END into the shadow — what [ListStaging.paintEndOf] puts into belief — byte for byte;
  * - the press (`Taps · glasses`) at every cursor: after its three steps the lens holds the band row at the cursor drawn
  *   at the forward depth (the truth with the band's plane one notch nearer), until the DISCARD after the act's frame;
  * - the report-only tap entry (`Taps · report`): a report with no fields 10–14 and nothing drawn;
@@ -121,9 +121,9 @@ object MainLocalCheck {
 
         /** The staging as the shell builds it for the bound list: the whole list's pans only (AF.10), one strip at every
          *  cache size (K1-2 stage 1, decisions BC O1). */
-        fun staging(cacheSize: Int, region: IntRange, motion: MainStaging.ScrollMotion? = MainStaging.ScrollMotion.DEFAULT, stage5: Boolean = false): MainStaging =
-            MainStaging.build(layout, view, kit, listD, bandD, cacheSize, region.first, region.last + 1,
-                widths = listOf(MainStaging.WHOLE), motion = motion, stage5 = stage5, fx = effectsAt(stage5))
+        fun staging(cacheSize: Int, region: IntRange, motion: ListStaging.ScrollMotion? = ListStaging.ScrollMotion.DEFAULT, stage5: Boolean = false): ListStaging =
+            ListStaging.build(layout, view, kit, listD, bandD, cacheSize, region.first, region.last + 1,
+                widths = listOf(ListStaging.WHOLE), motion = motion, stage5 = stage5, fx = effectsAt(stage5))
     }
 
     /** Runs every case at [heights] × [cachesKib] for [effects]; [frames] keeps the strips' frames (the desktop writes them). */
@@ -160,7 +160,7 @@ object MainLocalCheck {
     fun wheelBlock(text: TextRasterizer, height: Int, depth: Int = 8): Pair<Case, String> {
         val cache = CfwModes.CACHE2_MAX_RIDERS
         val region = CfwModes.mainRegion(cache, bind = true)
-        val ms = MainRig(text, height, sampleRows(), depth).staging(cache, region, MainStaging.ScrollMotion.DEFAULT, stage5 = true)
+        val ms = MainRig(text, height, sampleRows(), depth).staging(cache, region, ListStaging.ScrollMotion.DEFAULT, stage5 = true)
         val block = wm.damage.core.motion.WheelCheck.Rig(text, height, 9, depth).block()
         val end = region.last + 1
         val why = WheelResident.refusal(end, block.size, ms.end)
@@ -255,7 +255,7 @@ object MainLocalCheck {
         val kib = 256
         val m = MainRig(text, height, sampleRows(), depth)
         val cacheSize = kib * 1024
-        val ms = m.staging(cacheSize, CfwModes.mainRegion(cacheSize, bind = true), MainStaging.ScrollMotion.DEFAULT.copy(effect = effect), stage5 = true)
+        val ms = m.staging(cacheSize, CfwModes.mainRegion(cacheSize, bind = true), ListStaging.ScrollMotion.DEFAULT.copy(effect = effect), stage5 = true)
         val list = ms.boundList(1)
         val name = "scroll-${effect.id}-h$height-s5-$kind"
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features(true); it.clockIsOsTick = true }
@@ -269,7 +269,7 @@ object MainLocalCheck {
         for (b in ms.blobs) lens.write(b.off, b.bytes, b.name, fails)
         for (s in list.sets()) lens.send("a SET", s, fails)
         lens.send("the LIST", list.listMessage(0), fails)
-        val pans = listOf(1, -1).associateWith { ms.pan(MainStaging.WHOLE, it) }
+        val pans = listOf(1, -1).associateWith { ms.pan(ListStaging.WHOLE, it) }
         val crop = union(pans.values.flatMap { it.areasL + it.areasR })
         lines += "${effect.word} at stage 5 (plays ${ms.plays.effect.word}${if (ms.plays.v2) " in version 2" else ""}), P ${ms.period} T ${ms.t}, " +
             "${if (ms.ring) "a ring list" else "a plain list"} of ${ms.rows} rows, 256 KiB; $about"
@@ -277,7 +277,7 @@ object MainLocalCheck {
         val rows = ArrayList<List<Frame>>()
         lens.now += 1_000
         lens.keyframe(m.truth(c0, true), m.truth(c0, false))
-        lens.send("DISCARD to cursor $c0", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c0), fails)
+        lens.send("DISCARD to cursor $c0", CfwModes.motionDiscard(ListStaging.SLOT, 1, ListStaging.LIST, c0), fails)
         lens.notifies()
         rows += listOf(Frame("before (row $c0)", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
         val down = list.entryFor(CfwModes.EV_UPROLL)!!; val up = list.entryFor(CfwModes.EV_DOWNROLL)!!
@@ -326,7 +326,7 @@ object MainLocalCheck {
                 differ(held, m.truth(c, left), pan.areas(left)).let { if (it > 0) fails += "$arm: $it px at HOLD where the lens is not Main's paint at row $c" }
                 differ(held, m.truth(c0, left), null).let { n -> val inA = differ(held, m.truth(c0, left), pan.areas(left)); if (n - inA > 0) fails += "$arm: ${n - inA} px outside the areas changed at HOLD" }
             }
-            lens.send("the riding LIST and COMMIT S $s", CfwModes.batch(listOf(list.listMessage(0), Motion.commit(prog, MainStaging.SLOT, s, MainStaging.LIST, c, p)), engine = true, bind = true), fails)
+            lens.send("the riding LIST and COMMIT S $s", CfwModes.batch(listOf(list.listMessage(0), Motion.commit(prog, ListStaging.SLOT, s, ListStaging.LIST, c, p)), engine = true, bind = true), fails)
             for (arm in Arm.entries) {
                 val left = arm == Arm.LEFT
                 val belief = m.truth(c0, left).copy().also { ms.paintEndOf(f.prog4, p, left, it) }
@@ -365,7 +365,7 @@ object MainLocalCheck {
         val m = MainRig(text, height, rows, depth)
         val cache = CfwModes.CACHE2_MAX_RIDERS
         val region = CfwModes.mainRegion(cache, bind = true)
-        val one = MainStaging.build(m.layout, m.view, m.kit, m.listD, m.bandD, cache, 0, cache, widths = listOf(MainStaging.WHOLE)).let { it.end - it.start }
+        val one = ListStaging.build(m.layout, m.view, m.kit, m.listD, m.bandD, cache, 0, cache, widths = listOf(ListStaging.WHOLE)).let { it.end - it.start }
         val size = region.last + 1 - region.first
         return "worst case h$height at 256 KiB (Main's region $size B): one strip $one B (${if (one <= size) "fits" else "DOES NOT FIT"})"
     }
@@ -431,7 +431,7 @@ object MainLocalCheck {
         val m = MainRig(text, height, rows, depth)
         val cacheSize = kib * 1024
         val region = CfwModes.mainRegion(cacheSize, bind = true)
-        val ms = m.staging(cacheSize, region, MainStaging.ScrollMotion.DEFAULT.copy(effect = effect), stage5)
+        val ms = m.staging(cacheSize, region, ListStaging.ScrollMotion.DEFAULT.copy(effect = effect), stage5)
         val list = ms.boundList(1)
         val tag = "h$height-${kib}k" + (if (effect == ScrollEffect.DEPTH) "" else "-${effect.id}") + if (stage5) "-s5" else ""
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features(stage5); it.clockIsOsTick = true }
@@ -443,13 +443,13 @@ object MainLocalCheck {
             sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, flags(stage5), lens.now)
         }
         // DM-0 (S2): the ring form exactly where Main's paint wraps at stage 5; today's form everywhere else
-        if (ms.ring != (stage5 && MainStaging.ringFits(ms.layout, ms.rows))) setup += "the staging's form: ring ${ms.ring} at stage ${if (stage5) 5 else 4} with ${ms.rows} rows at $height"
+        if (ms.ring != (stage5 && ListStaging.ringFits(ms.layout, ms.rows))) setup += "the staging's form: ring ${ms.ring} at stage ${if (stage5) 5 else 4} with ${ms.rows} rows at $height"
         if (ms.ring && ms.wrap != null) setup += "a ring staging built a wrap record"
         for (b in ms.blobs) lens.write(b.off, b.bytes, b.name, setup)
         for (s in list.sets()) lens.send("a SET", s, setup)
         lens.send("the LIST", list.listMessage(0), setup)
-        for (arm in Arm.entries) if (sim.bindForTest(arm).lists[MainStaging.LIST].ring != ms.ring) setup += "$arm: the list's RING flag is not ${ms.ring} after the LIST"
-        val whole = ms.pan(MainStaging.WHOLE, 1)
+        for (arm in Arm.entries) if (sim.bindForTest(arm).lists[ListStaging.LIST].ring != ms.ring) setup += "$arm: the list's RING flag is not ${ms.ring} after the LIST"
+        val whole = ms.pan(ListStaging.WHOLE, 1)
         val inside = region.first <= ms.start && ms.end <= region.last + 1
         if (!inside) setup += "the staging ${ms.start}..${ms.end} leaves its region ${region.first}..${region.last + 1}"
         val tableLine = "$tag: ${effect.word}, ${ms.bytes} B at ${ms.start}..${ms.end} (${if (region.last + 1 == cacheSize) "shared reserve" else "Main's region"}), " +
@@ -467,7 +467,7 @@ object MainLocalCheck {
         fun one(e: BoundList.Entry, c: Int, fails: MutableList<String>, lines: MutableList<String>, frames: MutableList<Frame>?, answer: (Int, IntArray, Int) -> Unit) {
             lens.now += 1_000
             lens.keyframe(m.truth(c, true), m.truth(c, false))
-            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c), fails)
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(ListStaging.SLOT, 1, ListStaging.LIST, c), fails)
             lens.notifies()
             frames?.add(Frame("before", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
             val a = lens.fire(CfwModes.DEV_RING, e.eventId)       // the ring: a tap entry's devType, and a scroll entry takes any
@@ -511,7 +511,7 @@ object MainLocalCheck {
                 frames = if (keepFrames && c == mid) ArrayList() else null
                 one(e, c, fails, lines, frames) { cP, p, prog4 ->
                     // (the row before the fire is the loop's cursor [c]: on a ring list c' − step is outside the rows at the wrap)
-                    val pan = ms.pan(MainStaging.WHOLE, e.step)
+                    val pan = ms.pan(ListStaging.WHOLE, e.step)
                     for (arm in Arm.entries) {
                         val left = arm == Arm.LEFT
                         val areas = pan.areas(left)
@@ -520,8 +520,8 @@ object MainLocalCheck {
                         differ(held, m.truth(c, left), null).let { n -> val inA = differ(held, m.truth(c, left), areas); if (n - inA > 0) fails += "$name from $c $arm: ${n - inA} px outside the areas changed at HOLD" }
                     }
                     // DM-0 (S5): the COMMIT rides behind the list's LIST with shift 0, as every answer does — LIST-RING on a ring list
-                    lens.send("the riding LIST and COMMIT S $s", CfwModes.batch(listOf(list.listMessage(0), Motion.commit(ms.programAt(prog4), MainStaging.SLOT, s, MainStaging.LIST, cP, p)), engine = true, bind = true), fails)
-                    for (arm in Arm.entries) if (sim.bindForTest(arm).lists[MainStaging.LIST].ring != ms.ring) fails += "$name from $c $arm: the list's RING flag is not ${ms.ring} after the answer"
+                    lens.send("the riding LIST and COMMIT S $s", CfwModes.batch(listOf(list.listMessage(0), Motion.commit(ms.programAt(prog4), ListStaging.SLOT, s, ListStaging.LIST, cP, p)), engine = true, bind = true), fails)
+                    for (arm in Arm.entries) if (sim.bindForTest(arm).lists[ListStaging.LIST].ring != ms.ring) fails += "$name from $c $arm: the list's RING flag is not ${ms.ring} after the answer"
                     for (arm in Arm.entries) {
                         val left = arm == Arm.LEFT
                         val belief = m.truth(c, left).copy().also { ms.paintEndOf(prog4, p, left, it) }
@@ -534,7 +534,7 @@ object MainLocalCheck {
                 }
                 if (frames != null) kept = frames
             }
-            val pan = ms.pan(MainStaging.WHOLE, e.step)
+            val pan = ms.pan(ListStaging.WHOLE, e.step)
             cases += Case("$tag-$name", "a notch $name at every cursor: the report as predicted, the last step Main's paint, COMMIT's END belief's; the strip is the notch from row $mid",
                 union(pan.areasL + pan.areasR), kept, lines, fails)
         }
@@ -555,7 +555,7 @@ object MainLocalCheck {
                         differ(lens.panel(arm), end, areas).let { if (it > 0) fails += "tap at $c $arm: $it px at HOLD where the lens is not the press's END" }
                     }
                     // the act's first frame, then the slot's DISCARD: the press goes, the lens shows the shadow
-                    lens.send("DISCARD after the act", CfwModes.motionDiscard(MainStaging.SLOT, s, MainStaging.LIST, cP), fails)
+                    lens.send("DISCARD after the act", CfwModes.motionDiscard(ListStaging.SLOT, s, ListStaging.LIST, cP), fails)
                     for (arm in Arm.entries) if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) fails += "tap at $c $arm: after the DISCARD the lens does not show the shadow"
                     lens.notifies()
                 }
@@ -576,18 +576,18 @@ object MainLocalCheck {
             val frames: MutableList<Frame>? = if (keepFrames) ArrayList() else null
             lens.now += 1_000
             lens.keyframe(m.truth(c, true), m.truth(c, false))
-            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c), fails)
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(ListStaging.SLOT, 1, ListStaging.LIST, c), fails)
             lens.notifies()
             frames?.add(Frame("before", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
             val a = lens.fire(CfwModes.DEV_RING, e.eventId)
             s++
             if (a == null || a.outcome != DamageMsg.APPLIED_EDGE || a.cursor != c) fails += "$name from $c: the lens did not report the edge (${a?.describe()})"
-            val pan = ms.wrapPan(e.step) ?: ms.pan(MainStaging.WHOLE, e.step)
+            val pan = ms.wrapPan(e.step) ?: ms.pan(ListStaging.WHOLE, e.step)
             val p = ms.wrapParams(pan, cPrime)
             if (p == null) fails += "$name from $c: no parameters across the wrap"
             else {
-                val play = Motion.play(pan.program, MainStaging.WRAP_SLOT, ms.period, Shell.WRAP_TAG, 0, p)
-                lens.send("the wrap's PLAY and DISCARD", CfwModes.batch(listOf(play, CfwModes.motionDiscard(MainStaging.SLOT, (s + 1 - 0x4000) and 0xFFFF, MainStaging.LIST, to)), engine = true, bind = true), fails)
+                val play = Motion.play(pan.program, ListStaging.WRAP_SLOT, ms.period, Shell.WRAP_TAG, 0, p)
+                lens.send("the wrap's PLAY and DISCARD", CfwModes.batch(listOf(play, CfwModes.motionDiscard(ListStaging.SLOT, (s + 1 - 0x4000) and 0xFFFF, ListStaging.LIST, to)), engine = true, bind = true), fails)
                 val t0 = lens.now
                 frames?.add(Frame("step 1", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))     // the PLAY's own present
                 for (k in 2..ms.t) { lens.wake(t0 + (k - 1).toLong() * ms.period); frames?.add(Frame("step $k", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT))) }
@@ -599,12 +599,12 @@ object MainLocalCheck {
                     differ(lens.shadow(arm), belief, null).let { if (it > 0) fails += "$name $arm: $it px where END in the shadow is not what belief takes" }
                     differ(lens.shadow(arm), m.truth(to, left), pan.areas(left)).let { if (it > 0) fails += "$name $arm: $it px of END not Main's paint at $to" }
                     if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) fails += "$name $arm: after the last step the lens does not show the shadow"
-                    if (sim.bindForTest(arm).lists[MainStaging.LIST].cursor != to) fails += "$name $arm: the list's cursor ${sim.bindForTest(arm).lists[MainStaging.LIST].cursor}, not $to"
+                    if (sim.bindForTest(arm).lists[ListStaging.LIST].cursor != to) fails += "$name $arm: the list's cursor ${sim.bindForTest(arm).lists[ListStaging.LIST].cursor}, not $to"
                 }
                 val bodies = lens.notifies()
-                if (bodies.none { it.slot == MainStaging.WRAP_SLOT && it.outcome == DamageMsg.OUTCOME_DREW } || bodies.any { it.outcome == 2 })
+                if (bodies.none { it.slot == ListStaging.WRAP_SLOT && it.outcome == DamageMsg.OUTCOME_DREW } || bodies.any { it.outcome == 2 })
                     fails += "$name: RIGHT's notifies ${bodies.map { it.describe() }}"
-                lines += "$name from $c → $to: PLAY slot ${MainStaging.WRAP_SLOT} prog ${pan.prog4} P ${p.joinToString(",")}, ${ms.t} steps at P ${ms.period}"
+                lines += "$name from $c → $to: PLAY slot ${ListStaging.WRAP_SLOT} prog ${pan.prog4} P ${p.joinToString(",")}, ${ms.t} steps at P ${ms.period}"
             }
             cases += Case("$tag-$name", "the wrap from row $c to row $to: the edge, then the phone's PLAY of the pan across it (decisions AZ.4)",
                 union(pan.areasL + pan.areasR), frames ?: emptyList(), lines, fails)
@@ -635,7 +635,7 @@ object MainLocalCheck {
         fun fireHeld(e: BoundList.Entry, c: Int, fails: MutableList<String>): DamageMsg.Applied? {
             lens.now += 1_000
             lens.keyframe(m.truth(c, true), m.truth(c, false))
-            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c), fails)
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(ListStaging.SLOT, 1, ListStaging.LIST, c), fails)
             lens.notifies()
             val a = lens.fire(CfwModes.DEV_RING, e.eventId) ?: return null
             val t0 = lens.now
@@ -650,7 +650,7 @@ object MainLocalCheck {
         fun commitReport(a: DamageMsg.Applied, cBefore: Int, fails: MutableList<String>, what: String) {
             val p = a.params ?: run { fails += "$what: the report carries no P (${a.describe()})"; return }
             val prog = a.prog!!; val cP = a.cursor!!
-            lens.send("$what: COMMIT S ${a.s}", Motion.commit(ms.programAt(prog), MainStaging.SLOT, a.s!!, MainStaging.LIST, cP, p), fails)
+            lens.send("$what: COMMIT S ${a.s}", Motion.commit(ms.programAt(prog), ListStaging.SLOT, a.s!!, ListStaging.LIST, cP, p), fails)
             for (arm in Arm.entries) {
                 val left = arm == Arm.LEFT
                 val belief = m.truth(cBefore, left).copy().also { ms.paintEndOf(prog, p, left, it) }
@@ -669,8 +669,8 @@ object MainLocalCheck {
             (rows[music] as SampleRow).s = rows[music].summary().copy(detail = "Low Tide · q 6/12 · shuffle")     // the band form shows the detail; the row form does not
             m.repainted()
             val r = ms.restage(music, m.view, m.kit, relay0)
-            val mv = (r as? MainStaging.Restage.Changed)?.band
-            if (r !is MainStaging.Restage.Changed || r.strip.isNotEmpty() || mv == null) fails += "a change of Music's detail: ${(r as? MainStaging.Restage.Outgrown)?.why ?: r}, not its band form alone"
+            val mv = (r as? ListStaging.Restage.Changed)?.band
+            if (r !is ListStaging.Restage.Changed || r.strip.isNotEmpty() || mv == null) fails += "a change of Music's detail: ${(r as? ListStaging.Restage.Outgrown)?.why ?: r}, not its band form alone"
             else {
                 val oldOff4 = ms.itemOffs[music]
                 lens.write(mv.write.off, mv.write.bytes, mv.write.what, fails)           // into a slot no table names
@@ -688,7 +688,7 @@ object MainLocalCheck {
                 if (!named(after, a2, down)) fails += "the notch after the switch is not named"
                 if (a2 != null) {
                     commitReport(a2, c0, fails, "the notch after the switch")
-                    for (arm in Arm.entries) differ(lens.shadow(arm), m.truth(music, arm == Arm.LEFT), ms.pan(MainStaging.WHOLE, 1).areas(arm == Arm.LEFT))
+                    for (arm in Arm.entries) differ(lens.shadow(arm), m.truth(music, arm == Arm.LEFT), ms.pan(ListStaging.WHOLE, 1).areas(arm == Arm.LEFT))
                         .let { if (it > 0) fails += "after the switch $arm: $it px of END not Main's paint" }
                 }
                 // the item word's other entry is untouched: a notch onto the neighbour row draws its own band form
@@ -710,7 +710,7 @@ object MainLocalCheck {
             (rows[music] as SampleRow).s = rows[music].summary().copy(line = "Night Drive - Low Tides")
             m.repainted()
             val r = ms.restage(music, m.view, m.kit, relay0)
-            if (r !is MainStaging.Restage.Changed || r.strip.isEmpty()) fails += "a change of Music's line: ${(r as? MainStaging.Restage.Outgrown)?.why ?: r}, not its strip segment"
+            if (r !is ListStaging.Restage.Changed || r.strip.isEmpty()) fails += "a change of Music's line: ${(r as? ListStaging.Restage.Outgrown)?.why ?: r}, not its strip segment"
             else {
                 for (e in cur.entries) lens.send("CLEAR ${e.entry}", CfwModes.bindClear(e.entry), fails)
                 if (fireHeld(down, c0, fails) != null) fails += "a notch while the entries are cleared still matched an entry"
@@ -722,7 +722,7 @@ object MainLocalCheck {
                 if (!named(nl, a, down)) fails += "the notch after the strip's write is not named: ${a?.describe()}"
                 if (a != null) {
                     commitReport(a, c0, fails, "the notch after the strip's write")
-                    for (arm in Arm.entries) differ(lens.shadow(arm), m.truth(music, arm == Arm.LEFT), ms.pan(MainStaging.WHOLE, 1).areas(arm == Arm.LEFT))
+                    for (arm in Arm.entries) differ(lens.shadow(arm), m.truth(music, arm == Arm.LEFT), ms.pan(ListStaging.WHOLE, 1).areas(arm == Arm.LEFT))
                         .let { if (it > 0) fails += "after the strip's write $arm: $it px of END not Main's paint" }
                 }
                 r.band?.let { ms.release(it.oldOff4) }; nl.previous = null
@@ -747,7 +747,7 @@ object MainLocalCheck {
             if (a != null) {
                 frames?.add(Frame("held", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
                 commitReport(a, c0, fails, "the notch onto the stale row")
-                val areas = { left: Boolean -> ms.pan(MainStaging.WHOLE, 1).areas(left) }
+                val areas = { left: Boolean -> ms.pan(ListStaging.WHOLE, 1).areas(left) }
                 if (Arm.entries.none { arm -> differ(lens.shadow(arm), m.truth(music, arm == Arm.LEFT), areas(arm == Arm.LEFT)) > 0 })
                     fails += "the shape guard: the stale row's staged pictures equal Main's truth"
                 // the ordinary repaint (the phone's frame of what differs from belief)
@@ -756,7 +756,7 @@ object MainLocalCheck {
                 for (arm in Arm.entries) differ(lens.panel(arm), m.truth(music, arm == Arm.LEFT), null).let { if (it > 0) fails += "after the repaint $arm: $it px not Main's paint" }
                 lines += "Music's row three changes behind its staging: the notch named and committed from the staged copies, then the repaint"
             }
-            val pan = ms.pan(MainStaging.WHOLE, 1)
+            val pan = ms.pan(ListStaging.WHOLE, 1)
             cases += Case("$tag-stale", "a row stale by several changes: a COMMIT from the staged copies, belief equal to both lenses, then the repaint",
                 union(pan.areasL + pan.areasR), frames ?: emptyList(), lines, fails)
         }
@@ -795,7 +795,7 @@ object MainLocalCheck {
         fun fireHeld(c: Int, period: Int): DamageMsg.Applied? {
             lens.now += 1_000
             lens.keyframe(m.truth(c, true), m.truth(c, false))
-            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c), fails)
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(ListStaging.SLOT, 1, ListStaging.LIST, c), fails)
             lens.notifies()
             val a = lens.fire(CfwModes.DEV_RING, down.eventId) ?: return null
             val t0 = lens.now
@@ -807,7 +807,7 @@ object MainLocalCheck {
             if (a == null || a.outcome != DamageMsg.APPLIED_DREW) { fails += "$what: no drawn report (${a?.describe()})"; return }
             val p = a.params!!; val prog = a.prog!!; val cP = a.cursor!!
             if (!cur.names(cP, down, prog, p, a.wrapped)) fails += "$what: the report is not named by the list as it stands (${a.describe()})"
-            lens.send("$what: COMMIT", Motion.commit(ms.programAt(prog), MainStaging.SLOT, a.s!!, MainStaging.LIST, cP, p), fails)
+            lens.send("$what: COMMIT", Motion.commit(ms.programAt(prog), ListStaging.SLOT, a.s!!, ListStaging.LIST, cP, p), fails)
             for (arm in Arm.entries) {
                 val left = arm == Arm.LEFT
                 val belief = m.truth((cP - down.step).mod(ms.rows), left).copy().also { ms.paintEndOf(prog, p, left, it) }
@@ -818,8 +818,8 @@ object MainLocalCheck {
             lens.notifies()
         }
         /** The re-make for [want] into the free slot, checked against every record's range, and written. */
-        fun remade(want: MainStaging.ScrollMotion): MainStaging.Programs? {
-            val p = (ms.remake(want) as? MainStaging.Remake.Owed)?.programs ?: run { fails += "no re-make for ${want.words()}: ${ms.remake(want)}"; return null }
+        fun remade(want: ListStaging.ScrollMotion): ListStaging.Programs? {
+            val p = (ms.remake(want) as? ListStaging.Remake.Owed)?.programs ?: run { fails += "no re-make for ${want.words()}: ${ms.remake(want)}"; return null }
             if (p.off != slots[p.slot] || p.bytes.size > ms.progSlot) fails += "${want.words()}: ${p.bytes.size} B at ${p.off}, not inside slot ${p.slot} (${slots[p.slot]}, ${ms.progSlot} B)"
             val press = ms.press.prog4 * 4
             for (b in ms.blobs) {
@@ -830,7 +830,7 @@ object MainLocalCheck {
             lens.write(p.off, p.bytes, "the re-made pans", fails)
             return p
         }
-        val p1 = remade(MainStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.SLIDE))
+        val p1 = remade(ListStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.SLIDE))
         if (p1 != null) {
             val before = fireHeld(c0, down.period)                      // the lens still holds Depth's entries
             commit(before, "a notch before the SETs")
@@ -851,7 +851,7 @@ object MainLocalCheck {
             if (runCatching { ms.programAt(oldProg ?: -1) }.isSuccess) fails += "the old pans are still named after their release"
             lines += "Depth → Slide: ${p1.bytes.size} B into the free slot at ${p1.off} and ${sets.size} SETs ${sets.sumOf { it.size }} B, against a whole staging's ${ms.bytes} B"
             // and back: Depth into the first slot is that slot's bytes as staged
-            val p2 = remade(MainStaging.ScrollMotion.DEFAULT)
+            val p2 = remade(ListStaging.ScrollMotion.DEFAULT)
             if (p2 != null) {
                 val base = ms.blobs.first { it.name == "programs" }
                 val slot0 = base.bytes.copyOfRange(slots[0] - base.off, slots[0] - base.off + p2.bytes.size)
@@ -904,7 +904,7 @@ object MainLocalCheck {
         fun fireHeld(c: Int, e: BoundList.Entry): DamageMsg.Applied? {
             lens.now += 1_000
             lens.keyframe(m.truth(c, true), m.truth(c, false))
-            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c), fails)
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(ListStaging.SLOT, 1, ListStaging.LIST, c), fails)
             lens.notifies()
             val a = lens.fire(CfwModes.DEV_RING, e.eventId) ?: return null
             val t0 = lens.now
@@ -917,7 +917,7 @@ object MainLocalCheck {
             val p = a.params!!; val prog = a.prog!!; val cP = a.cursor!!
             if (a.mark != mark) fails += "$what: the report's mark ${a.mark}, not the list's $mark"
             if (!cur.names(cP, e, prog, p, a.wrapped)) fails += "$what: the report is not named by the list as it stands (${a.describe()})"
-            lens.send("$what: the riding LIST and COMMIT", CfwModes.batch(listOf(cur.listMessage(0, mark), Motion.commit(ms.programAt(prog), MainStaging.SLOT, a.s!!, MainStaging.LIST, cP, p)), engine = true, bind = true), fails)
+            lens.send("$what: the riding LIST and COMMIT", CfwModes.batch(listOf(cur.listMessage(0, mark), Motion.commit(ms.programAt(prog), ListStaging.SLOT, a.s!!, ListStaging.LIST, cP, p)), engine = true, bind = true), fails)
             for (arm in Arm.entries) {
                 val left = arm == Arm.LEFT
                 val belief = m.truth((cP - e.step).mod(ms.rows), left).copy().also { ms.paintEndOf(prog, p, left, it) }
@@ -929,8 +929,8 @@ object MainLocalCheck {
         }
         /** The switch to [want]: re-made into the free slot (no record of the staging met), written; a notch before the
          *  switch's batch (the old entries, the old mark); the batch; a notch after it. */
-        fun switchTo(want: MainStaging.ScrollMotion) {
-            val p = (ms.remake(want, fx) as? MainStaging.Remake.Owed)?.programs ?: run { fails += "no re-make for ${want.words()}: ${ms.remake(want, fx)}"; return }
+        fun switchTo(want: ListStaging.ScrollMotion) {
+            val p = (ms.remake(want, fx) as? ListStaging.Remake.Owed)?.programs ?: run { fails += "no re-make for ${want.words()}: ${ms.remake(want, fx)}"; return }
             if (p.off != slots[p.slot] || p.bytes.size > ms.progSlot) fails += "${want.words()}: ${p.bytes.size} B at ${p.off}, not inside slot ${p.slot}"
             val press = ms.press.prog4 * 4
             for (b in ms.blobs) {
@@ -952,7 +952,7 @@ object MainLocalCheck {
             // runs before it whole or after it whole; a refused LIST leaves the old entries with the old pitch)
             val batch = CfwModes.batch(listOf(nl.listMessage(0, mark)) + nl.sets(), engine = true, bind = true)
             lens.send("the switch's batch (LIST then SETs)", batch, fails)
-            for (arm in Arm.entries) sim.bindForTest(arm).lists[MainStaging.LIST].let { l ->
+            for (arm in Arm.entries) sim.bindForTest(arm).lists[ListStaging.LIST].let { l ->
                 if (l.pitch != nl.pitch || l.mark != mark || l.ring != nl.ring) fails += "${want.words()} $arm: the lens's list after the batch: pitch ${l.pitch} mark ${l.mark} ring ${l.ring}, not ${nl.pitch} $mark ${nl.ring}"
             }
             lens.notifies()
@@ -965,9 +965,9 @@ object MainLocalCheck {
             lines += "${p.motion.effect.word} (pitch ${nl.pitch}, ${ms.plays.effect.word}${if (ms.plays.v2) " v2" else ""}): ${p.bytes.size} B into the free slot at ${p.off}, then ONE batch of ${batch.size} B " +
                 "(the LIST ${nl.listMessage(0, mark).size} B ahead of ${nl.sets().size} SETs); the notch before it reported mark ${before?.mark} (refused by P3), the one after committed"
         }
-        switchTo(MainStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.CRUSH))
+        switchTo(ListStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.CRUSH))
         if (ms.plays != wm.damage.core.motion.ScrollEffects.Plays(ScrollEffect.CRUSH, true)) fails += "Crush does not play itself at stage 5: ${ms.plays}"
-        switchTo(MainStaging.ScrollMotion.DEFAULT)
+        switchTo(ListStaging.ScrollMotion.DEFAULT)
         return Case(tag, "the switch between the pitch forms (Depth → Crush → Depth, S6): the free slot only, then ONE batch with the LIST ahead of the SETs; a notch before refused by its mark, one after committed",
             Rect(0, 0, 1, 1), emptyList(), lines, fails)
     }
@@ -979,24 +979,24 @@ object MainLocalCheck {
      * COMMIT of the report's own parameters) leaves both lenses' lists ringing, END in the shadow belief's. A ring staging
      * has no wrap pan (no phone PLAY across its wrap: C3 X2M0, decisions AZ (2)).
      */
-    private fun ringCases(ms: MainStaging, m: MainRig, list: BoundList, lens: Lens, keepFrames: Boolean, tag: String, nextS: () -> Int, cases: MutableList<Case>) {
+    private fun ringCases(ms: ListStaging, m: MainRig, list: BoundList, lens: Lens, keepFrames: Boolean, tag: String, nextS: () -> Int, cases: MutableList<Case>) {
         val sim = lens.sim
         val down = list.entryFor(CfwModes.EV_UPROLL)!!; val up = list.entryFor(CfwModes.EV_DOWNROLL)!!
         fun from(c: Int, fails: MutableList<String>, frames: MutableList<Frame>?) {
             lens.now += 1_000
             lens.keyframe(m.truth(c, true), m.truth(c, false))
-            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c), fails)
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(ListStaging.SLOT, 1, ListStaging.LIST, c), fails)
             lens.notifies()
             frames?.add(Frame("before", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
         }
-        fun ended(name: String, c: Int, to: Int, pan: MainStaging.Pan, p: IntArray, fails: MutableList<String>) {
+        fun ended(name: String, c: Int, to: Int, pan: ListStaging.Pan, p: IntArray, fails: MutableList<String>) {
             for (arm in Arm.entries) {
                 val left = arm == Arm.LEFT
                 val belief = m.truth(c, left).copy().also { ms.paintEndOf(pan.prog4, p, left, it) }
                 differ(lens.shadow(arm), belief, null).let { if (it > 0) fails += "$name $arm: $it px where END in the shadow is not what belief takes" }
                 differ(lens.shadow(arm), m.truth(to, left), pan.areas(left)).let { if (it > 0) fails += "$name $arm: $it px of END not Main's paint at $to" }
                 if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) fails += "$name $arm: the lens does not show the shadow"
-                val l = sim.bindForTest(arm).lists[MainStaging.LIST]
+                val l = sim.bindForTest(arm).lists[ListStaging.LIST]
                 if (l.cursor != to) fails += "$name $arm: the list's cursor ${l.cursor}, not $to"
                 if (!l.ring) fails += "$name $arm: the list no longer rings (S5)"
             }
@@ -1004,7 +1004,7 @@ object MainLocalCheck {
         for ((e, dir) in listOf(down to "down", up to "up")) {
             val c = if (e.step > 0) ms.rows - 1 else 0
             val to = (c + e.step).mod(ms.rows)
-            val pan = ms.pan(MainStaging.WHOLE, e.step)
+            val pan = ms.pan(ListStaging.WHOLE, e.step)
             val want = list.predict(c, e) as? BoundList.Fire.Drew
             // ---- the wrap notch, on the glasses
             run {
@@ -1028,15 +1028,15 @@ object MainLocalCheck {
                     lens.wake(t0 + steps.toLong() * e.period)
                     for (arm in Arm.entries) {
                         val left = arm == Arm.LEFT
-                        if (sim.motionForTest(arm).slots[MainStaging.WRAP_SLOT] != null) fails += "$name $arm: an instance in the wrap's slot ${MainStaging.WRAP_SLOT}"
+                        if (sim.motionForTest(arm).slots[ListStaging.WRAP_SLOT] != null) fails += "$name $arm: an instance in the wrap's slot ${ListStaging.WRAP_SLOT}"
                         differ(lens.panel(arm), m.truth(to, left), pan.areas(left)).let { if (it > 0) fails += "$name $arm: $it px of the last step not Main's paint at $to" }
                     }
                     lens.send("the riding LIST-RING and the COMMIT", CfwModes.batch(listOf(list.listMessage(0),
-                        Motion.commit(pan.program, MainStaging.SLOT, s, MainStaging.LIST, to, p)), engine = true, bind = true), fails)
+                        Motion.commit(pan.program, ListStaging.SLOT, s, ListStaging.LIST, to, p)), engine = true, bind = true), fails)
                     ended(name, c, to, pan, p, fails)
                     val bodies = lens.notifies()
                     if (bodies.none { it.outcome == DamageMsg.OUTCOME_COMMITTED } || bodies.any { it.outcome == 2 }) fails += "$name: RIGHT's notifies after the COMMIT ${bodies.map { it.describe() }}"
-                    lines += "$name from $c → $to on the glasses: field 18 = 1, prog ${pan.prog4} P ${p.joinToString(",")}, $steps steps at P ${e.period}; slot ${MainStaging.WRAP_SLOT} empty"
+                    lines += "$name from $c → $to on the glasses: field 18 = 1, prog ${pan.prog4} P ${p.joinToString(",")}, $steps steps at P ${e.period}; slot ${ListStaging.WRAP_SLOT} empty"
                 }
                 cases += Case("$tag-$name", "the wrap from row $c to row $to on a ring list: fired through the hook like any notch (field 18), committed (DM-0)",
                     union(pan.areasL + pan.areasR), frames ?: emptyList(), lines, fails)

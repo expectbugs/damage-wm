@@ -23,7 +23,7 @@ import wm.damage.core.local.LocalRules
 import wm.damage.core.local.Taps
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.shell.WindowView
@@ -479,7 +479,7 @@ class MainLocalShellTest {
                 fun dAt(x: Rect) = planes.lastOrNull { it.rect.contains(x) }?.disparity ?: 0
                 val chrome = l.chromeCells().values + listOf(l.topBar, l.topDivider, l.bottomDivider, l.statusBar)
                 // the content's planes, and the press's (the band row one depth notch nearer, never past the screen plane:
-                // `MainStaging`, DM2 §0.3) — the band row drawn at that depth is still Main's content
+                // `ListStaging`, DM2 §0.3) — the band row drawn at that depth is still Main's content
                 val listDs = planes.filter { l.content.contains(it.rect) }.map { it.disparity }.toSet()
                 val contentDs = listDs + maxOf(0, listDs.min() - Geometry.X_STEP)
                 for (e in r.list().entries) for (t in e.program!!.tracks) for (left in listOf(true, false)) {
@@ -805,10 +805,10 @@ class MainLocalShellTest {
             r.until("back on Main and its list bound on RIGHT") { r.onLoop { r.shell.currentWindowId() } == null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
             // C3 X3 (decisions CA (2)): the re-made pans are switched by the return's poll (none is switched under a cover),
             // so Slide's pan is the staging's from the return on
-            val slide = r.onLoop { r.shell.mainBinding.staging!!.let { ms -> ms.motion?.effect to ms.pan(MainStaging.WHOLE, 1).prog4 } }
+            val slide = r.onLoop { r.shell.mainBinding.staging!!.let { ms -> ms.motion?.effect to ms.pan(ListStaging.WHOLE, 1).prog4 } }
             r.fire(CfwModes.EV_UPROLL)                                      // the first notch, at once
-            for (a in Arm.entries) r.until("$a plays the first notch") { r.sim.motionForTest(a).slots[MainStaging.SLOT] != null }
-            for (a in Arm.entries) assertEquals(wm.damage.core.motion.ScrollEffect.SLIDE to slide.second, slide.first to r.sim.motionForTest(a).slots[MainStaging.SLOT]!!.prog4,
+            for (a in Arm.entries) r.until("$a plays the first notch") { r.sim.motionForTest(a).slots[ListStaging.SLOT] != null }
+            for (a in Arm.entries) assertEquals(wm.damage.core.motion.ScrollEffect.SLIDE to slide.second, slide.first to r.sim.motionForTest(a).slots[ListStaging.SLOT]!!.prog4,
                 "$a: the first notch back on Main plays Slide's pan")
             val sets = r.right.drop(at).flatMap { r.subs(it) }.filter { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL }
             assertTrue(sets.isNotEmpty() && sets.all { r.u16(it, 9) == slide.second }, "the return SETs Slide's pans directly: ${sets.map { r.u16(it, 9) }}")
@@ -851,7 +851,7 @@ class MainLocalShellTest {
             r.until("back on Main and its list bound on RIGHT") { r.onLoop { r.shell.currentWindowId() } == null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
             r.until("the return's transition landed") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
             r.settle("back on Main")
-            val (ms, pan) = r.onLoop { r.shell.mainBinding.staging!!.let { it to it.pan(MainStaging.WHOLE, 1) } }
+            val (ms, pan) = r.onLoop { r.shell.mainBinding.staging!!.let { it to it.pan(ListStaging.WHOLE, 1) } }
             assertEquals(wm.damage.core.motion.ScrollEffect.CRUSH, ms.motion?.effect, "the pans in force are asked for Crush")
             assertTrue(ms.plays.effect == wm.damage.core.motion.ScrollEffect.CRUSH && ms.plays.v2 && ms.pitch == rowH && pan.program.tracks.size == 5,
                 "Crush plays (version 2, pitch +rowH, five tracks): ${ms.plays.effect} v2=${ms.plays.v2} pitch ${ms.pitch} ${pan.program.tracks.size} tracks")
@@ -877,7 +877,7 @@ class MainLocalShellTest {
             val snaps = r.notes("snapback").size
             val at2 = r.right.size
             val s = r.fire(CfwModes.EV_UPROLL)
-            for (a in Arm.entries) r.until("$a plays the notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[MainStaging.SLOT]?.prog4 } == pan.prog4 }
+            for (a in Arm.entries) r.until("$a plays the notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]?.prog4 } == pan.prog4 }
             delay(r.motionMs() + r.q() + 300); r.settle("after the notch")
             assertEquals((row0 + 1).mod(r.list().count), r.row(), "the notch moved one row")
             assertTrue(r.right.drop(at2).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "a COMMIT of S $s")
@@ -938,7 +938,7 @@ class MainLocalShellTest {
             r.until("back on Main and its list bound on RIGHT") { r.onLoop { r.shell.currentWindowId() } == null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
             r.until("the return's transition landed") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
             r.settle("back on Main")
-            val (ms, pan) = r.onLoop { r.shell.mainBinding.staging!!.let { it to it.pan(MainStaging.WHOLE, 1) } }
+            val (ms, pan) = r.onLoop { r.shell.mainBinding.staging!!.let { it to it.pan(ListStaging.WHOLE, 1) } }
             assertTrue(ms.motion?.effect == wm.damage.core.motion.ScrollEffect.CRUSH && ms.plays.effect == wm.damage.core.motion.ScrollEffect.CRUSH,
                 "the pans in force are Crush's at the return: asked ${ms.motion?.effect}, plays ${ms.plays.effect}")
             val sets = r.right.drop(at.get()).map { r.subs(it) }.filter { ss -> ss.any { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL && it[5].toInt() == 0 } }
@@ -949,8 +949,8 @@ class MainLocalShellTest {
             for (a in Arm.entries) assertEquals(pan.prog4, r.sim.bindForTest(a).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.prog,
                 "$a holds the SET naming Crush's pan")
             r.fire(CfwModes.EV_UPROLL)
-            for (a in Arm.entries) r.until("$a plays the first notch back") { synchronized(r.sim) { r.sim.motionForTest(a).slots[MainStaging.SLOT]?.prog4 } != null }
-            for (a in Arm.entries) assertEquals(pan.prog4, synchronized(r.sim) { r.sim.motionForTest(a).slots[MainStaging.SLOT]!!.prog4 }, "$a: the first notch back plays Crush's pan")
+            for (a in Arm.entries) r.until("$a plays the first notch back") { synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]?.prog4 } != null }
+            for (a in Arm.entries) assertEquals(pan.prog4, synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]!!.prog4 }, "$a: the first notch back plays Crush's pan")
             delay(r.motionMs() + r.q() + 300); r.settle("after the notch")
             r.assertOracle("after the notch")
         } finally { r.shell.noRoomAfterPollForTest = null; r.close() }
@@ -1058,7 +1058,7 @@ class MainLocalShellTest {
         try {
             r.up()
             val ks = r.onLoop { r.shell.mainBinding.staging!!.pans.map { it.k } }
-            assertTrue(ks.isNotEmpty() && ks.all { it == wm.damage.core.shell.MainStaging.WHOLE }, "pans of widths $ks")
+            assertTrue(ks.isNotEmpty() && ks.all { it == wm.damage.core.shell.ListStaging.WHOLE }, "pans of widths $ks")
         } finally { r.close() }
     }
 
@@ -1318,7 +1318,7 @@ class MainLocalShellTest {
         }
     }
 
-    private fun isWrapPlay(s: ByteArray) = s[0].toInt() == 26 && s[1].toInt() == 0 && s[2].toInt() == MainStaging.WRAP_SLOT
+    private fun isWrapPlay(s: ByteArray) = s[0].toInt() == 26 && s[1].toInt() == 0 && s[2].toInt() == ListStaging.WRAP_SLOT
 
     /** RIGHT's first image since [at] that carries the wrap's PLAY, and that image's sub-messages. */
     private fun wrapBatch(r: Rig, at: Int): List<ByteArray>? = r.right.drop(at).map { r.subs(it) }.firstOrNull { subs -> subs.any { isWrapPlay(it) } }
@@ -1366,7 +1366,7 @@ class MainLocalShellTest {
         }
         // the instance's last step, before the held cells go (they wait past its end): what the lens shows in the areas then
         // must be what it shows at rest — END is Main's paint at the wrapped row, and the release has nothing to send there
-        r.until("$what: the wrap's last step on RIGHT") { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing != true }
+        r.until("$what: the wrap's last step on RIGHT") { r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.WRAP_SLOT]?.drawing != true }
         val atEnd = r.panel(false)
         assertTrue(r.notes("divergence").isEmpty(), "$what: ${r.notes("divergence")}")
         delay(r.q() + 200); r.settle("$what: after")
@@ -1379,7 +1379,7 @@ class MainLocalShellTest {
         }
         assertEquals(to, r.row(), "$what: the row is the other end")
         assertEquals(to, r.sim.bindForTest(Arm.RIGHT).lists[0].cursor, "$what: RIGHT's cursor is on it")
-        assertTrue(r.notes("motion").any { "slot ${MainStaging.WRAP_SLOT} " in it && "drew its last step" in it }, "$what: the wrap's instance drew its last step: ${r.notes("motion").takeLast(3)}")
+        assertTrue(r.notes("motion").any { "slot ${ListStaging.WRAP_SLOT} " in it && "drew its last step" in it }, "$what: the wrap's instance drew its last step: ${r.notes("motion").takeLast(3)}")
         assertTrue(r.notes("snapback").last().endsWith("wrap=play"), "$what: ${r.notes("snapback").last()}")
         assertTrue(r.notes("divergence").isEmpty(), "$what: ${r.notes("divergence")}")
         r.assertOracle(what)
@@ -1440,7 +1440,7 @@ class MainLocalShellTest {
                 delay(r.motionMs() + r.q() + 300); r.settle("$what: after")
                 assertEquals(to, r.row(), "$what: the row is the other end")
                 assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "$what: a COMMIT of S $s")
-                assertTrue(wrapBatch(r, at) == null, "$what: no wrap PLAY in slot ${MainStaging.WRAP_SLOT}")
+                assertTrue(wrapBatch(r, at) == null, "$what: no wrap PLAY in slot ${ListStaging.WRAP_SLOT}")
                 assertEquals(snaps, r.notes("snapback").size, "$what: no snap-back: ${r.notes("snapback").takeLast(2)}")
                 val lists = r.right.drop(at).flatMap { r.subs(it) }.filter { r.isSub(it, 27, 2) || r.isSub(it, 27, CfwModes.BIND_LIST_RING) }
                 assertTrue(lists.isNotEmpty() && lists.all { r.isSub(it, 27, CfwModes.BIND_LIST_RING) }, "$what: every LIST is LIST-RING (S5)")
@@ -1523,7 +1523,7 @@ class MainLocalShellTest {
                 val row1 = r.row()
                 val s2 = r.fire(CfwModes.EV_UPROLL)
                 val pan = list.entryFor(CfwModes.EV_UPROLL)!!.prog4
-                for (a in Arm.entries) r.until("$effect: $a plays the notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[MainStaging.SLOT]?.prog4 } == pan }
+                for (a in Arm.entries) r.until("$effect: $a plays the notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]?.prog4 } == pan }
                 delay(r.motionMs() + r.q() + 300); r.settle("$effect: after the notch")
                 assertEquals((row1 + 1).mod(list.count), r.row(), "$effect: the notch moved one row")
                 assertTrue(r.right.drop(at2).any { img -> r.subs(img).any { r.isCommit(it, s2) } }, "$effect: a COMMIT of S $s2")
@@ -1647,10 +1647,10 @@ class MainLocalShellTest {
             r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
             delay(60)
             val s = r.fire(CfwModes.EV_UPROLL)
-            r.until("the wrap's instance closed on RIGHT") { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing != true }
+            r.until("the wrap's instance closed on RIGHT") { r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.WRAP_SLOT]?.drawing != true }
             // P9: in a slot of its own, the fire's close pass ends it with RIGHT's outcome-1 body, so the mirror hears of it (in
             // the bound slot the fire would end it silently)
-            r.until("RIGHT's body for the closed wrap") { r.notes("motion").any { "slot ${MainStaging.WRAP_SLOT} " in it && "closed while drawing" in it } }
+            r.until("RIGHT's body for the closed wrap") { r.notes("motion").any { "slot ${ListStaging.WRAP_SLOT} " in it && "closed while drawing" in it } }
             noDivergenceFor(r, r.motionMs() + 300, "after the notch")
             delay(r.q() + 300); r.settle("after the notch")
             assertEquals(1, r.row(), "the notch from the wrapped row was adopted")
@@ -1675,7 +1675,7 @@ class MainLocalShellTest {
             delay(40)
             r.fire(CfwModes.EV_TAP)
             r.until("the first row's window opened") { r.onLoop { r.shell.currentWindowId() } == r.rows[0].id }
-            r.until("the wrap's instance closed on RIGHT") { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing != true }
+            r.until("the wrap's instance closed on RIGHT") { r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.WRAP_SLOT]?.drawing != true }
             r.settle("in the window")
             assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
             r.assertOracle("in the row's window")
@@ -1689,7 +1689,7 @@ class MainLocalShellTest {
             delay(40)
             r.onLoop { r.shell.services.openWindow("settings", null) }
             r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
-            r.until("the wrap's instance closed on RIGHT by the window") { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing != true }
+            r.until("the wrap's instance closed on RIGHT by the window") { r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.WRAP_SLOT]?.drawing != true }
             r.settle("in Settings")
             assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
             r.assertOracle("in Settings")
@@ -1711,7 +1711,7 @@ class MainLocalShellTest {
             val firedAt = System.currentTimeMillis()
             r.fire(CfwModes.EV_UPROLL)
             r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
-            val inst = assertNotNull(r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT])
+            val inst = assertNotNull(r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.WRAP_SLOT])
             assertEquals(46 to 13, inst.period to inst.T, "the wrap's instance: the bound pan's period and T at 600 ms")
             var settleAt: Long? = null
             r.onImage = { img -> if (settleAt == null && r.subs(img).any { r.isSub(it, 26, 5) }) settleAt = System.currentTimeMillis() }
@@ -1719,7 +1719,7 @@ class MainLocalShellTest {
             r.onImage = null
             assertTrue(settleAt!! - firedAt >= r.q(), "the SETTLE came ${settleAt!! - firedAt} ms after the edge, Q ${r.q()}")
             delay(r.motionMs()); r.settle("after")
-            assertTrue(r.notes("motion").any { "slot ${MainStaging.WRAP_SLOT} " in it && "drew its last step" in it }, "the wrap ran to its last step: ${r.notes("motion").takeLast(3)}")
+            assertTrue(r.notes("motion").any { "slot ${ListStaging.WRAP_SLOT} " in it && "drew its last step" in it }, "the wrap ran to its last step: ${r.notes("motion").takeLast(3)}")
             r.assertOracle("after the wrap at 600 ms")
         } finally { r.close() }
     }
@@ -2112,7 +2112,7 @@ class MainLocalShellTest {
                 if (playAt == 0L && r.subs(img).any { isWrapPlay(it) }) playAt = System.currentTimeMillis()
                 if (pieceAt == 0L && r.cacheWrite(img) && firstOff(img) >= regionStart) {
                     pieceAt = System.currentTimeMillis(); pieceBytes = img.size
-                    r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.takeIf { it.drawing && it.d < it.T }?.let { wrapDrawing = "step ${it.d} of ${it.T}" } } } }
+                    r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.WRAP_SLOT]?.takeIf { it.drawing && it.d < it.T }?.let { wrapDrawing = "step ${it.d} of ${it.T}" } } } }
             (r.t as LinkRig).stallNextMs = stall
             r.fire(CfwModes.EV_UPROLL)                                       // the wrap
             r.until("the wrap's PLAY decided") { r.notes("local").any { "went ahead of its frame" in it } }
@@ -2177,7 +2177,7 @@ class MainLocalShellTest {
                 val firedAt = System.currentTimeMillis() - t0
                 val lensCursor = r.sim.bindForTest(Arm.RIGHT).lists[0].cursor
                 val rowBefore = r.row()
-                val wrapDrawing = r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing == true
+                val wrapDrawing = r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.WRAP_SLOT]?.drawing == true
                 r.fire(CfwModes.EV_UPROLL)
                 delay(r.motionMs() + r.q() + 1500); r.settle("after k=$k")
                 val told = r.right.drop(img0).flatMap { r.subs(it) }.filter { it[0].toInt() == 26 && it[1].toInt() in 3..5 && it.size >= 8 }
@@ -2357,7 +2357,7 @@ class MainLocalShellTest {
     }
 
     /** Decisions BP, pin 6: one row's text changed three times while the clock shows, after the staging is counted. Behind
-     *  the clock nothing is sent for it — not at the change, not at that row's round-robin turn ([MainBinding.VERIFY_PACE_MS]
+     *  the clock nothing is sent for it — not at the change, not at that row's round-robin turn ([ListBinding.VERIFY_PACE_MS]
      *  after the staging); after the wake the row is re-staged ONCE (its latest text; P9's pace) and Main is not staged
      *  again. */
     @Test
@@ -2374,7 +2374,7 @@ class MainLocalShellTest {
                 r.shell.services.requestRender(r.rows[0])
                 r.settle("change $k"); delay(300)
             }
-            val turn = stagedAt + wm.damage.core.shell.MainBinding.VERIFY_PACE_MS + 1_500 - System.currentTimeMillis()
+            val turn = stagedAt + wm.damage.core.shell.ListBinding.VERIFY_PACE_MS + 1_500 - System.currentTimeMillis()
             if (turn > 0) delay(turn)                         // past row 0's round-robin turn
             r.settle("past row 0's turn")
             assertTrue(r.onClock(), "still on the clock: ${r.notes("power")}")
@@ -2383,7 +2383,7 @@ class MainLocalShellTest {
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             r.until("row 0 re-staged after the wake", 15_000) { r.notes("mainstage").any { it.startsWith("row 0 re-staged") } }
             r.bound("after row 0's re-stage")
-            delay(wm.damage.core.shell.MainBinding.RESTAGE_PACE_MS + 500); r.settle("a pace later")
+            delay(wm.damage.core.shell.ListBinding.RESTAGE_PACE_MS + 500); r.settle("a pace later")
             println("BP-6: ${r.notes("mainstage").filter { it.startsWith("row ") || it.startsWith("withdrawn") || it.startsWith("staged") }.map { it.take(100) }}")
             assertEquals(1, r.notes("mainstage").count { it.startsWith("row 0 re-staged") }, "row 0 re-staged once: ${r.notes("mainstage")}")
             assertTrue(r.notes("mainstage").none { it.startsWith("row ") && " re-staged" in it && !it.startsWith("row 0 ") }, "no other row: ${r.notes("mainstage")}")

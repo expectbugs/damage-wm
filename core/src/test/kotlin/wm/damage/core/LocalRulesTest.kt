@@ -836,7 +836,7 @@ class LocalRulesTest {
     fun qFollowsTheMotionInForce_AW2() {
         val rig = wm.damage.core.shell.MainLocalCheck.MainRig(wm.damage.core.motion.BoxFace, 352, wm.damage.core.shell.MainLocalCheck.sampleRows())
         val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
-        val long = rig.staging(CfwModes.CACHE2_MAX, region, wm.damage.core.shell.MainStaging.ScrollMotion(450, 0)).boundList(1)
+        val long = rig.staging(CfwModes.CACHE2_MAX, region, wm.damage.core.shell.ListStaging.ScrollMotion(450, 0)).boundList(1)
         val fixed = rig.staging(CfwModes.CACHE2_MAX, region, motion = null).boundList(1)
         assertEquals(745L, LocalRules.qFor(long), "T 10 at P 46")
         assertEquals(520L, LocalRules.qFor(fixed), "T 5 at P 46")

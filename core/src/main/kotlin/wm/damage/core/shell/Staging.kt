@@ -28,19 +28,19 @@ open class StageKey(val content: Any, val firstLine: Int, val lines: Int, val li
 }
 
 /** C3 DW-1a (`C3-DW1-amendment.md` §4.5, decisions CK A7): a record of a tenant of Main's region — Main's staging
- *  ([MainStageKey]) or the wheel's block ([WheelStageKey]) — never a document's strip: Page staging's filters (a book
+ *  ([ListStageKey]) or the wheel's block ([WheelStageKey]) — never a document's strip: Page staging's filters (a book
  *  change, an Encode act's lists, its own clear, its counts) read "not a tenant" where they read "not Main's". */
 abstract class RegionStageKey(content: Any, index: Int, val name: String) : StageKey(content, index, 1, 0, 0)
 
-/** Build C2, stage DMS: one of Main's staged records ([MainStaging]) — [content] the staging it belongs to,
+/** Build C2, stage DMS: one of Main's staged records ([ListStaging]) — [content] the staging it belongs to,
  *  [firstLine] its index there, [name] what the journal calls it. Never a document's: no placement draws it. K1-2 stage 3:
  *  a window list's records too ([whose] says which list's), told apart by the staging they belong to. */
-class MainStageKey(content: Any, index: Int, name: String, private val whose: String = "Main's") : RegionStageKey(content, index, name) {
+class ListStageKey(content: Any, index: Int, name: String, private val whose: String = "Main's") : RegionStageKey(content, index, name) {
     override fun toString() = "$whose $name"
 }
 
 /** C3 DW-1a: one of the wheel's block's records ([WheelResident]) — [content] the books it belongs to, [firstLine] its
- *  serial, [name] what the journal calls it. Not Main's: Main's filters read `is MainStageKey`. Its record's `encoded` is
+ *  serial, [name] what the journal calls it. Not Main's: Main's filters read `is ListStageKey`. Its record's `encoded` is
  *  the bytes written, which may lie in several runs (the block's records with their slots' slack between): the block's
  *  extent is `WheelResident.block`'s, never `off + size4`. */
 class WheelStageKey(content: Any, index: Int, name: String) : RegionStageKey(content, index, name) {

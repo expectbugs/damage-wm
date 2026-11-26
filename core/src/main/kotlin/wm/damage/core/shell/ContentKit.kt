@@ -81,7 +81,7 @@ class ContentKit(private val comp: Compositor) {
         for (slot in 0 until l.rowsBelow) wrapIndex(c + 1 + slot, n, slots)?.let { each(it, rowRect(l, slot, above = false)) }
     }
 
-    /** The lens band with row [c] in it, as [paintList] paints it — also Main's staged band forms (`MainStaging`). */
+    /** The lens band with row [c] in it, as [paintList] paints it — also Main's staged band forms (`ListStaging`). */
     internal fun paintLensBand(g: Gray8, l: Layout, v: WindowView.ListView, c: Int) {
         g.fillRect(l.lens, Level.BG)
         // bracketing rules — the shell's motif (§4.2)
