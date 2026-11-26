@@ -7451,42 +7451,6 @@
   "from": "C3-X4T"
  },
  {
-  "id": "C3X4T-item2-flag",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && transport.nextListDeflates() }",
-    "?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ZWRITE != 0 }"
-   ]
-  ],
-  "tests": [
-   "*TransitionShellTest.aQuickSecondEncodeActSendsItsInListsAfterItsOutPlay_X4T*"
-  ],
-  "expect": [
-   "aQuickSecondEncodeActSendsItsInListsAfterItsOutPlay_X4T"
-  ],
-  "note": "C3-X4T: item2-flag (lane row `item2-flag`)",
-  "from": "C3-X4T"
- },
- {
-  "id": "C3X4T-item2-counter",
-  "file": "transport/CfwTransportBase.kt",
-  "edits": [
-   [
-    "return !zwriteOff && zwWaiting == null && listsAhead.get() == 0",
-    "return !zwriteOff && zwWaiting == null"
-   ]
-  ],
-  "tests": [
-   "*MotionTransportTest.theNextListDeflatesOnlyWithNoListAheadOrWaiting_X4T*"
-  ],
-  "expect": [
-   "theNextListDeflatesOnlyWithNoListAheadOrWaiting_X4T"
-  ],
-  "note": "C3-X4T: item2-counter (lane row `item2-counter`)",
-  "from": "C3-X4T"
- },
- {
   "id": "C3X4T-item4-idle",
   "file": "shell/Shell.kt",
   "edits": [
@@ -11225,8 +11189,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        lanes.takeRelease()?.let { comp.laneRelease(it) }\n",
-    "        lanes.takeRelease()\n"
+    "            comp.laneRelease(it)\n            // Music stage SF2",
+    "            // Music stage SF2"
    ]
   ],
   "tests": [
@@ -11235,8 +11199,8 @@
   "expect": [
    "aStallAtASeekIsClosedOnBothLensesByTheReleasesWrite"
   ],
-  "note": "spec §4.1 cancel: a released lane is written from the truth, whose write meets the owners so the transport CLOSEs them — the one write that ends a chain whose bar has not moved a pixel since it started (a seek's or a resume's rebuffer on a stream, a pause right after a chain starts): without it the instance draws the bar on past the place that stands (the focused read, measured: 1.5 s into the stall the chain open on both lenses, RIGHT's bar 20 px past belief)",
-  "from": "MML-L, MM-LF, MM-L-FR, MM-LF3"
+  "note": "spec §4.1 cancel: a released lane is written from the truth, whose write meets the owners so the transport CLOSEs them — the one write that ends a chain whose bar has not moved a pixel since it started (a seek's or a resume's rebuffer on a stream, a pause right after a chain starts): without it the instance draws the bar on past the place that stands (the focused read, measured: 1.5 s into the stall the chain open on both lenses, RIGHT's bar 20 px past belief) (stage SF2: re-pointed to the release's own line inside the block that now also paints in Exclusive mode — the same intent)",
+  "from": "MML-L, MM-LF, MM-L-FR, MM-LF3, MM-SF2 (re-pointed)"
  },
  {
   "id": "MML-end-release",
@@ -11389,8 +11353,8 @@
   "file": "windows/music/MusicGlasses.kt",
   "edits": [
    [
-    "        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(barZero - laneZero) > SEEK_SLACK_MS) { laneZero = barZero; laneGen++ }",
-    "        if (laneZero == Long.MIN_VALUE) { laneZero = barZero; laneGen++ }"
+    "        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(zero - laneZero) > SEEK_SLACK_MS) { laneZero = zero; laneGen++ }",
+    "        if (laneZero == Long.MIN_VALUE) { laneZero = zero; laneGen++ }"
    ]
   ],
   "tests": [
@@ -11400,7 +11364,7 @@
    "theBarIsAHeldLaneTheGlassesGrowWhileThePhoneWritesNothingIntoIt"
   ],
   "note": "spec §4.1: a seek changes the lane's key — the chain starts from the new place — re-anchored MM-LF2: the zero is the one the bar was painted at",
-  "from": "MML-L, MM-LF2"
+  "from": "MML-L, MM-LF2, MM-S (re-anchored: the zero is the bar's or Scope's strip's)"
  },
  {
   "id": "MML-skew-said-once",
@@ -11966,8 +11930,8 @@
     "        else if (timeKey != null && timeKey != mmTimeKey && mmTimes != null) { mmTimeKey = timeKey; paintMmTimes(g); out.add(mmTimes!!) }"
    ],
    [
-    "        if (barBehind()) return laneSpec?.takeIf { lanesAnswered && it.first == keyNow() }?.second\n        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(barZero - laneZero) > SEEK_SLACK_MS) { laneZero = barZero; laneGen++ }",
-    "        val zero = now - player.positionMs()\n        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(zero - laneZero) > SEEK_SLACK_MS) { laneZero = zero; laneGen++ }"
+    "        if (behind(zero)) return laneSpec?.takeIf { lanesAnswered && it.first == keyNow() }?.second\n        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(zero - laneZero) > SEEK_SLACK_MS) { laneZero = zero; laneGen++ }",
+    "        val live = now - player.positionMs()\n        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(live - laneZero) > SEEK_SLACK_MS) { laneZero = live; laneGen++ }"
    ]
   ],
   "tests": [
@@ -11977,15 +11941,15 @@
    "aChainRestartInMusicModeWritesTheCurrentPlaceUnderTheLane"
   ],
   "note": "the second review's finding 1 as cd139f33 had it (both guards out): Music Mode's bar is not repainted with the time line and the lanes key on the live zero — a chain's end writes the lane's cells from the card's last paint, up to a song behind",
-  "from": "MM-LF2"
+  "from": "MM-LF2, MM-S (re-anchored)"
  },
  {
   "id": "MMLF2-painted-zero",
   "file": "windows/music/MusicGlasses.kt",
   "edits": [
    [
-    "        if (barBehind()) return laneSpec?.takeIf { lanesAnswered && it.first == keyNow() }?.second\n        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(barZero - laneZero) > SEEK_SLACK_MS) { laneZero = barZero; laneGen++ }",
-    "        val zero = now - player.positionMs()\n        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(zero - laneZero) > SEEK_SLACK_MS) { laneZero = zero; laneGen++ }"
+    "        if (behind(zero)) return laneSpec?.takeIf { lanesAnswered && it.first == keyNow() }?.second\n        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(zero - laneZero) > SEEK_SLACK_MS) { laneZero = zero; laneGen++ }",
+    "        val live = now - player.positionMs()\n        if (laneZero == Long.MIN_VALUE || kotlin.math.abs(live - laneZero) > SEEK_SLACK_MS) { laneZero = live; laneGen++ }"
    ]
   ],
   "tests": [
@@ -11995,14 +11959,14 @@
    "aChainRestartInMusicModeWritesTheCurrentPlaceUnderTheLane"
   ],
   "note": "finding 1's class: the lanes keyed on the player's live zero, not the one the bar was painted at — a seek reaches the player a message before the window hears of it, so a pump between ends the chain and writes its cells from the place before the seek",
-  "from": "MM-LF2"
+  "from": "MM-LF2, MM-S (re-anchored)"
  },
  {
   "id": "MMLF2-keep-or-none",
   "file": "windows/music/MusicGlasses.kt",
   "edits": [
    [
-    "        if (barBehind()) return laneSpec?.takeIf { lanesAnswered && it.first == keyNow() }?.second\n",
+    "        if (behind(zero)) return laneSpec?.takeIf { lanesAnswered && it.first == keyNow() }?.second\n",
     ""
    ]
   ],
@@ -12013,7 +11977,7 @@
    "aStallWhilePlayingStartsNoChainUntilThePlaceMoves"
   ],
   "note": "finding 1's class: while the paint is behind the place no chain starts (none was open) — without it the end of a stall, or a resume, starts a chain on the zero before it and a second one at the next paint",
-  "from": "MM-LF2"
+  "from": "MM-LF2, MM-S (re-anchored)"
  },
  {
   "id": "MMLF2-stall",
@@ -12869,24 +12833,6 @@
   "from": "DW-F"
  },
  {
-  "id": "DWF-waitsfor-kept-after-place",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "            stageWaitsFor = null                  // C3 DW-F item 2",
-    "            // stageWaitsFor = null                  // C3 DW-F item 2"
-   ]
-  ],
-  "tests": [
-   "*WheelBindTest.aSessionStartWithADocument*"
-  ],
-  "expect": [
-   "(declared, no pin: the wait a placed strip leaves set matters only when that strip is evicted and wanted first again with no registry clear between, when pageStagingFirst lets the wheel's block go ahead of it once; reaching it needs the 32 KiB reserve filled with pinned strips and the block placed again, more than the 40 lines the brief allows (decisions DY 7.3))"
-  ],
-  "note": "C3 DW-F item 2 (decisions DY 7.3): the strip that waited on a reserve of pinned records stays the wait after it is placed",
-  "from": "DW-F"
- },
- {
   "id": "K12S4b-owed-sets-only-list0",
   "file": "local/LocalRules.kt",
   "edits": [
@@ -12899,7 +12845,7 @@
    "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
   ],
   "expect": [
-   "(declared, no pin: unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; kept because it states its function's rule; even with the line deleted the owed SETs at a front() are telemetry's for the old front's held entries, which the CLEARs on the next line follow, so only bytes change, never the lens's table)"
+   "(declared, no pin: unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): while BIND is in force and the lease is held — the only state in which tail() sends — every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; a lapse asks for a rebuild whose start clears both tables (worded as C3 DWF-V finding 2, decisions EL 2); kept because it states its function's rule; even with the line deleted the owed SETs at a front() are telemetry's for the old front's held entries, which the CLEARs on the next line follow, so only bytes change, never the lens's table)"
   ],
   "note": "P9 with two lists: a SET still owed for list 1 when it leaves the front is sent after it left (K12S4b; not caught at 8,000 in DW-2a)",
   "from": "DW-F"
@@ -12917,7 +12863,7 @@
    "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
   ],
   "expect": [
-   "(declared, equivalent: sameEntry compares event, step, period, program and parameters, and the one entry number two lists share (0: Main's UPROLL, the wheel's report-only tap) differs in event, so no input tells the two apart; also unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; kept because it states its function's rule)"
+   "(declared, equivalent: sameEntry compares event, step, period, program and parameters, and the one entry number two lists share (0: Main's UPROLL, the wheel's report-only tap) differs in event, so no input tells the two apart; also unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): while BIND is in force and the lease is held — the only state in which tail() sends — every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; a lapse asks for a rebuild whose start clears both tables (worded as C3 DWF-V finding 2, decisions EL 2); kept because it states its function's rule)"
   ],
   "note": "DP 5 candidate 2: holds without the list, so an entry another list holds in the same form counts as held (DW-2a; not caught at 8,000)",
   "from": "DW-F"
@@ -12939,7 +12885,7 @@
    "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
   ],
   "expect": [
-   "(declared, no pin: unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; kept because it states its function's rule)"
+   "(declared, no pin: unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): while BIND is in force and the lease is held — the only state in which tail() sends — every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; a lapse asks for a rebuild whose start clears both tables (worded as C3 DWF-V finding 2, decisions EL 2); kept because it states its function's rule)"
   ],
   "note": "DP 5 candidate 3: a Taps switch finds the tap entry to CLEAR among every list's held entries, not the front's (DW-2a; not caught at 8,000)",
   "from": "DW-F"
@@ -12957,9 +12903,309 @@
    "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
   ],
   "expect": [
-   "(declared, no pin: unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; kept because it states its function's rule)"
+   "(declared, no pin: unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): while BIND is in force and the lease is held — the only state in which tail() sends — every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; a lapse asks for a rebuild whose start clears both tables (worded as C3 DWF-V finding 2, decisions EL 2); kept because it states its function's rule)"
   ],
   "note": "DP 5 candidate 4: the batch-14 repair re-SETs an entry another list holds as the front's (DW-2a; not caught at 8,000)",
   "from": "DW-F"
+ },
+ {
+  "id": "MMS-strip-alone",
+  "file": "windows/music/MusicMotion.kt",
+  "edits": [
+   [
+    "            track(a.translate(-d, 0), a.translate(d, 0), Motion.Backdrop.None) {",
+    "            track(Rect(a.x, 120, 8, 6).translate(-d, 0), Rect(a.x, 120, 8, 6).translate(d, 0), Motion.Backdrop.Level(0)) { wait(steps) }\n            track(a.translate(-d, 0), a.translate(d, 0), Motion.Backdrop.None) {"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "scopeIsMusicModesHeldLaneTheGlassesPanItAndTheLyricsMoveOn"
+  ],
+  "note": "MM-S-built.md §0 (ruling 3 as worded): a program whose tracks span the card's bar row and Scope's strip owns their bounding box (FIRMWARE.md §7.3), so the lyrics between them reach the shadow but never the panel while chains run — the mutant adds a track at the bar's row",
+  "from": "MM-S"
+ },
+ {
+  "id": "MMS-ring-reading",
+  "file": "shell/WindowLanes.kt",
+  "edits": [
+   [
+    "        val i = (1..AREAS).map { (lastArea + it) % AREAS }.firstOrNull { it !in reading && it !in busy } ?: return null",
+    "        val i = (0 until AREAS).firstOrNull { it !in busy } ?: return null"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest"
+  ],
+  "expect": [
+   "scopesChainWritesANewAreaAtEachLinkThroughTheRing"
+  ],
+  "note": "stage S, the ring of areas: the next stretch's area is one no open stretch reads (FIRMWARE.md §7.11: a write into an open instance's read range closes it) — the mutant takes the lowest area not on its way",
+  "from": "MM-S"
+ },
+ {
+  "id": "MMS-anchor",
+  "file": "windows/music/MusicMotion.kt",
+  "edits": [
+   [
+    "            if (anchor == Long.MIN_VALUE || p0 < anchor || p0 - anchor >= SCOPE_SLACK_MS)",
+    "            if (true)"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneFuzzTest",
+   "*ScopeLaneTest"
+  ],
+  "expect": [
+   "scopesFirstStretchIsWrittenOnceWhileItsWriteIsProven",
+   "theAnchorKeepsAStretchsBytesWithinTheSlack"
+  ],
+  "note": "ruling 6: a stretch's cells are laid for an anchor kept while the place moves within the slack — without it a chain's first stretch is laid out again at every 40-ms crossing while its area's write is proven, and written again",
+  "from": "MM-S"
+ },
+ {
+  "id": "MMS-exclusive-area",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val area = if (mode == Mode.EXCLUSIVE) layout.safe else layout.content",
+    "        val area = layout.content"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "scopeIsMusicModesHeldLaneTheGlassesPanItAndTheLyricsMoveOn",
+   "scopesChainEndsAtASeekAPauseAndAStallAndStartsAgain",
+   "scopesLaneFollowsItsDataTheVisualizerTheCardAndMusicMode"
+  ],
+  "note": "stage S: in a window's exclusive mode its lanes lie in the safe rect it paints whole — Music Mode's strip is in the status band's rows, outside the content, and was refused (measured MM-S r1: all three stage-5 Scope cases red)",
+  "from": "MM-S"
+ },
+ {
+  "id": "MMS-held-paint",
+  "file": "windows/music/MusicGlasses.kt",
+  "edits": [
+   [
+    "st.play == PlayState.PLAYING && !scopeHeld()) { mmVizDue = true; render() } }",
+    "st.play == PlayState.PLAYING) { mmVizDue = true; render() } }"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "scopesChainEndsAtASeekAPauseAndAStallAndStartsAgain"
+  ],
+  "note": "ruling 8: under Scope's held strip the window paints once a second (the time line's tick) — the mutant paints it at the visualizer's rate, each frame a compose of the content (the phone's CPU) with no byte sent",
+  "from": "MM-S"
+ },
+ {
+  "id": "MMSF-pause-strip",
+  "file": "windows/music/MusicGlasses.kt",
+  "edits": [
+   [
+    "        if (l.viz != null && (full || mmVizDue || (held && (second != mmVizSecond || behind(stripZero))) || (!held && stripLaned))) {",
+    "        if (l.viz != null && (full || mmVizDue || (held && (second != mmVizSecond || behind(stripZero))))) {"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "aPauseShowsScopesStripAtThePausedPlaceAtEveryHeight",
+   "scopesChainEndsAtASeekAPauseAndAStallAndStartsAgain"
+  ],
+  "note": "stage SF finding 1: the first paint after Scope's chain ends repaints the strip at the place shown now — the mutant (stage S's line) leaves it its last once-a-second paint at a pause, up to about 190 px back (modeled) (stage SF2: re-pointed — the not-held term is now the lane offered since the last paint with no chain, [stripLaned])",
+  "from": "MM-SF, MM-SF2 (re-pointed)"
+ },
+ {
+  "id": "MMS-strip-zero",
+  "file": "windows/music/MusicGlasses.kt",
+  "edits": [
+   [
+    "        val zero = if (scope != null) stripZero else barZero",
+    "        val zero = barZero"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "scopesLaneFollowsItsDataTheVisualizerTheCardAndMusicMode"
+  ],
+  "note": "stage S's painted-zero rule for Scope (review pass 1, finding 2): Scope's lane keys on the zero its strip was painted at — with the card off nothing paints the bar, so the mutant keeps the old chain after a seek until its next link",
+  "from": "MM-SF"
+ },
+ {
+  "id": "MMSF-key-terms",
+  "file": "windows/music/MusicGlasses.kt",
+  "edits": [
+   [
+    "        fun keyNow() = listOf(st.entry?.qid, st.play, laneGen, st.output, exclusive, off, bar, lit, dur)",
+    "        fun keyNow() = listOf(st.entry?.qid, st.play, laneGen, st.output, exclusive, off, bar, lit, dur, vizName)"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "scopesLaneFollowsItsDataTheVisualizerTheCardAndMusicMode"
+  ],
+  "note": "stage SF finding 3: the lane's key is its set (bar, lit) — the mutant puts the visualizer back in it, and a change among Bars, Pulse and Meter ends and restarts the bar's chain (a release frame and a PLAY for nothing)",
+  "from": "MM-SF"
+ },
+ {
+  "id": "MMSF-np-bar-place",
+  "file": "windows/music/MusicGlasses.kt",
+  "edits": [
+   [
+    "            MusicMotion.paintBar(g, bar, MusicMotion.litPx(barW, pos, dur), Level.of(NP_BAR_LIT), Level.of(BAR_UNLIT))",
+    "            MusicMotion.paintBar(g, bar, MusicMotion.litPx(barW, pos - 500, dur), Level.of(NP_BAR_LIT), Level.of(BAR_UNLIT))"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "theBarIsAHeldLaneTheGlassesGrowWhileThePhoneWritesNothingIntoIt"
+  ],
+  "note": "stage SF finding 4: stage L's pause check reads the bar's place (it read one pixel, lit or unlit) — the mutant paints Now Playing's bar half a second behind the place",
+  "from": "MM-SF"
+ },
+ {
+  "id": "MMSF2-pump-paint",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (mode == Mode.EXCLUSIVE) paintExclusiveDelta()\n        }\n        comp.laneHold = lanes.hold",
+    "        }\n        comp.laneHold = lanes.hold"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "aPauseShowsScopesStripAtThePausedPlaceAtEveryHeight",
+   "scopesChainEndsAtASeekAPauseAndAStallAndStartsAgain",
+   "aVisualizerChangedAwayFromScopeShowsNoScopePictureAfterTheChainCloses",
+   "aTrackChangeShowsNoPictureOfTheOldTrackAfterTheChainCloses"
+  ],
+  "note": "MM-S-V2-review.md 1: in Exclusive mode the window paints in the pump that takes a lane's release, before its frame — without it the release frame writes the strip from its last once-a-second paint (≈ 90 px back at a mid-second pause; the old track's at a track change; Scope's after a change to Bars) for one flush before the truth",
+  "from": "MM-SF2"
+ },
+ {
+  "id": "MMSF2-one-message",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val one = whole && rec.encoded.size + 4 <= CfwModes.ZWRITE_MAX && transport.nextListDeflates()",
+    "        val one = false"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "scopesAreaGoesAsOneDeflatedMessageWhileItsChainRuns"
+  ],
+  "note": "MM-S-V2-review.md 2: a held lane's area goes as ONE stage message where its list fits mode 25's inflate (FIRMWARE.md §5.9, 16,384 B) and the transport says the next list deflates — without it the area goes as a deflated 3,064 B piece and a raw second (1.5–2.4 KB on the wire)",
+  "from": "MM-SF2"
+ },
+ {
+  "id": "MMSF2-strip-laned",
+  "file": "windows/music/MusicGlasses.kt",
+  "edits": [
+   [
+    "|| (!held && stripLaned))) {",
+    "|| (!held && mmVizSecond != null))) {"
+   ]
+  ],
+  "tests": [
+   "*MusicLaneShellTest"
+  ],
+  "expect": [
+   "scopesChainEndsAtASeekAPauseAndAStallAndStartsAgain"
+  ],
+  "note": "stage SF2 (the gate's red): the strip repaints at the first paint with no chain after its lane was OFFERED since its last such paint — the mutant puts back SF's condition (after a HELD paint only): a seek's release paint, then a chain held until a pause in the same second with no once-a-second paint between, leaves the strip the seek's picture (≈ 350 ms back) for good",
+  "from": "MM-SF2"
+ },
+ {
+  "id": "OM-set-one",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (zwriteOff) return list19",
+    "            if (zwriteOff || zwSet != null) return list19"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aSecondListGoesDeflatedWhileTheFirstWaits_OM*",
+   "*StagePiecesTest.everyPieceOfARecordGoesDeflated_OM*",
+   "*StagingTest.everyMessageOfAnAtlasBatchGoesDeflated_OM*"
+  ],
+  "expect": [
+   "aSecondListGoesDeflatedWhileTheFirstWaits_OM",
+   "everyPieceOfARecordGoesDeflated_OM",
+   "everyMessageOfAnAtlasBatchGoesDeflated_OM"
+  ],
+  "note": "C3-OM1: one deflated write waiting at a time again (the set held to one member: a write behind it goes plain) (spec §5 row `OM-set-one`)",
+  "from": "C3-OM1"
+ },
+ {
+  "id": "OM-afterid-first",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            s.afterId = telemetryIds.get()",
+    "            if (s.lists.size == 1) s.afterId = telemetryIds.get()"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aReplyToAnOlderRequestDoesNotJudgeALaterMember_OM*"
+  ],
+  "expect": [
+   "aReplyToAnOlderRequestDoesNotJudgeALaterMember_OM"
+  ],
+  "note": "C3-OM1: the set's judging request id taken at its first member only (a reply to a request made before a later member judges it) (spec §5 row `OM-afterid-first`)",
+  "from": "C3-OM1"
+ },
+ {
+  "id": "OM-resend-last",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            for ((i, list) in w.lists.withIndex()) {",
+    "            for ((i, list) in w.lists.withIndex().toList().takeLast(1)) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusalReSendsEveryWaitingListInOrder_OM*"
+  ],
+  "expect": [
+   "aRefusalReSendsEveryWaitingListInOrder_OM"
+  ],
+  "note": "C3-OM1: a refusal naming 25 re-sends only the set's last list (spec §5 row `OM-resend-last`)",
+  "from": "C3-OM1"
+ },
+ {
+  "id": "OM-resend-none",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            for ((i, list) in w.lists.withIndex()) {",
+    "            for ((i, list) in w.lists.withIndex().toList().take(0)) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.aRefusalReSendsEveryWaitingListInOrder_OM*"
+  ],
+  "expect": [
+   "aRefusalReSendsEveryWaitingListInOrder_OM"
+  ],
+  "note": "C3-OM1: a refusal naming 25 re-sends nothing (the count's shortfall path alone) (spec §5 row `OM-resend-none`)",
+  "from": "C3-OM1"
  }
 ]

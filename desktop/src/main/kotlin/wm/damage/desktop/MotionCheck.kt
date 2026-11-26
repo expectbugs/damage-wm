@@ -99,6 +99,7 @@ object MotionCheck {
             failures += try { popup(style, outDir, features, out) } catch (e: Exception) { listOf("popup-${style.name.lowercase()}: ${e.javaClass.simpleName}: ${e.message}") }
         }
         failures += try { transitions(outDir, out) } catch (e: Exception) { listOf("transitions: ${e.javaClass.simpleName}: ${e.message}") }
+        failures += try { musicScope(outDir, out) } catch (e: Exception) { listOf("music-scope: ${e.javaClass.simpleName}: ${e.message}") }
         if (scroll) failures += scrollEffects(outDir, out)
         if (scroll) failures += wheel(outDir, out)
         if (scroll) failures += scrollBursts(outDir, out)
@@ -108,6 +109,30 @@ object MotionCheck {
         out.println("motion-check: ${failures.size} FAILURE(S):")
         for (f in failures) out.println("  - $f")
         return 1
+    }
+
+    /** Music's motion update, stage S (ruling D / 13): Scope's lane played at 1× on the model of a C3 build
+     *  ([wm.damage.core.windows.music.ScopeRehearsal]: the product's own builder and area layout, three stretches through
+     *  the ring of areas), one strip per made-up scene — `DIR/music-scope-SCENE.png`, every third step and each stretch's
+     *  last, the left lens above the right, the strip at true 1x — and its `.txt` (each step's place and checks). */
+    private fun musicScope(outDir: Path, out: java.io.PrintStream): List<String> {
+        val failures = ArrayList<String>()
+        for (sc in wm.damage.core.windows.music.ScopeRehearsal.scenes()) {
+            val name = "music-scope-${sc.name}"
+            val r = wm.damage.core.windows.music.ScopeRehearsal.play(sc)
+            failures += r.failures.map { "$name: $it" }
+            strip(outDir.resolve("$name.png"), r.frames.map { Triple(it.label, it.l, it.r) }, r.crop)
+            Files.writeString(outDir.resolve("$name.txt"), buildString {
+                appendLine("$name: Scope's lane in Music Mode, the strip ${r.strip} at height ${sc.height}, the song from ${sc.fromMs} ms, disparity ${wm.damage.core.windows.music.ScopeRehearsal.D}")
+                for (n in r.notes) appendLine(n)
+                appendLine("strip: ${r.frames.size} frames (stretch/step: every third step and each stretch's last), $COLS per row; in each frame the left lens above the right; the strip at 1x")
+                for ((i, f) in r.frames.withIndex()) appendLine("  frame $i (${f.label}) at tick ${f.tick}: L %08x R %08x".format(crc(f.l), crc(f.r)))
+                if (r.failures.isEmpty()) appendLine("checks: all hold — ${r.checked} steps each today's Scope on both lenses within 2 px of the song's place; every stretch drew all its steps")
+                else for (f in r.failures) appendLine("FAILED: $f")
+            })
+            out.println("motion-check: $name — ${r.checked} steps checked, ${r.failures.size} failure(s)")
+        }
+        return failures
     }
 
     /** K1-1: Main's Scroll effects as strips (see the class's text); the failures. */

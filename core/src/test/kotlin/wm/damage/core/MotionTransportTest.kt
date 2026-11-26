@@ -1254,7 +1254,7 @@ class MotionTransportTest {
             delay(300)
             val why = if (case == "silent") "the glasses are in Silent Mode" else "no lease is held"
             assertEquals(1, images.get(), "$case: no mode-19 copy on the wire")
-            assertTrue(has("glass", "list is not sent again: $why"), "$case: said: ${notes.filter { it.first == "glass" }}")
+            assertTrue(has("glass", "waiting for that read: $why"), "$case: said: ${notes.filter { it.first == "glass" }}")
             } catch (e: Throwable) {
                 println("B-N3 pin, case '$case', failed (${e.message}); the transport's notes in order:\n" +
                     notes.joinToString("\n") { "  ${it.first}: ${it.second}" })
@@ -1723,29 +1723,16 @@ class MotionTransportTest {
         }
     }
 
-    /** DM1 (`P-zw-one-at-a-time`, `P-zw-max-list`, `P-zw-withdrawn`), spec §2 row 23: one mode 25 waits for its judge at
-     *  a time (a second write while it waits goes as mode 19); a list past the 16,384 B inflate goes as mode 19; a mode-25
-     *  refusal on record with nothing waiting (one the judge took as landed) turns mode 25 off for the session. */
+    /** DM1 (`P-zw-max-list`, `P-zw-withdrawn`), spec §2 row 23: a list past the 16,384 B inflate goes as mode 19; a
+     *  mode-25 refusal on record with nothing waiting (one the judge took as landed) turns mode 25 off for the session.
+     *  (Its third bound, one mode 25 waiting at a time, went with OM-1: [aSecondListGoesDeflatedWhileTheFirstWaits_OM].) */
     @Test
     fun theMode25JudgesBounds_DM1(): Unit = runBlocking {
-        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
-        val t = StartRig(glass, scope)
-        collect(t)
-        t.devProbe("c1", "1")
-        t.start(full)
-        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: DRAW2 and ZWRITE")
-        val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
-        glass.imageObserver = { arm, img -> if (arm == Arm.RIGHT && (img[0].toInt() == 19 || img[0].toInt() == 25)) right += img }
+        val (glass, t, right) = zwriteRig()
         fun list(off4: Int, n: Int = 2000) = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(off4, ByteArray(n) { (it / 100).toByte() })), 160 * 1024)
-        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(1000))), 0, "ATLAS"))
-        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(2000))), 0, "ATLAS"))
-        waitUntil(10_000, message = { "two writes reached RIGHT" }) { right.size >= 2 }
-        assertEquals(listOf(25, 19), right.take(2).map { it[0].toInt() }, "the first waits for its judge; the second goes as mode 19")
-        t.devProbe("telemetry", "read")
-        delay(200)
         t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(3000, 16_400))), 0, "ATLAS"))
-        waitUntil(10_000, message = { "the long list reached RIGHT: $notes" }) { right.size >= 3 }
-        assertEquals(19, right[2][0].toInt(), "a 16,404 B list is past the inflate: mode 19")
+        waitUntil(10_000, message = { "the long list reached RIGHT: $notes" }) { right.size >= 1 }
+        assertEquals(19, right[0][0].toInt(), "a 16,404 B list is past the inflate: mode 19")
         // a mode-25 refusal on RIGHT's record that no waiting message answers for
         val now = System.currentTimeMillis()
         glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, now)
@@ -1761,36 +1748,119 @@ class MotionTransportTest {
         t.stop()
     }
 
-    /** C3 X4T item 2 (`C3-V2T-review.md` 2, decisions AT (2)): [CfwTransportBase.nextListDeflates] says whether a cache
-     *  write submitted now would go deflated — not while a cache write queued ahead of it would take the one compressed
-     *  slot first (the lane held on a keyframe's first packet, a list queued behind it), nor while that list, deflated,
-     *  waits for the read that judges it; yes again once it is judged. */
+    /** OM-1 (Part EJ 4; was X4T item 2's): [CfwTransportBase.nextListDeflates] is "ZWRITE in force and mode 25 not
+     *  withdrawn" — a list queued ahead (the lane held on a keyframe's first packet, a list behind it) and a deflated list
+     *  waiting for its judge no longer make the next write go raw; a refusal judged does. */
     @Test
-    fun theNextListDeflatesOnlyWithNoListAheadOrWaiting_X4T(): Unit = runBlocking {
-        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
-        val t = StartRig(glass, scope)
-        collect(t)
-        t.devProbe("c1", "1")
-        t.start(full)
-        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: DRAW2 and ZWRITE")
+    fun theNextListDeflatesWhileZwriteIsInForceAndNotWithdrawn_OM(): Unit = runBlocking {
+        val (glass, t, right) = zwriteRig()
         assertTrue(t.nextListDeflates(), "nothing queued, nothing waiting: a write now goes deflated")
-        val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
-        glass.imageObserver = { arm, img -> if (arm == Arm.RIGHT && (img[0].toInt() == 19 || img[0].toInt() == 25)) right += img }
         val gate = java.util.concurrent.CountDownLatch(1)
         val held = java.util.concurrent.atomic.AtomicBoolean(false)
         // the image lane held inside the keyframe's first packet (bounded: the gate opens below, or after 10 s)
         t.onWrite = { _, p -> if (StartRig.sid(p) == EvenHubMsg.SID && held.compareAndSet(false, true)) gate.await(10, java.util.concurrent.TimeUnit.SECONDS); p }
         t.submit(FlushRequest(listOf(DisplayOp.Keyframe(full)), 0, "FRAME"))
         waitUntil(10_000, message = { "the lane held on the keyframe" }) { held.get() }
-        val list = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(1000, ByteArray(2000) { (it / 100).toByte() })), 160 * 1024)
-        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list)), 0, "ATLAS"))
-        assertTrue(!t.nextListDeflates(), "a list queued ahead takes the one compressed slot first")
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(1000))), 0, "ATLAS"))
+        assertTrue(t.nextListDeflates(), "a list queued ahead holds no later write plain")
         gate.countDown()
         waitUntil(10_000, message = { "the list reached RIGHT" }) { right.isNotEmpty() }
-        assertEquals(25, right[0][0].toInt(), "the queued list took the slot: mode 25")
-        assertTrue(!t.nextListDeflates(), "it waits for its judge")
+        assertEquals(25, right[0][0].toInt(), "mode 25")
+        assertTrue(t.nextListDeflates(), "a deflated list waiting for its judge holds no later write plain")
+        // RIGHT's ZWRITE goes off behind the phone's back: the next mode 25 is refused there (15), and the read judges it
+        glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, System.currentTimeMillis())
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(2000))), 0, "ATLAS"))
+        waitUntil(10_000, message = { "RIGHT refused it" }) { (glass.refusalRecord(Arm.RIGHT)[0] and 0x7F) == 25 }
         t.devProbe("telemetry", "read")
-        waitUntil(10_000, message = { "the list judged: $notes" }) { t.nextListDeflates() }
+        waitUntil(10_000, message = { "withdrawn: $notes" }) { !t.nextListDeflates() }
+        t.stop()
+    }
+
+    /** OM-1's rig: a C1 build at stage 1 (DRAW2 and ZWRITE in force), RIGHT's mode-19 and mode-25 images in arrival order. */
+    private suspend fun zwriteRig(): Triple<GlassFirmwareSim, StartRig, java.util.concurrent.CopyOnWriteArrayList<ByteArray>> {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        val t = StartRig(glass, scope)
+        collect(t)
+        t.devProbe("c1", "1")
+        t.start(full)
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: DRAW2 and ZWRITE")
+        val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        glass.imageObserver = { arm, img -> if (arm == Arm.RIGHT && (img[0].toInt() == 19 || img[0].toInt() == 25)) right += img }
+        return Triple(glass, t, right)
+    }
+    /** A mode-19 list of one 2,000 B entry at [off4] that deflates well. */
+    private fun zlist(off4: Int) = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(off4, ByteArray(2000) { (it / 100).toByte() })), 160 * 1024)
+
+    /** OM-1 (spec §5 pin 1): a second list submitted while the first waits for its judge goes deflated too — the two wait
+     *  as one set, and one read made after both judges both (landed: nothing sent again, two bumps). */
+    @Test
+    fun aSecondListGoesDeflatedWhileTheFirstWaits_OM(): Unit = runBlocking {
+        val (glass, t, right) = zwriteRig()
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(1000))), 0, "ATLAS"))
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(2000))), 0, "ATLAS"))
+        waitUntil(10_000, message = { "two writes reached RIGHT" }) { right.size >= 2 }
+        assertEquals(listOf(25, 25), right.map { it[0].toInt() }, "the second goes deflated before any reply")
+        t.devProbe("telemetry", "read")
+        delay(200)
+        assertEquals(2, right.size, "both landed: nothing sent again")
+        assertEquals(2L, glass.cacheGen(Arm.RIGHT), "two messages, two bumps")
+        t.stop()
+    }
+
+    /** OM-1 (spec §5 pin 2, Part EJ 3): three lists deflated with no read between them wait as one set; RIGHT refuses the
+     *  second and third (its ZWRITE off behind the phone's back). The record at the read that judges them cannot say which
+     *  was refused, so all three go again as mode 19, equal to the lists and in their order, and mode 25 is off for the
+     *  session; the note names how many went. */
+    @Test
+    fun aRefusalReSendsEveryWaitingListInOrder_OM(): Unit = runBlocking {
+        val (glass, t, right) = zwriteRig()
+        val lists = listOf(zlist(1000), zlist(2000), zlist(3000))
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(lists[0])), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the first landed" }) { glass.cacheGen(Arm.RIGHT) == 1L }
+        glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, System.currentTimeMillis())
+        for (l in lists.drop(1)) t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(l)), 0, "ATLAS"))
+        waitUntil(10_000, message = { "three writes reached RIGHT" }) { right.size >= 3 }
+        assertEquals(listOf(25, 25, 25), right.map { it[0].toInt() }, "each shrinks, so each goes deflated; none judged yet")
+        assertEquals(1L, glass.cacheGen(Arm.RIGHT), "the second and third refused: no bump")
+        t.devProbe("telemetry", "read")
+        waitUntil(10_000, message = { "the re-sends: $notes" }) { right.size >= 6 }
+        for (i in 0 until 3) assertTrue(right[3 + i].contentEquals(lists[i]), "re-send ${i + 1}: list ${i + 1} as mode 19, in order")
+        waitUntil(10_000, message = { "their bumps" }) { glass.cacheGen(Arm.RIGHT) == 4L }
+        assertTrue(has("glass", "mode 25 refused by RIGHT") && has("glass", "which of the 3 lists ("), "said: $notes")
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(zlist(4000))), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the next write" }) { right.size >= 7 }
+        assertEquals(19, right[6][0].toInt(), "mode 25 off for the session")
+        t.stop()
+    }
+
+    /** OM-1 (spec §5 pin 3): a reply to a request handed out before the set's last member does not judge the set. RIGHT
+     *  answers a read made after the first list before the second reaches it, and the rig hands that answer over only
+     *  after the second was written (and refused); it judges nothing, and the read made after the second sends both
+     *  again. */
+    @Test
+    fun aReplyToAnOlderRequestDoesNotJudgeALaterMember_OM(): Unit = runBlocking {
+        val (glass, t, right) = zwriteRig()
+        val hold = java.util.concurrent.atomic.AtomicBoolean(false)
+        val held = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        t.onNotify = { arm, p -> if (hold.get() && arm == Arm.RIGHT && StartRig.telemetry(p) != null) { held += p; null } else p }
+        val a = zlist(1000); val b = zlist(2000)
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(a)), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the first landed" }) { glass.cacheGen(Arm.RIGHT) == 1L }
+        hold.set(true)
+        t.devProbe("telemetry", "read")
+        waitUntil(10_000, message = { "RIGHT answered the read (held)" }) { held.isNotEmpty() }
+        glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, System.currentTimeMillis())
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(b)), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the second reached RIGHT" }) { right.size >= 2 }
+        assertEquals(25, right[1][0].toInt(), "the second goes deflated while the first waits")
+        waitUntil(10_000, message = { "RIGHT refused it" }) { (glass.refusalRecord(Arm.RIGHT)[0] and 0x7F) == 25 }
+        t.deliver(Arm.RIGHT, held.first())
+        hold.set(false)
+        delay(200)
+        assertEquals(2, right.size, "the older read's answer judged nothing")
+        t.devProbe("telemetry", "read")
+        waitUntil(10_000, message = { "the set went again: $notes" }) { right.size >= 4 }
+        assertTrue(right[2].contentEquals(a) && right[3].contentEquals(b), "both members as mode 19, in order")
         t.stop()
     }
 

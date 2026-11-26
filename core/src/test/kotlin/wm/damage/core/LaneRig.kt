@@ -14,6 +14,7 @@ import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.Pb
 import wm.damage.core.windows.music.MusicMotion
+import wm.damage.core.windows.music.ScopeRehearsal
 
 /**
  * Music's motion update, stage L: the held lanes' chain ([WindowLanes]) against the firmware model alone, on one virtual
@@ -30,7 +31,11 @@ import wm.damage.core.windows.music.MusicMotion
  * [record]: every message and wake the lenses take is kept as a conformance vector's ops (both lenses at one tick, so
  * a recorded run has fixed delays: [fixed]); a recorded run sends no time text (the vectors are the chain's shapes).
  */
-internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixed: Boolean = false, val record: Boolean = false) {
+internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixed: Boolean = false, val record: Boolean = false,
+                       /** Stage S: Music Mode with Scope — the lane is Scope's strip ([STRIP], the product's own builder,
+                        *  `MusicMotion.scopeLanes`, cached by key as the window caches it: its anchor lives in the spec), and
+                        *  [layout] switches the visualizer to Bars and back (Music Mode's bar at this period and T). */
+                       val scope: Boolean = false) {
     val rnd = java.util.Random(seed)
     val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0xDFF; it.clockIsOsTick = true }
     var nowMs = 1_000L
@@ -41,7 +46,7 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
     private val fx = Motion.effects(DamageMsg.Caps(2, 0xDFF), FLAGS)
 
     // ---- the window: a bar playing a song
-    var bar = NP_BAR
+    var bar = if (scope) STRIP else NP_BAR
     var d = 8
     var songZero = 0L
     var durMs = 200_000L
@@ -56,9 +61,16 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
     /** The window's stall rule, the product's own (`MusicGlasses.lanes`, the second review's finding 3). */
     private val still = MusicMotion.StillPlace(wm.damage.core.windows.music.MusicGlasses.SEEK_SLACK_MS)
 
+    /** Stage S: the envelope Scope plays (made up by the seed: loud passages, quiet ones and silences, 10 minutes). */
+    val viz = ScopeRehearsal.envelope(java.util.Random(seed).let { g -> var lv = 8
+        IntArray(30_000) { i -> if (i % 400 == 0) lv = g.nextInt(16); if ((i / 400) % 5 == 4) 0 else (lv + g.nextInt(5) - 2).coerceIn(1, 15) } })
+    private var scopeSpec: Pair<Int, LaneSpec>? = null
+
     fun spec(): LaneSpec? {
         val stalled = still.stalled(nowMs, playing, place())
         if (!playing || boxOver || stalled) return null
+        if (bar == STRIP) return scopeSpec?.takeIf { it.first == keyGen }?.second
+            ?: MusicMotion.scopeLanes(listOf(keyGen), STRIP, viz) { heard(it) }.also { scopeSpec = keyGen to it }
         val grow = MusicMotion.barGrowth(bar.w, durMs, period, steps)
         val b = bar; val dur = durMs
         return LaneSpec(listOf(keyGen, b, dur), listOf(b), period, steps, listOf(MusicMotion.barRecord(b.w, b.h, 8))) { at: LaneAt ->
@@ -198,8 +210,9 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
         lanes.wanted()?.let { r ->
             r.state = StagedRecord.State.SENT
             val w = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(r.off / 4, r.encoded)), CfwModes.CACHE2_MAX_RIDERS)
-            val landed = up { deliver(w) }
-            at(landed + downLat() + 40) { if (r.state == StagedRecord.State.SENT) { r.state = StagedRecord.State.PROVEN; pump() } }
+            writeBytes += intArrayOf(w.size, CfwModes.zwrite(w).size)
+            val landed = up { ring(r.off); deliver(w) }
+            at(landed + downLat() + 40 + proofExtra) { if (r.state == StagedRecord.State.SENT) { r.state = StagedRecord.State.PROVEN; pump() } }
         }
         lanes.takeSend()?.let { m ->
             val id = ++flushes
@@ -209,6 +222,7 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
             if (!after && ended == null && endedAtPump >= 0 && pumps - endedAtPump <= 3 && areaWrites() == writesAtEnd) startsAtTheNextPump++
             if (!after) endedAtPump = -1
             sent += longArrayOf(tag, m[2].toLong(), nowMs, if (after) 1 else 0)
+            tagArea[tag.toInt()] = (((m[4].toInt() and 0xFF) or ((m[5].toInt() and 0xFF) shl 8)) * 4 - region.first) / WindowLanes.AREA_BYTES
             lanes.sent(id)
             val extra = upExtraNext
             upExtraNext = 0
@@ -224,6 +238,25 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
     }
 
     private fun areaWrites() = notes.count { "written for its programs" in it }
+
+    // ---- stage S: the ring of areas
+    /** Each area write: its mode-19 bytes and their deflated mode-25 form (what the transport sends where ZWRITE is in force). */
+    val writeBytes = ArrayList<IntArray>()
+    /** The area a sent stretch's program lies in, by tag. */
+    private val tagArea = HashMap<Int, Int>()
+    /** Area writes that landed while a lane instance reading that area was open on a lens (`FIRMWARE.md` §7.11: never). */
+    val ringMeets = ArrayList<String>()
+    /** Held this much longer before an area's write is proven (a slow read of the cache count). */
+    var proofExtra = 0L
+    private fun ring(off: Int) {
+        val area = (off - region.first) / WindowLanes.AREA_BYTES
+        for (a in Arm.entries) for (slot in 0..1) {
+            val tag = sim.motionTagIn(a, slot)?.takeIf { it and 0xF000 == WindowLanes.TAG } ?: continue
+            if (tagArea[tag] == area) ringMeets += "[$nowMs] area $area written while tag 0x%04x reading it is open in slot %d on %s".format(tag, slot, a)
+        }
+    }
+    /** The areas written, in order (the notes' "area N written"). */
+    fun areasWritten(): List<Int> = notes.filter { "written for its programs" in it }.map { it.substringAfter("area ").substringBefore(" ").toInt() }
 
     /** The frame of one pump, as `CfwTransportBase.withMotionCloses` sends it (its meet rule, `motionClosesMet`): a CLOSE of each lane slot whose open
      *  instance (its areas on the lens: the owned rect, or the program's areas while waiting) one of [writes] meets, on
@@ -246,7 +279,7 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
      *  (`CfwTransportBase.motionWriteRects`, DrawText2) — Now Playing's elapsed digits left of the bar and above its
      *  row, Music Mode's time line right of its bar. */
     private fun digits(): Pair<Rect, Rect> {
-        val (x, y) = if (bar == NP_BAR) (bar.x - 64) to (bar.y - 6) else (bar.right + 12) to (bar.y - 2)
+        val (x, y) = if (bar == NP_BAR) (bar.x - 64) to (bar.y - 6) else (MM_BAR.right + 12) to (MM_BAR.y - 2)   // Music Mode: the card's time line
         fun toEdge(x0: Int) = Rect(maxOf(0, x0), y, wm.damage.core.geom.Geometry.PANEL_W - maxOf(0, x0), wm.damage.core.geom.Geometry.PANEL_H - y)
         return toEdge(x - d) to toEdge(x + d)
     }
@@ -256,8 +289,9 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
         at((nowMs / 1000 + 1) * 1000) { if (playing) pump(paint = true); timeText() }
     }
 
-    /** Now Playing ↔ Music Mode: the bar moves to the other layout's rect (a new key; the chain ends). */
-    fun layout() { bar = if (bar == NP_BAR) MM_BAR else NP_BAR; keyGen++; pump() }
+    /** Now Playing ↔ Music Mode: the bar moves to the other layout's rect (a new key; the chain ends). Stage S (a Scope
+     *  rig): Scope ↔ Bars in Music Mode — the lane moves between the strip and the card's bar. */
+    fun layout() { bar = if (scope) (if (bar == STRIP) MM_BAR else STRIP) else if (bar == NP_BAR) MM_BAR else NP_BAR; keyGen++; pump() }
 
     /** Runs every event due up to [until]; the lenses wake each 8 ticks while an instance is due. */
     fun runUntil(until: Long) {
@@ -370,6 +404,10 @@ internal class LaneRig(val seed: Long, val period: Int, val steps: Int, val fixe
         /** Now Playing's bar and Music Mode's: apart, so a PLAY's close pass for one never meets the other's instances. */
         val NP_BAR = Rect(100, 300, 400, 10)
         val MM_BAR = Rect(220, 120, 200, 6)
+        /** Stage S: Music Mode's Scope strip at 480 (`ScopeRehearsal.strip`), apart from both bars. */
+        val STRIP = ScopeRehearsal.strip(480)
+        /** Scope's steps a stretch on [STRIP] (T from the room, the product's arithmetic). */
+        val SCOPE_T: Int by lazy { MusicMotion.scopeLanes(0, STRIP, ScopeRehearsal.envelope(IntArray(1) { 1 })) { it }.steps }
         /** The notice's program in the notice region (above the lanes' slice). */
         val NOTICE_AT4 = (CfwModes.noticeRegion(CfwModes.CACHE2_MAX_RIDERS, true)!!.first) / 4
         val KEYFRAME: ByteArray = CfwModes.keyframe(Zl.encodeCfw(ByteArray(320 * 480)))

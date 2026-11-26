@@ -124,7 +124,7 @@ private fun levelAt(d: VizData, f: Int, b: Int): Int {
  *  [levelAt]: `VizData.rmsAt` clamps, and a scrolling strip must draw NOTHING
  *  for the time before the track started rather than repeat slot 0. The nibble
  *  unpack mirrors `VizData.Companion.nib` (MusicModel.kt). */
-private fun rmsSlot(d: VizData, i: Int): Int {
+internal fun rmsSlot(d: VizData, i: Int): Int {
     if (i < 0 || i >= d.rmsCount) return -1
     if ((i shr 1) >= d.rms.size) return -1
     val byte = d.rms[i shr 1].toInt() and 0xFF
@@ -140,7 +140,7 @@ private fun rmsFrac(d: VizData?, ms: Long): Double {
 
 /** A level 0–15 as a height in pixels on the 2 px grid; anything audible is at
  *  least one grid step tall, so a quiet band reads as present, not as absent. */
-private fun heightOf(level: Double, maxH: Int): Int {
+internal fun heightOf(level: Double, maxH: Int): Int {
     if (level <= 0.0) return 0
     val h = Geometry.snapY((level / 15.0 * maxH).roundToInt())
     return h.coerceIn(Geometry.Y_STEP, maxH)
