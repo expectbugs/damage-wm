@@ -1593,7 +1593,11 @@ class LocalSequenceFuzzTest {
         701297L to listOf("$L1 return: list 1 → Main", "$L1 window change: Main → list 1, a new staging"),
         // K12S4b-discard-names-row-handed (4b's first failing seed): a report of the list not in front, answered
         100564L to listOf("$L1 pin 13: a list-1 report answered with Main in front (Apply(type=1))",
-            "$L1 pin 13: a list-0 report answered with list 1 in front (Apply(type=2))"))
+            "$L1 pin 13: a list-0 report answered with list 1 in front (Apply(type=2))"),
+        // C3 DW-2c (decisions EA; DW-2a's §6 item 5): the close lost on RIGHT after an open racing a notch leaves the
+        // wheel's tap entry 0 there; its tap's report names list 2 for an entry held for Main — repaired from the report,
+        // and liveness (6)'s second tap acted on
+        424200905L to listOf("$W2 a close 10–100 ms after an open racing a notch", "$W2 a report from an entry the record holds for another list (a tap)"))
     private fun reachSeedsFor(): Map<Long, List<String>> = if (timing == null || timing == Timing.DEFAULT) REACH_GATE_SEEDS else emptyMap()
 
     /** C3 DW-2a: every named reach seed of [named] reached every key it is named for ([reachedBy]: seed → the keys its run

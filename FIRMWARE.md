@@ -1504,8 +1504,9 @@ is stated there.
   re-staging the same index names another row until the LIST lands, which 3 catches.
 - **The click** is consumed as its tap 115's echo (P5, kind click), whether that 115 was acted on or dropped. A click
   with no owe is read against **`tapsLive`**: true when RIGHT has shown it holds the tap entry this session (a tap 115
-  has arrived, or a telemetry read shows field 39 bit 0) and BIND is in the flags in force (field 3); false at each
-  session start, at any release point the phone causes, when it sends CLEAR of the tap entry, and at a telemetry read
+  has arrived from an entry the phone holds for that 115's list, or a telemetry read shows field 39 bit 0) and BIND is
+  in the flags in force (field 3); false at each session start, at any release point the phone causes, at a tap 115 from
+  an entry the phone does not hold for its list (C3 DW-2c), when it sends CLEAR of the tap entry, and at a telemetry read
   without that bit or without BIND in force — field 39 keeps its bit across a hand disarm of BIND, which clears nothing
   (§6.8), while every tap then passes through unmatched (ruled on the fork's first review pass). **While false**, the
   click came from a tap that matched no entry — `bind_live` 0 after a release point the phone has not yet answered, the
@@ -1528,9 +1529,13 @@ spurious one, from a report fired before a real change landed, changes nothing. 
 (P9) heals it at the next answer — it replaced this repair's own LIST re-send (decisions U). The evidence for a 115,
 tested in this order (the first that holds decides; a second difference shows at the next report), then the stock
 message's:
-- **A 115 from an entry the phone does not hold** (field 4: never SET this session, or CLEARed since — a cover, a
-  switch to `phone`) → that entry's CLEAR. Under `phone` that is any tap 115; under a cover, a fire whose CLEAR was
-  lost, which otherwise draws the list's motion over the cover at every notch (D1).
+- **A 115 from an entry the phone does not hold for the report's list** (field 4 against field 3: never SET this
+  session, or CLEARed since — a cover, a switch to `phone` — or held for another list: two lists hold one entry number
+  over time, the wheel's report-only tap entry being Main's 0, so a batch lost on RIGHT leaves the old list's entry
+  there, C3 DW-2c) → that entry's CLEAR; or, when the phone holds the entry for the list in front, that entry's SET in
+  the front's form, which replaces the lens's entry whole and is idempotent where the report only predates a change
+  that landed (a CLEAR there would remove the new front's entry). Under `phone` that is any tap 115; under a cover, a
+  fire whose CLEAR was lost, which otherwise draws the list's motion over the cover at every notch (D1).
 - **A 115 whose mark** (field 17) is not the phone's current mark for its list → no re-send of its own: the slot's
   answer is a DISCARD (P3), which carries the list's LIST with shift 0 before it (P9); the report's other fields are
   not read as evidence (they come from another staging).

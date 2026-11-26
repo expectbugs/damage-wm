@@ -64,9 +64,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     val l1Rnd = java.util.Random(seed * 31 + 17)
     /** C3 DW-2a: the wheel's own draws (its rows and order, the lane's count, a commit's window, a notice's kind). */
     val w2Rnd = java.util.Random(seed * 37 + 29)
-    /** C3 DW-2a: the close after an open racing a notch (its own stream: adding it moved no other draw). */
+    /** C3 DW-2a: the close after an open racing a notch (its own stream: adding it moved no other draw). On by default since
+     *  C3 DW-2c (the repair it showed is cured); `LOCAL_FUZZ_W3=0` turns it off (every sequence then draws as on DW-2a). */
     private val w3Rnd = java.util.Random(seed * 41 + 3)
-    private val w3 = System.getenv("LOCAL_FUZZ_W3") == "1"
+    private val w3 = System.getenv("LOCAL_FUZZ_W3") != "0"
     val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = if (ring) 0xDFF else 0x5FF; it.clockIsOsTick = true }
     /** The flags each start arms: stage 4's, and EFFECTS at stage 5 (a ring list needs it, `FIRMWARE.md` §7.8). */
     private val armed = ARMED or (if (ring) DamageMsg.FLAG_EFFECTS else 0)
@@ -665,12 +666,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             y < 60 -> if (openWheel(r.nextInt(5) == 0)) "open the wheel" else "open the wheel (not now)"
             y < 80 -> { val kind = 1 + r.nextInt(2); val d = r.nextInt(41).toLong()
                 gesture(kind)
-                // `LOCAL_FUZZ_W3=1`: half the time the phone closes it again 10–100 ms later (an emergency notice, the PC
-                // closing the switcher), while the open's flush may still wait behind the notch's motion — the wheel's SETs
-                // then still owed at the close (decisions DP 6: the row that drops a leaving list's owed SETs). A stream of
-                // its own, so no other draw moves. Off by default: its first runs failed three sequences that are with the
-                // lead (C3-DW2a-built.md §6, items 5–7: a lost close batch on RIGHT leaves the wheel's tap entry 0 that the
-                // table repair cannot see)
+                // half the time the phone closes it again 10–100 ms later (an emergency notice, the PC closing the
+                // switcher), while the open's flush may still wait behind the notch's motion — the wheel's SETs then still
+                // owed at the close (decisions DP 6: the row that drops a leaving list's owed SETs). A stream of its own, so
+                // no other draw moves; `LOCAL_FUZZ_W3=0` turns it off. On by default since C3 DW-2c (decisions EA): a lost
+                // close batch on RIGHT left the wheel's tap entry 0, which the table repair now takes from the report
                 at(now + d) { if (openWheel()) { reach2("an open racing a notch (0–40 ms after it)")
                     if (w3 && w3Rnd.nextBoolean()) { val d2 = 10L + w3Rnd.nextInt(91)
                         at(now + d2) { if (wheelOpen) { reach2("a close 10–100 ms after an open racing a notch"); cancelWheel() } } } } }
@@ -1175,6 +1175,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val before = row; val before1 = row1; val before2 = row2; val carried = carriedNow(); val heardBefore = rules.sHeard
         val opening = !rules.burstOpen
         val fl = rules.front?.list; val markNow = a.list?.let { rules.markOf(it) }
+        val heldFor = a.entry?.let { rules.heldEntry(it)?.list }        // C3 DW-2c: the record's list for the report's entry
         val v = rules.report(a, rowNow(), now)
         gapOf(g, a.s, heardBefore)
         if (v is LocalRules.Verdict.Adopt && a.wrapped) wrapAdopted += g        // C3 DM-0: a ring fire across the wrap, adopted
@@ -1200,6 +1201,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (a.list == 2 && fl == 2 && a.mark != null && a.mark != markNow && a.outcome == DamageMsg.APPLIED_DREW) reach2("a fire on the wheel's old mark ($v)")
             if (l2 && v is LocalRules.Verdict.Adopt) { reach2("a notch adopted on the wheel"); if (a.wrapped) reach2("a wrap notch adopted on the wheel") }
             if (a.isTap && a.list == 2 && v == LocalRules.Verdict.Nothing) reach2("a tap of the wheel's entry not acted on (${if (fl == 2) "the wheel in front" else "after its close"})")
+            // C3 DW-2c: a report from an entry the record holds for another list (the table repair's evidence since DW-2c)
+            if (heldFor != null && a.list != null && heldFor != a.list) reach2("a report from an entry the record holds for another list (${if (a.isTap) "a tap" else "a notch"})")
         }
         val carries = carries(g, v, a, heardBefore)
         apply(v, g, a)

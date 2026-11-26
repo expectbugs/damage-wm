@@ -13,7 +13,8 @@ import wm.damage.core.wire.DamageMsg
  * DISCARD that carries the LIST again.
  *
  * The evidence for a 115, in this order (the first that holds names the object; a second difference shows at the next
- * report): an entry the phone does not hold → its CLEAR; a mark that is not the phone's → nothing more is read (the
+ * report): an entry the phone does not hold for the report's list → its CLEAR, or its SET in the front's form when the
+ * phone holds it for the list in front (C3 DW-2c); a mark that is not the phone's → nothing more is read (the
  * answer's riding LIST repairs it, and fields 10–14 from another staging say nothing); a tap's form
  * that disagrees with `Taps` → the tap entry's SET; parameters that differ from the phone's prediction (a scroll's only on
  * outcome drew), or a fire refused 5 or 12, with mark and form agreeing → the SET of the entry field 4 names. Then the
@@ -53,8 +54,18 @@ class TableRepair {
         val list = a.list ?: return
         if (!a.isTap) scrolledSinceSettle += list
         val f = rules.front
-        // 1. an entry the phone does not hold (never SET this session, or CLEARed since: a cover, a switch to `phone`)
-        if (!rules.holdsEntry(entry)) { owe(Owed.Clear(entry), "entry $entry not held"); return }
+        // 1. an entry the phone does not hold for the report's list: never SET this session, or CLEARed since (a cover, a
+        //    switch to `phone`) — its CLEAR; or held for another list (C3 DW-2c: two lists hold one entry number over time,
+        //    the wheel's tap entry being Main's 0 — a batch lost on RIGHT leaves the old list's entry there) — the record's
+        //    own entry again: its SET in the front's form when the record holds it for the list in front (it replaces the
+        //    lens's entry whole, and is idempotent where the report only predates a change that landed, where a CLEAR would
+        //    remove the new front's entry), else its CLEAR (the list it is held for is not in front: its CLEAR is owed already)
+        if (disagrees(a, rules)) {
+            val h = rules.heldEntry(entry)
+            val why = if (h == null) "entry $entry not held" else "entry $entry held for list ${h.list}, reported for list $list"
+            owe(if (h != null && f != null && h.list == f.list && rules.entriesOf(f).any { it.entry == entry }) Owed.Set(entry) else Owed.Clear(entry), why)
+            return
+        }
         // 2. a mark that is not the phone's current mark for its list: the answer's riding LIST (U.1) re-sends it
         if (a.mark != rules.markOf(list)) return
         val held = rules.heldEntry(entry)?.entry ?: return
@@ -77,6 +88,15 @@ class TableRepair {
         } ?: false
         if ((refused512 || differs) && f != null && f.list == list)
             owe(Owed.Set(entry), if (refused512) "fire refused ${a.reason}" else "parameters differ from the prediction")
+    }
+
+    /** C3 DW-2c: [a] names an entry the record does not hold for [a]'s own list — not held, or held for another list (rule
+     *  1's evidence; its tap is no sign that RIGHT holds the front's tap entry, [LocalRules.report]). A 3 or 14 body names
+     *  neither and is no evidence. */
+    fun disagrees(a: DamageMsg.Applied, rules: LocalRules): Boolean {
+        val entry = a.entry ?: return false
+        val list = a.list ?: return false
+        return rules.heldEntry(entry)?.list != list
     }
 
     /** A stock scroll message applied as unreported (P5: no owe, a scroll entry held for the list in front). */
