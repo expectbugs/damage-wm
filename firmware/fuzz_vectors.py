@@ -70,6 +70,18 @@ version-2 tracks; prefs 14–17 (and into unused fields) with parameters near th
 512-cell list, a 224-code alphabet, a 1,024-entry cell table, rain of 128 columns and a trail of 32); a source window and
 a cell index set by a parameter (also as list programs a SET's kind 2 or 3 drives). Its sets are written under
 `private/c3-design/fuzz-c3x/` (seeds 2 and 1002), never into the repository.
+
+`--dw` (with `--c3`; stage DW-3h, `C3-decisions.md` EB) adds the app switcher's shapes `--c3` never made, every draw
+behind the switch so that `--c3` seeds write the vectors they wrote before: version-2 records bound on a list (§7.2: a
+SET, a fire and a COMMIT may name one that is not OWN) — the wheel's down and up programs, `make_vectors.wheel_prog`'s
+seven per-lens tracks over a level-0 backdrop whose DRAWs take their source from kind-1 parameters, over 2..19 steps;
+list 2 bound as a ring over an item table of 1–10 cells, with entries 6 (event 4, step +1) and 7 (event 5, step −1)
+in the start's table, either behind Main's entries 0 and 1 (the lowest-numbered match fires, §6.2 step 3) or with the
+wheel open (entries 1 and 2 not bound, entry 0 the report-only tap on list 2); and among the messages SETs of those
+entries, the report-only tap SET for list 2 and back for list 0 or 1 (one entry held by two lists in turn), LIST-RINGs
+of list 2 with a new mark, CLEARs of entries 0–2, 6 and 7, the item table rewritten in place (mode 19) and COMMITs of a
+wheel program with item parameters. Its sets are written under `private/c3-design/fuzz-dw/` (seeds 3 and 1003),
+never into the repository.
 """
 import argparse, json, pathlib, random, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -88,6 +100,7 @@ from make_vectors import (  # noqa: E402
     play_after, bind_ring, anc, EFFECTS, FEATURES_C3, K_OLD, K_NEW, CELLS, RAIN, BD_NEW, OWN, LAND, K_CUR,
     UNIFORM, RADIAL, RANDOM, F_AUX0, TOP, BOTTOM, LEFT, RIGHT, SLIDE, K_LEVEL,
     TABLE, F_W0, F_W1, F_AUX1, pcost, CAP,
+    WHEEL_GEO, wheel_prog, wheel_tables, wheel_cell, K_ITEM, ANY, RING, TAP, UP, DOWN,
 )
 
 DRAW2, PROBE = 0x0004, 0x8000
@@ -96,6 +109,7 @@ C1 = False
 C2 = False
 C3 = False
 C3X = False
+DW = False
 def rnd_rect(r, wild=False):
     if wild and r.random() < 0.35:
         l = r.choice([0, 1, 639, 640, 641, 65535])
@@ -179,7 +193,7 @@ def gen(seed, nsteps):
 def rnd_msg(r, recs, table_off4, fid, depth=0, cc=None):
     if cc is not None and r.random() < 0.4:           # --c1: two in five messages are C1's (a PLAY the likeliest)
         return rnd_c1(r, r.choice(([22, 22, 23, 24, 25, 26, 26, 27, 27, 28] + ([29, 29, 29, 30] if cc.get("c3") else [])
-                                   + ([29, 29, 29, 29] if cc.get("c3x") else []))
+                                   + ([29, 29, 29, 29] if cc.get("c3x") else []) + ([31, 31, 31] if cc.get("dw") else []))
                                   if cc.get("c2") else [22, 22, 23, 24, 25]), cc, depth)
     k = r.randrange(22)
     wild = r.random() < 0.3
@@ -424,6 +438,7 @@ def rnd_c1(r, k, cc, depth):
     if k == 28: return rnd_vscale(r, cc)
     if k == 29: return rnd_play2(r, cc, slot, pv)     # --c3's two kinds
     if k == 30: return rnd_ring(r, cc)
+    if k == 31: return rnd_dw(r, cc)                  # --dw's wheel messages
     # k == 25: a cache write over what an open instance reads, or mode 11
     if r.random() < 0.15 and not depth: return bytes([11])
     o4, d = r.choice(sorted(cc["rec_bytes"].items()))
@@ -757,6 +772,66 @@ def build_c3x(r, c, cc):
         if rec in (win, idx): cc["lprogs"].append(o4)  # a SET's kind 2 or 3 parameter drives them on a list
     cc["rec_bytes"] = {o4: d for o4, d in c.entries}
 
+# ---- --dw (with --c3; stage DW-3h, `C3-decisions.md` EB): the app switcher's shapes `--c3` never made. Only gen_c1's c3
+# path with DW reaches it.
+DW_ARGS = {1: (-2, -1, 0, 1), -1: (2, 1, 0, -1)}   # the wheel's kind-1 arguments (the DW spec §2.2; `vectors_v5_dw`)
+
+def dw_set(entry, lst, stp, slot, period, p4, args):
+    """A wheel scroll entry: devType any, event 4 (step +1) or 5 (step −1), every parameter kind 1 (§6.3, §7.8)."""
+    return bind_set(entry, ANY, UP if stp > 0 else DOWN, lst, stp, slot, period, p4, [(K_ITEM, a) for a in args])
+
+def build_dw(r, c, cc):
+    """The wheel's records at its geometry at 480 (`make_vectors.WHEEL_GEO`): its rule, 2–5 item cells, an item table of
+    1–10 of them, the drum's two ease tables and the down and up programs (`wheel_prog`: version-2, not OWN, seven
+    per-lens tracks over a level-0 backdrop, each DRAW's source a kind-1 parameter) over 2..19 steps."""
+    g, t = WHEEL_GEO, r.choice([19, 19, 15, 8, 3, 2])
+    hC, hN, w = g["bandBot"] - g["bandTop"] - 2, g["hN"], g["panel"][2]
+    rule4 = c.add(image2(w, 2, [r.randrange(16)] * (2 * w)))
+    cells = [c.add(image2(w, hC + hN, wheel_cell(r.randrange(10), w, hC, hN))) for _ in range(r.randrange(2, 6))]
+    cc["dw_items"] = [r.choice(cells) for _ in range(r.choice([1, 2, 3, 4, 4, 9, 10]))]
+    cc["dw_itab"] = c.add(b"".join(u16(o) for o in cc["dw_items"]))
+    e1, e2 = wheel_tables(t)
+    tabs = ((c.add(easing(e1)), e1), (c.add(easing(e2)), e2))
+    cc["dw_prog"] = {s_: c.add(wheel_prog(g, cells[0], rule4, s_, t, tabs)) for s_ in (1, -1)}
+    cc["dw"] = True
+    cc["rec_bytes"] = {o4: d for o4, d in c.entries}  # the wheel's records too, for the cache writes over what instances read
+
+def dw_table(r, cc, table):
+    """The start's table under --dw: list 2 a ring over the wheel's items with entries 6 and 7 — behind Main's entries 0
+    and 1 (closed: the lowest-numbered match fires, §6.2 step 3), or the wheel open (Main's entries 0–2 not bound, entry 0
+    the report-only tap on list 2, as the open's batch leaves them)."""
+    n = len(cc["dw_items"])
+    wheel = [msg(bind_ring(2, cc["dw_itab"], n, r.randrange(n), 0, r.randrange(256), 1)),
+             msg(dw_set(6, 2, 1, 0, 16, cc["dw_prog"][1], DW_ARGS[1])), msg(dw_set(7, 2, -1, 0, 16, cc["dw_prog"][-1], DW_ARGS[-1]))]
+    if r.random() < 0.5: return table[:2] + wheel + [msg(bind_set(0, RING, TAP, 2, 0, 0, 16, NONE))]
+    return table + wheel
+
+def rnd_dw(r, cc):
+    """A wheel message: a SET of a wheel program (entry 6 down on event 4, entry 7 up on event 5, mostly on list 2 with the
+    phone's kind-1 arguments), the report-only tap SET for list 2 or back for list 0 or 1 (one entry held by two lists in
+    turn), LIST-RING of list 2 over the wheel's item table with a new mark, a CLEAR of the cover's entries or of 6 and 7,
+    the item table rewritten in place (mode 19, the items in another order), or the COMMIT of a wheel program with item
+    parameters (S near the last fire RIGHT counted, the cursor in range or one past it)."""
+    k, items = r.random(), cc["dw_items"]
+    if k < 0.3:
+        stp = r.choice([1, -1])
+        e = (6 if stp > 0 else 7) if r.random() < 0.8 else r.randrange(8)
+        args = DW_ARGS[stp] if r.random() < 0.8 else [r.choice([-3, -2, -1, 0, 1, 2, 3, 9, -10]) for _ in range(4)]
+        return dw_set(e, r.choice([2, 2, 2, 0, 1]), stp, r.choice([0, 0, 0, 1]), r.choice([16, 16, 34]),
+                      cc["dw_prog"][stp if r.random() < 0.9 else -stp], args)
+    if k < 0.5: return bind_set(r.choice([0, 0, 2]), RING, TAP, r.choice([2, 2, 0, 1]), 0, 0, 16, NONE)
+    if k < 0.7:
+        n = len(items)
+        return bind_ring(2 if r.random() < 0.85 else r.choice([0, 1]), cc["dw_itab"], n if r.random() < 0.85 else r.choice([1, 3, 4, 9, 10]),
+                         r.choice([0, 0, 1, -1, 4, -5, n]), 0, r.randrange(256), 1)
+    if k < 0.8: return bind_clear(r.choice([0, 1, 2, 6, 7]))
+    if k < 0.9:
+        moved = items[:]
+        r.shuffle(moved)
+        return cache_write2((cc["dw_itab"], b"".join(u16(o) for o in moved)))
+    S = (cc["seq"] + r.choice([-1, 0, 0, 1])) & 0xFFFF
+    return commit(0, S, 2, r.randrange(len(items) + 1), cc["dw_prog"][r.choice([1, -1])], [r.choice(items) for _ in range(4)])
+
 def is_engine(m):
     """Mode 26 at the top level, inside a batch or inside a self-test step."""
     if not m: return False
@@ -797,7 +872,8 @@ def gen_c1(seed, nsteps, c2=False, c3=False):
         build_c3x_tables(r, c, cc)
     if c3: build_c3(r, c, cc)                         # every draw for C3 behind its flag: --c1 and --c2 seeds keep their vectors
     if c3 and C3X: build_c3x(r, c, cc)
-    full = DRAW2 | ENGINE | ZWRITE | (BIND if c2 else 0) | (EFFECTS if c3 else 0)
+    if c3 and DW: build_dw(r, c, cc)                  # every --dw draw behind its switch: --c3 seeds keep their vectors
+    full =DRAW2 | ENGINE | ZWRITE | (BIND if c2 else 0) | (EFFECTS if c3 else 0)
     armed = full if r.random() < 0.85 else r.choice([DRAW2 | ENGINE, DRAW2 | ZWRITE, ENGINE | ZWRITE]) | (BIND if c2 else 0)
     if c3 and armed != full and r.random() < 0.5: armed |= EFFECTS
     prelude = [{"tick": 1000}, {"lease": "acquire"}, {"cachesize": r.choice([64, 96, 160, 256])}, {"flags": armed}]
@@ -814,6 +890,7 @@ def gen_c1(seed, nsteps, c2=False, c3=False):
         if c3:                                        # list 0 a ring (§7.8), entry 0 by the cursor before the move (kind 3)
             if r.random() < 0.7: table[0] = msg(bind_ring(0, cc["itab"], 8, 0, 10, 1, 1))
             if r.random() < 0.5: table[2] = msg(bind_set(0, 0xFF, 4, 0, 1, 0, 34, lp[0], [(K_CUR, r.choice([0, 0, 10, 32767]))]))
+        if c3 and DW: table = dw_table(r, cc, table)
     steps = [step(*prelude), *[step(w) for w in writes], step(kf), step({"tick": 1001}, *table, wake())]
     now, fid = 1001, 1
     last = (now, 34)                                  # the last PLAY's (or fire's) tick and period: wakes aim at its steps
@@ -872,11 +949,11 @@ def gen_c1(seed, nsteps, c2=False, c3=False):
             ops.append(msg(m))
             ops += extra
         steps.append(step(*ops))
-    return {"name": f"fuzzc{3 if c3 else 2 if c2 else 1}-{seed:04d}", "contract": 2, "panel": True,
+    return {"name": f"fuzz{'dw' if c3 and DW else 'c3' if c3 else 'c2' if c2 else 'c1'}-{seed:04d}", "contract": 2, "panel": True,
             "features": FEATURES_C3 if c3 else FEATURES_C2 if c2 else FEATURES_C1, "steps": steps}
 
 def main():
-    global CORRUPT, C1, C2, C3, C3X
+    global CORRUPT, C1, C2, C3, C3X, DW
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out", help="directory to write the vectors into")
     ap.add_argument("count", type=int, help="how many vectors")
@@ -891,11 +968,15 @@ def main():
     ap.add_argument("--c3x", action="store_true", help="with --c3: the shapes --c3 never made — costs at the cap's shares, "
                     "ease-2 tables, backdrop-none later tracks, per-lens tracks, prefs 14-17, GLYPHS at their limits, "
                     "windows and cell indexes by a parameter (stage X2D)")
+    ap.add_argument("--dw", action="store_true", help="with --c3: the app switcher's shapes --c3 never made — the wheel's "
+                    "version-2 programs bound as entries 6 and 7 on list 2 as a ring, the report-only tap held by two "
+                    "lists in turn, the item table rewritten in place (stage DW-3h)")
     a = ap.parse_args()
     CORRUPT = a.corrupt
-    C1, C2, C3, C3X = a.c1, a.c2, a.c3, a.c3x
+    C1, C2, C3, C3X, DW = a.c1, a.c2, a.c3, a.c3x, a.dw
     if C1 + C2 + C3 > 1: ap.error("--c1, --c2 and --c3 are three sets; give one")
     if C3X and not C3: ap.error("--c3x extends --c3; give both")
+    if DW and not C3: ap.error("--dw extends --c3; give both")
     out = pathlib.Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     for i in range(a.count):

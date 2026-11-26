@@ -1658,8 +1658,8 @@
   "file": "local/TableRepair.kt",
   "edits": [
    [
-    "if (!rules.holdsEntry(entry)) { owe(Owed.Clear(entry), \"entry $entry not held\"); return }",
-    "if (!rules.holdsEntry(entry)) { return }"
+    "owe(if (h != null && f != null && h.list == f.list && rules.entriesOf(f).any { it.entry == entry }) Owed.Set(entry) else Owed.Clear(entry), why)",
+    "if (h != null && f != null && h.list == f.list && rules.entriesOf(f).any { it.entry == entry }) owe(Owed.Set(entry), why)"
    ]
   ],
   "tests": [
@@ -1668,7 +1668,7 @@
   "expect": [
    "seededS16_aTapReportUnderPhoneClearsTheEntry"
   ],
-  "note": "D1 \u00a71 item 3: no CLEAR re-send for a tap 115 under phone: (6)",
+  "note": "D1 §1 item 3: no CLEAR re-send for a tap 115 under phone: (6) (edit text re-pointed by C3 DW-2c: rule 1 compares the list)",
   "from": "FB"
  },
  {
@@ -1676,8 +1676,8 @@
   "file": "local/TableRepair.kt",
   "edits": [
    [
-    "if (!rules.holdsEntry(entry)) { owe(Owed.Clear(entry), \"entry $entry not held\"); return }",
-    "if (!rules.holdsEntry(entry)) { return }"
+    "owe(if (h != null && f != null && h.list == f.list && rules.entriesOf(f).any { it.entry == entry }) Owed.Set(entry) else Owed.Clear(entry), why)",
+    "if (h != null && f != null && h.list == f.list && rules.entriesOf(f).any { it.entry == entry }) owe(Owed.Set(entry), why)"
    ]
   ],
   "tests": [
@@ -1686,7 +1686,7 @@
   "expect": [
    "seededS17_aLostCoverClearIsRepaired"
   ],
-  "note": "D1 filling (2): no CLEAR re-send for a lost cover CLEAR: pinned by its count of locals under the cover",
+  "note": "D1 filling (2): no CLEAR re-send for a lost cover CLEAR: pinned by its count of locals under the cover (edit text re-pointed by C3 DW-2c)",
   "from": "FB"
  },
  {
@@ -11772,18 +11772,20 @@
   "file": "local/TableRepair.kt",
   "edits": [
    [
-    "        if (!rules.holdsEntry(entry)) { owe(Owed.Clear(entry), \"entry $entry not held\"); return }\n",
-    "        if (!rules.holdsEntry(entry)) return\n"
+    "owe(if (h != null && f != null && h.list == f.list && rules.entriesOf(f).any { it.entry == entry }) Owed.Set(entry) else Owed.Clear(entry), why)",
+    "if (h != null && f != null && h.list == f.list && rules.entriesOf(f).any { it.entry == entry }) owe(Owed.Set(entry), why)"
    ]
   ],
   "tests": [
-   "*WheelBindTest.aLostClear*"
+   "*WheelBindTest.aLostClear*",
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
   ],
   "expect": [
-   "aLostClearOfTheWheelsEntriesIsMendedByTheRulesThatExist_DW1b1"
+   "aLostClearOfTheWheelsEntriesIsMendedByTheRulesThatExist_DW1b1",
+   "randomSequencesHoldTheEightInvariants"
   ],
-  "note": "the table repair's CLEAR of an entry not held (the rule a lost CLEAR of the wheel's entries rests on, DA (d) 1) — the stale tap entry 0 stays and every tap fires it",
-  "from": "DW-1b-1"
+  "note": "the table repair's CLEAR of an entry not held (the rule a lost CLEAR of the wheel's entries rests on, DA (d) 1) — the stale tap entry 0 stays and every tap fires it; the fuzz's gate-sized run catches it too (decisions EA; edit text re-pointed by C3 DW-2c)",
+  "from": "DW-1b-1, changed by DW-2c"
  },
  {
   "id": "DW1b1-yield-same-pump",
@@ -12771,5 +12773,81 @@
   ],
   "note": "the answer's DISCARD with two lists (K1-2 4b's row): it names the row handed for the list in front, whatever list the slot's report named — (1)/(9); the gate size by named reach seed 100564 (4b's first failing seed, list 1)",
   "from": "DW-2a"
+ },
+ {
+  "id": "DW3-wheel-swap-level",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "lvl1 = LEVEL_SWAP_CENTRE,",
+    "lvl1 = LEVEL_SWAP_NEIGHBOUR,"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest.theWheelsProgramsInVDwFireAreTheProductsBytes_DW3"
+  ],
+  "expect": [
+   "theWheelsProgramsInVDwFireAreTheProductsBytes_DW3"
+  ],
+  "note": "DW-3 (DQ (7)): the leaving centre dims to the neighbour form's unscaled level (15) instead of its swap level (4) — v5-dw-fire's down and up programs no longer equal Wheel.program's",
+  "from": "DW-3"
+ },
+ {
+  "id": "DW2c-repair-list-not-compared",
+  "file": "local/TableRepair.kt",
+  "edits": [
+   [
+    "        if (disagrees(a, rules)) {\n",
+    "        if (rules.heldEntry(entry) == null) {\n"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aLostCloseOnRight*",
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "aLostCloseOnRightLeavesTheWheelsTapEntryAndTheRepairTakesItFromTheReport_DW2c",
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "decisions EA (DW-2a's §6 item 5): rule 1 asks only whether an entry is held, not for which list — a close lost on RIGHT leaves the wheel's tap entry 0 (Main's 0) there and every tap reports list 2, dropped until the next front change: (6); the gate size by named reach seed 424200905",
+  "from": "DW-2c"
+ },
+ {
+  "id": "DW2c-repair-clear-not-set",
+  "file": "local/TableRepair.kt",
+  "edits": [
+   [
+    "Owed.Set(entry) else Owed.Clear(entry), why)",
+    "Owed.Clear(entry) else Owed.Clear(entry), why)"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aLostCloseOnRight*"
+  ],
+  "expect": [
+   "aLostCloseOnRightLeavesTheWheelsTapEntryAndTheRepairTakesItFromTheReport_DW2c"
+  ],
+  "note": "C3 DW-2c: an entry held for the list in front but reported for another list is CLEARed instead of SET in the front's form — the front loses its own entry on both lenses (and a stale report that only predates a change would CLEAR the new front's entry)",
+  "from": "DW-2c"
+ },
+ {
+  "id": "DW2c-tapslive-from-stale-tap",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "tapsLive = bindFlag && !repair.disagrees(a, this)",
+    "tapsLive = bindFlag"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aLostCloseOnRight*",
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "aLostCloseOnRightLeavesTheWheelsTapEntryAndTheRepairTakesItFromTheReport_DW2c",
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "C3 DW-2c: a tap 115 from another list's stale tap entry sets tapsLive — after the repair RIGHT holds no tap entry, and under glasses the next tap's click (no report) is dropped as no-report until a telemetry read: (6)",
+  "from": "DW-2c"
  }
 ]

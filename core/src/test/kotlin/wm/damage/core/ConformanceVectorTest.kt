@@ -97,8 +97,9 @@ class ConformanceVectorTest {
         // acts MX2 and X1MX2 moved (ended with SV2's comparison, X9T) and C3 stage SV3's one exception for two stages —
         // the ship acts K1-2 stage 1 moved, C3 stage X2MX2's Warp, Flip and Encode acts and its new Crush act, and SV3's
         // new act (ended with SV3's comparison, X10T), Music's stage L's two lane shapes and K1-2 stage 4f's list-1 acts
-        // with the four ring-tap acts it wrote again (both ended with K1-2 stage 4h's comparison) — are gone: every
-        // unfilled file in the repo fails like any other.
+        // with the four ring-tap acts it wrote again (both ended with K1-2 stage 4h's comparison), and C3 stage DW-3's for
+        // the app switcher's acts with the acts DW-3 and DW-3h wrote again (ended with DW-3h's comparison) — are gone:
+        // every unfilled file in the repo fails like any other.
         for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
@@ -854,7 +855,9 @@ class ConformanceVectorTest {
      * 256 KiB, band slots per row), and its new act, the withdrawal at 256 KiB ([ShipVectors.sv3Acts]), compared like the
      * rest; filled at SV3's comparison. K1-2 stage 4f: the acts whose tap opens Settings (bound as list 1 since K1-2 stage
      * 3a) written again, and the list-1 acts ([ShipVectors.list1Acts], compared on their ring form too); filled at K1-2
-     * stage 4h's comparison.
+     * stage 4h's comparison. C3 DW-3: the wheel's acts ([ShipVectors.wheelActs], compared on [ShipVectors.wheelForms]) and
+     * the 64 acts whose session writes the wheel's block, written again; C3 DW-3h: the 37 stage-5 160 KiB acts that stage
+     * Main, written again in today's form; filled at DW-3h's comparison.
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
@@ -882,6 +885,7 @@ class ConformanceVectorTest {
             val project: (JsonObject) -> List<String> = when (spec) {
                 is ShipVectors.Spec -> ShipVectors::programs
                 is ShipVectors.RingSpec, is ShipVectors.ListSpec -> ShipVectors::ringForms
+                is ShipVectors.WheelSpec -> ShipVectors::wheelForms
                 else -> ShipVectors::namedPrograms
             }
             val steps = got.vector["steps"]!!.jsonArray.size

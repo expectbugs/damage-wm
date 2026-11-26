@@ -591,9 +591,37 @@ internal object ShipVectors {
         ListSpec("${PREFIX}list1-app-slide-352", ScrollEffect.SLIDE, 352, ListForm.APP_EFFECT),
         ListSpec("${PREFIX}list1-main-over-depth-352", ScrollEffect.DEPTH, 352, ListForm.MAIN_OVER))
 
+    /**
+     * C3 DW-3 (decisions DQ (1)–(3); the acts as listed before the capture: `private/c3-design/C3-DW3-built.md` §2): the
+     * switcher's wheel bound on the glasses as list 2 (entries 6 and 7, the report-only tap at 0, slot 0, a ring list over
+     * the block's item table) at ladder stage 5, at layout height [height] and Global `Depth` [depth], in [form]. Select,
+     * Back and Lock are None: the wheel's commit and cancel run no transition (`C3-DW1-amendment.md` §4.1).
+     *  - OPEN_NOTCHES: on Main, the chord (the open offered over Main); a notch up, a wrap notch up, a wrap notch down, a
+     *    notch down.
+     *  - YIELD_OPEN: on Global (list 1 laid flush below the block), one more window registered — the block placed again,
+     *    larger, so the list yields and is staged again below it — then the chord over the window list.
+     *  - LATE_MAIN: on Main, a window opened and the chord in one loop turn — not offered (the item table is the old
+     *    order), bound mid-open once it is rewritten; two notches up to Main; the tap commits into Main.
+     *  - COMMIT_WINDOW: the wheel bound over Main in the session (Settings visited last, its staging kept); the tap at the
+     *    cursor commits into Settings, its list held bound.
+     *  - CANCEL: the wheel bound over Main in the session; the double tap posted and at once a notch on the ring — the
+     *    cancel's batch, then the notch's report after the close.
+     */
+    enum class WheelForm { OPEN_NOTCHES, YIELD_OPEN, LATE_MAIN, COMMIT_WINDOW, CANCEL }
+
+    data class WheelSpec(override val name: String, val height: Int, val depth: Int, val form: WheelForm) : Act
+
+    /** C3 DW-3: the wheel's acts — every wire form of DQ (1) in one act; 352 and 480, Depth 8 and 0 spread over them. */
+    fun wheelActs(): List<Act> = listOf(
+        WheelSpec("${PREFIX}wheel-open-notches-352", 352, 8, WheelForm.OPEN_NOTCHES),
+        WheelSpec("${PREFIX}wheel-yield-480", 480, 0, WheelForm.YIELD_OPEN),
+        WheelSpec("${PREFIX}wheel-late-main-352", 352, 0, WheelForm.LATE_MAIN),
+        WheelSpec("${PREFIX}wheel-commit-window-480", 480, 8, WheelForm.COMMIT_WINDOW),
+        WheelSpec("${PREFIX}wheel-cancel-352", 352, 8, WheelForm.CANCEL))
+
     /** Every ship act: the transitions ([specs]), then SV-083's scroll and notice acts, then SVR's ring acts, then SV2's,
-     *  then X2MX2's, then SV3's, then K1-2 stage 4f's list-1 acts. */
-    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts() + x2mx2Acts() + sv3Acts() + list1Acts()
+     *  then X2MX2's, then SV3's, then K1-2 stage 4f's list-1 acts, then DW-3's wheel acts. */
+    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts() + x2mx2Acts() + sv3Acts() + list1Acts() + wheelActs()
 
     /** [act] as the rig plays it, and its vector. */
     suspend fun captureAct(act: Act): Captured = when (act) {
@@ -602,6 +630,7 @@ internal object ShipVectors {
         is NoticeSpec -> captureNotice(act)
         is RingSpec -> captureRing(act)
         is ListSpec -> captureList(act)
+        is WheelSpec -> captureWheel(act)
     }
 
     private val ANY_TAG: (Int) -> Boolean = { true }
@@ -1661,6 +1690,269 @@ internal object ShipVectors {
         } finally { r.close() }
     }
 
+    /** C3 DW-3: a wheel act ([WheelSpec]) as the shell plays it, checked as it goes, its wire forms asserted on its own
+     *  vector's [wheelForms] (decisions DQ (2)), and its vector. */
+    private suspend fun captureWheel(spec: WheelSpec): Captured {
+        fun base(s: wm.damage.core.shell.ShellSettings) = s.copy(heightMode = spec.height, cachedText = "on", taps = Taps.REPORT, depth = spec.depth)
+            .withTier(Transitions.Tier.SELECT, effects = emptyList()).withTier(Transitions.Tier.BACK, effects = emptyList())
+            .withTier(Transitions.Tier.LOCK, effects = emptyList())
+        val r = TransitionShellTest.Rig(stage = 5, kib256 = true, nRows = MAIN_WINDOWS, text = FakeText(), startSettings = base(wm.damage.core.shell.ShellSettings()))
+        try {
+            // the slots whose instances place the act's events: the lists' (0 — Main's, the window list's and the wheel's — and 1)
+            val rec = Recorder(r, listOf(0, 1))
+            val words = ArrayList<String>()
+            fun wrow(): Int = r.onLoop { r.shell.wheelBoundForTest().second }
+            fun wlist(): wm.damage.core.local.BoundList? = r.onLoop { r.shell.wheelBoundForTest().first }
+            fun entriesOf(a: Arm, list: Int) = synchronized(r.sim) { r.sim.bindForTest(a).entries.withIndex().filter { it.value?.list == list }.map { it.index } }
+            fun open() = r.onLoop { r.shell.switcherIsOpen }
+            fun front(): String? = r.onLoop { r.shell.currentWindowId() }
+            fun state(): String = r.onLoop { "front ${r.shell.currentWindowId()}, open ${r.shell.switcherIsOpen}, slot 0 ${r.shell.slot0ForTest()}, " +
+                "the wheel ${r.shell.wheelBoundForTest().let { (l, row) -> "count ${l?.count} row $row" }}, a burst open ${r.shell.localBurstOpenForTest()}, " +
+                "the item table ${r.shell.wheelBlockForTest()?.let { b -> b.order.map { b.cells[it].entry.name } }}" } + "; the wheel notes ${r.notes("wheel").takeLast(2)}"
+            /** [cond] within [maxMs], or the capture ends with the shell's state beside the wait's own report. */
+            suspend fun waitOn(what: String, maxMs: Long = 30_000, cond: () -> Boolean) {
+                try { r.until(what, maxMs, cond) } catch (e: AssertionError) { throw AssertionError("$what — ${state()} — ${e.message}") }
+            }
+            suspend fun lanesDone(what: String) {
+                r.until("${spec.name}: $what — every lane done", 60_000) { r.shell.isQuiescent() && r.onLoop { r.shell.noticeLaneDoneForTest() &&
+                    r.shell.wheelLaneDoneForTest() && r.shell.windowListLaneDoneForTest() && !r.shell.cacheWorkInFlight && r.shell.transitionPhaseForTest() == null } }
+                r.settle("${spec.name}: $what")
+            }
+            suspend fun visit(id: String) {
+                r.onLoop { r.shell.services.openWindow(id, null) }
+                r.until("${spec.name}: $id in front") { front() == id }
+                lanesDone("$id visited")
+            }
+            suspend fun mainBound(what: String) {
+                r.until("${spec.name}: $what — Main's list bound on RIGHT", 60_000) { r.onLoop { r.shell.currentWindowId() == null &&
+                    r.shell.slot0ForTest() == "main" && r.shell.mainBinding.counted } && entriesOf(Arm.RIGHT, 0).size >= 2 }
+                lanesDone(what)
+            }
+            suspend fun toMain() {
+                for (k in 0 until 4) { if (front() == null) break; r.doubleTap(); r.until("${spec.name}: a double tap toward Main") { r.shell.isQuiescent() }; lanesDone("a double tap toward Main") }
+                mainBound("back on Main")
+            }
+            suspend fun windowBound(what: String) {
+                r.until("${spec.name}: $what — the window list bound on RIGHT", 60_000) {
+                    r.onLoop { r.shell.slot0ForTest() == "window" && r.shell.windowBoundForTest().first != null } &&
+                        synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().count { it.list == 1 && !it.tap } == 2 } }
+                lanesDone(what)
+            }
+            /** The chord (`WheelBindTest`'s): the ring's long press, its release, the double click. */
+            fun chord() { for (g in listOf(EvenHubMsg.EV_RING_LONG_PRESS, EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, EvenHubMsg.EV_DOUBLE_CLICK)) r.shell.postGesture(g) }
+            /** The wheel bound: slot 0 the wheel's, both lenses holding list 2's entries 0 (the tap), 6 and 7; then settled. */
+            suspend fun wheelBound(what: String) {
+                r.until("${spec.name}: $what — the wheel bound on both lenses", 60_000) { open() && r.onLoop { r.shell.slot0ForTest() == "wheel" &&
+                    r.shell.wheelBoundForTest().first != null } && Arm.entries.all { a -> entriesOf(a, 2).containsAll(listOf(0, 6, 7)) } }
+                r.settle("${spec.name}: $what")
+            }
+            fun drawing(a: Arm, s: Int) = r.sim.motionForTest(a).slots[s]?.drawing == true
+            /** One notch on the wheel ended: its burst closed (the lone SETTLE sent) and RIGHT handed a SETTLE since [from],
+             *  neither lens draws in slot 0 or 1, the cursor is [to]. */
+            suspend fun ended(from: Int, to: Int, what: String) = r.until("${spec.name}: $what — its SETTLE on RIGHT, the engine idle, row $to") {
+                rec.rightFrom(from).any { ss -> ss.any { isSub(it, 26, CfwModes.MOTION_SETTLE) } } && !r.onLoop { r.shell.localBurstOpenForTest() } &&
+                    synchronized(r.sim) { Arm.entries.none { a -> drawing(a, 0) || drawing(a, 1) } } && wrow() == to && r.shell.isQuiescent()
+            }
+            suspend fun notch(eventId: Int, to: Int, what: String) { val from = rec.events.size; rec.fire(eventId); ended(from, to, what); r.settle("${spec.name}: $what") }
+
+            // ---- the session
+            r.upAt(spec.height) { base(it) }
+            ready(r, spec.name)
+            mainBound("up")
+            val visits = if (spec.form == WheelForm.YIELD_OPEN || spec.form == WheelForm.COMMIT_WINDOW) listOf("w0", "w1") else listOf("w0", "w1", "w2")
+            for (id in visits) visit(id)
+            when (spec.form) {
+                WheelForm.YIELD_OPEN -> {
+                    visit("settings"); windowBound("Settings")
+                    rec.fire(CfwModes.EV_TAP)                               // the categories' row 0: Global (no transition)
+                    r.until("${spec.name}: Global's rows bound") { r.onLoop { r.shell.slot0ForTest() == "window" && r.shell.windowBoundForTest().first?.count?.let { it > 5 } == true } }
+                    lanesDone("Global"); windowBound("Global")
+                }
+                // Settings opened from Main (its root returns to its caller), so it is the most recent window: the open's cursor
+                WheelForm.COMMIT_WINDOW -> { toMain(); visit("settings"); windowBound("Settings"); toMain(); chord(); wheelBound("the session's open") }
+                WheelForm.CANCEL -> { toMain(); chord(); wheelBound("the session's open") }
+                WheelForm.OPEN_NOTCHES, WheelForm.LATE_MAIN -> toMain()
+            }
+            idle(r, spec.name)
+            // a burst the session's last report opened is closed by its lone SETTLE before the act (the act's batches then
+            // carry the idle SETTLE, P7)
+            val burstAtIdle = r.onLoop { r.shell.localBurstOpenForTest() }
+            r.until("${spec.name}: no burst open") { !r.onLoop { r.shell.localBurstOpenForTest() } }
+            idle(r, spec.name)
+            words += "a burst open when the session went idle: $burstAtIdle (waited closed)"
+            val notes0 = r.notes("wheel").size
+
+            // ---- the act
+            var n = 0
+            var row0 = 0
+            when (spec.form) {
+                WheelForm.OPEN_NOTCHES -> {
+                    rec.act.set(true)
+                    chord(); wheelBound("the open over Main")
+                    val l = wlist() ?: error("${spec.name}: the wheel not offered")
+                    n = l.count
+                    check(l.list == 2 && l.slot == 0 && l.ring && n == 4) { "${spec.name}: not a ring list 2 of 4 in slot 0 (list ${l.list}, slot ${l.slot}, ring ${l.ring}, count $n)" }
+                    check(wrow() == 1) { "${spec.name}: the open's cursor ${wrow()}, not 1 (the most recent window)" }
+                    notch(CfwModes.EV_DOWNROLL, 0, "a notch up")
+                    notch(CfwModes.EV_DOWNROLL, n - 1, "a wrap notch up from row 0")
+                    notch(CfwModes.EV_UPROLL, 0, "a wrap notch down from the last row")
+                    notch(CfwModes.EV_UPROLL, 1, "a notch down")
+                }
+                WheelForm.YIELD_OPEN -> {
+                    val ms1 = r.onLoop { r.shell.windowListBinding.staging } ?: error("${spec.name}: no staging of Global's list")
+                    val base0 = r.onLoop { r.shell.wheelBlockForTest() }?.base ?: error("${spec.name}: no block")
+                    check(ms1.end == base0) { "${spec.name}: Global's list at ${ms1.start}..${ms1.end}, not flush below the block at $base0" }
+                    rec.act.set(true)
+                    r.onLoop { r.shell.register(ListWin("w9", "W9", 6)) }  // one more cell: the block placed again, larger
+                    r.until("${spec.name}: the block placed again") { r.onLoop { r.shell.wheelBlockForTest()?.base?.let { it < base0 } == true } }
+                    lanesDone("the block again"); windowBound("Global again")
+                    val b1 = r.onLoop { r.shell.wheelBlockForTest() }!!
+                    val ms2 = r.onLoop { r.shell.windowListBinding.staging }!!
+                    check(ms2 !== ms1 && ms2.end <= b1.base) { "${spec.name}: not staged again below the block: ${ms2.start}..${ms2.end}, the block at ${b1.base}" }
+                    check(r.notes("liststage").any { it.startsWith("dropped — the wheel's block goes at") }) { "${spec.name}: no yield: ${r.notes("liststage").takeLast(3)}" }
+                    words += "the yield: Global's list ${ms1.start}..${ms1.end} under the block at $base0; the block again at ${b1.base}..${b1.end}, the list again at ${ms2.start}..${ms2.end}"
+                    chord(); wheelBound("the open over Global")
+                    n = wlist()!!.count
+                }
+                WheelForm.LATE_MAIN -> {
+                    rec.act.set(true)
+                    r.onLoop { r.shell.services.openWindow("w0", null); chord() }   // a page change and the chord before any idle pump
+                    waitOn("${spec.name}: w0 in front, the switcher open") { front() == "w0" && open() }
+                    wheelBound("bound mid-open")
+                    n = wlist()!!.count
+                    check(wrow() == 2) { "${spec.name}: the open's cursor ${wrow()}, not 2 (the most recent inactive window)" }
+                    notch(CfwModes.EV_DOWNROLL, 1, "a notch up")
+                    notch(CfwModes.EV_DOWNROLL, 0, "a notch up to Main")
+                    idle(r, spec.name)
+                    rec.fire(CfwModes.EV_TAP)                               // the report-only tap: the phone commits
+                    waitOn("${spec.name}: the commit into Main") { !open() && front() == null }
+                    mainBound("Main after the commit")
+                }
+                WheelForm.COMMIT_WINDOW -> {
+                    n = wlist()!!.count
+                    val atCursor = r.onLoop { r.shell.wheelBlockForTest()?.let { b -> b.cells[b.order[r.shell.wheelBoundForTest().second]].entry.name } }
+                    check(wrow() == 1 && atCursor == "Settings" && r.onLoop { r.shell.windowListBinding.staging } != null) {
+                        "${spec.name}: the cursor ${wrow()} on $atCursor (want Settings at 1), or Settings' staging not kept — ${state()}" }
+                    val ms1 = r.onLoop { r.shell.windowListBinding.staging }
+                    row0 = r.onLoop { r.shell.windowBoundForTest().second }
+                    rec.act.set(true)
+                    rec.fire(CfwModes.EV_TAP)
+                    waitOn("${spec.name}: the commit into Settings") { !open() && front() == "settings" }
+                    windowBound("Settings after the commit")
+                    check(r.onLoop { r.shell.windowListBinding.staging } === ms1) { "${spec.name}: Settings' staging not held through the open and the commit" }
+                }
+                WheelForm.CANCEL -> {
+                    n = wlist()!!.count
+                    row0 = wrow()
+                    rec.act.set(true)
+                    // in one loop turn: the cancel posted first, then a notch on the ring — the lenses draw it on list 2
+                    // before the loop takes the cancel, and its report reaches the loop after the cancel
+                    r.onLoop { r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK); rec.fire(CfwModes.EV_UPROLL) }
+                    waitOn("${spec.name}: the wheel closed") { !open() }
+                    mainBound("Main after the cancel")
+                }
+            }
+            if (spec.form == WheelForm.OPEN_NOTCHES || spec.form == WheelForm.YIELD_OPEN) r.settle("${spec.name}: the act's end, the wheel open")
+            else lanesDone("the act's end")
+            idle(r, spec.name)
+            rec.act.set(false)
+            val recorded = rec.events.toList()
+            val firstAct = recorded.indexOfFirst { it.act }
+            check(firstAct >= 0 && recorded.drop(firstAct).all { it.act }) { "${spec.name}: an image or input of the session came after the act began (it would be laid in step 0)" }
+            val act = rec.rightOfAct()
+            val commits = act.flatten().filter { isSub(it, 26, CfwModes.MOTION_COMMIT) && it.size == 18 }
+            val st = r.t.state.value
+            check(st.flagsInForce == 0x7c) { "${spec.name}: flags in force 0x${st.flagsInForce.toString(16)}, not stage 5's 0x7c" }
+            val finalCrc = synchronized(r.sim) { Arm.entries.associateWith { r.sim.shadowCrc32(it) } }
+            val applied = ArrayList<DamageMsg.Applied>()
+            val vec = vector(spec.name, recorded, st.cacheSize / 1024, st.flagsInForce, finalCrc, ArrayList(), listOf(0, 1), ANY_TAG, applied) { _, bodies ->
+                words += "RIGHT's 114 bodies of the act: ${said(bodies, 0..3)}"
+                if (spec.form != WheelForm.CANCEL) check(bodies.none { it.outcome == DamageMsg.OUTCOME_REFUSED }) { "${spec.name}: a refusal on RIGHT: ${said(bodies, 0..3)}" }
+                check(bodies.filter { it.outcome == DamageMsg.OUTCOME_DREW }.all { (it.folded ?: 0L) == 0L }) { "${spec.name}: a step folded: ${said(bodies, 0..3)}" }
+            }
+            // RIGHT's 115s of the act, as the model laid out answers them
+            fun bad(what: String): Nothing = error("${spec.name}: $what — ${applied.map { it.describe() }}")
+            val scrolls = applied.filter { !it.isTap }
+            val taps = applied.filter { it.isTap }
+            if (scrolls.any { it.list != 2 }) bad("a scroll report not on list 2")
+            fun drew(cursors: List<Int>, f18: List<Long?> = cursors.map { null }) {
+                if (scrolls.size != cursors.size || scrolls.any { it.outcome != DamageMsg.APPLIED_DREW }) bad("not ${cursors.size} scroll fire(s) that drew")
+                if (scrolls.map { it.cursor } != cursors) bad("the cursors are not $cursors")
+                if (scrolls.map { it.field18 } != f18) bad("field 18 is not $f18")
+            }
+            when (spec.form) {
+                WheelForm.OPEN_NOTCHES -> drew(listOf(0, n - 1, 0, 1), listOf(null, 1L, 1L, null))
+                WheelForm.YIELD_OPEN -> drew(emptyList())
+                WheelForm.LATE_MAIN -> drew(listOf(1, 0))
+                WheelForm.COMMIT_WINDOW -> drew(emptyList())
+                WheelForm.CANCEL -> drew(listOf((row0 + 1).mod(n)), listOf(if (row0 + 1 >= n) 1L else null))
+            }
+            val wantTaps = if (spec.form == WheelForm.LATE_MAIN || spec.form == WheelForm.COMMIT_WINDOW) 1 else 0
+            if (taps.size != wantTaps || taps.any { it.list != 2 || it.outcome != DamageMsg.APPLIED_DREW || it.params != null }) bad("not $wantTaps report-only tap(s) on list 2")
+            // the phone's answer to each fire that drew while the wheel was in front: the COMMIT of the report's own
+            // parameters at the absolute cursor; the cancel's notch, reported after the close, is committed by nobody
+            for (a in scrolls.filter { it.outcome == DamageMsg.APPLIED_DREW }) {
+                val c = commits.firstOrNull { u16(it, 3) == a.s }
+                if (spec.form == WheelForm.CANCEL) { if (c != null) bad("the notch reported after the close was committed: ${hex(c)}"); continue }
+                if (c == null) bad("no COMMIT of S ${a.s}")
+                if (u16(c, 6) != a.cursor || (0..3).any { s16(c, 10 + 2 * it) != a.params!![it] }) bad("the COMMIT of S ${a.s} is not the report's parameters at its cursor: ${hex(c)}")
+            }
+            // decisions DQ (2): each wire form the act carries, read on the projection the re-play row compares
+            val forms = wheelForms(vec)
+            fun formBytes(prefix: String) = forms.filter { it.startsWith("$prefix ") }.map { bytes(it.substringAfter(' ').substringBefore("··")) }
+            /** RIGHT's bind and slot messages of the act, batch by batch (C entry, S entry:list, L list, D list cursor, T list, X slot, M cursor). */
+            fun trace(): String = act.mapNotNull { ss -> ss.mapNotNull { m -> when {
+                isSub(m, 27, CfwModes.BIND_CLEAR) -> "C${m[2].toInt() and 0xFF}"
+                isSub(m, 27, CfwModes.BIND_SET) -> "S${m[2].toInt() and 0xFF}:${m[5].toInt() and 0xFF}"
+                isSub(m, 27, CfwModes.BIND_LIST) || isSub(m, 27, CfwModes.BIND_LIST_RING) -> "L${m[2].toInt() and 0xFF}"
+                isSub(m, 26, CfwModes.MOTION_DISCARD) -> "D${m[5].toInt() and 0xFF}c${u16(m, 6)}"
+                isSub(m, 26, CfwModes.MOTION_SETTLE) -> "T${m[5].toInt() and 0xFF}"
+                isSub(m, 26, CfwModes.MOTION_CLOSE) -> "X${m[2].toInt() and 0xFF}"
+                isSub(m, 26, CfwModes.MOTION_COMMIT) -> "M${u16(m, 6)}"
+                else -> null } }.takeIf { it.isNotEmpty() }?.joinToString(" ") }.joinToString(" | ")
+            fun has(what: String, ok: Boolean) { if (!ok) error("${spec.name}: the act's projection holds no $what — ${forms.filter { !it.startsWith("rec @") && !it.startsWith("table @") }}; RIGHT's act batches: ${trace()}") }
+            fun cleared(vararg e: Int) = e.all { x -> formBytes("CLEAR").any { (it[2].toInt() and 0xFF) == x } }
+            fun setsOf(list: Int) = formBytes("SET@act").filter { it[5].toInt() == list }.map { it[2].toInt() and 0xFF }.toSet()
+            fun listRing2() = formBytes("LIST").any { it[1].toInt() == CfwModes.BIND_LIST_RING && it[2].toInt() == 2 }
+            fun listShift0(list: Int) = formBytes("LIST").any { it[2].toInt() == list && u16(it, 7) == 0 }
+            fun discard0(list: Int) = forms.any { it.startsWith("DISCARD slot 0 list $list ") }
+            fun settled(list: Int) = forms.any { it.startsWith("SETTLE slot ") && it.endsWith(" list $list") }
+            fun theOpen(clears: IntArray) {
+                has("CLEAR of ${clears.toList()} (the list in front)", cleared(*clears))
+                has("LIST-RING of list 2", listRing2())
+                has("SET of entries 6, 7 and the tap 0 on list 2", setsOf(2) == setOf(0, 6, 7))
+                has("DISCARD in slot 0 naming list 2", discard0(2))
+                has("SETTLE naming list 2", settled(2))
+            }
+            fun theClose(list: Int) {
+                has("CLEAR of 6, 7 and 0 (the wheel's entries)", cleared(6, 7, 0))
+                has("SET of list $list (the arriving list)", setsOf(list).isNotEmpty())
+                has("LIST of list $list with shift 0", listShift0(list))
+                has("DISCARD in slot 0 naming list $list", discard0(list))
+            }
+            when (spec.form) {
+                WheelForm.OPEN_NOTCHES -> theOpen(intArrayOf(0, 1, 2))
+                WheelForm.YIELD_OPEN -> { has("CLEAR of 3, 4 and 5 (the yield, the open)", cleared(3, 4, 5)); has("SET of list 1 (staged again)", setsOf(1).isNotEmpty()); theOpen(intArrayOf(3, 4, 5)) }
+                WheelForm.LATE_MAIN -> { has("SETTLE naming 0xFF (the open not offered)", settled(0xFF)); theOpen(intArrayOf()); theClose(0) }
+                WheelForm.COMMIT_WINDOW -> theClose(1)
+                WheelForm.CANCEL -> {
+                    theClose(0)
+                    // the report after the close is not the list in front: the slot's DISCARD names the list it came from
+                    // while its row is known, else none (`LocalRules.tail`, step 3)
+                    has("DISCARD in slot 0 naming list 2 or none (the report after the close)", discard0(2) || discard0(0xFF))
+                }
+            }
+            words += "RIGHT's 115s: ${applied.joinToString(" | ") { it.describe().substringBefore(" uptime") }}"
+            words += "the wheel notes of the act: ${r.notes("wheel").drop(notes0)}"
+            words += "the act's wire forms: ${forms.filter { !it.startsWith("rec @") && !it.startsWith("table @") && !it.startsWith("SET ") }}"
+            words += "RIGHT's act batches: ${trace()}"
+            val answers = act.filter { ss -> ss.any { isSub(it, 27, CfwModes.BIND_SET) || isSub(it, 27, CfwModes.BIND_CLEAR) || isSub(it, 26, CfwModes.MOTION_DISCARD) } }.map { shape(it) }.distinct()
+            val b = r.onLoop { r.shell.wheelBlockForTest() }
+            return Captured(spec, vec, listOf("wheel ${spec.form.name.lowercase()} at ${spec.height}, Depth ${spec.depth}, stage 5 (flags 0x${st.flagsInForce.toString(16)}): " +
+                "n $n; the block ${b?.describe()}; geo ${b?.geo}; ${commits.size} COMMIT(s); the act's bind batches ${answers.map { "[$it]" }}") + words)
+        } finally { r.close() }
+    }
+
     /**
      * SV-083: the program bytes of a scroll or notice vector, each once, in the order first named — the session's table
      * (each entry's last SET in step 0) as it stands when the act begins, then every SET, PLAY and PLAY-AFTER of the act;
@@ -1727,6 +2019,28 @@ internal object ShipVectors {
                 (isSub(s, 27, CfwModes.BIND_LIST) || isSub(s, 27, CfwModes.BIND_LIST_RING)) && s.size >= 12 ->
                     out += "LIST " + hex(s.copyOfRange(0, 11)) + "··" + hex(s.copyOfRange(12, s.size))
                 isSub(s, 26, CfwModes.MOTION_COMMIT) -> out += "COMMIT ${hex(s)}"
+            }
+        }
+        return out.toList()
+    }
+
+    /**
+     * C3 DW-3 (decisions DQ (2)): a wheel act's wire forms — [ringForms], then every bind and slot message of the act's steps,
+     * each once in the order first sent: each SET whole (`SET@act`, the act's own, which [namedPrograms]' session table
+     * does not tell apart), each CLEAR whole, each DISCARD's slot, list and cursor, each SETTLE's slot and list and each
+     * CLOSE's slot (a DISCARD's and a SETTLE's S, a SETTLE's cursor and age follow the run's timing and are left out). The
+     * open's batch, the yield's CLEARs, the close's batch and a late report's DISCARD each change it.
+     */
+    fun wheelForms(vec: JsonObject): List<String> {
+        val out = LinkedHashSet(ringForms(vec))
+        for (st in vec["steps"]!!.jsonArray.drop(1)) for (o in st.jsonObject["ops"]!!.jsonArray) {
+            val m = bytes(o.jsonObject["msg"]?.jsonPrimitive?.content ?: continue)
+            for (s in subs(m)) when {
+                isSub(s, 27, CfwModes.BIND_SET) && s.size == 23 -> out += "SET@act ${hex(s)}"
+                isSub(s, 27, CfwModes.BIND_CLEAR) -> out += "CLEAR ${hex(s)}"
+                isSub(s, 26, CfwModes.MOTION_DISCARD) && s.size == 8 -> out += "DISCARD slot ${s[2].toInt() and 0xFF} list ${s[5].toInt() and 0xFF} cursor ${u16(s, 6)}"
+                isSub(s, 26, CfwModes.MOTION_SETTLE) && s.size == 10 -> out += "SETTLE slot ${s[2].toInt() and 0xFF} list ${s[5].toInt() and 0xFF}"
+                isSub(s, 26, CfwModes.MOTION_CLOSE) && s.size >= 3 -> out += "CLOSE slot ${s[2].toInt() and 0xFF}"
             }
         }
         return out.toList()

@@ -4285,6 +4285,185 @@ def vectors_v5_x3(kf):
         vec_["features"] = [FEATURES_C3]
     return v
 
+# ---- C3 DW-3: the wheel (the app switcher bound on the glasses as list 2; the DW spec §2.1–§2.5, §7.2) ----------------
+WHEEL_GEO = {"panel": [200, 154, 240, 176], "d": 8, "bandTop": 198, "bandBot": 286, "hN": 20, "yA": 158, "yB": 306}
+"""The wheel at rest at layout height 480, Depth 8 — read off the shell's own down program in the committed
+`v5-ship-list1-select-level-depth-480` (step 0): the panel (x, y, w, h), the neighbour rows' disparity d, the centre band
+[bandTop, bandBot) with its rules, the neighbour form's height hN and the neighbour rows' tops yA (above), yB (below)."""
+WHEEL_SWAP_CENTRE = 4          # the DW spec §2.1 (decisions BK (3)): a swapping centre form scaled to the neighbour form's level
+WHEEL_RULE_LEVEL = 3           # the rules' level (the switcher's inner rules)
+
+def jround(x):
+    """Java's `Math.round` of a double: the nearest integer, a tie toward +∞ (⌊x + ½⌋ at these magnitudes)."""
+    import math
+    return math.floor(x + 0.5)
+
+def wheel_tables(t):
+    """The drum's two ease tables over t steps (the DW spec §2.1): n1 the first step 1..t−1 whose ease-out reaches 2048
+    (else t − 1); E1 the ease-out's first n1 values rescaled to end at 4096, E2 its last t − n1 rescaled from 0."""
+    eo = [0] + [4096 - (4096 * (t - j) * (t - j)) // (t * t) for j in range(1, t + 1)]     # §5.4's ease-out E[j]
+    n1 = next(j for j in range(1, t) if eo[j] >= 2048 or j == t - 1)
+    e1 = [jround(4096.0 * eo[i + 1] / eo[n1]) for i in range(n1)]
+    e2 = [jround(4096.0 * (eo[n1 + i + 1] - eo[n1]) / (4096 - eo[n1])) for i in range(t - n1)]
+    return e1, e2
+
+def wheel_prog(g, cell4, rule4, stp, t, tables):
+    """One notch's program (the DW spec §2.2, track by track): stp +1 down (event 4), −1 up (event 5, the mirror); seven
+    per-lens tracks over t steps, the swapping centre and neighbour on the tables (off4, values) E1 then E2. Every DRAW
+    of a cell takes its record from a kind-1 parameter (P0 the row leaving, P1 the centre leaving, P2 the row arriving
+    in the centre, P3 the row entering) through a constant source window (the centre form's rows 0..hC−1 or the
+    neighbour form's hC..hC+hN−1); x per lens is left / right: the panel's plane at p.x ∓ d, the screen plane at p.x."""
+    px, py, pw, ph = g["panel"]
+    d, top, bot, hN, yA, yB = g["d"], g["bandTop"], g["bandBot"], g["hN"], g["yA"], g["yB"]
+    hC = bot - top - 2
+    y0, y1 = py + 2, py + ph - 2                                   # inside the outer rules
+    area = (rect(px - d, y0, pw + d, y1 - y0), rect(px, y0, pw + d, y1 - y0))
+    xl, xr = px - d, px + d
+    down = stp > 0
+    TR = 0x10                                                      # DRAW opt bit 4: a source 0 not drawn
+    def src(i): return pref(i, F_SRC)
+    cTop = top + 2
+    toY, fromY = (yA, yB) if down else (yB, yA)
+    tr = []
+    # W: the row leaving, squashed into the outer rule and faded to 0 (anchors 0 / 2); the level-0 backdrop paints the area
+    tr.append(track(area, 0, d2(t, cell4, xl, yA, dy=y0 - yA, lvl=(15, 0), opt=TR, xR=xr, ease=EASE_OUT, pref0=src(0),
+                                h0=hN, h1=1, anchor=0, aux0=hC, aux1=hN) if down else
+                    d2(t, cell4, xl, yB, dy=(y1 - hN) - yB, lvl=(15, 0), opt=TR, xR=xr, ease=EASE_OUT, pref0=src(0),
+                       h0=hN, h1=1, anchor=2, aux0=hC, aux1=hN)))
+    # Z: the row entering, grown out of the other outer rule from level 0
+    tr.append(track(area, BD_NONE, d2(t, cell4, xl, y1 - hN, dy=yB - (y1 - hN), lvl=(0, 15), opt=TR, xR=xr, ease=EASE_OUT,
+                                      pref0=src(3), h0=1, h1=hN, anchor=2, aux0=hC, aux1=hN) if down else
+                    d2(t, cell4, xl, y0, dy=yA - y0, lvl=(0, 15), opt=TR, xR=xr, ease=EASE_OUT, pref0=src(3),
+                       h0=1, h1=hN, anchor=0, aux0=hC, aux1=hN)))
+    (e1o, e1), (e2o, e2) = tables
+    n1, n2 = len(e1), len(e2)
+    eo = [0] + [4096 - (4096 * (t - j) * (t - j)) // (t * t) for j in range(1, t + 1)]
+    f = eo[n1] / 4096.0
+    dx1 = jround(d * f)
+    cC = cTop + hC // 2                                            # the centres at the swap, as one ease-out over t puts them
+    mX = jround(cC + (toY + hN // 2 - cC) * f)
+    mY = jround(fromY + hN // 2 + (cC - (fromY + hN // 2)) * f)
+    # X: the centre flattens (anchor 1) and dims to the neighbour form's level, back in depth; at the swap its neighbour form
+    tr.append(track(area, BD_NONE,
+                    d2(n1, cell4, px, cTop, dx=-dx1, dy=(mX - hC // 2) - cTop, lvl=(15, WHEEL_SWAP_CENTRE), opt=TR, xR=px,
+                       dxR=dx1, ease=TABLE, table=e1o, pref0=src(1), h0=hC, h1=hC // 2, anchor=1, aux0=0, aux1=hC),
+                    d2(n2, cell4, px - dx1, mX - hN // 2, dx=-(d - dx1), dy=toY - (mX - hN // 2), lvl=(15, 15), opt=TR,
+                       xR=px + dx1, dxR=d - dx1, ease=TABLE, table=e2o, pref0=src(1), aux0=hC, aux1=hN)))
+    # Y: the neighbour rises to the centre; at the swap its centre form grows (anchor 1), comes forward and brightens
+    tr.append(track(area, BD_NONE,
+                    d2(n1, cell4, xl, fromY, dx=dx1, dy=(mY - hN // 2) - fromY, lvl=(15, 15), opt=TR, xR=xr, dxR=-dx1,
+                       ease=TABLE, table=e1o, pref0=src(2), aux0=hC, aux1=hN),
+                    d2(n2, cell4, xl + dx1, mY - hC // 2, dx=d - dx1, dy=cTop - (mY - hC // 2), lvl=(WHEEL_SWAP_CENTRE, 15),
+                       opt=TR, xR=xr - dx1, dxR=-(d - dx1), ease=TABLE, table=e2o, pref0=src(2), h0=hC // 2, h1=hC, anchor=1,
+                       aux0=0, aux1=hC)))
+    if down:   # A: the top inner rule leaves into the outer rule, clipped out of the area at step t; B rises; C comes up
+        tr += [track(area, BD_NONE, d2(t, rule4, px, top, dx=-d, dy=(y0 - 2) - top, lvl=(15, 0), opt=TR, xR=px, dxR=d, ease=EASE_OUT)),
+               track(area, BD_NONE, d2(t, rule4, xl, bot, dx=d, dy=top - bot, opt=TR, xR=xr, dxR=-d, ease=EASE_OUT)),
+               track(area, BD_NONE, d2(t, rule4, xl, y1, dy=bot - y1, lvl=(0, 15), opt=TR, xR=xr, ease=EASE_OUT))]
+    else:      # A': the bottom inner rule leaves into the bottom edge; B' sinks; C' comes down from the outer rule (from y0 − 2)
+        tr += [track(area, BD_NONE, d2(t, rule4, xl, bot, dy=y1 - bot, lvl=(15, 0), opt=TR, xR=xr, ease=EASE_OUT)),
+               track(area, BD_NONE, d2(t, rule4, px, top, dx=-d, dy=bot - top, opt=TR, xR=px, dxR=d, ease=EASE_OUT)),
+               track(area, BD_NONE, d2(t, rule4, xl, y0 - 2, dx=d, dy=top - (y0 - 2), lvl=(0, 15), opt=TR, xR=xr, dxR=-d, ease=EASE_OUT))]
+    return prog2(*tr)
+
+def wheel_cell(i, w, hC, hN):
+    """Item i's cell (w × (hC + hN)): its centre form over its neighbour form, each a bar whose width and level name it."""
+    px = [0] * (w * (hC + hN))
+    def bar(x0, y0, bw, bh, lvl):
+        for y in range(y0, y0 + bh): px[y * w + x0:y * w + x0 + bw] = [lvl] * bw
+    bar(16, 20, 60 + 16 * i, 40, 15 - i % 8)
+    bar(24, hC + 4, 30 + 10 * i, 12, 4 + i % 3)
+    return px
+
+def vectors_v5_dw(kf):
+    """C3 stage DW-3's hand-made input (decisions DQ (7); the DW spec §7.2): one NEW file, `v5-dw-fire` — the earlier
+    files stay byte-identical (the wheel's shipped acts, `v5-ship-wheel-*`, come from the Kotlin `ShipVectors`). SETs of
+    both wheel programs on LIST-RING lists of count 9 and 3: fires mid-list and at both wraps, a burst of three closing
+    each other, the COMMIT of each report's parameters (END in the shadow), a report-only tap at both ends, a tap refused
+    17 after an uncommitted notch, a LEFT-only input then SETTLE. The programs are `wheel_prog`'s, written from the DW
+    spec's tracks; the vector's "wheel" key names each one's `Wheel.program` parameters, and `Version2MotionTest` pins
+    that the product's builder called with them gives these bytes (a difference is a finding, never an edit). S as RIGHT
+    counts it; cursors and parameters as §7.8 computes them, for the COMMITs' addresses only."""
+    v = []
+    P, T = 16, 19                                    # the DW spec §2.5 (modeled): 16 ticks, 19 steps at 480
+    g = WHEEL_GEO
+    hC, hN, w = g["bandBot"] - g["bandTop"] - 2, g["hN"], g["panel"][2]
+    c, s = Cache2(), Seq()
+    rule4 = c.add(image2(w, 2, [WHEEL_RULE_LEVEL] * (2 * w)))
+    cells = [c.add(image2(w, hC + hN, wheel_cell(i, w, hC, hN))) for i in range(9)]
+    items9 = cells
+    items3 = [cells[4], cells[7], cells[1]]
+    itab9 = c.add(b"".join(u16(o) for o in items9))
+    itab3 = c.add(b"".join(u16(o) for o in items3))
+    e1, e2 = wheel_tables(T)
+    e1o, e2o = c.add(easing(e1)), c.add(easing(e2))
+    down4 = c.add(wheel_prog(g, cells[0], rule4, 1, T, ((e1o, e1), (e2o, e2))))
+    up4 = c.add(wheel_prog(g, cells[0], rule4, -1, T, ((e1o, e1), (e2o, e2))))
+    rec_len = lambda o4: next(len(d) for a, d in c.entries if a == o4)
+    wheel = {"geo": g, "programs": [
+        {"at4": at4, "step": stp, "t": T, "cell4": cells[0], "cellBytes": rec_len(cells[0]), "rule4": rule4,
+         "ruleBytes": rec_len(rule4), "tables": [e1o, e2o], "none": False} for at4, stp in ((down4, 1), (up4, -1))]}
+    ARGS = {1: (-2, -1, 0, 1), -1: (2, 1, 0, -1)}    # the DW spec §2.2: every parameter kind 1
+    def params(items, cur, stp):
+        """§7.8 on a ring list: v = cursor + step, c' = v mod n, Pi = the item at (v + arg) mod n."""
+        vv = cur + stp
+        return vv % len(items), tuple(items[(vv + a) % len(items)] for a in ARGS[stp])
+    def sets(lst, slot):
+        return [msg(bind_set(6, ANY, UP, lst, 1, slot, P, down4, [(K_ITEM, a) for a in ARGS[1]])),
+                msg(bind_set(7, ANY, DOWN, lst, -1, slot, P, up4, [(K_ITEM, a) for a in ARGS[-1]])),
+                msg(bind_set(0, RING, TAP, lst, 0, slot, P, NONE))]          # the report-only tap (`Taps · report`, §6.3)
+    def run(t_, ev, wakes=(T // 2, T - 1), only=None):
+        """A matched event at t_ (S + 1 on the lenses it reaches), the wake that draws step 1, then wakes at those steps."""
+        if only is None: s.fire()
+        return ([step(tk(t_), inp(RING, ev, only=only)), step(tk(t_), wake())]
+                + [step(tk(t_ + k * P), wake()) for k in wakes])
+    st = [step(tk(1000), {"lease": "acquire"}, flags(FULL5), page(True), msg(kf), *[msg(m) for m in c.messages()])]
+    # list 2 in slot 0, count 9, a ring from cursor 0 shifted to 4; its two scroll entries and the tap (the shell's order:
+    # LIST-RING, then the SETs)
+    st += [step(tk(1010), msg(bind_ring(2, itab9, 9, 4, 0, 1)), *sets(2, 0))]
+    cur = 4
+    # fires mid-list, each answered by the COMMIT of its report's parameters: after T (END over the held last step), and
+    # while it draws (adopted: it runs on to T)
+    cur, p = params(items9, cur, 1)                                        # at 4: v 5, c' 5 — items 3..6
+    st += run(2000, UP) + [step(tk(2000 + T * P + 20), msg(commit(0, s.n, 2, cur, down4, p)))]
+    cur, p = params(items9, cur, -1)                                       # at 5: v 4, c' 4 — items 6, 5, 4, 3
+    st += run(2600, DOWN, wakes=(4,)) + [step(tk(2600 + 5 * P), msg(commit(0, s.n, 2, cur, up4, p))),
+                                         step(tk(2600 + (T - 1) * P), wake())]
+    # both wraps: the cursor moved to the last row by a riding LIST-RING's shift, then down past it and back up past row 0
+    st += [step(tk(3200), msg(bind_ring(2, itab9, 9, 4, 0, 1)))]            # 4 + 4 = 8
+    cur = 8
+    cur, p = params(items9, cur, 1)                                        # at 8: v 9, c' 0 — items 7, 8, 0, 1; field 18
+    st += run(3300, UP) + [step(tk(3300 + T * P + 20), msg(commit(0, s.n, 2, cur, down4, p)))]
+    cur, p = params(items9, cur, -1)                                       # at 0: v −1, c' 8 — items 1, 0, 8, 7; field 18
+    st += run(3900, DOWN) + [step(tk(3900 + T * P + 20), msg(commit(0, s.n, 2, cur, up4, p)))]
+    # a burst of three closing each other (each fire's close set holds the slot's instance), the last answered
+    st += run(4500, DOWN, wakes=())                                        # at 8: c' 7
+    st += run(4500 + 2 * P, DOWN, wakes=())                                # c' 6: closes the first at step 2
+    cur, p = params(items9, 6, -1)                                         # c' 5: closes the second at step 2 — items 7, 6, 5, 4
+    st += run(4500 + 4 * P, DOWN) + [step(tk(4500 + 4 * P + T * P + 20), msg(commit(0, s.n, 2, cur, up4, p)))]
+    # count 3: a fresh LIST-RING (a new mark, the item table of three) — (5 − 5) mod 3 = 0
+    st += [step(tk(5200), msg(bind_ring(2, itab3, 3, -5, 0, 2)))]
+    cur = 0
+    st += run(5300, TAP, wakes=())                                         # a report-only tap at row 0: no draw, no parameters
+    cur, p = params(items3, cur, -1)                                       # at 0: v −1, c' 2 — items3 1, 0, 2, 1; field 18
+    st += run(5400, DOWN) + [step(tk(5400 + T * P + 20), msg(commit(0, s.n, 2, cur, up4, p)))]
+    st += run(6000, TAP, wakes=())                                         # a report-only tap at the last row (2)
+    cur, p = params(items3, cur, 1)                                        # at 2: v 3, c' 0 — items3 1, 2, 0, 1; field 18
+    st += run(6100, UP) + [step(tk(6100 + T * P + 20), msg(commit(0, s.n, 2, cur, down4, p)))]
+    # a tap refused 17 after an uncommitted notch: the slot holds a done local; the DISCARD ends it, then the tap reports
+    cur, p = params(items3, cur, 1)                                        # at 0: v 1, c' 1 — no answer
+    st += run(6700, UP)
+    st += run(6700 + T * P + 20, TAP, wakes=())                            # refused 17: nothing drawn, the list as it is
+    st += [step(tk(7400), msg(discard(0, (s.n + 1 - PAST) & 0xFFFF, 2, cur)))]   # the local stopped, the cursor := 1
+    st += run(7500, TAP, wakes=())                                         # report-only again at row 1
+    # a LEFT-only input (a dropped answer, §6.4): LEFT one ahead; the idle SETTLE from RIGHT's S + 1 ends it and realigns
+    r_next = (s.n + 1) & 0xFFFF
+    st += run(7600, UP, only="L")                                          # LEFT alone: its S one ahead, its c' 2; RIGHT: no 115
+    st += [step(tk(7600 + T * P + 20), msg(settle(0, r_next, 2, cur, 0)))]   # LEFT's local (at T, held) stopped; both cursors := 1
+    v.append({"name": "v5-dw-fire", "steps": st, "contract": 2, "start": "zero", "panel": True, "features": [FEATURES_C3],
+              "wheel": wheel})
+    return v
+
 # ---- the self-check (spec §3 D1): every message decodes by its builder's inverse, every program walks to its
 # own length. It proves the encoders' lengths, not the semantics (that is the C's and the simulator's).
 def walk_prog(buf, off):
@@ -4498,6 +4677,7 @@ def main():
     v12, v3, v4, v5 = vectors(), vectors_v3(kf), vectors_v4(kf), vectors_v5(kf)
     v5x = vectors_v5_x2(kf)                          # stage X2D: new files only (`v5-x2-*`); the 86 above stay as they are
     v5x += vectors_v5_x3(kf)                         # stage X3D: one new file (`v5-x3-hint`); `v5-ship-*` are ShipVectors' (Kotlin)
+    v5x += vectors_v5_dw(kf)                         # C3 stage DW-3: one new file (`v5-dw-fire`); `v5-ship-wheel-*` are ShipVectors'
     n_msgs, n_progs, found3, _ = check_v3(v3)
     m4, p4, found4, _ = check_v3(v4, c2=True)
     m5, p5, found5, g5 = check_v3(v5 + v5x, c3=True)
@@ -4505,7 +4685,7 @@ def main():
     check_found(found3 | found4 | found5)
     n_neutral = check_neutral(v12 + v3)
     n_neutral3 = check_neutral_c3(v12 + v3 + v4)
-    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (lambda k: vectors_v5_x2(k) + vectors_v5_x3(k), v5x)):
+    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (lambda k: vectors_v5_x2(k) + vectors_v5_x3(k) + vectors_v5_dw(k), v5x)):
         assert json.dumps(build(kf)) == json.dumps(got), f"{build.__name__} is not deterministic"
     print(f"self-check: {len(v3)} C1 vectors, {n_msgs} mode-25/26 messages decoded, {n_progs} named programs walked; "
           f"{len(v4)} C2 vectors, {m4} mode-26/27/28 messages and inputs decoded, {p4} named programs walked; "
