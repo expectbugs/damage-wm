@@ -43,9 +43,10 @@ class MotionCheckTest {
             // and the same at stage 5 (the fast path's fit; the wrap a ring fire at the two that wrap). C3 DM-1: six effects —
             // Crush and Flip at stage 5 in version 2 (`scroll-<crush|flip>-h<H>-s5-…`), at stage 4 their fallbacks. C3 X1DM1: and
             // his sequences at 352, stage 5 — a burst for six effects, the fast three for Depth and Crush (C3 X2DM1a: at 120 and
-            // at 45 ticks). C3 DM-2a: seven effects, Matrix at stage 5 in version 2 (at stage 4 Depth), its burst beside the six
-            val effects = 7
-            val bursts = listOf("none", "depth", "slide", "fall", "crush", "flip", "matrix").map { "scroll-$it-h352-s5-burst" } +
+            // at 45 ticks). C3 DM-2a: seven effects, Matrix at stage 5 in version 2 (at stage 4 Depth), its burst beside the six.
+            // C3 DM-2b: eight, Scramble the same as Matrix
+            val effects = 8
+            val bursts = listOf("none", "depth", "slide", "fall", "crush", "flip", "scramble", "matrix").map { "scroll-$it-h352-s5-burst" } +
                 listOf("depth", "crush").flatMap { listOf("scroll-$it-h352-s5-fast", "scroll-$it-h352-s5-fast45") }
             // each effect at each stage: the notch both ways at the four heights and the wrap both ways at the two that wrap
             assertEquals(2 * effects * (4 * 2 + 2 * 2) + bursts.size, files(dir).count { it.startsWith("scroll-") && !it.startsWith("scroll-list-") && it.endsWith(".png") }, "the scroll strips: ${files(dir).filter { it.startsWith("scroll-") }}")
@@ -56,7 +57,7 @@ class MotionCheckTest {
             for (n in lists) assertTrue("checks: all hold" in Files.readString(dir.resolve("$n.txt")), "$n:\n${Files.readString(dir.resolve("$n.txt"))}")
             assertTrue(Files.exists(dir.resolve("scroll-list-staging.txt")), "scroll-list-staging.txt")
             assertEquals(effects * (4 * 2 + 2 * 2) + bursts.size, files(dir).count { Regex("""scroll-\w+-h\d+-s5-.*\.png""").matches(it) }, "the stage-5 scroll strips: ${files(dir).filter { "-s5-" in it }}")
-            for (e in listOf("crush", "flip", "matrix")) for (h in listOf(288, 352, 416, 480)) for (n in listOf("down", "up"))
+            for (e in listOf("crush", "flip", "scramble", "matrix")) for (h in listOf(288, 352, 416, 480)) for (n in listOf("down", "up"))
                 assertTrue(Files.exists(dir.resolve("scroll-$e-h$h-s5-$n.png")), "scroll-$e-h$h-s5-$n.png")
             for (b in bursts) assertTrue(Files.exists(dir.resolve("$b.png")) && Files.exists(dir.resolve("$b.txt")), "$b.png and $b.txt")
             for (f in files(dir).filter { it.startsWith("scroll-") && it.endsWith(".txt") && !it.endsWith("staging.txt") })

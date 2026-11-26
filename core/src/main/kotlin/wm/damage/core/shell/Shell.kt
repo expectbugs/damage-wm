@@ -6804,7 +6804,9 @@ class Shell(
         // is painted for this same key — a change of layout, planes, rows or their content starts the paint again
         val pt = listBindPaint?.takeIf { listBindPaintFor == what && it.n == n } ?: run {
             listBindPaintFor = what; listBindPaintVersions = ct?.wantVersion to ct?.seenVersion
-            ListStaging.Paint(lay, surface.view() ?: return false, kit, bands = form == wm.damage.core.motion.ListForm.MAIN_BANDS).also { listBindPaint = it }
+            ListStaging.Paint(lay, surface.view() ?: return false, kit, bands = form == wm.damage.core.motion.ListForm.MAIN_BANDS,
+                // C3 DM-2b: Scramble's cells are made from the rows' text runs, recorded as they are painted for the staging
+                runs = ct?.takeIf { form == wm.damage.core.motion.ListForm.MAIN_BANDS && motionInForce().effect == wm.damage.core.motion.ScrollEffect.SCRAMBLE }).also { listBindPaint = it }
         }
         if (!pt.done) {
             val t0 = System.nanoTime()
@@ -6926,7 +6928,7 @@ class Shell(
      *  (decisions W, D-6). */
     private fun effectsToken(st: LinkState): wm.damage.core.motion.Motion.Effects? = if (!st.effects) null else
         try { wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(st.damageContract, st.damageFeatures), st.flagsInForce) }
-        catch (e: wm.damage.core.geom.LintError) { journal.note("mainstage", "the version-2 gate refuses with EFFECTS in force: ${e.message} — Crush, Flip and Matrix play their fallbacks"); null }
+        catch (e: wm.damage.core.geom.LintError) { journal.note("mainstage", "the version-2 gate refuses with EFFECTS in force: ${e.message} — Crush, Flip, Scramble and Matrix play their fallbacks"); null }
 
     /** C3 DM-1 (D3): why the asked effect plays its fallback, said once per change of what plays and why (the row says
      *  what plays: [scrollPlaysWords]). */

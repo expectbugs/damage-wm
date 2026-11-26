@@ -22,6 +22,7 @@ import wm.damage.core.gfx.IconKind
 import wm.damage.core.local.BoundList
 import wm.damage.core.local.LocalRules
 import wm.damage.core.local.Taps
+import wm.damage.core.motion.MotionProgram
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
 import wm.damage.core.shell.ListStaging
@@ -262,8 +263,12 @@ class MainLocalShellTest {
 
     /** One notch, adopted and committed: the row moves by its step, the pan of the whole list draws on RIGHT (each of its
      *  tracks changes mid-motion), RIGHT's images carry a COMMIT naming the fire's S, no snap-back is noted, and belief
-     *  equals both lenses once the motion has ended. */
-    private suspend fun notch(r: Rig, eventId: Int, what: String) {
+     *  equals both lenses once the motion has ended. [steps]: the steps RIGHT is sampled at mid-motion, from the entry's
+     *  program (step 2 by default; C3 DM-2b: Scramble's letters change in place, each cell at its own steps, so every
+     *  step is sampled and a track's area must change at one of them — the shell rig's rows share most letters). [inPlace]
+     *  (Scramble): a track's area whose picture the notch leaves as it was may show nothing mid-motion — the rig's box face
+     *  draws every letter and every noise glyph as the same box, so the band's letters changing in place show nothing. */
+    private suspend fun notch(r: Rig, eventId: Int, what: String, inPlace: Boolean = false, steps: (MotionProgram) -> List<Int> = { listOf(2) }) {
         r.settle("$what: before")
         val list = r.list()
         val e = assertNotNull(list.entryFor(eventId))
@@ -271,17 +276,27 @@ class MainLocalShellTest {
         val before = r.panel(false)
         val at = r.right.size
         val snaps = r.notes("snapback").size
+        val t0 = System.nanoTime()
         val s = r.fire(eventId)
-        delay((e.period * 2 * 1000L) / 1024 + 10)              // about two steps in
-        val mid = r.panel(false)
-        for (track in e.program!!.tracks) {
+        val ks = steps(e.program!!)
+        val mids = ks.map { k ->
+            val due = t0 / 1_000_000 + (e.period * k * 1000L) / 1024 + 10    // about k steps in
+            delay(maxOf(0L, due - System.nanoTime() / 1_000_000))
+            r.panel(false)
+        }
+        val diffs = e.program.tracks.map { track ->
             val a = track.areaR
-            var moved = false
-            for (y in maxOf(0, a.y) until minOf(Geometry.PANEL_H, a.bottom)) { for (x in maxOf(0, a.x) until minOf(Geometry.PANEL_W, a.right)) if (mid[x, y] != before[x, y]) { moved = true; break }; if (moved) break }
-            assertTrue(moved, "$what: the pan's track at $a changed on RIGHT mid-motion (the whole list moves)")
+            a to mids.map { mid -> var n = 0
+                for (y in maxOf(0, a.y) until minOf(Geometry.PANEL_H, a.bottom)) for (x in maxOf(0, a.x) until minOf(Geometry.PANEL_W, a.right)) if (mid[x, y] != before[x, y]) n++
+                n }
         }
         delay(((e.program.T + 1) * e.period * 1000L) / 1024 + r.q() + 200)   // the motion, then the burst's SETTLE
         r.settle("$what: after")
+        val after = r.panel(false)
+        fun same(a: Rect) = (maxOf(0, a.y) until minOf(Geometry.PANEL_H, a.bottom)).all { y -> (maxOf(0, a.x) until minOf(Geometry.PANEL_W, a.right)).all { x -> after[x, y] == before[x, y] } }
+        for ((i, d) in diffs.withIndex()) assertTrue(d.second.any { it > 0 } || (inPlace && same(d.first)), "$what: the pan's track ${i + 1} at ${d.first} changed on RIGHT mid-motion " +
+            "(the whole list moves): px changed at steps $ks — ${diffs.joinToString("; ") { "${it.first}: ${it.second}" }} (T ${e.program.T}, P ${e.period}); " +
+            "notes ${r.notes("local").takeLast(4)}")
         assertEquals(row0 + e.step, r.row(), "$what: the row moved by its step")
         assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "$what: a COMMIT of S $s")
         assertEquals(snaps, r.notes("snapback").size, "$what: no snap-back: ${r.notes("snapback").takeLast(2)}")
@@ -785,6 +800,46 @@ class MainLocalShellTest {
             r.assertOracle("after Matrix")
             val d2 = change("Matrix → Depth", "depth", mx)
             assertNull(d2.recordEffect, "no records after Matrix")
+            assertEquals(d1.blobs.map { it.name to it.off }, d2.blobs.map { it.name to it.off }, "Depth's staging as the first: its records' places")
+            assertTrue(d1.blobs.zip(d2.blobs).all { (a, b) -> a.bytes.contentEquals(b.bytes) }, "Depth's staging as the first, byte for byte")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 DM-2b, the records rule on the shell for Scramble (decisions DW 2, EP 2; the DM-2 spec §8): Depth → Scramble →
+     * Depth on Main at stage 5 on 256 KiB, Main drawn through its atlas — each change a full staging (one drop and one
+     * staging more, no pans switched, a new mark, the drop saying why); Scramble's staging holds its records once, last, its
+     * cells made from the runs the staging's paint recorded, and a notch plays its seven tracks and is committed, belief
+     * equal to both lenses; Depth's staging after it is the first one byte for byte.
+     */
+    @Test
+    fun aChangeIntoOrOutOfScrambleIsAFullStagingEachWay_DM2b(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            val d1 = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+            suspend fun change(what: String, to: String, from: ListStaging): ListStaging {
+                val m = marks(r)
+                val mark0 = r.list().mark
+                r.shell.updateSettings { it.copy(scrollEffect = to) }
+                r.until("$what: staged again", 30_000) { r.onLoop { r.shell.mainBinding.staging }.let { it != null && it !== from } }
+                r.bound("$what: bound")
+                val ms = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+                val m1 = marks(r)
+                assertEquals(Triple(m.staged + 1, m.dropped + 1, m.switched), Triple(m1.staged, m1.dropped, m1.switched), "$what: one drop and one staging, no pans switched")
+                assertTrue(r.list().mark != mark0, "$what: a new mark")
+                assertTrue(r.notes("mainstage").any { it.startsWith("dropped") && "Scramble's records are staging records" in it }, "$what: the drop says why: ${r.notes("mainstage").takeLast(3)}")
+                return ms
+            }
+            val sc = change("Depth → Scramble", "scramble", d1)
+            assertTrue(sc.recordEffect == wm.damage.core.motion.ScrollEffect.SCRAMBLE && sc.plays.effect == wm.damage.core.motion.ScrollEffect.SCRAMBLE, "Scramble plays, its records staged: ${sc.plays}")
+            assertEquals(1, sc.blobs.count { it.name == "Scramble's records" }, "the records once")
+            assertEquals("Scramble's records", sc.blobs.last().name, "the records last")
+            assertEquals(7, r.list().entryFor(CfwModes.EV_UPROLL)!!.program!!.tracks.size, "Scramble's pans")
+            notch(r, CfwModes.EV_UPROLL, "a notch with Scramble", inPlace = true) { p -> (1..p.T).toList() }
+            r.assertOracle("after Scramble")
+            val d2 = change("Scramble → Depth", "depth", sc)
+            assertNull(d2.recordEffect, "no records after Scramble")
             assertEquals(d1.blobs.map { it.name to it.off }, d2.blobs.map { it.name to it.off }, "Depth's staging as the first: its records' places")
             assertTrue(d1.blobs.zip(d2.blobs).all { (a, b) -> a.bytes.contentEquals(b.bytes) }, "Depth's staging as the first, byte for byte")
         } finally { r.close() }
