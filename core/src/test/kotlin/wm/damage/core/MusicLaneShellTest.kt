@@ -578,7 +578,10 @@ class MusicLaneShellTest {
             val paints = r.onLoop { r.shell.exclusiveRepaintsForTest() } - paints0
             assertTrue(paints <= 5, "Music Mode repainted $paints times in 2 s while Scope's chain was open")
             val tagBefore = r.laneTagIn(Arm.RIGHT); val starts0 = r.starts()
-            r.onLoop { r.player.seekTo(20_000) }
+            // stage SF2: a seek to the middle of a second, so the pause below (450..600 ms past the second) comes before
+            // the time line's next tick — no paint with the new chain held between them (the gate's red: a seek to a whole
+            // second raced that tick, and the strip stayed the seek's release paint at the pause)
+            r.onLoop { r.player.seekTo(20_100) }
             r.until("a new chain after the seek", maxMs = 3_000) { r.starts() > starts0 && r.laneTagIn(Arm.RIGHT).let { it != null && it != tagBefore } }
             assertTrue(r.notes("lane").any { "its key changed" in it }, "the seek changed the key: ${r.notes("lane").takeLast(4)}")
             r.pauseShowsTheTruth(SCOPE_DATA, strip, "after the seek")
