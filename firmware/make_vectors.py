@@ -4464,6 +4464,142 @@ def vectors_v5_dw(kf):
               "wheel": wheel})
     return v
 
+DM_GEO = {"lens": [16, 146, 608, 64], "rowH": 32, "cx": 16, "rowW": 596, "listD": 8, "bandD": 4, "kA": 3, "kB": 3,
+          "rows": 8, "margin": 4}
+"""Main's list at layout height 352 with his eight rows (a ring list at stage 5, pitch −rowH), read off the product's own
+staging (`MainLocalCheck.MainRig(BoxFace, 352)`, Matrix at stage 5): the band (x, y, w, h), the row height, the content's x
+and the rows' width (content less the rail), the list's and the band's disparities, the rows above and below the band a
+whole-list pan draws, the count, and the ring's margin (rows above + 1). `Version2MotionTest` checks them against the
+staging."""
+DM_RAIN_SEED = 0x4D58          # the product's `ScrollEffects.RAIN_SEED`: a constant of ours (decisions DW 10); the vector pins the bytes
+DM_LVL_BACK = 8                # `MainPan.LVL_BACK`: the leaving band form's level at the swap (Depth's band, K1-1)
+
+def dm_matrix_prog(g, strip4, band4, rain4, step, T, swap):
+    """Main's Matrix pan (the DM-2 spec §1.5; decisions DR (b), DW 5): five per-lens tracks, version 2, no OWN — T0 the
+    rows' and band's whole area W at level 0, waiting T (the backdrop T3 needs); T1 and T2 Depth's rows above and below
+    the band (the strip at y ← P0 and y ← P3, one pitch over T, ease 1); T3 a reveal-0 rain over W, backdrop none, its
+    seed mixed with the tag (opt bit 7); T4 Depth's band — the leaving form (src ← P2) at the band's plane to the list's
+    and level 15 → 8 over the swap's steps, then the entering one (src ← P1) from the list's plane to the band's and 8 → 15."""
+    lx, ly, lw, lh = g["lens"]
+    rh, cx, rw, dL, dB, kA, kB = g["rowH"], g["cx"], g["rowW"], g["listD"], g["bandD"], g["kA"], g["kB"]
+    shift, bandW = dL - dB, rw + abs(dL - dB)
+    W = (rect(cx - dL, ly - kA * rh, rw, (kA + kB) * rh + lh), rect(cx + dL, ly - kA * rh, rw, (kA + kB) * rh + lh))
+    A = (rect(cx - dL, ly - kA * rh, rw, kA * rh), rect(cx + dL, ly - kA * rh, rw, kA * rh))
+    B = (rect(cx - dL, ly + lh, rw, kB * rh), rect(cx + dL, ly + lh, rw, kB * rh))
+    N = (rect(cx - max(dL, dB), ly, bandW, lh), rect(cx + min(dL, dB), ly, bandW, lh))
+    rows = lambda pr: d2(T, strip4, cx - dL, 0, dy=-step * rh, xR=cx + dL, ease=EASE_OUT, pref0=pref(pr, F_Y))
+    return prog2(
+        track(W, 0, w2(T)),
+        track(A, 0, rows(0)),
+        track(B, 0, rows(3)),
+        track(W, BD_NONE, gly(T, RAIN, rain4, seed=DM_RAIN_SEED, opt=0x80)),
+        track(N, 0, d2(swap, band4, cx - dB, ly, dx=-shift, xR=cx + dB, dxR=shift, lvl=(15, DM_LVL_BACK), ease=EASE_OUT,
+                       pref0=pref(2, F_SRC)),
+                    d2(T - swap, band4, cx - dL, ly, dx=shift, xR=cx + dL, dxR=-shift, lvl=(DM_LVL_BACK, 15), ease=EASE_OUT,
+                       pref0=pref(1, F_SRC))))
+
+def vectors_v5_dm(kf):
+    """C3 stage DM-2a's hand-made input (decisions DW 6, 7; the DM spec §5's vector): one NEW file, `v5-dm-rain-fire` —
+    every earlier file stays byte-identical (Main's Matrix ship act, `v5-ship-ring-matrix-352`, comes from the Kotlin
+    `ShipVectors`). Main's own Matrix pans at 352 on its ring list of eight (pitch −rowH, P 35, T 8 — the staging's fast-path
+    fit, modeled): a reveal-0 rain inside a WAIT-only level track over moving DRAW tracks, fired and COMMITted — mid-list
+    after T (the last step drawn: it lights nothing), while it draws (adopted), both wraps, a burst of two closing each
+    other — then a SET of the same pan naming a reveal-1 rain record, accepted (a SET walks no named record) and refused
+    5 at the fire (an in-place track outside OWN), and the real pan SET again and fired. The strip, band forms and glyphs
+    are the vector's own pixels at the staging's sizes; the "matrix" key names the parameters, and `Version2MotionTest`
+    pins that the product's builder called with them gives these program and rain bytes (a difference is a finding,
+    never an edit). S as RIGHT counts it; cursors and parameters as §7.8 computes them on a ring, for the COMMITs only."""
+    v = []
+    g = DM_GEO
+    P, T, swap = 35, 8, 3                            # the staging's period and steps at 352 (modeled) and `ListStaging.swapOf(8)`
+    lx, ly, lw, lh = g["lens"]
+    rh, rw, n, mg = g["rowH"], g["rowW"], g["rows"], g["margin"]
+    c, s = Cache2(), Seq()
+    # the strip: the eight rows with the ring's margins (4 + 8 + 4 rows), each a level with a mark that moves along x
+    sh_ = (n + 2 * mg) * rh
+    strip_px = []
+    for y in range(sh_):
+        r, iy = y // rh, y % rh
+        row = [0] * rw if iy >= rh - 6 else [2 + r % 12] * rw
+        if iy < rh - 6:
+            for x in range(20 + 30 * r, 60 + 30 * r): row[x] = 15
+        strip_px += row
+    strip4 = c.add(image2(rw, sh_, strip_px))
+    def band_form(i):
+        px = []
+        for y in range(lh):
+            row = [4 + i] * rw
+            if 16 <= y < 48:
+                for x in range(30 * i, 30 * i + 100): row[x] = 15
+            px += row
+        return image2(rw, lh, px)
+    items = [c.add(band_form(i)) for i in range(n)]
+    itab = c.add(b"".join(u16(o) for o in items))
+    codes = b"0123456789ABCDEF"
+    gs = [c.add(glyph(11, 27, pattern(11, 27, 900 + i))) for i in range(len(codes))]
+    ent = [gs[0]] * 224
+    for i, ch in enumerate(codes): ent[ch - 32] = gs[i]
+    font4 = c.add(font224(ent))
+    alpha4 = c.add(alphabet(list(codes)))
+    cols = -(-rw // 24)                              # ⌈rowW / cw⌉
+    spread = -(-((g["kA"] + g["kB"]) * rh + lh) // 27)   # ⌈the rain's height / ch⌉
+    rain4 = c.add(rain_rec(cols, 6, 24, 27, font4, alpha4, head=15, tail=3, reveal=0, fill=0, spread=spread, flicker=2))
+    rain1 = c.add(rain_rec(cols, 6, 24, 27, font4, alpha4, head=15, tail=3, reveal=1, fill=0, spread=spread, flicker=2))
+    down4 = c.add(dm_matrix_prog(g, strip4, items[0], rain4, 1, T, swap))
+    up4 = c.add(dm_matrix_prog(g, strip4, items[0], rain4, -1, T, swap))
+    rev4 = c.add(dm_matrix_prog(g, strip4, items[0], rain1, 1, T, swap))
+    def rules(stp):                                  # P0, P3 kind 2 (y = v × pitch + arg), P1 the entering row's form, P2 the leaving one's
+        return [(K_PITCH, ly + (stp - mg) * rh), (K_ITEM, 0), (K_ITEM, -stp), (K_PITCH, ly + lh + (stp - 1 - mg) * rh)]
+    rec_len = lambda o4: next(len(d) for a, d in c.entries if a == o4)
+    matrix = {"height": 352, "geo": g, "period": P,
+              "strip": [strip4, rw, sh_, rec_len(strip4)], "band": [items[0], rw, lh, rec_len(items[0])], "items": items,
+              "rain4": rain4, "font4": font4, "alpha4": alpha4,
+              "programs": [{"at4": at4, "step": stp, "t": T, "rain4": r4, "rules": [list(x) for x in rules(stp)]}
+                           for at4, stp, r4 in ((down4, 1, rain4), (up4, -1, rain4), (rev4, 1, rain1))]}
+    def params(cur, stp):
+        """§7.8 on a ring list: v = cursor + step, c' = v mod n; kind 1 the item at (v + arg) mod n, kind 2 v × pitch + arg."""
+        vv = cur + stp
+        return vv % n, tuple(items[(vv + a) % n] if k == K_ITEM else vv * -rh + a for k, a in rules(stp))
+    def sets(down=down4):
+        return [msg(bind_set(0, ANY, UP, 0, 1, 0, P, down, rules(1))),
+                msg(bind_set(1, ANY, DOWN, 0, -1, 0, P, up4, rules(-1))),
+                msg(bind_set(2, RING, TAP, 0, 0, 0, P, NONE))]          # the report-only tap (`Taps · report`)
+    def run(t_, ev, wakes=(T // 2, T - 1, T)):
+        """A matched event at t_ (S + 1 on both lenses), the wake that draws step 1, then wakes at those steps."""
+        s.fire()
+        return ([step(tk(t_), inp(RING, ev)), step(tk(t_), wake())]
+                + [step(tk(t_ + k * P), wake()) for k in wakes])
+    st = [step(tk(1000), {"lease": "acquire"}, flags(FULL5), page(True), msg(kf), *[msg(m) for m in c.messages()])]
+    # Main's list in slot 0: LIST-RING of eight at pitch −rowH from cursor 0, then its SETs (the shell's order)
+    st += [step(tk(1010), msg(bind_ring(0, itab, n, 0, -rh, 1)), *sets())]
+    cur = 0
+    # mid-list: a notch down answered after T (the last step drawn and held: the rain gone, END), one up answered while
+    # it draws (adopted: it runs on to T)
+    cur, p = params(cur, 1)                                                # at 0: v 1, c' 1
+    st += run(2000, UP) + [step(tk(2000 + T * P + 20), msg(commit(0, s.n, 0, cur, down4, p)))]
+    cur, p = params(cur, -1)                                               # at 1: v 0, c' 0
+    st += run(2600, DOWN, wakes=(4,)) + [step(tk(2600 + 5 * P), msg(commit(0, s.n, 0, cur, up4, p))),
+                                         step(tk(2600 + (T - 1) * P), wake()), step(tk(2600 + T * P), wake())]
+    # both wraps: up past row 0 to the last row (v −1), then down past it back to row 0 (v 8)
+    cur, p = params(cur, -1)                                               # at 0: v −1, c' 7; field 18
+    st += run(3300, DOWN) + [step(tk(3300 + T * P + 20), msg(commit(0, s.n, 0, cur, up4, p)))]
+    cur, p = params(cur, 1)                                                # at 7: v 8, c' 0; field 18
+    st += run(3900, UP) + [step(tk(3900 + T * P + 20), msg(commit(0, s.n, 0, cur, down4, p)))]
+    # a burst of two: the second closes the first at step 2, and is answered
+    st += run(4500, UP, wakes=(1,))                                        # at 0: c' 1
+    cur, p = params(1, 1)                                                  # c' 2
+    st += run(4500 + 2 * P, UP) + [step(tk(4500 + 2 * P + T * P + 20), msg(commit(0, s.n, 0, cur, down4, p)))]
+    # the same pan naming a reveal-1 rain record: the SET is accepted (it walks no named record); the fire is 5 (§7.2: an
+    # in-place track outside OWN) and the cursor stays; the real pan SET again, then fired and answered
+    st += [step(tk(5200), msg(bind_set(0, ANY, UP, 0, 1, 0, P, rev4, rules(1))))]
+    st += run(5300, UP, wakes=(1,))                                        # at 2: S + 1, refused 5, nothing drawn
+    st += [step(tk(5400), msg(bind_set(0, ANY, UP, 0, 1, 0, P, down4, rules(1))))]
+    cur, p = params(cur, 1)                                                # at 2: v 3, c' 3
+    st += run(5500, UP) + [step(tk(5500 + T * P + 20), msg(commit(0, s.n, 0, cur, down4, p)))]
+    v.append({"name": "v5-dm-rain-fire", "steps": st, "contract": 2, "start": "zero", "panel": True, "features": [FEATURES_C3],
+              "matrix": matrix})
+    return v
+
 # ---- the self-check (spec §3 D1): every message decodes by its builder's inverse, every program walks to its
 # own length. It proves the encoders' lengths, not the semantics (that is the C's and the simulator's).
 def walk_prog(buf, off):
@@ -4678,6 +4814,7 @@ def main():
     v5x = vectors_v5_x2(kf)                          # stage X2D: new files only (`v5-x2-*`); the 86 above stay as they are
     v5x += vectors_v5_x3(kf)                         # stage X3D: one new file (`v5-x3-hint`); `v5-ship-*` are ShipVectors' (Kotlin)
     v5x += vectors_v5_dw(kf)                         # C3 stage DW-3: one new file (`v5-dw-fire`); `v5-ship-wheel-*` are ShipVectors'
+    v5x += vectors_v5_dm(kf)                         # C3 stage DM-2a: one new file (`v5-dm-rain-fire`); `v5-ship-ring-matrix-352` is ShipVectors'
     n_msgs, n_progs, found3, _ = check_v3(v3)
     m4, p4, found4, _ = check_v3(v4, c2=True)
     m5, p5, found5, g5 = check_v3(v5 + v5x, c3=True)
@@ -4685,7 +4822,7 @@ def main():
     check_found(found3 | found4 | found5)
     n_neutral = check_neutral(v12 + v3)
     n_neutral3 = check_neutral_c3(v12 + v3 + v4)
-    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (lambda k: vectors_v5_x2(k) + vectors_v5_x3(k) + vectors_v5_dw(k), v5x)):
+    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (lambda k: vectors_v5_x2(k) + vectors_v5_x3(k) + vectors_v5_dw(k) + vectors_v5_dm(k), v5x)):
         assert json.dumps(build(kf)) == json.dumps(got), f"{build.__name__} is not deterministic"
     print(f"self-check: {len(v3)} C1 vectors, {n_msgs} mode-25/26 messages decoded, {n_progs} named programs walked; "
           f"{len(v4)} C2 vectors, {m4} mode-26/27/28 messages and inputs decoded, {p4} named programs walked; "

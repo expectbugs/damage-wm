@@ -3,16 +3,24 @@ package wm.damage.core.motion
 import wm.damage.core.geom.Layout
 import wm.damage.core.geom.LintError
 import wm.damage.core.geom.Rect
+import wm.damage.core.gfx.Gray8
+import wm.damage.core.gfx.Pack
 import wm.damage.core.shell.ContentKit
 import wm.damage.core.shell.ListStaging
+import wm.damage.core.text.Face
+import wm.damage.core.text.FontSpec
+import wm.damage.core.text.TextRasterizer
 import wm.damage.core.wire.CfwModes
+import wm.damage.core.wire.TextureCache
 
 /** K1-1: the Scroll tier's effects (`MOTION.md` §7: one effect, no randomness), as `ShellSettings.scrollEffect` stores
  *  them ([id]) and the `Scroll effect` row shows them ([word]), in the order his plan gives them (None first). C3 DM-1:
- *  Flip and Crush, version-2 programs at stage 5 with their fallbacks below it ([ScrollEffects.plays]). Glitch,
- *  Scramble/Encode and Matrix are not built here (DM-2). */
+ *  Flip and Crush, version-2 programs at stage 5 with their fallbacks below it ([ScrollEffects.plays]). C3 DM-2a: Matrix,
+ *  version 2 on Main at stage 5, its records part of the staging ([ScrollEffects.hasRecords]); Depth below it and on a
+ *  window's list. Glitch and Scramble/Encode are not built as scroll effects. */
 enum class ScrollEffect(val id: String, val word: String) {
-    NONE("none", "None"), DEPTH("depth", "Depth"), SLIDE("slide", "Slide"), FLIP("flip", "Flip"), FALL("fall", "Fall"), CRUSH("crush", "Crush");
+    NONE("none", "None"), DEPTH("depth", "Depth"), SLIDE("slide", "Slide"), FLIP("flip", "Flip"), FALL("fall", "Fall"), CRUSH("crush", "Crush"),
+    MATRIX("matrix", "Matrix");
 
     companion object {
         val DEFAULT = DEPTH
@@ -81,7 +89,9 @@ object ScrollEffects {
      *  form's record (any: P1 and P2 name the real one; none on a window list), [records] every record a parameter may
      *  name, and the staging's [form] (K1-2 stage 2). */
     class Staged(val layout: Layout, val listD: Int, val bandD: Int, private val band0: Motion.Source.Record?, val records: List<Motion.Source.Record>,
-                 val form: ListForm = ListForm.MAIN_BANDS) {
+                 val form: ListForm = ListForm.MAIN_BANDS,
+                 /** C3 DM-2a: Matrix's rain record where the staging holds its records ([RainRecords]); null otherwise. */
+                 val rain: Motion.Rain? = null) {
         val band: Motion.Source.Record get() = band0 ?: throw LintError("a window list stages no band forms (the K1-2 spec §2.1: the strip alone)")
     }
 
@@ -105,7 +115,7 @@ object ScrollEffects {
 
     /** The same, by whether the gate gives a token ([v2Here]: EFFECTS in force) — for what is said or fitted before a build. */
     fun playsAt(asked: ScrollEffect, v2Here: Boolean): Plays = when {
-        asked != ScrollEffect.CRUSH && asked != ScrollEffect.FLIP -> Plays(asked, false)
+        asked != ScrollEffect.CRUSH && asked != ScrollEffect.FLIP && asked != ScrollEffect.MATRIX -> Plays(asked, false)
         v2Here -> Plays(asked, true)
         else -> fallback(asked, NOT_STAGE5)
     }
@@ -113,23 +123,33 @@ object ScrollEffects {
     /** Why a fallback plays below stage 5. */
     const val NOT_STAGE5 = "EFFECTS is not in force (version 2 only at ladder stage 5 on a DamageCaps bit-11 build)"
 
-    /** D3: Crush → Slide, Flip → its height turn (version 1); [why] said. */
-    fun fallback(asked: ScrollEffect, why: String): Plays =
-        if (asked == ScrollEffect.CRUSH) Plays(ScrollEffect.SLIDE, false, why) else Plays(asked, false, why)
-
-    /** K1-2 stage 2: what plays for [asked] on a staging of [form]. Main's: [plays]. A window list's (stage 5 only: its
-     *  programs are version 2, source windows, so [fx] is never null there): None, Depth, Slide and Fall themselves;
-     *  Crush and Flip on the window form are not built yet (DM-1's programs on this form, the K1-2 spec §4) — Crush plays
-     *  Slide, as its fallback does on Main, and Flip plays Depth (its rows are Depth's), each said ([WINDOW_NOT_YET]). */
-    fun playsFor(asked: ScrollEffect, form: ListForm, fx: Motion.Effects?): Plays = when {
-        form == ListForm.MAIN_BANDS -> plays(asked, fx)
-        asked == ScrollEffect.CRUSH -> Plays(ScrollEffect.SLIDE, true, WINDOW_NOT_YET)
-        asked == ScrollEffect.FLIP -> Plays(ScrollEffect.DEPTH, true, WINDOW_NOT_YET)
-        else -> Plays(asked, true)
+    /** D3: Crush → Slide, Matrix → Depth (decisions AD's D3), Flip → its height turn (version 1); [why] said. */
+    fun fallback(asked: ScrollEffect, why: String): Plays = when (asked) {
+        ScrollEffect.CRUSH -> Plays(ScrollEffect.SLIDE, false, why)
+        ScrollEffect.MATRIX -> Plays(ScrollEffect.DEPTH, false, why)
+        else -> Plays(asked, false, why)
     }
 
-    /** Why Crush and Flip play another effect on a window list. */
-    const val WINDOW_NOT_YET = "Crush and Flip are not built on a window list's form yet (K1-2: DM-1's programs on that form come later)"
+    /** C3 DM-2a, the records rule (the DM-2 spec §1; decisions DV 2, DW 1–4): whether what plays as [e] draws records that
+     *  are part of the list's staging ([RainRecords]) — laid last in it, given up first where it does not fit, and changed
+     *  only by a full staging (a programs-only re-make into or out of such an effect is refused, `ListStaging.remake`). */
+    fun hasRecords(e: ScrollEffect): Boolean = e == ScrollEffect.MATRIX
+
+    /** K1-2 stage 2: what plays for [asked] on a staging of [form]. Main's: [plays]. A window list's (stage 5 only: its
+     *  programs are version 2, source windows, so [fx] is never null there): the effects of [WINDOW_EFFECTS] themselves;
+     *  C3 DM-2a (the DM-2 spec §1, decisions DR (j)): every other is not built on the window form yet — Crush plays Slide,
+     *  as its fallback does on Main, and any other Depth, each said ([windowNotYet]), so no effect outside the form's own
+     *  reaches its builder (which refuses one). */
+    fun playsFor(asked: ScrollEffect, form: ListForm, fx: Motion.Effects?): Plays = when {
+        form == ListForm.MAIN_BANDS -> plays(asked, fx)
+        asked in WINDOW_EFFECTS -> Plays(asked, true)
+        asked == ScrollEffect.CRUSH -> Plays(ScrollEffect.SLIDE, true, windowNotYet(asked))
+        else -> Plays(ScrollEffect.DEPTH, true, windowNotYet(asked))
+    }
+
+    /** Why [asked] plays another effect on a window list. */
+    fun windowNotYet(asked: ScrollEffect): String =
+        "${asked.word} is not built on a window list's form yet (it plays ${WINDOW_EFFECTS.joinToString { it.word }} itself; the others come later)"
 
     /** The effects a window list plays itself ([playsFor]): its pan slots are sized by the largest of them. */
     val WINDOW_EFFECTS = listOf(ScrollEffect.NONE, ScrollEffect.DEPTH, ScrollEffect.SLIDE, ScrollEffect.FALL)
@@ -200,7 +220,9 @@ object ScrollEffects {
         // K1-2 stage 2: a window list's band tracks leave the band's two rules out of their area
         val bandH = if (form == ListForm.STRIP_WINDOWS) l.lens.h - 2 * ContentKit.LENS_RULE else l.lens.h
         return (l.rowsAbove + l.rowsBelow) * l.rowH * rowW + bandTracks(e) * bandH * (rowW + kotlin.math.abs(listD - bandD)) +
-            (if (e == ScrollEffect.CRUSH) l.rowH * rowW else 0)
+            (if (e == ScrollEffect.CRUSH) l.rowH * rowW else 0) +
+            // C3 DM-2a (decisions DW 5: every track's area): Matrix's T0 and its rain, each over the list's whole area
+            (if (e == ScrollEffect.MATRIX) 2 * rowW * rainH(l) else 0)
     }
 
     /** The bytes one step of [e]'s pan decodes at [l] on the fast DRAW path (`FIRMWARE.md` §7.12: each DRAW of a record
@@ -219,6 +241,17 @@ object ScrollEffects {
     fun pixelPx(p: Plays, l: Layout, listD: Int, bandD: Int): Int =
         if (p.effect == ScrollEffect.FLIP && p.v2) l.lens.h * (l.content.w - Layout.RAIL_W + kotlin.math.abs(listD - bandD)) else 0
 
+    /** C3 DM-2a (the DM-2 spec §1, "the fit"; the DM spec §1.6's assumption): the rain cells one step of [e] lights at [l]
+     *  — every column's whole trail ([rainCols] × [RAIN_TRAIL]), Matrix's alone; none for the rest. */
+    fun rainCells(e: ScrollEffect, l: Layout): Int = if (e == ScrollEffect.MATRIX) rainCols(l) * RAIN_TRAIL else 0
+
+    /** C3 DM-2a: the rain's columns over Main's rows (⌈rowW / [RAIN_CW]⌉; the last one clipped to the area, §7.6). */
+    fun rainCols(l: Layout): Int = (l.content.w - Layout.RAIL_W + RAIN_CW - 1) / RAIN_CW
+
+    /** C3 DM-2a: the height of Main's whole list area at [l] — the rows above the band, the band, the rows below — where
+     *  Matrix's T0 and its rain lie (the DM spec's W). */
+    fun rainH(l: Layout): Int = (l.rowsAbove + l.rowsBelow) * l.rowH + l.lens.h
+
     /** [e]'s period (OS ticks) and steps for [motion] at Main's [l] with the list at [listD] and the band at [bandD], as it
      *  plays where the gate gives a token exactly at stage 5 ([playsAt]) — see the [Plays] form. */
     fun timing(e: ScrollEffect, l: Layout, listD: Int, bandD: Int, motion: ListStaging.ScrollMotion, stage5: Boolean): Pair<Int, Int> =
@@ -226,14 +259,15 @@ object ScrollEffects {
 
     /** What plays' ([p]) period (OS ticks) and steps for [motion]: on [areaPx] pixels a step, C2's fit
      *  ([ListStaging.timing]) — or, C3 FF, with EFFECTS in force ([stage5]: every fire then runs the fast DRAW path,
-     *  `FIRMWARE.md` §7.12), the fast path's ([ListStaging.fastStepMs] of the area, [walkBytes] and, DM-1, [pixelPx]) — on
+     *  `FIRMWARE.md` §7.12), the fast path's ([ListStaging.fastStepMs] of the area, [walkBytes], DM-1 [pixelPx] and, DM-2a,
+     *  [rainCells]) — on
      *  K1-1's rule ([ListStaging.timingOf]); one step for None (at the fitted period: the swap at once). */
     fun timing(p: Plays, l: Layout, listD: Int, bandD: Int, motion: ListStaging.ScrollMotion, stage5: Boolean,
                form: ListForm = ListForm.MAIN_BANDS): Pair<Int, Int> {
         val e = p.effect
         val area = areaPx(e, l, listD, bandD, form)
         val m = if (e == ScrollEffect.NONE) motion.copy(frames = 0) else motion
-        val pt = if (stage5) ListStaging.timingOf(ListStaging.fastStepMs(area, walkBytes(e, l, form), pixelPx(p, l, listD, bandD)), m) else ListStaging.timing(area, m)
+        val pt = if (stage5) ListStaging.timingOf(ListStaging.fastStepMs(area, walkBytes(e, l, form), pixelPx(p, l, listD, bandD), rainCells(e, l)), m) else ListStaging.timing(area, m)
         return if (e == ScrollEffect.NONE) pt.first to 1 else pt
     }
 
@@ -300,6 +334,7 @@ object ScrollEffects {
         if (s.form == ListForm.STRIP_WINDOWS) return windowPan(e, s, strip, kA, kB, step, t, at4, tables,
             fx ?: throw LintError("§7.11: a window list's pans are version 2 (source windows), built only through the gate (EFFECTS in force)"))
         if (e == ScrollEffect.CRUSH) return crush(s, strip, kA, kB, step, t, at4, tables, fx!!)
+        if (e == ScrollEffect.MATRIX) return matrix(s, strip, kA, kB, step, t, at4, fx ?: throw LintError("§7.11: Matrix's pans are version 2, built only through the gate (EFFECTS in force)"))
         if (e == ScrollEffect.FLIP) return flip(p.v2, s, strip, kA, kB, step, t, at4, tables, fx)
         val l = s.layout
         val cx = l.content.x
@@ -502,6 +537,94 @@ object ScrollEffects {
                 draw(strip, x = cx - dL, xR = cx + dL, y = if (down) l.lens.y else l.lens.bottom - rowH, n = n1, windowRows = rowH, prefs = leaving)
                 draw(strip, x = cx - dL, xR = cx + dL, y = if (down) l.lens.y - rowH else l.lens.bottom, h0 = 1, h1 = rowH,
                     anchor = if (down) 2 else 0, ease = e2, n = n2, windowRows = rowH, prefs = leaving)
+            }
+        }
+    }
+
+    /** C3 DM-2a (the DM spec §1.5): Matrix's rain — 24-px columns, a trail of six cells, the head at level 15 fading to
+     *  [RAIN_TAIL_LVL], fill 0 behind each glyph, each cell keeping its glyph [RAIN_FLICKER] steps. */
+    const val RAIN_CW = 24
+    const val RAIN_TRAIL = 6
+    const val RAIN_TAIL_LVL = 3
+    const val RAIN_FLICKER = 2
+    /** The rain's seed (h0): a constant of ours (decisions DW 10 — no source names one; any u16 serves). The fire's tag is
+     *  mixed into it (opt bit 7), so each notch's rain differs and both lenses draw alike; `v5-dm-rain-fire` pins its bytes. */
+    const val RAIN_SEED = 0x4D58
+    /** The noise set's codes (the DM spec §1.4): 16, so every alphabet code is a real glyph in the private table (§7.11). */
+    val NOISE_CODES: IntArray = "0123456789ABCDEF".map { it.code }.toIntArray()
+    /** The face the noise is drawn in: Main's row face (`MainSurface`'s), through the shell's styled text. */
+    val NOISE_FACE = FontSpec(Face.SYSTEM, 18)
+
+    /** C3 DM-2a: Matrix's staging records laid from byte [at] — the noise set's glyph records, its private table, the
+     *  alphabet and the rain record — as one blob of [bytes]; [rain] what its pans name. */
+    class RainRecords(val at: Int, val bytes: ByteArray, val rain: Motion.Rain)
+
+    /**
+     * C3 DM-2a (the DM spec §1.4's D1, §1.5; the DM-2 spec §1, "faces and alphabet"): Matrix's records at [l] laid from byte
+     * [at], each 4-byte aligned — the noise set ([NOISE_CODES] drawn in [NOISE_FACE] through [text] as the atlas draws a
+     * face's glyphs, `GlyphAtlas`'s render: an advance-width box the face's ink height tall, quantised to 4 bits), private
+     * copies inside the staging, so no atlas write ever meets a bound program's read range (§7.6); its private 224-entry
+     * table (each alphabet code its own glyph, every other entry the first glyph, never read); the alphabet; and the rain
+     * record: [rainCols] columns of [RAIN_CW], cells the face's height, reveal 0 (not in place: a bound program may hold
+     * it, §7.2), spread R = ⌈[rainH] / ch⌉. A code the face cannot draw, or an off4 past the u16 reach: refused
+     * ([LintError]; Matrix then plays Depth, said).
+     */
+    fun rainRecords(l: Layout, text: TextRasterizer, at: Int): RainRecords {
+        if (at % 4 != 0) throw LintError("Matrix's records at $at are not 4-byte aligned")
+        val h = text.metrics(NOISE_FACE).let { it.ascent + it.descent }.coerceIn(1, CfwModes.MAX_TEXTURE_DIM)
+        val out = java.io.ByteArrayOutputStream()
+        fun here4() = (at + out.size()) / 4
+        fun put(b: ByteArray) { out.write(b); repeat((4 - b.size % 4) % 4) { out.write(0) } }
+        val glyphs = NOISE_CODES.map { c ->
+            val s = c.toChar().toString()
+            val adv = if (text.covers(s, NOISE_FACE)) text.measure(s, NOISE_FACE) else 0
+            if (adv !in 1..CfwModes.MAX_TEXTURE_DIM) throw LintError("Matrix's noise face $NOISE_FACE cannot draw '$s' (its advance $adv)")
+            val g = Gray8(adv, h).also { text.draw(it, 0, 0, s, NOISE_FACE, 255) }
+            val rec = TextureCache.Image(adv, h, ByteArray(adv * h) { Pack.level(g.pix[it].toInt() and 0xFF).toByte() }).encode()
+            Motion.Glyph.of(here4(), rec).also { put(rec) }
+        }
+        val font = Motion.Font(here4(), IntArray(224) { i -> glyphs[NOISE_CODES.indexOf(i + 32).coerceAtLeast(0)].off4 }, glyphs).also { put(it.bytes) }
+        val alphabet = Motion.Alphabet(here4(), NOISE_CODES).also { put(it.bytes) }
+        val rain = Motion.Rain(here4(), rainCols(l), RAIN_TRAIL, RAIN_CW, h, font, alphabet, headLvl = 15, tailLvl = RAIN_TAIL_LVL, reveal = 0,
+            fillLvl = 0, spread = (rainH(l) + h - 1) / h, flicker = RAIN_FLICKER).also { put(it.bytes) }
+        return RainRecords(at, out.toByteArray(), rain)
+    }
+
+    /**
+     * C3 DM-2a, Matrix (the DM spec §1.5; decisions DR (b): "the list moves one row as Depth's while the rain falls through
+     * the rows (reveal 0)"; (n): the rain falls down on both notch directions): five per-lens tracks, version 2, pitch
+     * −rowH, Depth's parameters by Depth's rules —
+     * - T0, the list's whole area W (the rows above, the band, the rows below; [rainH] tall), level 0, WAIT T: it paints its
+     *   area every step, so the rain inside it may have backdrop none (§7.2); T1, T2 and T4 draw every pixel of it again;
+     * - T1, T2: Depth's rows above and below the band (the strip, y ← P0 and ← P3, one pitch on ease-out);
+     * - T3, W, backdrop none: the rain ([Staged.rain], GLYPHS kind 1) at the area's corner on each lens, linear over T,
+     *   seeded with [RAIN_SEED] and the fire's tag — drawn before the band, so it falls behind it;
+     * - T4: Depth's band (P2 back and dim, then P1 forward and bright).
+     * END: at step T every head is at R + trail, so no cell is lit and reveal 0 leaves the rows — Depth's END (pinned).
+     */
+    private fun matrix(s: Staged, strip: Motion.Source.Record, kA: Int, kB: Int, step: Int, t: Int, at4: Int, fx: Motion.Effects): MotionProgram {
+        val rain = s.rain ?: throw LintError("Matrix's rain is a record of the staging, and this staging holds none (a full staging with Matrix in force lays it)")
+        val l = s.layout
+        val r = Rects(l, kA, kB, s.listD, s.bandD)
+        val cx = r.cx; val dL = s.listD; val dB = s.bandD; val shift = dL - dB
+        val wL = Rect(cx - dL, l.lens.y - kA * l.rowH, r.rowW, (kA + kB) * l.rowH + l.lens.h)
+        val wR = Rect(cx + dL, wL.y, wL.w, wL.h)
+        val ease = Motion.Ease.easeOut
+        return Motion.program2(at4, fx, records = s.records) {
+            track(wL, wR, Motion.Backdrop.Level(0)) { wait(t) }
+            track(r.aL, r.aR, Motion.Backdrop.Level(0)) {
+                draw(strip, x = cx - dL, xR = cx + dL, y = 0, dy = -step * l.rowH, ease = ease, n = t, prefs = listOf(Motion.Pref(0, Motion.Field.Y)))
+            }
+            track(r.bL, r.bR, Motion.Backdrop.Level(0)) {
+                draw(strip, x = cx - dL, xR = cx + dL, y = 0, dy = -step * l.rowH, ease = ease, n = t, prefs = listOf(Motion.Pref(3, Motion.Field.Y)))
+            }
+            track(wL, wR, Motion.Backdrop.None) { rain(rain, t, x = 0, xR = 0, seed = RAIN_SEED, mixTag = true) }
+            track(r.nL, r.nR, Motion.Backdrop.Level(0)) {
+                val swap = ListStaging.swapOf(t)
+                draw(s.band, x = cx - dB, xR = cx + dB, y = l.lens.y, dx = -shift, dxR = shift,
+                    lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = ease, n = swap, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))
+                draw(s.band, x = cx - dL, xR = cx + dL, y = l.lens.y, dx = shift, dxR = -shift,
+                    lvl0 = MainPan.LVL_BACK, lvl1 = 15, ease = ease, n = t - swap, prefs = listOf(Motion.Pref(1, Motion.Field.SRC)))
             }
         }
     }

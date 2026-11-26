@@ -1707,7 +1707,9 @@ the item table and the programs, 35.6–43.7 KB at the four heights (43,700 B at
 at 160 KiB in the shared stage reserve (from byte 98,304, staged when Main comes to the front; Reader stages again on
 its return), at 256 KiB in a region of Main's own below the reserve (bytes [98,304, 229,376), with the atlas over the
 96 KiB below it, decisions AU.1, `CfwModes.mainRegion`; an atlas made before BIND was armed leaves Main in the shared
-reserve). The list is offered — its
+reserve). With Matrix in force (stage 5) its records — its noise glyphs, their font table, the alphabet and the rain
+record, 1,380 B at 352 with the test face (M) — lie last, past the pan slots, and are given up first where the staging
+does not fit (Matrix then plays Depth, said). The list is offered — its
 SETs sent — only after field 17 counts every write; the first staging is about 44 KB, about 5–6 s on the phone's link
 before the first local notch (I). Rows are kept current as P9 says. **A window's list** (glasses list 1, §7.11; ladder
 stage 5 on a 256 KiB session only) lies in the same region above Main's records: its strip, then its pan slots, laid
@@ -2466,7 +2468,8 @@ one-period wait; with this it is drawn a few ms late.
 - **A list whose programs use a source window** (Main's while Crush plays; a window's list for every effect, below)
   stages with pitch = +row height and draws its strip tracks as windows at fixed y's; the strip carries margins (blank
   rows, or on a ring list the other end's rows, §7.8) so that no window leaves the record (5). Main's other effects
-  stage with pitch = −row height. **An effect change keeps the list's staging:** its programs alone are re-made into
+  stage with pitch = −row height. **An effect change keeps the list's staging,** except into or out of Matrix, whose
+  records are part of the staging: that change is staged again whole. Otherwise its programs alone are re-made into
   the spare pan slot, counted (field 17) and then SET; where the change moves Main between the two pitches its LIST
   carries the new pitch ahead of those SETs (the pitch switch, S6, below); a window's list keeps +row height for every
   effect, so its SETs go alone. A staging with no spare pan slot is staged again whole.
@@ -2484,7 +2487,7 @@ one-period wait; with this it is drawn a few ms late.
   The band tracks' area is the band less its two 2-px rules; they draw the leaving and the entering row's row form
   (None the entering one alone) 4 px below the band's top, so at END the band area holds the entering row's row
   form, and the band itself goes with the cells P3 holds to the motion's end. It plays None, Depth, Slide and Fall;
-  asked for Crush or Flip it plays Slide or Depth. It is kept while Main, the clock or a screen that is not a list is
+  asked for Crush it plays Slide, for any other effect (Flip, Matrix) Depth. It is kept while Main, the clock or a screen that is not a list is
   in front — the batch that brings it back carries its SETs and §6.7's DISCARD naming the row, no LIST and no record —
   and is replaced when another window's list is in front; a change of its own view's row count, of the layout or of
   its planes makes a new staging with a new mark. A staging of Main's that reaches into its space drops it (Main

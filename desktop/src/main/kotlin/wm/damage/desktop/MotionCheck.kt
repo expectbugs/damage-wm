@@ -44,7 +44,7 @@ import wm.damage.core.wire.Pb
  * Adam's; each case's checks (the last step and COMMIT's END against Main's paint) count as the programs' do. C3 FF: and the
  * same at stage 5, `DIR/scroll-<effect>-h<height>-s5-<notch>`, on the fast DRAW path's fit (the wrap a ring fire at 288/352).
  * C3 X1DM1 (decisions BP (4)): and his sequences at 352, stage 5 ([MainLocalCheck.effectBursts]) — `DIR/scroll-<effect>-
- * h352-s5-burst` for None, Depth, Slide, Fall, Crush and Flip (six notches down 230 ticks apart — 224 ms, the floor of the
+ * h352-s5-burst` for None, Depth, Slide, Fall, Crush, Flip and (C3 DM-2a) Matrix (six notches down 230 ticks apart — 224 ms, the floor of the
  * stock scroll messages that reach the phone, not his fastest fires —, a pause, six up) and `-fast` and, C3 X2DM1a,
  * `-fast45` for Depth and Crush (three notches down 120 or 45 ticks apart: his 100–150 ms gaps and his commonest under
  * 224 ms): one strip row a notch, every step, each with its `.txt` (where each notch was cut and the rows' travel left

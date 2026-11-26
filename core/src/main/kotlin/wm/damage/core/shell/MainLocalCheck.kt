@@ -79,7 +79,7 @@ object MainLocalCheck {
     /** Main at [height] as the shell draws it: the planes `Shell.updatePlanes` gives Main at Global `Depth` [depth]
      *  (both bars and the content at d, the band one notch nearer, never nearer than the screen plane), `ContentKit.
      *  paintList` over `MainSurface`, and the per-lens truth the compositor renders under those planes. */
-    class MainRig(text: TextRasterizer, val height: Int, val rows: List<DamageWindow>, val depth: Int = 8) {
+    class MainRig(val text: TextRasterizer, val height: Int, val rows: List<DamageWindow>, val depth: Int = 8) {
         val layout: Layout = Layout().let { if (height >= Geometry.PANEL_H) it else it.withHeightMode(height, VPos.TOP) }
         val comp = Compositor()
         val kit = ContentKit(comp)
@@ -123,7 +123,7 @@ object MainLocalCheck {
          *  cache size (K1-2 stage 1, decisions BC O1). */
         fun staging(cacheSize: Int, region: IntRange, motion: ListStaging.ScrollMotion? = ListStaging.ScrollMotion.DEFAULT, stage5: Boolean = false): ListStaging =
             ListStaging.build(layout, view, kit, listD, bandD, cacheSize, region.first, region.last + 1,
-                widths = listOf(ListStaging.WHOLE), motion = motion, stage5 = stage5, fx = effectsAt(stage5))
+                widths = listOf(ListStaging.WHOLE), motion = motion, stage5 = stage5, fx = effectsAt(stage5), text = text)
     }
 
     /** Runs every case at [heights] × [cachesKib] for [effects]; [frames] keeps the strips' frames (the desktop writes them). */
@@ -227,7 +227,8 @@ object MainLocalCheck {
      * and the rows' travel it had left there (from the program's own segments: modeled).
      */
     fun effectBursts(text: TextRasterizer, height: Int = 352, depth: Int = 8,
-                     effects: List<ScrollEffect> = listOf(ScrollEffect.NONE, ScrollEffect.DEPTH, ScrollEffect.SLIDE, ScrollEffect.FALL, ScrollEffect.CRUSH, ScrollEffect.FLIP),
+                     effects: List<ScrollEffect> = listOf(ScrollEffect.NONE, ScrollEffect.DEPTH, ScrollEffect.SLIDE, ScrollEffect.FALL, ScrollEffect.CRUSH, ScrollEffect.FLIP,
+                         ScrollEffect.MATRIX),
                      fast: List<ScrollEffect> = listOf(ScrollEffect.DEPTH, ScrollEffect.CRUSH),
                      /** Each burst handed over as it is made (the desktop writes its strip); the list then keeps it without frames. */
                      onBurst: ((Burst) -> Unit)? = null): List<Burst> {
@@ -454,9 +455,12 @@ object MainLocalCheck {
         if (!inside) setup += "the staging ${ms.start}..${ms.end} leaves its region ${region.first}..${region.last + 1}"
         val tableLine = "$tag: ${effect.word}, ${ms.bytes} B at ${ms.start}..${ms.end} (${if (region.last + 1 == cacheSize) "shared reserve" else "Main's region"}), " +
             "strip ${ms.blobs[0].bytes.size} B in a ${ms.strip.slot} B slot, band forms ${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots, " +
-            "${ms.wrap?.let { "wrap record ${it.encoded.size} B in a ${it.slot} B slot, " } ?: ""}programs ${ms.blobs.last().bytes.size} B${ms.progSlots?.let { " (pan slots of ${ms.progSlot} B at ${it[0]} and ${it[1]})" } ?: " (no spare pan slot)"}; " +
+            "${ms.wrap?.let { "wrap record ${it.encoded.size} B in a ${it.slot} B slot, " } ?: ""}programs ${ms.blobs.first { it.name == "programs" }.bytes.size} B${ms.progSlots?.let { " (pan slots of ${ms.progSlot} B at ${it[0]} and ${it[1]})" } ?: " (no spare pan slot)"}; " +
             "whole list ${whole.kA}+${whole.kB} rows, ${whole.program.tracks.size} tracks, ${whole.areaPx} px a step, P ${ms.period} T ${ms.t}, press ${ms.bandD}→${ms.press.pressD}; " +
-            "the region's free span ${ms.freeSpan} B"
+            "the region's free span ${ms.freeSpan} B" +
+            // C3 DM-2a: an effect with records says where they lie, or that it plays its fallback and why ("does not fit → Depth")
+            (if (!wm.damage.core.motion.ScrollEffects.hasRecords(effect)) "" else if (ms.recordEffect != null) "; ${effect.word}'s records ${ms.blobs.last().bytes.size} B last, at ${ms.blobs.last().off}"
+                else if (ms.plays.why?.startsWith("does not fit") == true) "; does not fit → ${ms.plays.effect.word} (${ms.plays.why})" else "; plays ${ms.plays.effect.word} (${ms.plays.why})")
         val cases = ArrayList<Case>()
         if (setup.isNotEmpty()) { cases += Case("$tag-setup", "the staging written and the list SET", Rect(0, 0, 1, 1), emptyList(), emptyList(), setup); return cases to tableLine }
 
