@@ -12110,8 +12110,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        wheel.reserved = size\n        if (windowListFirst()) return false\n",
-    "        wheel.reserved = size\n"
+    "        wheel.reserved = size\n        if (windowListFirst() || pageStagingFirst(st)) return false\n",
+    "        wheel.reserved = size\n        if (pageStagingFirst(st)) return false\n"
    ]
   ],
   "tests": [
@@ -12120,7 +12120,7 @@
   "expect": [
    "aSessionStartWithAWindowsListInFrontBindsTheListBeforeTheBlocksWrite_DW1b2"
   ],
-  "note": "C3 DW-1b-2 (decisions DF finding 2): the wheel's block written ahead of a window's list in front at a session start (CK A3's old order) — the list waits for the whole block",
+  "note": "C3 DW-1b-2 (decisions DF finding 2): the wheel's block written ahead of a window's list in front at a session start (CK A3's old order) — the list waits for the whole block (re-pointed by DW-2b: the line also holds the document's hold, which stays)",
   "from": "DW-1b-2"
  },
  {
@@ -12465,5 +12465,41 @@
   ],
   "note": "K1-2 stage 4i (decisions DK 2): nothing of Main's lane under a transition when it has no staging — its rows are first painted after the run, so its first write waits a paint turn per row",
   "from": "K12S4i"
+ },
+ {
+  "id": "DW2-block-before-strip",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (windowListFirst() || pageStagingFirst(st)) return false",
+    "        if (windowListFirst()) return false"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aSessionStartWithADocument*"
+  ],
+  "expect": [
+   "aSessionStartWithADocumentInFrontWritesItsFirstStripBeforeTheBlock_DW2"
+  ],
+  "note": "C3 DW-2 (decisions DM 3, DP 9): the wheel's block does not wait for a document's first strip at a placement — at a session start with a document in front the block's write goes ahead of Page staging's first strip",
+  "from": "DW-2b"
+ },
+ {
+  "id": "DW2-hold-on-any-doc",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val k = stagedDoc()?.let { stagePlan(it) }?.wanted?.firstOrNull() ?: return false",
+    "        val k = stagedDoc()?.let { stagePlan(it) }?.wanted?.firstOrNull() ?: return stagedDoc() != null"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aSessionStartWithADocument*"
+  ],
+  "expect": [
+   "aSessionStartWithADocumentThatStagesNothingStillPlacesTheBlock_DW2"
+  ],
+  "note": "C3 DW-2 (decisions DP 9: the block never waits for a strip that will not come): the hold stands for any document in front, not only one Page staging stages — behind a document with no content key the block is never placed",
+  "from": "DW-2b"
  }
 ]

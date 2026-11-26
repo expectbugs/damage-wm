@@ -36,14 +36,25 @@ through taps it does not script one by one (a walk, a fuzz) forwards only a name
 that starts a process, opens a window or leaves the rig's own directory (2026-11-25: a walk's "Open on PC" opened a
 file-manager window on his screen).
 
-**Waiting costs him.** Each time you wake, your whole context is paid for again. Start a chain as ONE background job
-and END YOUR TURN; act when its completion notice arrives. Never end a turn on a status line ("waiting", "queued") —
-it wakes the lead for nothing. Plan your runs so that you wake a handful of times in the stage, not dozens.
+**Waiting costs him.** Each time you wake, your whole context is paid for again; and a turn you end while your own
+job still runs wakes the lead too, whose context is the dearest there is (measured 2026-11-25: 66 such wakes in one
+day, an eighth of the lead's usage). So:
+- Your own checks are a SHORT chain: compile, your classes, the steps the brief names. Not `coreall`, `deskall` or
+  the whole battery unless the brief says so: the whole suite runs once, at the merge, as the lead's job.
+- Start the chain as ONE background job under a TAG not used before in that OUT directory, then wait for it INSIDE
+  your turn: `private/tools/waitdone OUT/TAG-done.log` as a foreground command with the tool's `timeout` at 300000,
+  again each time it prints `STILL RUNNING`, with no text between the calls (a call waits up to 270 s, so your
+  cache stays warm; it prints the gate's summary when the chain has ended).
+- Only when it has printed `STILL RUNNING` thirteen times in a row (about an hour: the lock's queue was long) do you
+  end your turn; you are woken when the job ends. Never end a turn on a status line ("waiting", "queued").
+- Plan your runs so that you wake a handful of times in the stage, not dozens.
 
 **The stage:** where the brief asks for it, the failure envelope before any code (`FORK.md` §3.8's six questions). A
 fix sweeps its class, not its site. A pin is watched to fail on the unfixed tree. Rows for the mutation list go to a
 rows file in your scratch (`add`, `replace`, `drop`), each new row run once through a private copy; you never edit
-`research/mutations-c2.json`. Ship acts that move are named under one exception and never regenerated, unless the
+`research/mutations-c2.json`. Before your report, run `python3 research/mutate_core.py research/mutations-c2.json --check` in
+your tree: a row your change left not applying is re-pointed in your rows file (`replace`, the same intent) and run
+once (2026-11-25: a stage changed a line an older row named, and the list landed with a row that no longer applied). Ship acts that move are named under one exception and never regenerated, unless the
 brief says otherwise. Commits on your branch at each boundary, each message ending with the two attribution lines
 your session gives you. No push, no merge into another branch.
 

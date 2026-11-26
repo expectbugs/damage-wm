@@ -83,7 +83,7 @@ async function picture(name, size) {
   console.log(`${ok ? 'took' : 'MISSING'} ${file}${ended ? ` (Firefox ended after ${WAIT_MS / 1000} s: the page never reached its state)` : ''} · exit ${code}` +
     `${left ? ` · left processes ended: ${left.split('\n').join(' ')}` : ''} · the page sent ${srv.log.filter((m) => m.t !== 'note').map((m) => m.text || (m.t === 'op' ? `op ${m.op.window}.${m.op.action}${m.op.params && m.op.params.data !== undefined ? `(${JSON.stringify(m.op.params.data)})` : ''}` : m.t + (m.scope ? ` ${m.scope}` : ''))).join(', ')}`);
   // (S1-3 fix stage: a scene's own words — a control word's answer, a selection's count — are printed too)
-  for (const m of srv.log) if (m.t === 'note' && (!ok || /error|^ctl |^selection /.test(m.text))) console.log(`  ${m.text}`);
+  for (const m of srv.log) if (m.t === 'note' && (!ok || /error|^ctl |^selection |^place /.test(m.text))) console.log(`  ${m.text}`);
   if (!ok || /error|unrecognized/i.test(said)) console.log(`  Firefox said: ${said.trim().split('\n').slice(-6).join(' | ')}`);
 }
 

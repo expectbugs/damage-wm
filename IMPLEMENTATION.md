@@ -248,7 +248,7 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 ./gradlew :desktop:run --args="--feed-check [DIR] [live]"  # the feed engine over the captured fixtures; `live` = one paced fetch per source, read-only, temp dir
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + the record + setup page, no stack ever) — stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--devices"     # also --approve CODE LEVEL · --deny CODE · --revoke ID — asks the running service on loopback; exit 0 / 1 / 3
-./gradlew :desktop:test                       # the BlueZ glue over the fake link, the argument parser (CliTest), the config file's safety, SetupServer, the standby policy, the nightly copy, the status cell's fit, the epub check, theme icons, the xkcd PNG through the decoder, Files' thumbnails, the notice timer's render, the terminal library's pin, the motion check
+./gradlew :desktop:test                       # the BlueZ glue over the fake link, the argument parser (CliTest), the config file's safety, SetupServer, the standby policy, the nightly copy, the status cell's fit, the epub check, theme icons, the xkcd PNG through the decoder, Files' thumbnails, the notice timer's render, the terminal library's pin, the motion check, the health readers, the link cell's tags
 ```
 
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold long-press · keys
@@ -575,9 +575,10 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
   back and forward, the rail or bottom bar, one focus model, dims with their reason, toasts), Reader (`views/reader.mjs`,
   `reader-model.mjs`: the shelf, a book one spine part at a time; a place op carries the time of his input and is sent
   at the save point and on leaving; the page follows another device's newer place), Torrents, Files (an upload says
-  the name it was placed under; the slot's line shows the slot's job), notices, the devices and diagnosis pages, themes
-  in the glasses' faces; Feed (`feed-model.mjs` decides, `views/feed.mjs` draws; `doc.mjs` the one document
-  renderer, Reader's and Feed's; a place follows Reader's gesture rule) and Tmux (`tmux-model.mjs`, `views/tmux.mjs`;
+  the name it was placed under; the slot's line shows the slot's job), notices, the devices page, Health (with the
+  diagnosis; the section "The health view"), themes in the glasses' faces; Feed (`feed-model.mjs` decides,
+  `views/feed.mjs` draws; `doc.mjs` the one document renderer, Reader's and Feed's; a place follows Reader's gesture
+  rule) and Tmux (`tmux-model.mjs`, `views/tmux.mjs`;
   `term-render.mjs` the colour grid and flow; `terminal.mjs` the desk terminal: it loads the PC-served library, swallows
   the library's answers to terminal queries and drops focus reports, sends his bytes as `raw` ops, pastes through the
   paste rule; `ctx.live` the live seam). The stream id lives in local storage and a page numbers its ops in memory; every op carries
@@ -591,6 +592,80 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
   list of locations (totals and free space), a made-up root listing and folder and trash with pinned dates, over a
   provider that reads no mount table; the standing base is `private/build070/base-070/` (mask `base-070-mask/`). Still
   read from the machine: the books (hash checked around each render) and the desktop's icon theme.
+
+## The health view (R-b)
+
+One record of how the system stands, read where each truth already is and shown on the pages, the phone app and the
+glasses' link cell (`REPLAN.md` §17.4; a line is `CONTRACT.md` §3.2's value). It only shows: nothing in it acts, and
+nothing in it is saved — after a restart every line is read again from its source.
+
+- **The record** (`HealthCore`, `core/…/app/Health.kt`; `startHealth` in `desktop/…/HealthParts.kt`, called once by
+  each PC host builder at the process start, before the content host listens): the lines service, reach, phone, hub,
+  backup, cap, glasses.link, glasses.battery, glasses.stage, builds, disk, error and sources, in that order, each with
+  `label`, `text`, `band` (normal · attention · alarm), `since`, `asOf`, `source` (pc · phone), `state` (live · stale
+  · lastKnown), `doing` (what the system does about it) and, where they apply, `reason`, `tag` and `alert`. Served on
+  the app lane as `desc/health` at level view (`started`, `worst {id, band}`, `summary {line}` — "All well" or the
+  worst line's "<label>: <text>" — and `lines`), described again only when a line changes; it lives on the core
+  executor. At the start a PC line reads "not read yet" (`stale`) and a phone line "not reported" (`lastKnown`).
+- **The PC's readers** (`HealthParts`): on the record's 2 s tick, in memory — the service (the record and its log
+  open), the phone attached, the hub (`BastionWatcher.hub()`: not configured is attention; off for another reason, a
+  refused token or `haSilentMin` with no answer is alarm, tag `hub`), the nightly copy (its last listing, a run, the
+  catch-up and `watcher.copy`; a copy older than `NightlyCopy.STALE_MS` with nothing coming to replace it is alarm,
+  tag `copy`) and the last ERROR line (a `Log.Sink` seeded from `Log.recent()`). Off the executor: the data folder's
+  disk every minute, the memory cap (`claude-work`'s `memory.max` and `memory.swap.max`; no limit or swap allowed is
+  attention) every 10 minutes, the copy folder's listing at the start and at each run's end, the windows' sources
+  (Main's cards and Reader's shelf) when Main's cards move (`AppNet.addCardListener`). Once: the PC's build stamp. A
+  read that throws leaves its own line `stale` with the words, said once per run of failures; the other lines go on.
+- **The phone's lines** (`PhoneHealth`, `core/…/app/PhoneHealth.kt`, one per service in `ShellService`): reach and the
+  three glasses lines, read every 15 s and at each `welcome`, `desc/health` and change of reach, from volatile fields
+  only. Reach: refused is alarm, tag `PC no`; out of reach (`AppClient.Reach.Down`) alarm, tag `PC`, its alert the
+  phone's "Home unreachable" (`AlertDelivery.HOME_THREAD`); a window whose contract differs attention; the text
+  carries the waiting changes and the APK's build. The glasses' link: `ok` and silent are normal, any other word
+  attention (never a tag or a notice); the battery attention below `BatteryLatch.LOW_PCT`; the stage attention only
+  while a stage is held back. Sent as `health {lines}` (`AppWire.health`) on a change and at every new connection,
+  again at each pass until a send on the live connection lands. `AppNet` takes it only from the phone's credential
+  (`Peer.PHONE`) into `HealthCore.phone`; only the end of the connection whose `health` was taken last (`healthConn`)
+  leaves the four lines `lastKnown`, "phone not connected since HH:MM". The phone subscribes `desc/health` while a
+  `LaneWatcher` is set (`WorkingCopy.subs`); its snapshot reaches `PhoneHealth` through
+  `AppClient.Listener.described`.
+- **The glasses' link cell** (`Chrome.paintLink`; `HostTag` in `core/…/shell/Status.kt`): one dim mark while all is
+  well, else `Shell.hostTag` — set only by the phone's `ShellService`, on a change, from `PhoneHealth`'s first alarm
+  line with a tag in the order reach, hub, disk, backup. The tags: `PC <age>` (the PC out of reach), `PC no` (it
+  refuses the phone: its credential, no lane this build speaks, or its record not open, `AppWire.END_NOT_OPEN`),
+  `hub <age>`, `copy <age>`, `disk NN%` (two digits; a full disk reads 99). The shell composes the age at each chrome
+  build from whole wall-clock minutes (`<1m`, `59m`, `23h`, `9d`). A new tag is carried by the 5 s idle tick's chrome
+  flush, never a gesture's first, and the same tag again costs nothing (`HostTagFlushTest`, simulator). A tag is drawn
+  whole or as its first word (`HostTag.short`), never cut: whole beside the poor-signal dBm figure, else short beside
+  it, else whole and then short with the figure not drawn (the bars' colour still says a poor signal); one that fits
+  none takes the counted fit path (`Chrome.hostFitRuns`), which `HostTagFitTest` finds unused at the four faces, every
+  chrome size, good and poor signal, on the desktop's rasterizer — the phone's is not measured. The PC-direct shell
+  shows no tag.
+- **The phone app**: `ShellService.displayStatus()` appends the worst line's sentence ("<label>: <text> since <time> —
+  <doing>") while one is not normal; it is the app's status line and the ongoing notification's text
+  (`buildNotification`, `BigTextStyle`, never cut to one line).
+- **The Health page** (`web/js/views/health.mjs`, `/w/health`, level view; "Health" in the rail with the `pulse` icon,
+  where Diagnosis was): the page shell subscribes `desc/health` at every `welcome` beside `desc/main`. Two containers.
+  The lines, drawn again on `desc/health` and at a welcome: the summary in the worst band's colour, a link
+  (`health:summary`) that scrolls the worst line's row to the top when that band is not normal; then a row per line in
+  the record's order — label, the band word when not normal, the reading, "since HH:MM" ("(the service's start)" when
+  it has held since then), `doing`, and "last known: …" or "not current: …" with the reason when not live. The
+  diagnosis below, at level full only, drawn again on `diag` and at a welcome (the PC build, epoch and seq, contracts,
+  this page and device, the connections, the PC log's tail); a change of reach redraws only its head, so the log box
+  keeps its scroll place and focus. "Read again" is `ctx.actionButton` (need full, `diag:again`): out of reach it is
+  dim with its reason, and a press says why and sends nothing, so the last diagnosis stays. Out of reach the page keeps
+  its last lines, greyed, until the next welcome replaces them. Home (`views/home.mjs`) has one line above the cards,
+  the summary in its band's colour, linking to `/w/health`. `/w/diag` says the PC serves no such window; the `diag`
+  scope stays (`PcScopes`).
+- **The notice rule** (`HealthCore`, on the record's tick): a line in alarm for `NOTICE_AFTER_MS` (5 minutes, his
+  answer) with no `alert` of its own raises one notice — source `health`, thread the line's id, "<label>: <text> since
+  <time>. <Doing>." — which the shell shows only while `Notify · Damage` is on (`gatedBy = Notifications.GLOBAL`;
+  `HealthNoticeGateTest`). Its episode ends when the line leaves alarm; the PC withdraws nothing, the surfaces show
+  the line's return. A line that carries an alert is said by that alert. As built the rule serves the disk, an old
+  copy with nothing coming to replace it, and a record that did not open at the start.
+- **The disk** (`HealthParts.disk`, the data folder's file store, read every minute): alarm when less than
+  `DISK_ALARM_FREE_PCT` (2 %) is free, with the tag `disk NN%` (the used share rounded down); attention when less than
+  `DISK_ATTENTION_FREE_PCT` (5 %); both strict, his answer. The text rounds the free share down to a tenth, so a value
+  just under a limit never reads as the limit. Nothing is cleaned automatically.
 
 ## Feed + comics (2026-09-09, FEED.md — one engine, on the PC since S1-3)
 
@@ -1101,6 +1176,10 @@ the sections cited):
   (`views/files.mjs` `letGo`); a place op stamped with his input's time only, and one answered `ended` sent again at
   the next welcome; `BundleTest` pins the policy (only `style-src` carries `unsafe-inline`) and that the pages'
   `PROTO` equals `AppWire.PROTO`.
+- **R-b's (the section "The health view").** The link cell's tag: a fixed vocabulary drawn whole or as its first word,
+  never cut (`HostTagFitTest`; a tag that fits neither is counted in `Chrome.hostFitRuns`); the phone writes
+  `Shell.hostTag` on a change only and the shell composes the age at the chrome build, so a change of tag rides the
+  idle tick's chrome flush, never a gesture's first (`HostTagFlushTest`, simulator).
 - **APK 0.64's (`HANDOFF.md` §76).** The compositor: the base's rule is made by the
   reference walk (`hole`); `settled` in the plan loop; one proof per grown box per assemble (`failedProofs`); a
   batch's sub-messages are budgeted, 254 given out and one kept for the hint (`Compositor.subsLeft`; `batch-count`).
@@ -1291,8 +1370,9 @@ the sections cited):
   (`control` note) and `requestRebuild` runs only in the session it was asked in (`keeper` note). A notification box
   is LIFTED before any slide steps beneath it and repainted after. Every dynamic chrome string is sanitised to the
   locked glyph set and fitted with the continuation mark.
-- **Content.** Host reachability is decided in one place (`RemoteContent.withHost`); local disk failures never
-  read as "PC gone"; the cache keeps the listing's real extension.
+- **Content.** A local disk failure inside a host exchange is `CacheWriteFailed`, never read as the link's; the
+  cache keeps the listing's real extension. The phone's reach of the PC is decided by the app lane's paced ping
+  (`AppClient.Reach`), which the health view reads, not here.
 - **From the review of §25:** a surface's WRAP width and its DRAW bound are the same number
   (`Notifications`: `SILENT_W` + `bodyLines(n, l, silent)`); dynamic text goes through `Draw.dynamic` everywhere
   (`Epub.fold` handles the cp1252 mojibake range, U+2011 and the zero-width formatters at extraction); a window
@@ -1347,7 +1427,8 @@ Every review's pins were run against the unfixed tree and watched to fail before
   `LensOracleTest`, `Round5Test`–`Round7Test`, `L2ProbeTest`; `SeamLivenessTest`, `HandoverTest`,
   `StyleTest`, `BatteryBrightnessTest`, `EpubChaptersImagesTest`; `TmuxTest`; `SubstrateTest`,
   `ReaderArrangementsTest`, `ReaderPositionTest`, `ReaderCoreTest`, the record's, the lane's, the working copy's and
-  the web's tests; `FilesTest`, `FilesTrashTest`, `FilesMoveTest`, `FilesJobsTest`,
+  the web's tests; the health view's (`HealthCoreTest`, `HealthLaneTest`, `HealthNoticeGateTest`,
+  `HostTagFlushTest`); `FilesTest`, `FilesTrashTest`, `FilesMoveTest`, `FilesJobsTest`,
   `UploadTest`, `ReviewRound1Test`; `TorrentsTest`, `KeyboardTest`; the Music set;
   `Round9Test`; `Review20260903Test`; `ActivationTest`, `GamesKitTest`, `HoldemEngineTest` (the 3,000-scenario
   side-pot oracle, the 2,000-hand ranking corpus), `HoldemBotTest`, `GamesWindowTest`,
@@ -1362,7 +1443,8 @@ Every review's pins were run against the unfixed tree and watched to fail before
   `ConfigTest` (an unreadable `config.json` is left untouched, a tokenless one completed), `SetupServerTest`,
   `StandbyPolicyTest`, `NightlyCopyTest`, `StatusCellFitTest`, `EpubCheckTest`, `ThemeIconsTest`,
   `FeedStripsTest` (the real xkcd PNG through the decoder), `FilesThumbsTest`, `NoticeTimerRenderTest`,
-  `TerminalLibraryTest` (the library's pin), `MotionCheckTest` (C1).
+  `TerminalLibraryTest` (the library's pin), `MotionCheckTest` (C1), `HealthPartsTest` (the PC's health readers),
+  `HostTagFitTest` (the link cell's tags on the real faces).
 - `--motion-check DIR` and `--local-check DIR` (C1–C3; the section "The phone's halves of C1–C3") — part of a C build's
   gate (`HANDOFF.md` §100.7).
 - `--selfcheck` — the whole stack scripted end to end with real fonts: ink budgets, input grammar, persistence

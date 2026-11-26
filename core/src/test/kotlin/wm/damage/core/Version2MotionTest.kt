@@ -249,11 +249,13 @@ class Version2MotionTest {
         val x2mx2 = ShipVectors.x2mx2Acts().size
         // C3 SV3: the withdrawal at 256 KiB
         val sv3 = ShipVectors.sv3Acts().size
+        // K1-2 stage 4f: the list-1 acts (a window's list bound as glasses list 1: its window-form pans named by its SETs and COMMITs)
+        val k12 = ShipVectors.list1Acts().size
         // Music's motion update, stage L: the held lanes' two (`v5-mml-*`, `MusicLaneVectorsTest`), their programs read too;
         // stage S: Scope's two (one stretch, and a chain writing an area at each link)
         val mml = 4                                         // v5-mml-bar, v5-mml-chain, v5-mml-scope, v5-mml-scope-chain
         assertEquals(28 + ShipVectors.acts().size + 1 + mml, files.size,
-            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2, X2MX2's $x2mx2, SV3's $sv3, stage L's and S's $mml")
+            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2, X2MX2's $x2mx2, SV3's $sv3, K1-2 stage 4f's $k12, stage L's and S's $mml")
         val comparedProg = HashMap<String, Int>(); val comparedTab = HashMap<String, Int>()
         val seenProg = HashSet<String>(); val seenTab = HashSet<String>()
         val inexpressible = LinkedHashMap<String, String>(); val refusedByDsl = LinkedHashMap<String, String>()

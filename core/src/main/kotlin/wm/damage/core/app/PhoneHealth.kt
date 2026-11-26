@@ -26,9 +26,11 @@ import wm.damage.core.util.Log
  * reads the phone's four lines — the PC's reach as the lane's paced ping judges it (with the waiting changes, the
  * contract match and this APK's build), the glasses' link word, their battery and the ladder's stage — from volatile
  * fields only (no disk, never the shell's loop), and
- *  - sends them to the PC (`health`) when one changed and on every new connection (a `welcome`): until a send on the
- *    connection that is live now has succeeded, every pass tries again — the copy's lane may still name the connection
- *    before when the new one's welcome arrives;
+ *  - sends them to the PC (`health`) when one changed and on every new connection (a `welcome`): at a new connection
+ *    the PC has forgotten the phone's lines (its restart: "not reported") or marked them `lastKnown` (the old
+ *    connection's end) while they have not changed here, so a send owed to the connection that is live now is made at
+ *    every pass until one has succeeded — without it four lines would read "last known" under "All well" after every
+ *    restart, until one of them changed;
  *  - composes them with the PC's description as last heard (its lines `lastKnown` while the PC is out of reach) into
  *    what the surfaces show: the link cell's tag — the first line in alarm with a tag, in the order PC, hub, disk,
  *    copy — and the phone app's sentence, the worst line's, empty while all is well.
@@ -238,7 +240,7 @@ class PhoneHealth(
     companion object {
         private const val TAG = "phone-health"
         /** The tag of the PC out of reach (`HostTag.AGED`). */
-        const val PC_TAG = "PC"
+        const val PC_TAG = HostTag.PC
         private const val KEEPER = "the keeper starts the session again whenever it ends"
         private const val BATTERY_READ = "read from the glasses a few times an hour"
         private const val ARMS = "armed at each session start"

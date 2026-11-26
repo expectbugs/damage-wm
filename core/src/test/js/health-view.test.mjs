@@ -3,16 +3,16 @@
 // pins: the page asks for `desc/health` at every welcome; every line is drawn with its reading, since when (the
 // service's start named), what is done, and why it is not current; a normal line carries no band word; a line in
 // attention or alarm carries its band and the summary names the worst; at level full the diagnosis is the lower half,
-// below full it is not asked for and the page says why; out of reach the lines stay with their age, said again on the
-// pacing, and the next socket's description replaces them with no reload; home's line is the summary in its band and
-// leads to the Health page; the Diagnosis page is gone.
+// below full it is not asked for and the page says why; out of reach the lines and the last diagnosis stay, "Read
+// again" is dim with its reason, and the next socket's description replaces them with no reload; the log box keeps its
+// place through a line's change and the reach going (R-b F's pin); home's line is the summary in its band and leads to
+// the Health page; the Diagnosis page is gone.
 
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPage, browserStorage, handTimers, restore } from './pagehost.mjs';
 import { healthDesc, H_START } from './health-fixtures.mjs';
 import { when } from '../../main/resources/web/js/proto.mjs';
-import { AGE_EVERY_MS } from '../../main/resources/web/js/views/health.mjs';
 
 afterEach(restore);
 
@@ -52,7 +52,7 @@ test('every line is drawn with its reading, since when, what is done and why it 
   assert.ok(!backup.includes('the service’s start'), backup);
   // H1's phone lines, drawn as the description carries them
   const reach = row(p, 'reach');
-  assert.ok(reach.classList.contains('not-live'));
+  assert.ok(reach.querySelector('.hl-why'));
   assert.ok(reach.textContent.includes('not reported'));
   assert.ok(reach.textContent.includes('the phone reports its lines when they change and when it connects'));
   assert.ok(reach.textContent.includes('last known: the phone has not reported since the service’s start at 13:50'));
@@ -60,7 +60,6 @@ test('every line is drawn with its reading, since when, what is done and why it 
   const sum = cls(p, 'hl-summary')[0];
   assert.equal(sum.textContent, 'All well');
   assert.ok(sum.classList.contains('band-normal'));
-  assert.equal(cls(p, 'hl-age').length, 0, 'in reach: no age');
 });
 
 test('a line in attention or alarm carries its band; the summary names the worst; a stale line says why', async () => {
@@ -75,7 +74,7 @@ test('a line in attention or alarm carries its band; the summary names the worst
   assert.equal(sum.textContent, 'Disk: 1.6 % free of 3.6 TB');
   assert.ok(sum.classList.contains('band-alarm'));
   const cap = row(p, 'cap');
-  assert.ok(cap.classList.contains('not-live'));
+  assert.ok(cap.querySelector('.hl-why'));
   assert.ok(cap.textContent.includes('not current: the read failed: /sys/fs/cgroup/made-up/memory.max: permission denied'));
   assert.ok(row(p, 'error').textContent.includes('a-folder-name-with-no-spaces-in-it-that-goes-on-for-a-long-way/record.json'), 'a long text whole');
 });
@@ -103,37 +102,46 @@ test('at level full the diagnosis is the lower half; below full it is not asked 
   assert.equal(cls(low.p, 'hl-diag-why')[0].textContent, 'The diagnosis needs level full on this device (this one is view).');
 });
 
-test('out of reach the lines stay with their age, said again on the pacing; the next socket catches up with no reload', async () => {
+test('out of reach the lines and the last diagnosis stay; Read again is dim and says why; the next socket catches up with no reload', async () => {
   const { p, ws, timers } = await page({ health: healthDesc('well') });
-  const realNow = Date.now;
-  try {
-    ws.close(); // the PC goes away
-    assert.equal(p.doc.byId.reach.hidden, false);
-    assert.equal(cls(p, 'hl').length, 13, 'what it last had stays');
-    const age = () => cls(p, 'hl-age').map((e) => e.textContent)[0];
-    assert.match(age(), /^As last heard from the PC at \d?\d:\d\d, under a minute ago\.$/);
-    const ager = timers.intervals.filter((x) => x.live && x.ms === AGE_EVERY_MS);
-    assert.equal(ager.length, 1, 'one pacing for the age');
-    const base = realNow();
-    Date.now = () => base + 6 * 60e3;
-    ager[0].fn();
-    assert.match(age(), /, 6 min ago\.$/, 'the age moves on the pacing');
-    Date.now = realNow;
-    // the next socket: the welcome asks again and its description replaces the lines
-    timers.fire(2000);
-    const ws2 = p.sockets[1];
-    ws2.open();
-    ws2.frame(welcome());
-    assert.equal(subs(ws2, 'desc/health'), 1, 'asked again on the new socket');
-    ws2.frame({ t: 'snap', scope: 'desc/health', desc: healthDesc('alarm') });
-    assert.equal(p.doc.byId.reach.hidden, true);
-    assert.equal(cls(p, 'hl-age').length, 0, 'in reach again: no age');
-    assert.equal(cls(p, 'hl-summary')[0].textContent, 'Disk: 1.6 % free of 3.6 TB', 'caught up');
-    assert.equal(ager[0].live, false, 'the age\'s pacing ended');
-    assert.equal(p.win.reloaded, undefined, 'no reload');
-  } finally {
-    Date.now = realNow;
-  }
+  ws.frame({ t: 'snap', scope: 'diag', desc: DIAG });
+  const again = () => all(main(p)).find((e) => e.getAttribute('data-key') === 'diag:again');
+  const log = () => all(main(p)).find((e) => e.tagName === 'PRE');
+  ws.close(); // the PC goes away
+  assert.equal(p.doc.byId.reach.hidden, false);
+  assert.equal(cls(p, 'hl').length, 13, 'what it last had stays');
+  assert.ok(again().classList.contains('dim'), 'Read again is dim out of reach');
+  assert.ok(again().getAttribute('data-why'), 'with its reason');
+  again().fire('click');
+  assert.ok(p.doc.byId.toasts.textContent.includes(again().getAttribute('data-why')), 'a press says why');
+  // the next socket: the welcome asks again and its description replaces the lines
+  timers.fire(2000);
+  const ws2 = p.sockets[1];
+  ws2.open();
+  ws2.frame(welcome());
+  assert.equal(subs(ws2, 'desc/health'), 1, 'asked again on the new socket');
+  assert.equal(log().textContent, DIAG.log.join('\n'), 'the press out of reach kept the last diagnosis');
+  ws2.frame({ t: 'snap', scope: 'desc/health', desc: healthDesc('alarm') });
+  assert.equal(p.doc.byId.reach.hidden, true);
+  assert.equal(cls(p, 'hl-summary')[0].textContent, 'Disk: 1.6 % free of 3.6 TB', 'caught up');
+  assert.ok(!again().classList.contains('dim'), 'Read again in reach');
+  assert.equal(p.win.reloaded, undefined, 'no reload');
+});
+
+// R-b F (Part F item 6), the pin: the review's probe (`private/build085/work-RBV/p-logkeep.test.mjs`) taken in. The log
+// box is its own scroll box; a new element starts at its top in a real browser, so the element's identity is the
+// observable (the stand-in models no layout). Watched failing on the tree before the fix (`e559eca6`).
+test('the diagnosis log box keeps its place through a line change and the reach going', async () => {
+  const { p, ws } = await page();
+  ws.frame({ t: 'snap', scope: 'diag', desc: DIAG });
+  const log = () => all(main(p)).find((e) => e.tagName === 'PRE');
+  const box = log();
+  box.scrollTop = 900; // he scrolled to the newest lines
+  ws.frame({ t: 'snap', scope: 'desc/health', desc: healthDesc('attention') });
+  assert.ok(log() === box, 'a line\'s change leaves the box as it is'); // identity: a failing equal would print the whole DOM
+  ws.close();
+  assert.ok(log() === box, 'the reach going leaves the box as it is');
+  assert.equal(box.scrollTop, 900);
 });
 
 test('home: one line above the cards, the summary in its band, leading to the Health page', async () => {

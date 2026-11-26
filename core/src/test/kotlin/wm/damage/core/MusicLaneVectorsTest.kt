@@ -18,7 +18,7 @@ import kotlinx.serialization.json.jsonObject
  * `v5-mml-bar`, one stretch of the bar drawn to its end, and `v5-mml-chain`, a PLAY and two PLAY-AFTERs. Stage S (ruling
  * 14): Scope's lane in Music Mode — `v5-mml-scope`, one stretch (its area: the zero line, the column font, the program,
  * its cell list) drawn to its end, and `v5-mml-scope-chain`, a PLAY and two PLAY-AFTERs, a new area written at each link.
- * Their expectations are the fork's runner's to fill (`ConformanceVectorTest.MML_UNFILLED` names them until then).
+ * Their expectations are the fork's runner's (the bar's two filled at K1-2 stage 4h's comparison, Scope's two at stage SF's).
  *
  * `DAMAGE_MML_DUMP=DIR` writes them; otherwise each committed file's inputs must equal what the builder sends today.
  */
