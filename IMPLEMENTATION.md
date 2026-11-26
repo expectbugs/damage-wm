@@ -73,7 +73,7 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       BindSim, EffectsSim (C1–C3's engine, local input and effects per lens),
                                       PixelLoops (the mirror's fast loops)
             wm.damage.core.transport  the seam + Emit + CfwTransportBase + SimTransport + Remote client/server
-                                      + LensPanels (the mirror) + LinkEstimator + PathTransport (unused, below)
+                                      + LensPanels (the mirror) + LinkEstimator
                                       + LadderRecord (the firmware ladder's stored record, C2)
             wm.damage.core.motion     (C1–C3) Motion (the DSL), TestPrograms, MainPan, ScrollEffects, PopupPrograms,
                                       Transitions, TransitionRehearsal, CellLists, Wheel, WheelCheck
@@ -184,10 +184,9 @@ mouse, on a pixel-exact replica.*
   driver, and `Shell.start()` ADOPTS a live session (one wide keyframe). The seam server answers a claim of a
   live session with an adopt-grant and never stops the owner's session on driver loss; only the OWNING host
   tears it down. `HandoverTest` ×4 (`preludeAcks == 1` across claim / silent death / release / pause / resume).
-- **The arbitration** (`transport/PathTransport.kt`: concurrent attempts over the candidate paths, first to start
-  wins, a refused path disabled for the run) is built by no host (§19; `DesktopStack.transport` in `desktop/Main.kt`:
-  `auto` is the data host and builds no stack; `sim` / `ble` / `remote` build one transport each); the class and
-  `PathTransportTest` remain. `--transport remote` is the explicit claim-and-drive dev override.
+- **The transports a host builds** (`DesktopStack.transport` in `desktop/Main.kt`): `auto` is the data host and builds no
+  stack; `sim` / `ble` / `remote` build one transport each. `--transport remote` is the explicit claim-and-drive dev
+  override.
 - **The phone**: `BleTransport` on G2CC's driver + the reference's sequence (RIGHT then LEFT, `retry(10, 500)`,
   MTU 512 checked ≥ 245, priority HIGH, cached pair addresses, RSSI poll); `ShellService` on the keeper (a seam
   claim pauses it, a release resumes it); the **Target** switch in `Prefs`; `LensView` draws the mirror.
@@ -1191,7 +1190,7 @@ the sections cited):
   reading paced 2 s; four notice classes, `cache/short`, `cache/lost`, `cache/staging`, `cache/off` (source
   `DAMAGE · cache`). The transport and the sleep: the router names what it has no handler for once per session;
   the low-battery latch is judged at a reading's arrival and never replayed; a held level is dropped behind a live
-  one; the seam client and the path transport forget a session's Silent Mode and wear state at its end; a probe
+  one; the seam client forgets a session's Silent Mode and wear state at its end; a probe
   runs only in the session it was taken in; the lane drops an ACQUIRE once the lease is not wanted; a shell that
   adopts its session back without a lease rebuilds it; the loop's drain answers a queued `Run`.
 - **What a shell holds while down (§72).** A window push whose newest instance supersedes the older
@@ -1423,7 +1422,7 @@ Every review's pins were run against the unfixed tree and watched to fail before
   each pinned to a fixture that must fire (`GeometryTest`; the emit's refusals `EmitRulesTest`), pipeline round
   trips through the sim, `Round3Test`;
   `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`, `WheelAndHostSettingsTest`,
-  `SeamMirrorTest`, `SeamSessionTest`, `ReplicaServerTest`, `PathTransportTest`, `LongPressTest`;
+  `SeamMirrorTest`, `SeamSessionTest`, `ReplicaServerTest`, `LongPressTest`;
   `LensOracleTest`, `Round5Test`–`Round7Test`, `L2ProbeTest`; `SeamLivenessTest`, `HandoverTest`,
   `StyleTest`, `BatteryBrightnessTest`, `EpubChaptersImagesTest`; `TmuxTest`; `SubstrateTest`,
   `ReaderArrangementsTest`, `ReaderPositionTest`, `ReaderCoreTest`, the record's, the lane's, the working copy's and

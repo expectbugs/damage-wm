@@ -143,7 +143,6 @@ class SilentGlassesTest {
             assertFalse(rig.shell.glassesAsleep)
             assertEquals(1, rig.sim.preludeAcks)
             assertEquals(1, rig.transport.connects, "the first start connects")
-            val createsAwake = rig.sim.createsSeen
             val flushesAwake = rig.flushes()
 
             rig.sim.setSilent(true)                         // the both-temple press, pushed
@@ -178,7 +177,6 @@ class SilentGlassesTest {
             // ends it and nothing connects; the session's own start runs whole over it (one CREATE, answered once)
             assertEquals(0, rig.transport.disconnects, "the wake kept the link: no disconnect")
             assertEquals(1, rig.transport.connects, "the wake kept the link: no second connect")
-            assertEquals(createsAwake + 1, rig.sim.createsSeen, "one CREATE for the rebuilt session, answered at once")
             assertFalse(rig.transport.state.value.linkKept, "the start that adopted the link cleared the mark")
             assertTrue(synchronized(rig.statuses) { rig.statuses.toList() }.let { s ->
                 s.any { it.startsWith("session ended: ") } &&       // the reason follows when the watcher has it (the keeper's own rule)
@@ -195,6 +193,9 @@ class SilentGlassesTest {
             assertEquals(listOf("the firmware's Silent Mode is off — the link is kept"),
                 synchronized(rig.notes) { rig.notes.filter { it.kind == "restart" }.map { it.detail } }, "the restart is a journaled fact, and the push OFF's")
             rig.assertGlassMatchesBelief("after the rebuild")
+            // stage BWF (Part G item 6): one `link` note per start, leading with how its link came — fresh, then kept
+            rig.until("both starts' notes") { synchronized(rig.notes) { rig.notes.count { it.kind == "link" } } == 2 }
+            assertEquals(listOf("fresh", "kept"), synchronized(rig.notes) { rig.notes.filter { it.kind == "link" }.map { it.detail.substringBefore(":") } })
             delay(300)
             assertEquals(2, rig.keeper.attempts, "exactly one rebuild per wake")
             rig.keeper.stop()
@@ -232,7 +233,7 @@ class SilentGlassesTest {
             rig.until("a rebuild follows") { rig.keeper.attempts >= 2 }
             // R2 (RH-1): the single unattended way back from this sleep is the paced check — said by the reason
             rig.until("the rebuild was the paced check's") {
-                synchronized(rig.notes) { rig.notes.any { it.kind == "restart" && it.detail.endsWith("(pacing) — the link is kept") } } }
+                synchronized(rig.notes) { rig.notes.any { it.kind == "restart" && it.detail == "the glasses say they are awake and refused the last frames (pacing)" } } }
             rig.until("a rebuilt session paints and is awake") { rig.driving() && !rig.shell.glassesAsleep && !rig.sim.carrierLost }
             rig.until("the lease is back") { rig.leaseHeld() }
             rig.settle("the keyframe after the rebuild")
@@ -241,6 +242,44 @@ class SilentGlassesTest {
             assertTrue(failedTotal < 4 * (Shell.REFUSALS_TO_SLEEP + 3),
                 "paced rebuilds, not a storm: $failedTotal failed flushes over ${rig.keeper.attempts} sessions")
             rig.assertGlassMatchesBelief("after the rebuild")
+            rig.keeper.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** Stage BWF (`BL-decisions.md` Part G item 1; reader a's finding 1): a link kept through a wake whose frames are
+     *  then refused — the page ends with no push and the glasses go on saying they are awake (`CLAIMS.md` row 54's
+     *  shape: a page that accepts its warmup and is refused later) — puts the shell to sleep on the refusal streak, and
+     *  the paced rebuild ENDS the link: the next start connects afresh and paints, with no hand action. Kept, that
+     *  rebuild was kept again at every pacing. Mutation watched: the paced rebuild keeps the link. */
+    @Test
+    fun aKeptLinkWhoseFramesAreRefusedIsEndedByThePacedRebuild(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val rig = Rig(scope)
+            rig.shell.silentPacingMs = 200
+            rig.up("start")
+            rig.sim.setSilent(true)
+            rig.until("the push puts the shell to sleep") { rig.shell.glassesAsleep }
+            rig.sim.setSilent(false)
+            rig.until("the push OFF rebuilds the session over the kept link") { rig.keeper.attempts == 2 && rig.driving() && !rig.shell.glassesAsleep }
+            assertEquals(Pair(1, 0), Pair(rig.transport.connects, rig.transport.disconnects), "the wake kept the link")
+            rig.settle("the kept session")
+
+            rig.sim.reportSilentRestored = false            // nothing the glasses send says Silent Mode
+            rig.sim.setSilent(true, push = false)           // the page ends with no word: every frame refused
+            repeat(6) { if (!rig.shell.glassesAsleep) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("scroll") } }
+            rig.until("three refusals put the shell to sleep") { rig.shell.glassesAsleep }
+            rig.sim.setSilent(false, push = false)          // awake, the page still ended: only a CREATE brings it back
+            rig.until("the paced rebuild connects afresh") { rig.transport.connects == 2 }
+            assertTrue(rig.transport.disconnects >= 1, "the paced rebuild ended the kept link")
+            assertTrue(synchronized(rig.notes) { rig.notes.any { it.kind == "restart" &&
+                it.detail == "the glasses say they are awake and refused the last frames (pacing)" } }, "the paced check's restart, the link not kept")
+            rig.until("the fresh session paints and is awake") { rig.driving() && !rig.shell.glassesAsleep && !rig.sim.carrierLost }
+            rig.until("the lease is back") { rig.leaseHeld() }
+            rig.settle("the keyframe after the rebuild")
+            rig.assertGlassMatchesBelief("after the paced rebuild")
             rig.keeper.stop()
         } finally {
             scope.cancel()

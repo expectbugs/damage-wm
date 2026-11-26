@@ -132,13 +132,6 @@ class ShellKeeper(
         lock.withLock {
             state = State.STOPPED
             stopShell("stop")
-            // stage BW: stopped in the gap after a restart that kept the link, the shell is already stopped (its stop
-            // does nothing more), so the transport is stopped here — the kept link ends, as a stop always ended it
-            if (transport.state.value.linkKept) {
-                withContext(NonCancellable) {
-                    try { transport.stop() } catch (e: Exception) { Log.w("keeper", "stop: the kept link: ${e.message}") }
-                }
-            }
         }
         status("stopped")
     }

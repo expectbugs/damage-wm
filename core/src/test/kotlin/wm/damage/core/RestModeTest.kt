@@ -118,10 +118,10 @@ class RestModeTest {
         /** When each rebuild was asked for, on this JVM's clock. */
         val askedAtMs = java.util.concurrent.CopyOnWriteArrayList<Long>()
         override fun queryWear(): Boolean = if (noRadio) false else simT.queryWear()
-        override suspend fun restartSession(reason: String): Boolean {
+        override suspend fun restartSession(reason: String, endLink: Boolean): Boolean {
             askedAtMs.add(System.currentTimeMillis())
             restartsAsked.incrementAndGet()
-            return if (refuseRestarts.getAndUpdate { maxOf(0, it - 1) } > 0) false else simT.restartSession(reason)
+            return if (refuseRestarts.getAndUpdate { maxOf(0, it - 1) } > 0) false else simT.restartSession(reason, endLink)
         }
     }
 
@@ -881,7 +881,7 @@ class RestModeTest {
         class Lab(val simT: SimTransport) : Transport by simT {
             override val events: kotlinx.coroutines.flow.Flow<TransportEvent> = extra
             init { scope.launch(start = CoroutineStart.UNDISPATCHED) { simT.events.collect { extra.emit(it) } } }
-            override suspend fun restartSession(reason: String): Boolean = false
+            override suspend fun restartSession(reason: String, endLink: Boolean): Boolean = false
         }
         val r = Rig(scope, contract = 2, make = { sim, sc -> Lab(SimTransport(sim, sc, SimTransport.Timing(instant = true))) })
         try {

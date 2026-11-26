@@ -116,10 +116,11 @@ class BleTransport(
         @Volatile var negotiatedMtu = -1
         @Volatile var initFailure: String? = null
 
-        /** Stage BLF: the PHY (tx to rx) this connection last reported — the read at its initialize, and (stage BW)
-         *  the answer to a PHY request on it, so a link kept through a restart reads the PHY it is on; null until
-         *  the read answers. */
-        @Volatile var phyAtConnect: Pair<Int, Int>? = null
+        /** Stage BLF: the PHY (tx to rx) this connection last reported — the read at its initialize, the answer to a
+         *  PHY request on it, and (stage BWF) the read at a kept link's adoption; null until a read answers. The
+         *  library passes a PHY change nobody asked for to no field (Nordic 2.7.5 hands an update only to a pending
+         *  request), so a kept link is read again at each adoption ([readPhyNow]). */
+        @Volatile var phyReported: Pair<Int, Int>? = null
 
         init {
             // EVERY parameter update on this link, ours or the peripheral's
@@ -154,7 +155,7 @@ class BleTransport(
         fun requestPhy(mask: Int, label: String) {
             setPreferredPhy(mask, mask, PhyRequest.PHY_OPTION_NO_PREFERRED)
                 .with(PhyCallback { _, tx, rx ->
-                    phyAtConnect = tx to rx          // stage BW: the link's PHY now, for the 2M skip on a kept link
+                    phyReported = tx to rx           // stage BW: the link's PHY now
                     notePhy(arm, tx, rx)
                     emitNote("link", "$arm PHY after the $label request: ${phyName(tx)}/${phyName(rx)}")
                 })
@@ -242,9 +243,17 @@ class BleTransport(
                 .enqueue()
             // the PHY in use, read once (1M is all the glasses accept — this
             // records it rather than assumes it); best-effort, alone
+            readPhyNow("at the connect")
+        }
+
+        /** Read the PHY this link is on — a read of the phone's own controller, no radio exchange — into
+         *  [phyReported] and the link cell; best-effort, alone in the queue. At the connect, and (stage BWF, Part G
+         *  item 5) at a kept link's adoption, where [phyReported] is cleared first: until the read answers, the 2M
+         *  skip has nothing to read and asks, as on a link connected afresh. */
+        fun readPhyNow(label: String) {
             readPhy()
-                .with(PhyCallback { _, tx, rx -> phyAtConnect = tx to rx; notePhy(arm, tx, rx) })
-                .fail { _, status -> Log.w("ble", "$arm PHY read status $status (continuing)") }
+                .with(PhyCallback { _, tx, rx -> phyReported = tx to rx; notePhy(arm, tx, rx) })
+                .fail { _, status -> Log.w("ble", "$arm PHY read $label status $status (continuing)") }
                 .enqueue()
         }
 
@@ -393,17 +402,17 @@ class BleTransport(
             if (!m.linkUp) { skipped.add(arm.name); continue }
             // stage BLF: a link already on 2M both ways (a link the phone held from the session before) is not asked —
             // the request would change nothing and the arm's queue would wait on the radio to answer a no-change
-            // request. The PHY is the one this connection last reported (its initialize's read, or — stage BW, a link
-            // kept through a restart — the answer to the last session's request), not one read just before this line.
-            val p = m.phyAtConnect
+            // request. The PHY is the one this link last reported: its connect's read, or (stage BWF) the read at a kept
+            // link's adoption, or the answer to a request since.
+            val p = m.phyReported
             if (p != null && p.first == PhyCallback.PHY_LE_2M && p.second == PhyCallback.PHY_LE_2M) { onTwoM.add(arm.name); continue }
             m.requestPhy(PhyRequest.PHY_LE_2M_MASK, "link")
             asked.add(arm.name)
         }
-        if (onTwoM.isNotEmpty()) Log.i("ble", "2M request skipped on ${onTwoM.joinToString("+")}: the PHY read at its connect already said 2M both ways")
+        if (onTwoM.isNotEmpty()) Log.i("ble", "2M request skipped on ${onTwoM.joinToString("+")}: the PHY this link last reported already said 2M both ways")
         emitNote("link", "the build offers LE 2M (DamageCaps bit 6): 2M requested on ${if (asked.isEmpty()) "no arm" else asked.joinToString("+")}" +
             (if (skipped.isEmpty()) "" else " (${skipped.joinToString("+")} had no link up)") +
-            (if (onTwoM.isEmpty()) "" else "; not requested on ${onTwoM.joinToString("+")}: the PHY read at its connect already said 2M both ways"))
+            (if (onTwoM.isEmpty()) "" else "; not requested on ${onTwoM.joinToString("+")}: the PHY this link last reported already said 2M both ways"))
     }
 
     /** The last `phy=` probe's choice, kept across rebuilds (null until one is probed). */
@@ -448,8 +457,8 @@ class BleTransport(
      *  [connectLink] runs (it ends what is left first). The link's properties are not asked for again where they
      *  are in force: the paced priority re-ask's test once per arm (asked only where the arm's last interval is
      *  above the configured priority's bound), and the 2M request is skipped by [onDamageBuild]'s own rule on a
-     *  link that reads 2M. Nothing is reset that describes the live connection (MTU, intervals, PHY); the re-ask
-     *  count is the session's and starts again. */
+     *  link that reads 2M — the PHY read again here, once per arm (stage BWF). Nothing else is reset that describes
+     *  the live connection (MTU, intervals); the re-ask count is the session's and starts again. */
     override suspend fun adoptLink(): String? {
         val down = managers.entries.filter { (_, m) -> !(m.linkUp && m.isConnected && m.write != null && m.notify != null) }
             .map { (arm, m) -> "${arm.name.first()}: " + when {
@@ -458,6 +467,8 @@ class BleTransport(
                 else -> "its characteristics are gone" } }
         if (down.isNotEmpty()) return down.joinToString("; ")
         reasks.set(0)
+        // stage BWF (Part G item 5): the PHY read again, once per arm — before this session's 2M decision reads it
+        for ((_, m) in managers) { m.phyReported = null; m.readPhyNow("at the kept link's adoption") }
         val asked = ArrayList<String>()
         for ((arm, m) in managers) {
             val iv = intervalUnitsByArm[arm] ?: continue          // no update reported on this link: nothing says it is slow
@@ -502,7 +513,7 @@ class BleTransport(
                 val m = managers.getValue(arm)
                 m.negotiatedMtu = -1
                 m.initFailure = null
-                m.phyAtConnect = null
+                m.phyReported = null
                 updateState { it.copy(detail = "connecting ${arm.name}" + heldWords(arm, found.via(arm))) }
                 m.connect(dev).retry(CONNECT_RETRIES, CONNECT_RETRY_MS).useAutoConnect(false).suspend()
                 m.initFailure?.let { throw IllegalStateException(it) }
