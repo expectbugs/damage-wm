@@ -12681,5 +12681,95 @@
    "aKeptLinkWhoseFramesAreRefusedIsEndedByThePacedRebuild"
   ],
   "from": "BWF"
+ },
+ {
+  "id": "DW2a-supersede-any-list",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "pending.removeAll { it is Pending.Clear && it.entry in mine && held[it.entry]?.list == list.list }",
+    "pending.removeAll { it is Pending.Clear && it.entry in mine }"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "decisions DP 5, candidate 1: a CLEAR owed for an entry number the arriving list uses is dropped whatever list holds it — the wheel's report-only tap entry 0 (Main's entry 0) stays on the lenses after the close onto Main and every tap reports list 2 (dropped: (6)); caught only with the wheel; the gate size by named reach seed 424200653",
+  "from": "DW-2a"
+ },
+ {
+  "id": "DW2a-tap-on-phones-row",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        return Verdict.Act(c)\n",
+    "        return Verdict.Act(row)\n"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "spec §7.2's seeded case (b): the tap rule acts on the phone's row, not the lens's cursor — (1); the gate size by named reach seed 101032 (a wheel sequence through the tap rule's commit); the full-size fuzz catches it with the wheel off too",
+  "from": "DW-2a"
+ },
+ {
+  "id": "K12S4b-rebind-only-from-none",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "(old == null || old.list != list.list)) slot(list.slot)",
+    "(old == null)) slot(list.slot)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "decisions AF.2 with two lists in slot 0 (K1-2 4b's row): a front changing straight from one list to another names no row — (9); the gate size by named reach seed 701297 (4b's first failing seed, list 1)",
+  "from": "DW-2a"
+ },
+ {
+  "id": "K12S4b-clear-only-list0",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "for ((no, h) in held.toList()) if (h.list == old.list) pending += Pending.Clear(no)",
+    "for ((no, h) in held.toList()) if (h.list == 0) pending += Pending.Clear(no)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "P9 with two lists (K1-2 4b's row; spec §7.2's seeded case (a), the leaving list left bound): the list leaving the front CLEARs only Main's entries — list 1's or the wheel's stay held after it leaves: (7), (6) and the wheel's end phase; the gate size catches it unaided since the wheel rides (16 failures in the gate-sized run on 655b4995, measured)",
+  "from": "DW-2a"
+ },
+ {
+  "id": "K12S4b-discard-names-row-handed",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "val cur = if (list != null && front?.list == list) row else list?.let { lastRow[it] }",
+    "val cur = if (list != null) row else null"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "the answer's DISCARD with two lists (K1-2 4b's row): it names the row handed for the list in front, whatever list the slot's report named — (1)/(9); the gate size by named reach seed 100564 (4b's first failing seed, list 1)",
+  "from": "DW-2a"
  }
 ]
