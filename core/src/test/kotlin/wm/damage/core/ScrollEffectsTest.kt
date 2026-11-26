@@ -783,9 +783,12 @@ class ScrollEffectsTest {
      * a cell whose noise starts at step 1 shows noise); at the middle step some box holds neither its old picture nor END's
      * (an alphabet glyph). Where the records do not fit the staging is Depth's, said. C3 DM-2bF (decisions FA 2, FA 4): at
      * 256 KiB Main is drawn on [NoisyText] (every code its own glyph; the box face draws the alphabet as one) and the
-     * records fit at every height; at the middle step whole cell boxes that changed show an alphabet glyph of the cell's
-     * own font at its level over a fill of 0 ([cellGlyph]: the glyph images read from the staged bytes), two kinds or more
-     * per height — so noise that is off, or one code, is seen. At 160 KiB the box face (NoisyText's rows overfill Main's
+     * records fit at every height; at the middle step whole cell boxes that changed show a noise glyph — one of the
+     * alphabet's in the cell's own font at its level over a fill of 0, neither the cell's old nor its new letter's
+     * ([cellGlyph]: the glyph images read from the staged bytes) — two kinds or more per height, so noise that is off
+     * (cells going from old to new letters with no step between) or of one code is seen; a box that shows what it shows
+     * at the start or at END, or a letter of any cell over it, is not counted (the old and new letters stand in the same
+     * boxes, and a resolved cell whose new code is 32 shows Main's new letter beneath it). At 160 KiB the box face (NoisyText's rows overfill Main's
      * region there, as for Matrix).
      */
     @Test
@@ -853,15 +856,23 @@ class ScrollEffectsTest {
                             if (c.old != 32 && ti == 6) { bandOld++; if (same(one, start)) bandShown++ }
                             if (!same(mid, start) && !same(mid, endG)) noisy++
                         }
-                        if (noisyFace) for ((b, c) in wholeCells(nt.pan.program, nt.p, left)) {
-                            val start8 = { x: Int, y: Int -> wm.damage.core.gfx.Pack.level(start[x, y]) }
-                            if ((b.y until b.bottom).all { y -> (b.x until b.right).all { x -> nibble(mid, x, y) == start8(x, y) } }) continue
-                            cellGlyph(mid, b, c, cacheImg, glyphAt)?.let { glyphKinds += it; glyphs++ }
+                        if (noisyFace) {
+                            val drawn = notchCells(nt.pan.program, nt.p, left)
+                            cellsAt@ for ((b, c, whole) in drawn) {
+                                if (!whole) continue
+                                // a box as it stands at the start or at END shows an old or a new letter, not noise (a cell whose new
+                                // code is 32 shows Main's new letter beneath it once it resolves)
+                                for (pic in listOf(start, endG)) if ((b.y until b.bottom).all { y -> (b.x until b.right).all { x -> nibble(mid, x, y) == wm.damage.core.gfx.Pack.level(pic[x, y]) } }) continue@cellsAt
+                                // a letter any cell over this box names (its old or new code) is not noise: the letters change in place
+                                val letters = drawn.filter { it.first.overlaps(b) }.flatMap { listOf(it.second.old, it.second.new) }
+                                    .filter { it >= 32 }.map { k -> c.font.entries[k - 32] }.toSet()
+                                cellGlyph(mid, b, c, letters, cacheImg, glyphAt)?.let { glyphKinds += it; glyphs++ }
+                            }
                         }
                     }
                     n++
                 }
-                if (noisyFace) assertTrue(glyphKinds.size >= 2, "$what0: at step ${ms.t / 2} the changed whole cells show $glyphs alphabet glyph(s) of ${glyphKinds.size} kind(s) — two kinds or more are the noise")
+                if (noisyFace) assertTrue(glyphKinds.size >= 2, "$what0: at step ${ms.t / 2} the changed whole cells show $glyphs noise glyph(s) of ${glyphKinds.size} kind(s) — two kinds or more are the noise")
                 glyphCells += glyphs
                 assertTrue(oldCells > 0 && oldShown * 2 >= oldCells, "$what0: at step 1 the old letters stand in $oldShown of $oldCells old-role boxes")
                 assertTrue(bandOld > 0 && bandShown * 2 >= bandOld, "$what0: at step 1 the band's old letters stand in $bandShown of its $bandOld old-role boxes")
@@ -873,13 +884,13 @@ class ScrollEffectsTest {
         }
         assertTrue(n > 0, "Scramble played somewhere")
         println("DM2b-scramble (NoisyText through its atlas at 256 KiB, the box face at 160 KiB; modeled): the model's END = Main's paint = belief at $n notches; " +
-            "at the middle step $glyphCells changed whole cells drew an alphabet glyph; the fit:\n" + fit.joinToString("\n"))
+            "at the middle step $glyphCells changed whole cells drew a noise glyph (neither their old nor their new letter); the fit:\n" + fit.joinToString("\n"))
     }
 
-    /** C3 DM-2bF: each cell box a notch's cell tracks draw on [left]'s lens with the parameters [p] that lies whole inside its
-     *  track's area and the panel, with its cell. */
-    private fun wholeCells(prog: wm.damage.core.motion.MotionProgram, p: IntArray, left: Boolean): List<Pair<Rect, Motion.Cell>> {
-        val out = ArrayList<Pair<Rect, Motion.Cell>>()
+    /** C3 DM-2bF: each cell box a notch's cell tracks draw on [left]'s lens with the parameters [p], with its cell and
+     *  whether it lies whole inside its track's area and the panel. */
+    private fun notchCells(prog: wm.damage.core.motion.MotionProgram, p: IntArray, left: Boolean): List<Triple<Rect, Motion.Cell, Boolean>> {
+        val out = ArrayList<Triple<Rect, Motion.Cell, Boolean>>()
         val panel = Rect(0, 0, wm.damage.core.geom.Geometry.PANEL_W, wm.damage.core.geom.Geometry.PANEL_H)
         prog.resolve(p, staticOnly = false).forEachIndexed { ti, segs ->
             val area = prog.tracks[ti].area(left)
@@ -887,19 +898,22 @@ class ScrollEffectsTest {
                 val tb = r.cells ?: continue
                 val x0 = if (left) r.xL else r.xR
                 for (c in tb.lists[r.aux0].cells) Rect(x0 + c.bx, r.y + c.by, c.bw, c.bh).let { b ->
-                    if (b.w > 0 && b.h > 0 && b.intersect(area) == b && b.intersect(panel) == b) out += b to c }
+                    if (b.w > 0 && b.h > 0) out += Triple(b, c, b.intersect(area) == b && b.intersect(panel) == b) }
             }
         }
         return out
     }
 
-    /** C3 DM-2bF (decisions FA 2): the alphabet glyph cell [c]'s box [b] shows in [pic] (a panel's nibbles) — the box filled
+    /** C3 DM-2bF (decisions FA 2): the noise glyph cell [c]'s box [b] shows in [pic] (a panel's nibbles) — the box filled
      *  0 and, at its corner, the glyph its font names for one of [ScrollEffects.NOISE_CODES] at the cell's level through
-     *  `make_lut(L)` (§7.6) — as that glyph's picture (its key), or null. The glyph images are decoded from the staged
-     *  bytes [cache] at the off4 the font names ([seen] keeps them). */
-    private fun cellGlyph(pic: ByteArray, b: Rect, c: Motion.Cell, cache: ByteArray, seen: HashMap<Int, Triple<Int, Int, ByteArray>>): String? {
+     *  `make_lut(L)` (§7.6) — as that glyph's picture (its key), or null. A glyph in [letters] (the off4s of the old and new
+     *  letters of every cell over the box) is not noise and is not looked for: cells show those outside their noise steps
+     *  (§7.6's schedule) and the letters change in place, so only a glyph none of them names tells that noise steps were
+     *  drawn (the caller also skips a box that shows what it shows at the start or at END). The glyph images are decoded from the staged bytes [cache] at the off4 the font names ([seen] keeps them). */
+    private fun cellGlyph(pic: ByteArray, b: Rect, c: Motion.Cell, letters: Set<Int>, cache: ByteArray, seen: HashMap<Int, Triple<Int, Int, ByteArray>>): String? {
         for (code in ScrollEffects.NOISE_CODES) {
             val o4 = c.font.entries[code - 32]
+            if (o4 in letters) continue
             val g = seen.getOrPut(o4) {
                 val o = o4 * 4; val gw = cache[o].toInt() and 0xFF; val gh = cache[o + 1].toInt() and 0xFF
                 Triple(gw, gh, assertNotNull(wm.damage.core.sim.MotionSim.rle(cache, o + 2, gw * gh), "the glyph record at off4 $o4").first)
