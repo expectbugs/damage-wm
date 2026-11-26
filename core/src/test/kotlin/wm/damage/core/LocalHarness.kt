@@ -49,6 +49,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                     *  row index; the truth's [probeLevel]). Plain lists only: a ring fire reads kind 2 at the virtual row,
                     *  which a static ruler cannot hold across the harness's re-stagings (Main's strip does: its margins). */
                    val pitchProbe: Boolean = false,
+                   /** C3 DM-2b: the scroll entries' P1 by kind 3 (the cursor before the move, `FIRMWARE.md` §7.8: Scramble's
+                    *  cell tables' index) drawing the reversed ruler into [PROBE], so the probe shows the cursor the fire left —
+                    *  and Main's effect switched into and out of it by a full staging ([cellsSwitch]: the records are the
+                    *  staging's), the entries' P1 then a constant. A ring list only ([ring]: kind 3 needs EFFECTS armed). */
+                   val cursorProbe: Boolean = false,
                    /** K1-2 stage 4b: glasses list 1 beside Main — a window's own bound list (list 1, slot 0, entries 3–5, its
                     *  tap entry report-only, pitch the row height for every effect; `FIRMWARE.md` §6.7, the K1-2 spec §7). Only on
                     *  a stage-5 build ([ring]; decisions BC O2); every list-1 choice is drawn from [l1Rnd], so a sequence without
@@ -131,20 +136,20 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         }
         tableAt[0] = put(ByteArray(2 * IDS)); tableAt[1] = put(ByteArray(2 * IDS))
         // C3 DM-1: the pitch probe's rulers — row r at level probeLevel(r), and the same reversed
-        val rulers = if (!pitchProbe) emptyList() else listOf(false, true).map { rev ->
+        val rulers = if (!pitchProbe && !cursorProbe) emptyList() else listOf(false, true).map { rev ->
             val b = TextureCache.Image2(PROBE.w, IDS, ByteArray(PROBE.w * IDS) { i -> probeLevel(if (rev) IDS - 1 - i / PROBE.w else i / PROBE.w).toByte() }).encode()
             val o = put(b); cacheWrites += write19(o, b); Motion.Source.record(o, b)
         }
         /** The probe's track: the ruler drawn at y ← P1 (kind 2), so the probe pixel shows ruler row y0 − y. */
         fun Motion.ProgramBuilder.probe(rev: Boolean) {
-            if (pitchProbe) track(PROBE, Motion.Backdrop.Level(0)) { draw(rulers[if (rev) 1 else 0], PROBE.x, 0, n = tScroll, prefs = listOf(Motion.Pref(1, Motion.Field.Y))) }
+            if (pitchProbe || cursorProbe) track(PROBE, Motion.Backdrop.Level(0)) { draw(rulers[if (rev) 1 else 0], PROBE.x, 0, n = tScroll, prefs = listOf(Motion.Pref(1, Motion.Field.Y))) }
         }
         val sAt = at4
         scroll = Motion.program(sAt, recSources, bit10 = true) {
             track(BAND, Motion.Backdrop.Level(0)) {
                 draw(recSources[0], BAND.x, BAND.y, n = tScroll, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
             }
-            probe(false)
+            probe(cursorProbe)
         }
         put(scroll.bytes)
         val pAt = at4
@@ -159,7 +164,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             track(BAND, Motion.Backdrop.Level(0)) {
                 draw(recSources[0], BAND.x, BAND.y, n = tScroll, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
             }
-            probe(false)
+            probe(cursorProbe)
         }
         put(scroll2.bytes)
         cacheWrites += write19(scroll2.at, scroll2.bytes)
@@ -227,13 +232,14 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val p = listOf(CfwModes.BindParam(CfwModes.KIND_ITEM, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0))
         // C3 DM-1: with the pitch probe the scroll entries' P1 is the ruler's y by kind 2 — pitch −1 with the ruler as it is
         // (y = PROBE.y − c'), +1 with it reversed (y = PROBE.y − (IDS − 1) + c'): the probe shows row c' in either form
-        val ps = if (!pitchProbe) p else listOf(p[0], CfwModes.BindParam(CfwModes.KIND_PITCH, if (pitchAlt) PROBE.y - (IDS - 1) else PROBE.y), p[2], p[3])
+        val ps = if (cursorProbe) listOf(p[0], CfwModes.BindParam(if (cellsOn) CfwModes.KIND_CURSOR else CfwModes.KIND_ARG, PROBE.y - (IDS - 1)), p[2], p[3])
+            else if (!pitchProbe) p else listOf(p[0], CfwModes.BindParam(CfwModes.KIND_PITCH, if (pitchAlt) PROBE.y - (IDS - 1) else PROBE.y), p[2], p[3])
         val pitch = if (!pitchProbe) BAND.h else if (pitchAlt) 1 else -1
         val sc = if (pitchProbe && pitchAlt) scrollB else sp()
         return BoundList(0, 0, ids.size, pitch, mark and 0xFF, at4, items, listOf(
             BoundList.Entry(0, CfwModes.EV_UPROLL, +1, period, sc.at, ps, sc),
             BoundList.Entry(1, CfwModes.EV_DOWNROLL, -1, period, sc.at, ps, sc),
-            BoundList.Entry(2, CfwModes.EV_TAP, 0, period, press.at, p, press)), ring = ring)
+            BoundList.Entry(2, CfwModes.EV_TAP, 0, period, press.at, p, press)), ring = ring, effects = cursorProbe)
     }
 
     private fun sp() = if (scrollAlt) scroll2 else scroll
@@ -718,6 +724,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (badge && !covered && !window && !trans && !wheelOpen) fill(BADGE, BADGE_LEVEL)
         fill(CLOCK, 1 + clock % 13)
         if (pitchProbe) fill(PROBE, probeLevel(row))
+        if (cursorProbe) fill(PROBE, probeLevel(probeRow))              // C3 DM-2b: what the last planned END drew
         return t
     }
 
@@ -1445,6 +1452,29 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         return true
     }
 
+    /** C3 DM-2b ([cursorProbe]): the entries' P1 by kind 3 ([cellsOn]) or a constant; full stagings made. */
+    var cellsOn = true
+    var cellsSwitches = 0
+    /** The ruler row the last planned COMMIT's END shows in [PROBE] (the phone's truth there: kind 3 the cursor before
+     *  the move, a constant 0 without it). */
+    var probeRow = 0
+    /** C3 DM-2b: Main's effect switched into or out of Scramble — a full staging (its records are the staging's, decisions
+     *  DW 1): the same identities, the item table into the other slot, a LIST with a new mark, the entries' P1 kind 3 on
+     *  or off (P9: only while no burst is open; Main in front). */
+    fun cellsSwitch(): Boolean {
+        if (!cursorProbe || rules.burstOpen || covered || trans || window || wheelOpen) return false
+        cellsOn = !cellsOn
+        tableSlot = 1 - tableSlot
+        sendDown(write19(tableAt[tableSlot], itemTable(ids)))
+        ringLog += RingEv(now, ringN++, to = ids.copyOf())
+        markBase++
+        bound = boundFor(ids, markBase, tableAt[tableSlot])
+        rules.front(bound, row, 0)
+        cellsSwitches++
+        pumpSoon()
+        return true
+    }
+
     fun reprogram(): Boolean {
         if (rules.burstOpen || covered || window) return false
         scrollAlt = !scrollAlt
@@ -1697,7 +1727,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun pumpSoon() { val t = now + pumpDelay; if (t < pumpAt) { pumpAt = t; at(t) { pumpAt = Long.MAX_VALUE; pump() } } }
 
     /** The regions, in paint order; BADGE lies inside BAND. */
-    private val regions = listOfNotNull(BAND, BADGE, CLOCK, PROBE.takeIf { pitchProbe })
+    private val regions = listOfNotNull(BAND, BADGE, CLOCK, PROBE.takeIf { pitchProbe || cursorProbe })
 
     private fun levelAt(t: ByteArray, r: Rect) = t[r.y * W + r.x].toInt()
 
@@ -1715,6 +1745,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val id = recs.indexOf(rec)
         paint(m, BAND, level(id))
         if (pitchProbe) paint(m, PROBE, probeLevel(c.cursor))            // C3 DM-1: the ruler at the cursor
+        // C3 DM-2b: the reversed ruler at y = P1 — kind 3 the cursor before the move, else a constant (row 0's level) —
+        // where the committed program draws it (Main's scroll programs; not the press, list 1's or the wheel's)
+        if (cursorProbe && c.list.list == 0 && (c.prog4 == scroll.at || c.prog4 == scroll2.at)) {
+            probeRow = IDS - 1 - (PROBE.y - c.p[1]); paint(m, PROBE, probeLevel(probeRow)) }
     }
 
     /** The drawing subs that make [m] equal [t] over [dirty] (in place on [m]), with their real rects. */
@@ -1762,7 +1796,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val plan = rules.plan(rowF)
         val m2 = model.copyOf()
         val dirty = HashSet(changed)
-        for (c in plan) { paintEnd(m2, c); dirty += BAND; dirty += BADGE; if (pitchProbe) dirty += PROBE }
+        for (c in plan) { paintEnd(m2, c); dirty += BAND; dirty += BADGE; if (pitchProbe || cursorProbe) dirty += PROBE }
         // decisions AZ.4 (the shell's `mainWrapPlan`): an edge at an end with the row now the other end — the scroll's PLAY
         // in slot 1 from the end to the row past it, END (the wrapped row's record) into the model, its areas held. None on
         // a ring list (C3 X2M0: a ring staging has no wrap pan; an edge there goes as the phone's frames)
