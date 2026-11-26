@@ -12,7 +12,8 @@ Built of it: the alert watcher (R6, amended so each rule carries `severity` — 
 alert repeats until acknowledged and passes quiet hours) with its host Settings category, and with it what B-36–B-39
 name: the urgent repeat, quiet hours by severity, acknowledge from the phone's notification and a Settings
 `Acknowledge` row, the `when` guard (`HANDOFF.md` §79, §84; `AlertRule.kt`, `AlertDelivery.kt`, `BastionRows.kt`).
-The other B and T rows, the bus pages and the TV are steps S2 and S3 (`REPLAN.md` §16.1); state today:
+T-27's four facts are lines of the PC's health record (R-b: `IMPLEMENTATION.md`, "The health view"); its TV zone is
+not built. The other B and T rows, the bus pages and the TV are steps S2 and S3 (`REPLAN.md` §16.1); state today:
 `REMINDER.md`. What is specific to his bus — the set itself, which
 value feeds which tile, the cameras, his thresholds, what is in place today, today's listeners — is in the private
 annex (`private/BASTION-annex.md`, kept out of the repository). **Nothing in this file was measured on his

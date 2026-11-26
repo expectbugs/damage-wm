@@ -426,28 +426,40 @@ class Chrome(
             g.fillRect(bx, l.linkCell.y + 20 - h, 6, h,
                 if (on) (if (poor) Level.HOT else Level.BODY) else Level.FAINT)
         }
-        if (poor) drawRight(g, l.linkCell.right - 48, fitY(l.linkCell, fTel, 8), "${s.linkDbm}", Level.HOT, fTel)
+        val bars = l.linkCell.right - 48
+        val dbm = if (poor) "${s.linkDbm}" else null
         if (s.hostState.isEmpty()) {
             g.fillRect(l.linkCell.x + 6, l.linkCell.y + 12, 4, 4, Level.REST)  // healthy: one dim mark
+            if (dbm != null) drawRight(g, bars, fitY(l.linkCell, fTel, 8), dbm, Level.HOT, fTel)
         } else {
-            // the host tag shares the cell with the BLE bars (right 44 px) and the poor-signal dBm. R-b H2: its
-            // vocabulary ([HostTag]) is measured to reach no further than the bars; a tag that does not fit what is
-            // left takes the fit path (the continuation mark), counted — never an overdraw
-            val right = if (poor) l.linkCell.right - 48 - text.measure("${s.linkDbm}", fTel) - 4
-                        else l.linkCell.right - 48
+            // the host tag shares the cell with the BLE bars (right 44 px) and the poor-signal dBm. R-b F (Part F item
+            // 2): it is drawn whole — its whole form, else its short form ([HostTag.short]); where even the short form
+            // does not fit beside the dBm figure, the figure is not drawn while a tag shows (the bars' colour still says
+            // a poor signal). The vocabulary is measured to fit in one of the two at every size and signal
+            // (`HostTagFitTest`); a tag that fits in neither takes the fit path (the continuation mark), counted
             val x = l.linkCell.x + 6
+            val whole = dynamic(s.hostState, fTel)
+            val short = dynamic(HostTag.short(s.hostState), fTel)
+            val beside = if (dbm == null) bars else bars - text.measure(dbm, fTel) - 4
+            fun fits(t: String, right: Int) = text.measure(t, fTel) <= right - x
+            val tag = when {
+                fits(whole, beside) -> whole
+                fits(short, beside) -> short
+                fits(whole, bars) -> whole
+                else -> short
+            }
+            if (dbm != null && fits(tag, beside)) drawRight(g, bars, fitY(l.linkCell, fTel, 8), dbm, Level.HOT, fTel)
             val y = fitY(l.linkCell, fTel, 6)
-            val tag = dynamic(s.hostState, fTel)
-            if (text.measure(tag, fTel) <= right - x) draw(g, x, y, tag, Level.MID, fTel)
+            if (fits(tag, bars)) draw(g, x, y, tag, Level.MID, fTel)
             else {
                 hostFitRuns++
-                drawFit(g, x, y, right - 12 - x, tag, Level.MID, fTel, right - 10)
+                drawFit(g, x, y, bars - 12 - x, tag, Level.MID, fTel, bars - 10)
             }
         }
     }
 
-    /** R-b H2: how often the link cell's tag took the fit path (zero for [HostTag]'s vocabulary at the design size
-     *  with good signal; `HostTagFitTest` reads it). */
+    /** R-b H2: how often the link cell's tag took the fit path (zero for [HostTag]'s vocabulary at every chrome size and
+     *  signal; `HostTagFitTest` reads it). */
     var hostFitRuns = 0
         private set
 }

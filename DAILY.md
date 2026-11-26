@@ -22,7 +22,7 @@ copy, and browser pages read them, Music's from its second half (the section bel
 **Who drives when** (automatic, event-driven, pacing not timeouts): APK up → the phone shell drives — home,
 work, LTE; PC reachability decides how CAPABLE it is (live library, tmux, the record), never who drives, and
 gestures and frames never leave the phone. PC unreachable → nothing changes on glass; content degrades to
-the caches, staleness is said (`PC gone/Nm`), the working copy catches up on reconnect (the latest input wins); the bus
+the caches, staleness is said (`PC <age>`), the working copy catches up on reconnect (the latest input wins); the bus
 alerts say "home unreachable" after the phone's set minutes. APK unreachable → **nothing takes the glasses by
 itself**: the status line says "phone unreachable … PC-direct BLE is manual (drive=ble)". The phone's shelf answers
 from its cache at once while the PC is out of reach. Reboot either machine → both restart themselves. **State:**
@@ -330,14 +330,17 @@ without writing a row.
   `local.secret` (mode 600; a file others could read is refused; no command rotates it — stop the service, remove it,
   start, and a new one is written). The nightly copy takes `record.json` and `devices.json` only. A `record.json` that
   does not read is kept as `.bad` (then `.bad.2`, …).
+- **Health:** `/w/health`, where home's top line leads (the diagnosis below at level full); the worst line is also in
+  the phone app's status line and notification, an alarm's tag in the glasses' link cell (`PC 4m`, `PC no`, `disk 98%`).
 - **Reading the record's state:** the `record` line at each start in `damage.log` (`opened: epoch E (kept | new: why),
   seq S, N line(s) replayed past C, …`) and its journal note; `migrate` lines at the first start of a build that
   brings windows onto the record (0.68, 0.70: the rows written from their old records; a later start writes none);
-  `web` lines (the local secret's state, the device count, the port); the diagnosis page (epoch, seq, contracts, connections, the log's
-  last 300 lines; level full); built-in alerts `record.log`, `record.save`, `record.replay` on the glasses and phone. A
-  `record.log` alert (the log did not open at a start) clears by itself: the log is tried again on every pacing tick,
-  and the pages and the phone get their snapshots once it opens. The service owns `record.json`: read it, never edit
-  it by hand. Which input stands: the latest, by its time (an older input changes nothing and nothing is said).
+  `web` lines (the local secret's state, the device count, the port); the Health page's diagnosis (epoch, seq,
+  contracts, connections, the log's last 300 lines; level full); built-in alerts `record.log`, `record.save`,
+  `record.replay` on the glasses and phone. A `record.log` alert (the log did not open at a start) clears by itself:
+  the log is tried again on every pacing tick, and the pages and the phone get their snapshots once it opens. The
+  service owns `record.json`: read it, never edit it by hand. Which input stands: the latest, by its time (an older
+  input changes nothing and nothing is said).
 - **The phone:** `workcopy/copy.json` and `workcopy/queue.jsonl` in the app's data directory; `workcopy` journal notes;
   a `queue.jsonl.bad-<ms>` beside them is a queue file that could not be read, moved aside and said. Against a PC on
   another build, Main's row for a window says "PC and phone on different builds for <window>" and that window waits:

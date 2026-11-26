@@ -752,7 +752,10 @@ ladder stage 5 Select, Close / Back and Lock Screen, then Popups), each saying w
 tier's rows on a tap; inside, a row is drawn without the tier's name, the title reads "animations · <tier>", Back
 returns to the tier's row. It is a list level like a category's; no other category is split (asked of him first).
 The rows (`core/…/shell/SettingsWindow.kt`, `ShellSettings.kt`): Scroll — Effect (None · Depth · Slide · Flip · Fall
-· Crush, default Depth), Length (225 · 300 · 450 · 600 · 800 ms, default 300), Frames (auto default); Select and
+· Crush, default Depth; below stage 5 Crush plays Slide and Flip its height turn, the row saying so), Length (225 ·
+300 · 450 · 600 · 800 ms, default 300), Frames (auto default), and at stage 5 each app's own `Scroll effect` row in
+its category (default · None · Depth · Slide · Fall; "default" follows this row and says what it plays on a window's
+list); Select and
 Close / Back — Length (450), Frames (10), one on/off row per effect (Depth · Warp · Flip · Fall · Glitch · Encode ·
 Matrix · Explode, Depth on); Lock Screen — the same with Fade · Build · Matrix · Encode · Glitch · Explode, Fade on;
 Popups — Length (300), Frames (auto), Unfurl (on), Fade, Slide (off).
@@ -950,12 +953,15 @@ staging is off until the next session", once a session); the last two never ring
 | **transport ↔ glasses (BLE)** | nothing works; the screen may be frozen or already lost to stock LVGL |
 | **shell ↔ content host** (Tailscale / WSS) | **the shell works fully**; some windows are stale, a few are unavailable (§10.5) |
 
-One indicator would make "re-seat my glasses" indistinguishable from "wait for signal." So the
-120 px cell carries both: **four filled BLE bars (~40 px) on the right, host state on the left**,
-with the dBm numeral appearing only when the radio link is poor (≤ −75). **Host state stays near
-the ink floor while healthy** — a single dim mark — and reports **duration, not just state**:
-G2CC's `ConnectionManager` already tracks `offlineSince`, so `PC 4m` is free and more actionable
-than `offline`.
+One indicator would make "re-seat my glasses" indistinguishable from "wait for signal." So the 120
+px cell carries both: **four filled BLE bars (~40 px) on the right, host state on the left**, with
+the dBm numeral appearing only when the radio link is poor (≤ −75) and not drawn where a host tag
+would not fit beside it: **a tag is drawn whole, or as its first word whole, never cut.** **Host
+state stays near the ink floor while healthy** — a single dim mark — and reports **duration, not
+just state**: G2CC's `ConnectionManager` already tracks `offlineSince`, so `PC 4m` is free and more
+actionable than `offline`. As built (the health view, `REPLAN.md` §17.4), the tags are `PC <age>`
+(out of reach), `PC no` (the PC refuses the phone, or its record did not open), `hub <age>`, `copy
+<age>` and `disk NN%`; their first words are `PC`, `hub`, `copy` and `disk`.
 
 ⚠ Both transports read RSSI from the **RIGHT** (command) arm every 10th maintenance tick (~10 s).
 The APK reads it from the live GATT connection; BlueZ reports it only while the device is being seen

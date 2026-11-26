@@ -16,7 +16,7 @@ import kotlinx.serialization.json.jsonObject
  * shape gets a vector the fork fills; a disagreement is a finding) — written from the shell's own builder through
  * [LaneRig] (the Motion DSL's bytes, the chain's own PLAY and PLAY-AFTERs, fixed delays, both lenses at one tick):
  * `v5-mml-bar`, one stretch of the bar drawn to its end, and `v5-mml-chain`, a PLAY and two PLAY-AFTERs. Their
- * expectations are the fork's runner's to fill (`ConformanceVectorTest.MML_UNFILLED` names them until then).
+ * expectations are the fork's runner's (filled at K1-2 stage 4h's comparison).
  *
  * `DAMAGE_MML_DUMP=DIR` writes them; otherwise each committed file's inputs must equal what the builder sends today.
  */
