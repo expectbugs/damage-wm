@@ -584,14 +584,18 @@ class MusicLaneShellTest {
         try {
             r.lib.vizFor = { SCOPE_DATA }
             r.up()
-            r.scopeMode()
             for (h in listOf(480, 416, 352, 288)) {
+                // Music's own Size, set at Now Playing (exclusive mode's repaint does not re-lay the shell), then Music Mode
                 r.setRow("Size", "$h")
+                r.until("at $h: Now Playing") { r.shell.isQuiescent() }
+                r.scopeMode()
                 val want = wm.damage.core.windows.music.ScopeRehearsal.strip(h)
-                r.until("at $h: Scope's chain on the rehearsal's strip $want", maxMs = 8_000) { r.shell.isQuiescent() && r.held()?.second == want && r.laneTagIn(Arm.RIGHT) != null }
+                r.until("at $h: Scope's chain on the rehearsal's strip $want (held ${r.held()})", maxMs = 8_000) { r.shell.isQuiescent() && r.held()?.second == want && r.laneTagIn(Arm.RIGHT) != null }
                 delay(1_200)                                     // a once-a-second paint or more behind the chain's start
                 r.pauseShowsTheTruth(SCOPE_DATA, want, "at $h")
                 r.player.play()
+                r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                r.until("at $h: back at Now Playing") { !r.shell.exclusiveMode && r.shell.isQuiescent() }
             }
         } finally { r.stop() }
     }
