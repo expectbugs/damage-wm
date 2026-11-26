@@ -769,10 +769,12 @@ on both lenses (the meeting's row 11).
   per message. Cache writes were 61 % of the image lane's bytes and per-message deflate took them
   to 57 % (M, `HANDOFF.md` §68, v1-era traffic). **The phone (as built):** it sends a mode 25 in place of every
   mode-19 message while ZWRITE is in force and the deflated form is smaller, never from the motion API. Field 17's
-  count is the only judge of a mode 25 (R1.18): a refused one is a missing write, which the shell's count finds
-  (pending, short, shortfall) and writes again with the rest of its interval. A refusal record that newly names 25
-  turns mode 25 off for the session, said once (R2 B-N6), so that write goes again as mode 19; the phone sends nothing
-  again on the record itself, which cannot say which write it names (C3 OM-1F).
+  count is the only judge of a mode 25 (R1.18): a refused one is a missing write, which the shell's count finds short
+  (pending, short, shortfall). The staged records and first-time atlas messages of that interval are written again; an
+  atlas message that was itself a re-send is not sent a third time (`cache/lost` says so), and a transition's write is
+  not written again (RIGHT's END CRC keyframes). A refusal record that newly names 25 turns mode 25 off for the
+  session, said once (R2 B-N6), so what is written again goes as mode 19; the phone sends nothing again on the record
+  itself, which cannot say which write it names (C3 OM-1F).
 - **The cache pointer's release:** claimed by one exchange like the slots and the scratch (FBW-2, `HANDOFF.md` §76);
   a release point withdraws it inside its masked section or, finding the engine's busy word held (by the copy
   hook or the ui_task), leaves the withdrawal to the holder's settlement (§5.11). No wire change.
