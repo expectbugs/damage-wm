@@ -118,18 +118,20 @@ object ScrollEffects {
         if (asked == ScrollEffect.CRUSH) Plays(ScrollEffect.SLIDE, false, why) else Plays(asked, false, why)
 
     /** K1-2 stage 2: what plays for [asked] on a staging of [form]. Main's: [plays]. A window list's (stage 5 only: its
-     *  programs are version 2, source windows, so [fx] is never null there): None, Depth, Slide and Fall themselves;
-     *  Crush and Flip on the window form are not built yet (DM-1's programs on this form, the K1-2 spec §4) — Crush plays
-     *  Slide, as its fallback does on Main, and Flip plays Depth (its rows are Depth's), each said ([WINDOW_NOT_YET]). */
+     *  programs are version 2, source windows, so [fx] is never null there): the effects of [WINDOW_EFFECTS] themselves;
+     *  C3 DM-2a (the DM-2 spec §1, decisions DR (j)): every other is not built on the window form yet — Crush plays Slide,
+     *  as its fallback does on Main, and any other Depth, each said ([windowNotYet]), so no effect outside the form's own
+     *  reaches its builder (which refuses one). */
     fun playsFor(asked: ScrollEffect, form: ListForm, fx: Motion.Effects?): Plays = when {
         form == ListForm.MAIN_BANDS -> plays(asked, fx)
-        asked == ScrollEffect.CRUSH -> Plays(ScrollEffect.SLIDE, true, WINDOW_NOT_YET)
-        asked == ScrollEffect.FLIP -> Plays(ScrollEffect.DEPTH, true, WINDOW_NOT_YET)
-        else -> Plays(asked, true)
+        asked in WINDOW_EFFECTS -> Plays(asked, true)
+        asked == ScrollEffect.CRUSH -> Plays(ScrollEffect.SLIDE, true, windowNotYet(asked))
+        else -> Plays(ScrollEffect.DEPTH, true, windowNotYet(asked))
     }
 
-    /** Why Crush and Flip play another effect on a window list. */
-    const val WINDOW_NOT_YET = "Crush and Flip are not built on a window list's form yet (K1-2: DM-1's programs on that form come later)"
+    /** Why [asked] plays another effect on a window list. */
+    fun windowNotYet(asked: ScrollEffect): String =
+        "${asked.word} is not built on a window list's form yet (it plays ${WINDOW_EFFECTS.joinToString { it.word }} itself; the others come later)"
 
     /** The effects a window list plays itself ([playsFor]): its pan slots are sized by the largest of them. */
     val WINDOW_EFFECTS = listOf(ScrollEffect.NONE, ScrollEffect.DEPTH, ScrollEffect.SLIDE, ScrollEffect.FALL)

@@ -1069,7 +1069,7 @@ class ScrollEffectsTest {
         assertEquals("", ScrollEffects.plays(ScrollEffect.DEPTH, fx).words(ScrollEffect.DEPTH))
         val rig = WindowListCheck.WindowRig(BoxFace, 352, WindowListCheck.Sample.GLOBAL)
         val crush = rig.staging(ScrollEffect.CRUSH, region256.first, region256.last + 1)
-        assertTrue(crush.plays.effect == ScrollEffect.SLIDE && crush.motion?.effect == ScrollEffect.CRUSH && crush.plays.why == ScrollEffects.WINDOW_NOT_YET, "Crush on a window list: ${crush.plays}")
+        assertTrue(crush.plays.effect == ScrollEffect.SLIDE && crush.motion?.effect == ScrollEffect.CRUSH && crush.plays.why == ScrollEffects.windowNotYet(ScrollEffect.CRUSH), "Crush on a window list: ${crush.plays}")
         val m = ListStaging.ScrollMotion.DEFAULT
         val cache = CfwModes.CACHE2_MAX_RIDERS
         assertFailsWith<LintError>("below stage 5") { ListStaging.buildWindow(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, cache, m, null) }
@@ -1081,6 +1081,36 @@ class ScrollEffectsTest {
         assertTrue(tight.progSlots == null && tight.start == floorTight, "the spare pan slot is given up first where the space is short: ${tight.progSlots?.toList()} at ${tight.start}")
         val e = assertFailsWith<LintError> { rig.staging(ScrollEffect.DEPTH, region256.last + 1 - (need - full.progSlot) + 4, region256.last + 1) }
         assertTrue("not bound" in (e.message ?: ""), "${e.message}")
+    }
+
+    /**
+     * C3 DM-2a, the defect first (the DM-2 spec §1, §8's first pin; decisions DR (j), DV): every effect `Scroll effect`
+     * offers, asked on a window's list before its own form is built, stages and plays — itself where the form plays it
+     * ([ScrollEffects.WINDOW_EFFECTS]), Slide for Crush, Depth for any other — and says so in the row's words with its
+     * reason naming the asked effect, at the staging, at a programs-only re-make from Depth, and in the per-app row's
+     * words (the gate's token absent: the row is said before any staging). Without the window branch's general fallback
+     * an effect outside the form reaches `windowPan`, which refuses it: the list is not staged.
+     */
+    @Test
+    fun aWindowListPlaysDepthForAnEffectItsFormDoesNotPlay_DM2a() {
+        val fx = MainLocalCheck.effectsAt(true)
+        val rig = WindowListCheck.WindowRig(BoxFace, 352, WindowListCheck.Sample.GLOBAL)
+        val depth = rig.staging(ScrollEffect.DEPTH, region256.first, region256.last + 1)
+        for (e in ScrollEffect.entries) {
+            val want = if (e in ScrollEffects.WINDOW_EFFECTS) e else if (e == ScrollEffect.CRUSH) ScrollEffect.SLIDE else ScrollEffect.DEPTH
+            val words = if (want == e) "" else "plays ${want.word}"
+            for (token in listOf(fx, null)) {
+                val p = ScrollEffects.playsFor(e, ListForm.STRIP_WINDOWS, token)
+                assertEquals(want, p.effect, "${e.word} on a window list (token ${token != null})")
+                assertEquals(words, p.words(e), "${e.word}: the row's words")
+                if (want != e) assertTrue(e.word in (p.why ?: ""), "${e.word}: the reason names it: ${p.why}")
+            }
+            val ms = rig.staging(e, region256.first, region256.last + 1)
+            assertEquals(e to want, ms.motion?.effect to ms.plays.effect, "${e.word}: the window list stages and plays ${want.word}")
+            val made = depth.remake(ListStaging.ScrollMotion.DEFAULT.copy(effect = e), fx)
+            assertEquals(if (e == ScrollEffect.DEPTH) null else want, (made as? ListStaging.Remake.Owed)?.programs?.plays?.effect,
+                "${e.word}: a programs-only re-make from Depth plays ${want.word} (${(made as? ListStaging.Remake.NoRoom)?.why})")
+        }
     }
 
     /** K1-2 stage 2: a window list's row whose value changes is re-staged by its strip's part alone — its segment(s) written
