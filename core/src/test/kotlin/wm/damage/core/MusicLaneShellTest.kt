@@ -187,6 +187,33 @@ class MusicLaneShellTest {
 
         fun starts() = notes("lane").count { "a chain starts" in it }
 
+        /** Stage SF (finding 1): pause half a second past a whole second of the place (the strip's last once-a-second
+         *  paint is then ≈ 100 px behind), wait for the chain to close on both lenses and the shell to settle, then the
+         *  oracle at the pause: both lenses' whole panels are the truth (exclusive mode has no planes: `composed` on each),
+         *  and the strip is Scope's own paint at the paused place, within 2 px. */
+        suspend fun pauseShowsTheTruth(data: wm.damage.core.windows.music.VizData, strip: Rect, what: String) {
+            until("$what: half a second past a whole second", 3_000) { onLoop { player.positionMs() } % 1000 in 450..600 }
+            player.pause()
+            until("$what: the chain closed on both lenses") { laneTagIn(Arm.RIGHT) == null && laneTagIn(Arm.LEFT) == null && !onLoop { shell.lanesOpenForTest } }
+            until("$what: settled") { shell.isQuiescent() }
+            delay(300)
+            val (truth, pos) = onLoop { assertEquals(emptyList(), shell.comp.planes, "$what: exclusive mode has no planes"); shell.comp.composed.copy() to player.positionMs() }
+            val stride = (Geometry.PANEL_W + 1) / 2
+            fun lv(p: ByteArray, x: Int, y: Int): Int { val b = p[y * stride + (x shr 1)].toInt() and 0xFF; return if (x and 1 == 0) b shr 4 else b and 0x0F }
+            for ((name, panel) in listOf("LEFT" to sim.left.panel.copyOf(), "RIGHT" to sim.right.panel.copyOf())) {
+                val off = ArrayList<String>(); var n = 0
+                for (y in 0 until Geometry.PANEL_H) for (x in 0 until Geometry.PANEL_W)
+                    if (Pack.level(truth[x, y]) != lv(panel, x, y)) { n++; if (off.size < 4) off += "($x,$y)" }
+                assertEquals(0, n, "$what, paused: $name's panel is the truth everywhere — $n pixels off, the first at $off")
+            }
+            val near = (-2..2).firstOrNull { s ->
+                val c = wm.damage.core.gfx.Gray8(Geometry.PANEL_W, Geometry.PANEL_H)
+                wm.damage.core.windows.music.ScopeViz.paint(c, strip, data, pos + s * 5L)
+                (strip.y until strip.bottom).all { y -> (strip.x until strip.right).all { x -> Pack.level(c[x, y]) == Pack.level(truth[x, y]) } }
+            }
+            assertNotNull(near, "$what, paused at ${pos} ms: the strip is Scope's paint at the paused place within 2 px")
+        }
+
         suspend fun stop() { shell.stop(); scope.cancel(); tmp.toFile().deleteRecursively() }
     }
 
@@ -215,7 +242,7 @@ class MusicLaneShellTest {
             r.up()
             assertTrue(r.onLoop { r.shell.services.lanesInForce() }, "stage 5 on 256 KiB: lanes in force")
             r.until("a chain open on the glasses") { r.laneTagIn(Arm.RIGHT) != null && r.laneTagIn(Arm.LEFT) != null }
-            val bar = assertNotNull(r.onLoop { r.shell.comp.laneHold.firstOrNull() }, "the compositor holds the lane").second   // RIGHT's rect
+            val (barL, bar) = assertNotNull(r.onLoop { r.shell.comp.laneHold.firstOrNull() }, "the compositor holds the lane")   // (LEFT's rect, RIGHT's)
             val y = bar.y + bar.h / 2
             // the chain's start: RIGHT's shadow under the bar is the picture the chain started over, and stays so
             val shadow0 = r.sim.right.shadow.copyOf()
@@ -247,8 +274,14 @@ class MusicLaneShellTest {
             val panel2 = r.sim.right.panel.copyOf()
             val belief = r.onLoop { r.shell.comp.expectedLens(false).copy() }
             for (x in bar.x until bar.right) assertEquals(belief[x, y] / 17, lv(panel2, x, y), "paused: the panel is belief at x $x")
-            val truthNow = r.onLoop { Pack.level(r.shell.comp.composed[bar.x + 8 + 8, y]) }
-            assertTrue(truthNow == 8 || truthNow == 1, "the window's continuous bar at the paused place")
+            // the window's continuous bar (the truth) at the paused place: its lit run is the place's, within a pixel
+            val nominalX = (barL.x + bar.x) / 2
+            val (truthLit, want) = r.onLoop {
+                val dur = r.player.state.durMs.takeIf { it > 0 } ?: r.player.state.track!!.durMs.toLong()
+                (0 until bar.w).takeWhile { Pack.level(r.shell.comp.composed[nominalX + it, y]) == 8 }.count() to
+                    wm.damage.core.windows.music.MusicMotion.litPx(bar.w, r.player.positionMs(), dur)
+            }
+            assertTrue(kotlin.math.abs(truthLit - want) <= 1, "the window's bar at the paused place: $truthLit px lit, the place's $want")
         } finally { r.stop() }
     }
 
@@ -427,6 +460,7 @@ class MusicLaneShellTest {
             r.scopeMode()
             r.until("Scope's chain open on the glasses") { r.laneTagIn(Arm.RIGHT) != null && r.laneTagIn(Arm.LEFT) != null && r.held()?.second?.h == 64 }
             val strip = r.held()!!.second
+            assertEquals(wm.damage.core.windows.music.ScopeRehearsal.strip(480), strip, "the rehearsal's strip (the fuzz's, the vectors') is Music Mode's")
             val starts0 = r.starts(); val notes0 = r.notes("lane").size
             val shadow0 = cut(r.sim.right.shadow.copyOf(), strip)
             val panned = r.changes(strip, 2_000)
@@ -473,14 +507,7 @@ class MusicLaneShellTest {
             r.onLoop { r.player.seekTo(20_000) }
             r.until("a new chain after the seek", maxMs = 3_000) { r.starts() > starts0 && r.laneTagIn(Arm.RIGHT).let { it != null && it != tagBefore } }
             assertTrue(r.notes("lane").any { "its key changed" in it }, "the seek changed the key: ${r.notes("lane").takeLast(4)}")
-            r.player.pause()
-            r.until("the chain closed on both lenses") { r.laneTagIn(Arm.RIGHT) == null && r.laneTagIn(Arm.LEFT) == null && !r.onLoop { r.shell.lanesOpenForTest } }
-            r.until("settled") { r.shell.isQuiescent() }
-            delay(300)
-            val panel = r.sim.right.panel.copyOf()
-            val belief = r.onLoop { r.shell.comp.expectedLens(false).copy() }
-            val off = (strip.y until strip.bottom).sumOf { y -> (strip.x until strip.right).count { x -> belief[x, y] / 17 != lv(panel, x, y) } }
-            assertEquals(0, off, "paused: RIGHT's panel under the strip is belief")
+            r.pauseShowsTheTruth(SCOPE_DATA, strip, "after the seek")
             val starts1 = r.starts()
             r.player.play()
             r.until("a chain again", maxMs = 3_000) { r.starts() > starts1 && r.laneTagIn(Arm.RIGHT) != null }
@@ -507,6 +534,15 @@ class MusicLaneShellTest {
             r.up()
             r.scopeMode()
             r.until("the bar's chain (no data yet)") { r.laneTagIn(Arm.RIGHT) != null && r.held()?.second?.h == 6 }
+            // stage SF (finding 3): the visualizer changed while the bar is the lane leaves the bar's chain running — no new
+            // PLAY, the same instance on the glasses
+            for (v in listOf("Bars", "Pulse", "Scope")) {
+                val s0 = r.starts(); val tag0 = r.laneTagIn(Arm.RIGHT)
+                r.setRow("Visualizer", v)
+                delay(800)
+                assertEquals(s0, r.starts(), "Visualizer $v with the bar the lane: no new chain — lane ${r.notes("lane").takeLast(4)}")
+                assertEquals(tag0, r.laneTagIn(Arm.RIGHT), "Visualizer $v: the bar's chain runs on")
+            }
             r.lib.vizFor = { SCOPE_DATA }
             val id = r.onLoop { r.player.state.track!!.id }
             for (l in r.lib.listeners) l.vizReady(id)
@@ -521,11 +557,42 @@ class MusicLaneShellTest {
                 delay(600)
                 assertTrue(r.laneTagIn(Arm.RIGHT) != null, "$row $v: running")
             }
+            // stage SF (finding 2): Scope's chain keys on the zero its STRIP was painted at — with the card off nothing
+            // paints the bar, so a seek re-keys the lane only through the strip's own zero
+            r.setRow("Music Mode · card", "off")
+            r.until("card off: Scope's chain", maxMs = 5_000) { r.shell.isQuiescent() && r.held()?.second?.h == 64 && r.laneTagIn(Arm.RIGHT) != null }
+            val seekStarts = r.starts(); val seekNotes = r.notes("lane").size
+            r.onLoop { r.player.seekTo(25_000) }
+            r.until("card off: a new chain after the seek", maxMs = 1_500) { r.starts() > seekStarts && r.laneTagIn(Arm.RIGHT) != null }
+            assertTrue(r.notes("lane").drop(seekNotes).any { "its key changed" in it }, "card off: the seek changed the key: ${r.notes("lane").drop(seekNotes)}")
+            r.setRow("Music Mode · card", "on")
+            r.until("card on again", maxMs = 5_000) { r.shell.isQuiescent() && r.held()?.second?.h == 64 && r.laneTagIn(Arm.RIGHT) != null }
             val tags = setOfNotNull(r.laneTagIn(Arm.RIGHT), r.laneTagIn(Arm.LEFT))
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             r.until("Now Playing") { !r.shell.exclusiveMode && r.shell.isQuiescent() }
             r.until("Now Playing's bar chain") { r.held()?.second?.h == 10 && r.laneTagIn(Arm.RIGHT) != null }
             assertEquals(emptyList(), endedOpen(tags), "Scope's chain is closed on both lenses")
+        } finally { r.stop() }
+    }
+
+    /** Stage SF (finding 1, the oracle at stage 5): at a pause with Scope's chain ended, both lenses' whole panels are the
+     *  truth and the strip is Scope's own paint at the paused place — at every height the lane runs (its strip the
+     *  rehearsal's, finding 4). Before the cure the strip stayed its last once-a-second paint, up to ≈ 190 px back. */
+    @Test
+    fun aPauseShowsScopesStripAtThePausedPlaceAtEveryHeight(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.lib.vizFor = { SCOPE_DATA }
+            r.up()
+            r.scopeMode()
+            for (h in listOf(480, 416, 352, 288)) {
+                r.setRow("Size", "$h")
+                val want = wm.damage.core.windows.music.ScopeRehearsal.strip(h)
+                r.until("at $h: Scope's chain on the rehearsal's strip $want", maxMs = 8_000) { r.shell.isQuiescent() && r.held()?.second == want && r.laneTagIn(Arm.RIGHT) != null }
+                delay(1_200)                                     // a once-a-second paint or more behind the chain's start
+                r.pauseShowsTheTruth(SCOPE_DATA, want, "at $h")
+                r.player.play()
+            }
         } finally { r.stop() }
     }
 

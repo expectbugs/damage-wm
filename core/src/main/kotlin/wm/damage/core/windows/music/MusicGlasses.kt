@@ -1924,8 +1924,9 @@ class MusicGlasses(
         // and the bar stands; back when the place moves (a zero moving with the stall restarted it each pump)
         if (stalled) return null
         val off = lyricsOffset().toLong()
-        // ruling 9: the visualizer, Music Mode's switch for it, the strip and whether its data is in hand
-        fun keyNow() = listOf(st.entry?.qid, st.play, laneGen, st.output, exclusive, off, bar, lit, dur, vizName, mmViz, strip, scope != null)
+        // the set is `bar` and `lit`: Scope's strip or the card's bar, so the visualizer, Music Mode's switch for it and
+        // Scope's data move the key only where they change the set (`MM-decisions.md`, stage S review pass 1, item 3)
+        fun keyNow() = listOf(st.entry?.qid, st.play, laneGen, st.output, exclusive, off, bar, lit, dur)
         // finding 1's class: the key moves with the zero the bar's truth was PAINTED at, so a chain that ends on it is written
         // from a truth that shows the new place — a seek reaches the player a message before the window hears of it, and a
         // pump can come between. Until the paint that move brings, an open chain goes on and none starts
@@ -2038,10 +2039,12 @@ class MusicGlasses(
         if (l.peek != null && (full || peekKey != mmPeekKey)) { mmPeekKey = peekKey; paintMmPeek(g, l); out.add(l.peek) }
         // the visualizer: one rect per frame, on its own pacing. Stage S: Scope's strip is its lane's truth — at the place
         // the time line shows, its zero kept — and while its chain is open on the glasses it repaints once a second and as
-        // soon as the song's zero moves past it (ruling 8; the compositor holds the cells, so no byte goes)
+        // soon as the song's zero moves past it (ruling 8; the compositor holds the cells, so no byte goes). The first paint
+        // after the chain has ended repaints it once more, at the place shown now (`second` is null then, `mmVizSecond` the
+        // last held paint's): a pause starts no frame loop, and the strip there would stay its last once-a-second paint
         val held = scopeHeld()
         val second = if (held) Math.floorDiv(shownPos(), 1000L) else null
-        if (l.viz != null && (full || mmVizDue || (held && (second != mmVizSecond || behind(stripZero))))) {
+        if (l.viz != null && (full || mmVizDue || second != mmVizSecond || (held && behind(stripZero)))) {
             mmVizDue = false; mmVizSecond = second
             val r = Viz.byName(vizName)
             if (r != null) {
