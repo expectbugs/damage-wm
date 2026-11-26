@@ -671,13 +671,14 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         return when {
             y < 18 -> { cancelWheel(); "cancel the wheel" }
             y < 36 -> { gesture(0); "a tap in the wheel" }
-            // a notch in flight at the close: after the tap that commits (the notch's 115 answered once the tap's report has
-            // closed the wheel), or before a cancel (the phone's own close). Never a tap 0–40 ms after a notch: RIGHT takes it
-            // inside its own motion of that notch, before the panel shows the row the cursor names (the act is on that row,
-            // the picture up to a motion late — class A's shape before the notch's report; his taps come ≥ 696 ms after a
-            // scroll message, [LocalSequenceFuzzTest.A_KEY]'s note)
-            y < 50 -> { val kind = 1 + r.nextInt(2); val d = r.nextInt(41).toLong(); val tap = r.nextBoolean()
-                if (tap) { gesture(0); at(now + d) { reach2("a notch racing the close (0–40 ms after the tap that commits)"); gesture(kind) }
+            // a notch in flight at the close: 12–80 ms after the tap that commits (the close's flush lands on RIGHT 40–90 ms
+            // after the tap in the traces read, so the notch is taken on the wheel or after it), or 0–40 ms before a cancel (the phone's own
+            // close). Never two gestures closer than the lens gap's spread (4–11 ms): RIGHT may take them in the other order,
+            // and a tap 0–40 ms after a notch is taken inside RIGHT's own motion of that notch, before the panel shows the
+            // row the cursor names (the act is on that row, the picture up to a motion late — class A's shape before the
+            // notch's report; his taps come ≥ 696 ms after a scroll message, [LocalSequenceFuzzTest.A_KEY]'s note)
+            y < 50 -> { val kind = 1 + r.nextInt(2); val tap = r.nextBoolean(); val d = if (tap) 12L + r.nextInt(69) else r.nextInt(41).toLong()
+                if (tap) { gesture(0); at(now + d) { reach2("a notch racing the close (12–80 ms after the tap that commits)"); gesture(kind) }
                     "a tap, then a notch +$d ms" }
                 else { gesture(kind); at(now + d) { if (wheelOpen) { reach2("a notch racing the close (0–40 ms before a cancel)"); cancelWheel() } }
                     "a notch, then a cancel +$d ms" } }
