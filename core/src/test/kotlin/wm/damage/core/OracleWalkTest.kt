@@ -945,16 +945,30 @@ class OracleWalkTest {
     }
 
     /** K1-2 stage 4c: one walk of [WINDOW_LIST_STEPS] (see [localEventsOnWindowListsKeepTheOracleAtStage5_K12S4c]). C3 DW-2
-     *  (decisions DP 7): with the wheel — the chord right after the start (unbound: the block is not counted yet; a phone
-     *  notch, then the bind mid-open), a chord every [WHEEL_EVERY] steps, notches and taps on list 2 when it holds slot 0,
+     *  (decisions DP 7): with the wheel — the chord right after a session start (three windows opened, the session rebuilt
+     *  over Settings: unbound, the block not counted yet; a phone notch, then the bind mid-open), a chord every
+     *  [WHEEL_EVERY] steps, notches and taps on list 2 when it holds slot 0,
      *  the phone's gestures (a click commits, a double tap or a long press cancels). */
     private suspend fun windowListWalk(rig: Rig, tag: String): WalkCounts {
         val c = WalkCounts()
         rig.shell.start()
-        // the chord right after a start — the wake's case, met on purpose (decisions DP 7)
+        rig.ready("$tag boot")
+        rig.assertOracle("$tag boot")
+        // C3 DW-2 (decisions DP 7): the chord right after a start — the wake's case (every wake is a session start), met on
+        // purpose. Three windows opened first (the wheel binds with three entries or more: `Wheel.refusal`; with Main
+        // alone it is the phone's), then the session rebuilt with Settings in front and the chord before anything settles:
+        // the block is not counted yet, so the wheel opens unbound, a notch is the phone's spin, and it binds mid-open
+        for (win in listOf("files", "surfaces", "settings")) {
+            rig.shell.services.runOnShell { rig.shell.services.openWindow(win, null) }
+            rig.ready("$tag boot (open $win)")
+            rig.assertOracle("$tag boot (open $win)")
+        }
+        val clears = rig.shell.stageClears
+        rig.shell.stop()
+        rig.shell.start()
         val up0 = System.currentTimeMillis()
-        while (!rig.transport.state.value.effects) {
-            if (System.currentTimeMillis() - up0 > 60_000) throw AssertionError("$tag: no stage-5 session after 60 s")
+        while (!(rig.shell.stageClears > clears && rig.transport.state.value.effects)) {
+            if (System.currentTimeMillis() - up0 > 60_000) throw AssertionError("$tag: no new stage-5 session after 60 s")
             delay(5)
         }
         chord(rig)
@@ -962,8 +976,8 @@ class OracleWalkTest {
             "$tag: the chord right after the start opens the wheel, not bound (its block is not counted yet)")
         rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // the spin is the phone's until the bind
         c.chords++
-        rig.ready("$tag boot (the chord at the start)")
-        rig.assertOracle("$tag boot")
+        rig.ready("$tag the chord right after the start")
+        rig.assertOracle("$tag the chord right after the start")
         c.trace.append(" 0:chord@start>${rig.shell.onLoop { rig.surface() }}")
         for (step in 1..WINDOW_LIST_STEPS) {
             // the same four draws at every step whatever it decides: the seed's stream never forks on a reading

@@ -921,10 +921,14 @@ class WheelBindTest {
             val firstBlock = left.firstOrNull { writesAt(it) { off -> off >= b.base && off < b.end } }
             assertTrue(firstStrip != null && firstBlock != null, "the new session wrote a strip ($firstStrip) and the block ($firstBlock)")
             val t0 = ms[from]
-            println("DW-2 a start with a document in front: the first strip's write at ${ms[firstStrip] - t0} ms, the block's first write at " +
-                "${ms[firstBlock] - t0} ms after the new session's first image (image ${firstStrip - from} and ${firstBlock - from} of ${imgs.size - from}; " +
-                "the simulator's link, modeled)")
-            assertTrue(firstStrip < firstBlock, "the document's first strip (image ${firstStrip - from}) before the block's first write (image ${firstBlock - from})")
+            // what LEFT carried before the strip's first write, and of it the block's (the price of the order on the phone's link)
+            val ahead = left.filter { it < firstStrip }
+            val blockAhead = ahead.filter { writesAt(it) { off -> off >= b.base && off < b.end } }.sumOf { imgs[it].second.size }
+            val figures = "the first strip's write at ${ms[firstStrip] - t0} ms (image ${firstStrip - from}), the block's first write at " +
+                "${ms[firstBlock] - t0} ms (image ${firstBlock - from}) after the new session's first image (the simulator's link); LEFT carried " +
+                "${ahead.sumOf { imgs[it].second.size }} B before the strip, $blockAhead B of them the block's (its ${b.size} B in all)"
+            println("DW-2 a start with a document in front: $figures")
+            assertTrue(firstStrip < firstBlock, "the document's first strip before the block's first write: $figures")
         } finally { r.close() }
     }
 

@@ -6503,10 +6503,13 @@ class Shell(
     internal fun stepWindowsForTest(): Pair<List<Long>, List<Long>> = mainList.stepWindow.toList() to windowList.stepWindow.toList()
     /** Tests (on the loop): the window list's lane has nothing left to write — no window list wanted here (below stage 5,
      *  160 KiB, the window's list not in front: none, or Settings at its adjust level, a cover by design), or a staging for
-     *  the view in front counted, offered or refused for its key. */
+     *  the view in front counted, offered or refused for its key. C3 DW-2 (decisions DP 8): nothing left to write either
+     *  while the switcher is open — [pumpWindowList] writes nothing under it (decisions DA (c) 4: an open wheel is a cover);
+     *  met by the oracle walk's chord right after a session start with Settings in front, whose list is staged after the
+     *  close. */
     internal fun windowListLaneDoneForTest(): Boolean {
         val st = transport.state.value
-        if (!st.effects || !st.bind || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || !windowList.inFront()) return true
+        if (!st.effects || !st.bind || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || !windowList.inFront() || switcher.open) return true
         val b = windowList.mainBind
         return (b.staging != null && b.counted && windowList.surface.offered != null && windowListMatches()) ||
             (b.staging == null && windowList.mainBindRefusedFor != null && windowList.mainBindPaint == null)
