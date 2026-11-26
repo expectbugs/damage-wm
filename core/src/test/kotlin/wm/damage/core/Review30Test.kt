@@ -989,7 +989,6 @@ class Review30Test {
     private object EmptyContent : wm.damage.core.content.ContentProvider {
         override fun library(): List<wm.damage.core.content.BookMeta> = emptyList()
         override fun openBook(id: String): java.nio.file.Path = throw IllegalStateException("no books")
-        override fun state() = ""
     }
 
     /** Records the operations a window reports, so a pin can tell "it did

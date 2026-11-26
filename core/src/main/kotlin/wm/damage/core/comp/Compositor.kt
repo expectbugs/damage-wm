@@ -370,8 +370,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
 
     /** G1 item 5 (his glasses, 2026-11-19 14:46:57): the held cells on one lens. A sub the hold loop rolled back left its
      *  pixels in belief and its cells unknown inside them, never sent, and they stay so until the release — the agreement
-     *  check leaves these rects out while they wait, as it leaves out a motion's areas on the mirror. */
-    fun heldRects(left: Boolean): List<Rect> = if (left) deferL else deferR
+     *  check leaves these rects out while they wait, as it leaves out a motion's areas on the mirror. The bound list's
+     *  deferral with its growth, and a held lane's growth (Music's stage L; the lane itself is the mirror's owned rect). */
+    fun heldRects(left: Boolean): List<Rect> = if (left) deferL + laneGrownL else deferR + laneGrownR
 
     /** G4 item 1: [ends] taken by the model with no frame of their own — a phone PLAY sent ahead of the frame (the wrap's):
      *  END painted into both shadows and the areas held until the latest [EndPlan.untilMs], as [assembleWithEnds] leaves

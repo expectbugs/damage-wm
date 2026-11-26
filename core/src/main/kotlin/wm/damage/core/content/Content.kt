@@ -8,7 +8,6 @@ import java.net.Socket
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import wm.damage.core.util.Log
@@ -51,9 +50,6 @@ interface ContentProvider {
     /** Return a LOCAL path for the book, fetching/caching if remote. */
     fun openBook(id: String): Path
 
-    /** Human state for the status bar ("" = healthy). */
-    fun state(): String
-
     /** The local copy of [id] could not be READ (a cut or damaged file):
      *  forget it so the next open fetches afresh (round 3 R5). Callers pass
      *  only failures a refetch can fix — a deterministic parse failure is
@@ -83,8 +79,6 @@ class LocalContent(private val dir: Path) : ContentProvider {
             ?: throw IllegalArgumentException("book $id not in the library")
         return Path.of(m.file)
     }
-
-    override fun state(): String = ""
 
     companion object {
         fun idFor(p: Path): String = idForPathString(p.toAbsolutePath().toString())
@@ -378,35 +372,22 @@ class ContentHostServer(
  * cached listing; openBook() copies the book into [cacheDir] the first time it
  * is opened, then always reads the local copy.
  *
- * Reachability is decided INSIDE [withHost] and nowhere else (round 4): a
- * connect/stream failure marks the host gone, an in-band refusal marks it
- * refusing, a success marks it back — and a failure from an OLDER attempt
- * that lands after a newer success is ignored. Local disk failures are never
- * the host's fault and never touch the banner.
+ * R-b H2: the PC's reach is the app lane's (its paced ping, `AppClient`), said in
+ * the link cell by the health view (`PhoneHealth`); this provider no longer keeps
+ * a banner of its own, decided by its last book request. A request the PC refuses
+ * in-band is said through [onNotice]; every failure reaches its caller.
  */
 class RemoteContent(
     private val host: String,
     private val port: Int,
     private val token: String,
     private val cacheDir: Path,
-    /** Called when host reachability changes, with a SHORT status-bar string
-     *  ("" healthy · "PC gone" / "PC 4m" · "PC refused"). */
-    private val onState: (String) -> Unit = {},
-    /** Called with the human detail behind a state change — the notification
-     *  box has room for it, the link cell does not (round 4 #1). */
+    /** Called with the detail of a request the PC refused in-band (round 4 #1). */
     private val onNotice: (String) -> Unit = {},
     /** §72: a background refresh found a listing different from the cached one it had served,
      *  so the shelf should be asked again. Called on the refresh's own thread. */
     private val onLibraryChanged: () -> Unit = {},
 ) : ContentProvider {
-    @Volatile private var offlineSince: Long = 0
-    /** Set when the host is REACHABLE but said no (bad token, wrong proto,
-     *  a scan failure on its side) — never the "PC gone" banner (#B7). */
-    @Volatile private var refusedState: String? = null
-    private val attempts = AtomicLong(0)
-    /** The newest attempt that SUCCEEDED: an older attempt failing later must
-     *  not re-mark the host offline (round 4 #3). */
-    private val lastSuccess = AtomicLong(0)
     private val libCache: Path get() = cacheDir.resolve("library.json")
 
     /** The host answered with an in-band err frame: reachable, refusing. */
@@ -420,57 +401,17 @@ class RemoteContent(
     private inline fun <T> disk(op: () -> T): T = try { op() } catch (e: IOException) { throw CacheWriteFailed(e) }
 
     private fun <T> withHost(block: (DataInputStream, DataOutputStream) -> T): T {
-        val attempt = attempts.incrementAndGet()
         try {
-            val r = Socket(host, port).use { sock ->
+            return Socket(host, port).use { sock ->
                 val inp = DataInputStream(sock.getInputStream().buffered())
                 val out = DataOutputStream(sock.getOutputStream().buffered())
                 out.sendJson(json.encodeToString(Hello.serializer(), Hello(token = token)))
                 block(inp, out)
             }
-            markOnline(attempt)
-            return r
         } catch (e: HostRefused) {
-            if (attempt >= lastSuccess.get()) {     // a stale refusal must not clobber a newer success
-                offlineSince = 0
-                val banner = "PC refused"
-                refusedState = banner
-                onState(banner)
-            }
             onNotice("PC refused the request: ${e.message}")
             throw e
-        } catch (e: IOException) {
-            markOffline(attempt)
-            throw e
-        } catch (e: Exception) {
-            // the host answered (a per-book error, a local cache failure after a
-            // complete exchange): it is reachable, say so (round 5 #5)
-            markOnline(attempt)
-            throw e
         }
-    }
-
-    private fun markOnline(attempt: Long) {
-        lastSuccess.updateAndGet { maxOf(it, attempt) }
-        if (offlineSince != 0L) Log.i("content", "host $host back")
-        offlineSince = 0
-        refusedState = null
-        onState("")
-    }
-
-    private fun markOffline(attempt: Long) {
-        if (attempt < lastSuccess.get()) {
-            Log.i("content", "stale failure from attempt $attempt ignored — the host has answered since")
-            return
-        }
-        if (offlineSince == 0L) offlineSince = System.currentTimeMillis()
-        refusedState = null
-        onState(banner())
-    }
-
-    private fun banner(): String {
-        val mins = (System.currentTimeMillis() - offlineSince) / 60_000
-        return "PC ${if (mins < 1) "gone" else "${mins}m"}"
     }
 
     /** One background refresh of the listing at a time (§72). */
@@ -480,8 +421,8 @@ class RemoteContent(
      *  the PC in the background: the fresh listing replaces the cache, and the next call
      *  returns it. A PC that is off, out of reach or out of memory no longer leaves the shelf
      *  blank for the OS's whole connect give-up (2026-11-07: 01:03:20 → 01:05:30, 130 s), nor
-     *  the book a session restores, whose restore reads the listing first. The host cell says
-     *  "PC gone" while the cache answers. Only a device with no cache waits for the host. */
+     *  the book a session restores, whose restore reads the listing first. Only a device with
+     *  no cache waits for the host. */
     override fun library(): List<BookMeta> {
         val cached = cachedLibrary()
         if (cached.isEmpty()) return fetchLibrary()
@@ -644,8 +585,4 @@ class RemoteContent(
         return if (got == 2 && head[0] == 'P'.code.toByte() && head[1] == 'K'.code.toByte()) "epub" else "txt"
     }
 
-    override fun state(): String {
-        refusedState?.let { return it }
-        return if (offlineSince == 0L) "" else banner()
-    }
 }

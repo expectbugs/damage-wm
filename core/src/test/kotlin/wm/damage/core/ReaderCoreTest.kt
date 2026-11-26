@@ -117,7 +117,6 @@ class ReaderCoreTest {
                 return inner.library()
             }
             override fun openBook(id: String) = inner.openBook(id)
-            override fun state() = ""
         }
         val core = ReaderCore(counting, scope)
         val r = core.resolve("book:${ids[0]}")

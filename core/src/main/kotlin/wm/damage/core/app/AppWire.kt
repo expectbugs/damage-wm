@@ -21,7 +21,8 @@ import kotlinx.serialization.json.put
  * answers it with its one in-band "unknown request" and the stream stays aligned (`Content.kt`'s cross-version law);
  * the content port's own hello before it stays `proto: 1`.
  *
- * Client → PC: `sub {scope, epoch?, seq?}` · `unsub {scope}` · `op {op}` · `ping {k}` · `end {reason}`.
+ * Client → PC: `sub {scope, epoch?, seq?}` · `unsub {scope}` · `op {op}` · `ping {k}` · `end {reason}` · R-b H2: the
+ * phone's `health {lines}`.
  * PC → client: `welcome` · `snap {scope, epoch, seq, items}` · `chg {scope, epoch, seq, patches}` ·
  * `ans {stream, n | conn, k | scope, answer}` · `pong {k}` · `end {reason}` · S1-3: `live {src, init | frame | data | end}`.
  * A patch is `{addr, set}` (an item's whole entry): entries are absolute, never removed (a removal is the entry's
@@ -224,6 +225,15 @@ object AppWire {
 
     /** The prefix of a live source's scope: `live/<window>/<src>`. */
     const val LIVE = "live/"
+
+    /** R-b H2 (`RB-lean-spec.md` §4.4): phone → PC, the phone's own health lines, whole, when one changed and at every
+     *  `welcome`. Additive: a PC without it says the unknown message once and goes on. */
+    const val HEALTH = "health"
+
+    fun health(lines: List<HealthLine>): JsonObject = buildJsonObject {
+        put("t", HEALTH)
+        put("lines", buildJsonArray { for (l in lines) add(l.json()) })
+    }
 
     /** C§9.2 `pending`: the waiting state of an unapproved page (P6). */
     fun pending(code: String): JsonObject = buildJsonObject { put("t", "pending"); put("code", code) }

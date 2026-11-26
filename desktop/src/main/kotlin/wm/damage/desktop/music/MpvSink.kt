@@ -112,6 +112,9 @@ class MpvSink(
             open(path, posMs, true, lastTrack ?: TrackRef(0, path))
             return
         }
+        // a place said while paused (mpv's word on a seek made then, or one on its way when the pause went) is aged from
+        // mpv's first place after the resume, never by the pause (the second review's finding 2: up to AGE_MAX_MS ahead)
+        posSeenNs = null
         paused = false
         c.command("set_property", "pause", false) { if (!it.ok && c.open) events.failed("the PC player did not play: ${it.error}") }
     }

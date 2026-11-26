@@ -48,7 +48,7 @@ class Chrome(
         val compass: String? = null,
         val linkBars: Int = 0,           // 0..4
         val linkDbm: Int? = null,
-        val hostState: String = "",      // "" healthy-quiet · "PC 4m" when gone (§4.4)
+        val hostState: String = "",      // "" healthy-quiet · the worst health line's tag, `HostTag.text` (§4.4)
     )
 
     // System face, x-height-normalised scale applied by the rasterizer host.
@@ -430,12 +430,24 @@ class Chrome(
         if (s.hostState.isEmpty()) {
             g.fillRect(l.linkCell.x + 6, l.linkCell.y + 12, 4, 4, Level.REST)  // healthy: one dim mark
         } else {
-            // the host banner shares the cell with the BLE bars (right 44 px)
-            // and the poor-signal dBm: fit into what is left, never overdraw
+            // the host tag shares the cell with the BLE bars (right 44 px) and the poor-signal dBm. R-b H2: its
+            // vocabulary ([HostTag]) is measured to reach no further than the bars; a tag that does not fit what is
+            // left takes the fit path (the continuation mark), counted — never an overdraw
             val right = if (poor) l.linkCell.right - 48 - text.measure("${s.linkDbm}", fTel) - 4
                         else l.linkCell.right - 48
-            drawFit(g, l.linkCell.x + 6, fitY(l.linkCell, fTel, 6), right - 12 - (l.linkCell.x + 6),
-                s.hostState, Level.MID, fTel, right - 10)
+            val x = l.linkCell.x + 6
+            val y = fitY(l.linkCell, fTel, 6)
+            val tag = dynamic(s.hostState, fTel)
+            if (text.measure(tag, fTel) <= right - x) draw(g, x, y, tag, Level.MID, fTel)
+            else {
+                hostFitRuns++
+                drawFit(g, x, y, right - 12 - x, tag, Level.MID, fTel, right - 10)
+            }
         }
     }
+
+    /** R-b H2: how often the link cell's tag took the fit path (zero for [HostTag]'s vocabulary at the design size
+     *  with good signal; `HostTagFitTest` reads it). */
+    var hostFitRuns = 0
+        private set
 }

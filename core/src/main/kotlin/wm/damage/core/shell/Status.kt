@@ -67,6 +67,42 @@ object InputEcho {
 }
 
 /**
+ * R-b H2 (`private/build085/RB-lean-spec.md` §2, §4.5; his answer Q3: it stays in the link cell): the link cell's
+ * host half — empty while all is well (the cell's one dim mark), else the worst health line's tag. A fixed vocabulary,
+ * so the cell is MEASURED for it (`HostTagFitTest`): a word of [AGED] followed by its age (`PC 4m`, `hub 6m`, `copy
+ * 2d`), or a word that carries its own reading (`disk 98%`, at most two digits; [REFUSED]). The age is composed by the
+ * shell at each chrome build ([text]) from whole minutes of the wall clock, so it moves at the same minute as the
+ * clock cell and rides that cell's flush (`DESIGN.md` §8.3: chrome never justifies its own flush).
+ */
+data class HostTag(val word: String, val since: Long? = null) {
+    fun text(now: Long): String = if (since == null) word else "$word ${age(since, now)}"
+
+    companion object {
+        val NONE = HostTag("")
+        /** The words followed by an age: the PC out of reach, the hub silent, the nightly copy failed or old. */
+        val AGED = listOf("PC", "hub", "copy")
+        /** The PC answers but refuses this phone (its credential, or no lane this build speaks). */
+        const val REFUSED = "PC no"
+
+        /** Whole wall-clock minutes from [since] to [now]: `<1m`, `59m`, `23h`, `9d`. */
+        fun age(since: Long, now: Long): String {
+            val m = Math.floorDiv(now, 60_000L) - Math.floorDiv(since, 60_000L)
+            return when {
+                m < 1 -> "<1m"
+                m < 60 -> "${m}m"
+                m < 24 * 60 -> "${m / 60}h"
+                else -> "${m / (24 * 60)}d"
+            }
+        }
+
+        /** Every shape the cell is measured for, at its widest readings (two-digit days; three-digit ones take the
+         *  fit path, counted). */
+        val WIDEST: List<String> = AGED.flatMap { w -> listOf("<1m", "59m", "23h", "99d").map { "$w $it" } } +
+            listOf("disk 99%", REFUSED)
+    }
+}
+
+/**
  * One notice per fault class per EPISODE.
  *
  * An episode opens at a class's first occurrence and closes once the class

@@ -294,8 +294,12 @@ class Shell(
     private var loopJob: kotlinx.coroutines.Job? = null
     private var collectorLaunched = false
 
-    /** Host-link status line for the status bar (set by the content client). */
-    @Volatile var hostState: String = ""
+    /** R-b H2: the link cell's tag — the worst health line's, set by the phone's `PhoneHealth` on a change only; its
+     *  age is composed at each chrome build ([HostTag.text]), so it moves with the clock cell's minute. */
+    @Volatile var hostTag: HostTag = HostTag.NONE
+
+    /** R-b H2: the status cell's word as the last pump derived it, for the health view (any thread). */
+    val statusWordNow: String get() = statusWord
 
     /** The host's build, as the journal records it at every session start
      *  (§41): the APK's version or the desktop's git stamp — a journal read
@@ -2571,8 +2575,11 @@ class Shell(
             // is gated by that app's own rows in its own Settings category, never by a Global row
             // (P7 item 1, OS-1); S1-5 S removed the hidden SMS and MAIL gate (no row set it). An answer to Adam's own gesture
             // (`Notice.answer`, P7 item 2) is not a courtesy event either. A host category's notice
-            // (`Notice.gatedBy`, build W: the bus watcher's "Bastion") was gated by that category's own rows.
-            "DAMAGE" -> n.appId != null || n.answer || n.gatedBy != null || settings.notifyDamage
+            // (`Notice.gatedBy`, build W: the bus watcher's "Bastion") was gated by that category's own rows. R-b H2 (the
+            // lead's ruling, `RB-decisions.md` Part B): a notice that names Global (the health record's) is Damage's own,
+            // and Global's row for those is this one.
+            "DAMAGE" -> n.appId != null || n.answer || (n.gatedBy != null && n.gatedBy != Notifications.GLOBAL) ||
+                settings.notifyDamage
             else -> true
         }
     }
@@ -6196,8 +6203,19 @@ class Shell(
      *  its notch does nothing (the spec §1) — and what it is ([id]). */
     private class WindowFront(val w: DamageWindow, val v: WindowView.ListView, val id: WindowListView)
 
-    /** The window's list in front, or null (Main, the clock, an exclusive screen, any view that is not a list of 2+ rows). */
-    private fun windowFront(): WindowFront? {
+    /** The window's list in front, or null (Main, the clock, an exclusive screen, any view that is not a list of 2+ rows) —
+     *  inside a pump the turn's ([frontOfTurn]), elsewhere (a handler, a test's read) as it is now. */
+    private fun windowFront(): WindowFront? = frontOfTurn.let { if (it != null) it.front else windowFrontNow() }
+
+    /** K1-2 stage 4i (item 3; the first review of K1-2's finding D, measured: about 19 evaluations a pump with Settings'
+     *  Global in front, each the window's `view()`, `rowCount()` and `title()`, which Settings answers by building its rows
+     *  again): the window list in front worked out ONCE a pump, at its start — after the turn's message is handled — and
+     *  read by every holder, surface and rule the pump asks. The mode, the window and its list level change only in a
+     *  turn's handler, never inside its pump. Null outside a pump. */
+    private class FrontOfTurn(val front: WindowFront?)
+    private var frontOfTurn: FrontOfTurn? = null
+
+    private fun windowFrontNow(): WindowFront? {
         if (mode != Mode.WINDOW) return null
         val w = current ?: return null
         val v = w.view() as? WindowView.ListView ?: return null
@@ -6389,22 +6407,32 @@ class Shell(
 
     /** K1-2 stage 3: the window list's lane in idle, after the wheel's and before Page staging (decisions CK A3) — only at
      *  stage 5 on a 256 KiB session with a region of Main's own (decisions BC O2, O4): below that nothing of it is sent.
-     *  While a transition is in hand only the PAINT of the list that is arriving goes (K1-2 stage 4a; the K1-2 spec §5.3
-     *  and §6; decisions DA (c) 3): a row per loop turn as Main's paint (AF.8), in this lowest-priority step, which runs
-     *  only in a turn with nothing to send — ahead of [pumpMainBind]'s refusals of a flush in flight or pending, which a
-     *  run's frames meet for much of it. Every write (the records, LIST, the SETs, the count's reading) stays behind those
-     *  refusals, behind [cacheWritesHeld] and behind the run's end, so the level a Select brings is staged after the run
-     *  (pin 11), from rows already painted for its key. C3 DW-1b-1 (decisions DA (c) 4): nothing at all while the switcher
-     *  is open — an open wheel is a cover (its list is not in front), and a write then would sit ahead of the wheel's
-     *  answers and void the count reading an unbound open's bind waits for (P9). */
+     *  Under a transition [pumpLane]'s rule. C3 DW-1b-1 (decisions DA (c) 4): nothing at all while the switcher is open — an
+     *  open wheel is a cover (its list is not in front), and a write then would sit ahead of the wheel's answers and void
+     *  the count reading an unbound open's bind waits for (P9). */
     private suspend fun pumpWindowList(st: LinkState): Boolean {
         if (!st.effects || switcher.open || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || mainList.mainBindRegion(st).last + 1 >= st.cacheSize) return false
-        if (transition != null) return windowList.mainBindPaintUnderRun(st)
-        return windowList.pumpMainBind(st)
+        return windowList.pumpLane(st)
     }
 
-    /** K1-2 stage 4a: under a transition, one row of the arriving list's staging painted (loop work only) — never for a list
-     *  staged already (a kept staging's SETs ride the held frame; its rows' repaint and re-stage wait as today), never while
+    /** One rule for both lists' lanes while a transition is in hand (K1-2 stage 4a for the window list, 4i for Main: the
+     *  K1-2 spec §5.3, `FIRMWARE.md` §7.11; decisions DA (c) 3, DK 2): a list whose staging is not held and counted — a
+     *  level a Select brings, Main arriving with none (a session started inside a window, then Back) — is only PAINTED,
+     *  a row per loop turn as Main's paint (AF.8), in this lowest-priority step that runs only in a turn with nothing to
+     *  send, ahead of [pumpMainBind]'s refusals of a flush in flight or pending, which a run's frames meet for much of it.
+     *  Its layout and every write (the records, the count's reading, LIST, the SETs) follow the run's end, so it is staged
+     *  after the run from rows already painted for its key. A held, counted staging goes as it does with no run: Main's
+     *  (its SETs ride the held frame, a changed row re-staged), the window list's nothing (its rows' repaint and re-stage
+     *  wait for the run's end). */
+    private suspend fun ListBind.pumpLane(st: LinkState): Boolean = when {
+        transition == null -> pumpMainBind(st)
+        !mainBind.counted -> mainBindPaintUnderRun(st)
+        this === mainList -> pumpMainBind(st)
+        else -> false
+    }
+
+    /** K1-2 stage 4a: under a transition, one row of the arriving list's staging painted (loop work only, [pumpLane]) — never
+     *  for a list staged already (a laid-out one waits for the run's end, as its writes do), never while
      *  [mainBindBlocked] gives a reason or for a key refused, and, as Main's paint, not while the atlas is being written
      *  (§73: the atlas goes first) — [mainBindStage] with `paintOnly` stops before the layout, after which the records are
      *  wanted. True when a row was painted. */
@@ -6426,6 +6454,9 @@ class Shell(
     /** K1-2 stage 4a, tests (on the loop): the window list's paint in hand — rows painted, rows in all, rows painted under a
      *  transition — or null. */
     internal fun windowListPaintForTest(): Triple<Int, Int, Int>? = windowList.mainBindPaint?.let { Triple(it.next, it.n, it.underRun) }
+    /** K1-2 stage 4i, tests (on the loop): Main's paint in hand, as [windowListPaintForTest]; Main's region on this session. */
+    internal fun mainPaintForTest(): Triple<Int, Int, Int>? = mainList.mainBindPaint?.let { Triple(it.next, it.n, it.underRun) }
+    internal fun mainRegionForTest(): IntRange = mainList.mainBindRegion(transport.state.value)
     /** K1-2 stage 3b, tests (on the loop): the window list's refused stagings this process. */
     internal fun windowListRefusalsForTest(): Int = windowList.mainBindRefusals
     /** Tests (on the loop): a 114 body read as the transport hands one (the review's finding C pin: a body whose report was
@@ -7043,7 +7074,7 @@ class Shell(
      */
     private fun wheelNotOffered(st: LinkState): String? {
         if (!st.effects) return "below stage 5 (EFFECTS is not in force)"
-        if (st.cacheSize != CfwModes.CACHE2_MAX_RIDERS || mainList.mainBindRegion(st).last + 1 >= st.cacheSize) return "no 256 KiB session with a region of Main's own"
+        WheelResident.sessionRefusal(st.cacheSize, mainList.mainBindRegion(st).last + 1)?.let { return it }
         mainList.mainBindBlocked(st, front = false)?.let { return it }
         val b = wheel.block ?: return "the block is not placed${wheel.notPlacedSaid?.let { " (${it.removePrefix("not placed — ")})" } ?: " yet"}"
         wm.damage.core.motion.Wheel.refusal(b.geo, switcher.entryCount)?.let { return it }
@@ -7076,8 +7107,21 @@ class Shell(
     }
 
     /** THE BLOCK'S BASE (decisions CK A10: K1-2 stage 3's window list is laid out from here down): the lowest byte of Main's
-     *  region the wheel's block holds this session, else — no block placed — the region's end. */
-    private fun wheelBase(st: LinkState): Int = wheel.block?.base ?: (mainList.mainBindRegion(st).last + 1)
+     *  region the wheel's block holds this session, else the place reserved for it (C3 DW-1b-2, decisions DF finding 2:
+     *  [WheelResident.reserved]), else the region's end. */
+    private fun wheelBase(st: LinkState): Int = wheel.baseIn(mainList.mainBindRegion(st).last + 1)
+
+    /** C3 DW-1b-2 (decisions DF finding 2, amending CK A3's order of lanes): a window's list in front whose lane has its
+     *  staging still to lay out, write or count — the wheel's block waits behind it, its place reserved above it. Not
+     *  under an open switcher (the window list's lane writes nothing then, decisions DA (c) 4, and the wheel's lane writes
+     *  what the offer needs, CK A5), nor for a list refused for space, a list covered or adjusting, or no list in front. */
+    private fun windowListFirst(): Boolean {
+        if (switcher.open || !windowList.inFront()) return false
+        val b = windowList.mainBind
+        val ms = b.staging
+        if (ms == null) return windowList.mainBindRefusedFor == null
+        return !(b.counted && windowList.stagedFront() != null)
+    }
 
     /** The disparity the wheel would open with next — [switcherMargin]'s; behind the shell's clock Main's, which its wake
      *  brings; on an exclusive screen (where the chord never arms) its window's, which the double tap returns to (V1-DW1a F3). */
@@ -7096,7 +7140,7 @@ class Shell(
      *  layout and geometry the wheel would open at, the cells' keys, the item table's order, the motion, the region's end;
      *  [key] all of them. */
     private class WheelWant(val regs: List<DamageWindow?>, val lay: Layout, val g: wm.damage.core.motion.Wheel.Geo, val keys: List<WheelResident.CellKey>,
-                            val order: IntArray, val motion: MainStaging.ScrollMotion, val regionEnd: Int) {
+                            val order: IntArray, val motion: WheelMotion, val regionEnd: Int) {
         val face: String get() = "${g.w} x ${g.hC} + ${g.hN}"
         val key: WheelKey get() = WheelKey(keys, order.toList(), g.toString(), motion, regionEnd)
         /** C3 DW-1b-1 (CK A4, A5): the same want with the cells' keys [k] — an open keeps a cell painted for an older key. */
@@ -7105,7 +7149,12 @@ class Shell(
 
     /** What a block is built for ([WheelWant.key]): its cells' keys, its item table's order, its programs' geometry and
      *  motion, the region's end. The offer reads the order and the programs' part ([wheelNotOffered]). */
-    private data class WheelKey(val cells: List<WheelResident.CellKey>, val order: List<Int>, val g: String, val motion: MainStaging.ScrollMotion, val regionEnd: Int)
+    private data class WheelKey(val cells: List<WheelResident.CellKey>, val order: List<Int>, val g: String, val motion: WheelMotion, val regionEnd: Int)
+
+    /** The wheel's programs' timing: the Scroll tier's length and frames, and `Switcher` = None ([none]: the one-step
+     *  programs) — C3 DW-1b-2: a change to or from None is a change of the programs' key, so the offer fails until they are
+     *  rewritten ([wheelNotOffered]) and the lane rewrites them in place ([pumpWheel]). */
+    private data class WheelMotion(val scroll: MainStaging.ScrollMotion, val none: Boolean)
 
     private fun wheelWant(st: LinkState): WheelWant {
         val regs = listOf<DamageWindow?>(null) + windows
@@ -7119,7 +7168,7 @@ class Shell(
     /** The layout, geometry and motion the wheel would open with now (its programs' key, [WheelKey]). */
     private fun wheelLayout(): Layout = if (mode == Mode.SILENT) effectiveLayout() else layout
     private fun wheelGeo(st: LinkState) = wm.damage.core.motion.Wheel.geo(switcher, wheelLayout(), wheelOpenD(st))
-    private fun wheelMotion() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames)
+    private fun wheelMotion() = WheelMotion(MainStaging.ScrollMotion(settings.scrollLength, settings.frames), settings.switcher == "none")
 
     /** Each pump, after Main's poll: the block's records against the registry, the count, and Main's staging against the
      *  block's bytes (Main wins, decisions BD); then the offer (DW-1b-1). */
@@ -7207,7 +7256,7 @@ class Shell(
         // of [WheelResident.sent], so the comparison runs again)
         if (wheel.wantFor == w.key && b === wheel.want && wheel.sent.size == b.cells.size + 3) return false
         // kept current in place (§3.4): the block for the keys now on the placed block's offsets, record by record
-        val want = if (wheel.wantFor == w.key) wheel.want else try { b.rebuilt(w.g, cells, w.order, fx, w.motion) }
+        val want = if (wheel.wantFor == w.key) wheel.want else try { b.rebuilt(w.g, cells, w.order, fx, w.motion.scroll, w.motion.none) }
             catch (e: wm.damage.core.geom.LintError) { wheelDrop("it cannot be kept current: ${e.message}", keepCells = true); return true }
         wheel.wantFor = w.key; wheel.want = want
         if (want == null) {
@@ -7228,7 +7277,7 @@ class Shell(
         stageRecount()
         val what = when {
             part.name == wm.damage.core.motion.Wheel.Block.ITEMS -> "the item table (${want.n} of ${cells.size} entries: ${w.order.joinToString(" ") { w.keys[it].name }})"
-            part.name == wm.damage.core.motion.Wheel.Block.PROGRAMS -> "the programs (P ${want.period} T ${want.t} at ${w.g.panel} d ${w.g.d})"
+            part.name == wm.damage.core.motion.Wheel.Block.PROGRAMS -> "the programs (P ${want.period} T ${want.t}${if (want.none) ", Switcher None" else ""} at ${w.g.panel} d ${w.g.d})"
             part.name.startsWith("cell ") -> "the ${part.name} (${w.keys[part.name.removePrefix("cell ").toInt()]})"
             else -> "the ${part.name}"
         }
@@ -7256,14 +7305,19 @@ class Shell(
      *  Main's staging (said, and tried again when the want or Main's staging changes). */
     private suspend fun wheelPlace(st: LinkState, w: WheelWant, cells: List<wm.damage.core.motion.Wheel.Cell>, fx: wm.damage.core.motion.Motion.Effects): Boolean {
         val size = wheel.sized?.takeIf { it.first == w.key }?.second ?: try {
-            wm.damage.core.motion.Wheel.block(0, w.g, cells, fx, w.motion, order = w.order).size.also { wheel.sized = w.key to it }
+            wm.damage.core.motion.Wheel.block(0, w.g, cells, fx, w.motion.scroll, w.motion.none, w.order).size.also { wheel.sized = w.key to it }
         } catch (e: wm.damage.core.geom.LintError) { wheelNotPlaced("${e.message}", w.key); return false }
         val ms = mainList.mainBind.staging
         WheelResident.refusal(w.regionEnd, size, ms?.end)?.let { why ->
             // past the cap: not tried again until the want changes; met by Main: tried again as Main's staging changes
+            wheel.reserved = null
             wheelNotPlaced(why, if (size > WheelResident.CAP) w.key else null)
             return false
         }
+        // C3 DW-1b-2 (decisions DF finding 2): the block's place reserved by its size; a window's list in front still to be
+        // staged goes first, laid out under that place ([wheelBase]), and the block's write follows its count
+        wheel.reserved = size
+        if (windowListFirst()) return false
         val base = WheelResident.baseFor(w.regionEnd, size)
         // K1-2 stage 3 (decisions BD O5, CV): a window's list staged where the block goes yields — its staging drops (its
         // entries are CLEARed in the flush that follows, before any write of the block's: the idle step never runs in a
@@ -7272,7 +7326,7 @@ class Shell(
             windowList.mainBindDrop("the wheel's block goes at $base..${w.regionEnd}, over its records at ${l.start}..${l.end}: the list yields, and is staged again below the block")
             return true
         }
-        val b = wm.damage.core.motion.Wheel.block(base, w.g, cells, fx, w.motion, order = w.order)
+        val b = wm.damage.core.motion.Wheel.block(base, w.g, cells, fx, w.motion.scroll, w.motion.none, w.order)
         val parts = b.parts()
         val writes = parts.flatMap { it.writes }
         val rec = StagedRecord(WheelStageKey(wheel, wheel.serial++, "block"), Gray8(1, 1), concat(writes)).also { it.off = base }
@@ -8686,6 +8740,11 @@ class Shell(
     }
 
     private suspend fun pump() {
+        frontOfTurn = FrontOfTurn(windowFrontNow())      // K1-2 stage 4i: the turn's front, once ([windowFront])
+        try { pumpTurn() } finally { frontOfTurn = null }
+    }
+
+    private suspend fun pumpTurn() {
         // C3 X4T item 4: the first pump after a glyph hold's period is the one that lets its writes go
         if (glyphHoldPumpOwed && System.currentTimeMillis() >= glyphHoldUntilMs) glyphHoldPumpOwed = false
         val yieldReserve = reserveYield                 // P5 item 5: decided by this message's idle tick only
@@ -9018,7 +9077,7 @@ class Shell(
             //    the preview settle
             // the wheel's preview over Main before Main's staging step (decisions AL.1): a staging's paint turns are not
             // what the preview waits for
-            if (!animated && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !mainList.pumpMainBind(st) &&
+            if (!animated && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !mainList.pumpLane(st) &&
                 !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)
         }
         lanesAfter()                          // stage L: the chain's PLAY or PLAY-AFTER alone, after the frame
@@ -9624,7 +9683,7 @@ class Shell(
             compass = null,
             linkBars = if (st.connected) (if (st.leaseHeld) 4 else 2) else 0,
             linkDbm = st.rssiDbm,
-            hostState = hostState,
+            hostState = hostTag.text(System.currentTimeMillis()),
         )
     }
 

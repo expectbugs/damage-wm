@@ -119,9 +119,6 @@ class WindowLanes(private val say: (String) -> Unit) {
     /** When the next stretch is due to be sent (phone clock), or null. */
     var wakeAt: Long? = null
         private set
-    /** Stretches RIGHT said drew their last step, this session (the fuzz's figures). */
-    var stretchesDrawn = 0
-        private set
 
     /** The per-lens rects the compositor holds while a chain is open; empty otherwise. */
     val hold: List<Pair<Rect, Rect>> get() = chain?.areas ?: emptyList()
@@ -318,10 +315,7 @@ class WindowLanes(private val say: (String) -> Unit) {
             }
             s == null -> return                                // an ended chain's last word
             outcome == "closed" -> end("stretch ${s.n} was closed on the glasses while drawing (another PLAY met it, a keyframe, a release)", true)
-            outcome == "drew" -> {
-                stretchesDrawn++
-                say("stretch ${s.n} (tag 0x%04x) drew its last step: drawn %s, folded %s, a step %s µs".format(tag, drawn ?: "-", folded ?: "-", stepUs ?: "-"))
-            }
+            outcome == "drew" -> say("stretch ${s.n} (tag 0x%04x) drew its last step: drawn %s, folded %s, a step %s µs".format(tag, drawn ?: "-", folded ?: "-", stepUs ?: "-"))
         }
     }
 
