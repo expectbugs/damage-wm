@@ -2092,6 +2092,7 @@ class Shell(
             emptyList()
         }
         if (rects.isEmpty()) return
+        exclusiveRepaints++
         // with the window full two repaints of one band share a frame (modeled: the visualizer's
         // eight a second against a flush of 70 ms and up): the earlier paint's records under a rect this
         // paint returned are stale — a string that changed fails the band's proof, one that did not
@@ -3096,7 +3097,7 @@ class Shell(
             ?: return null to "${w.id} wants no lanes now"
         for (r in spec.rects) {
             if (!area.contains(r) || r != r.alignOut() || !comp.laneInOnePlane(r)) {
-                laneSay("${w.id}'s lane $r is refused: it must lie on the damage grid, inside the window's area and at one disparity")
+                laneSay("${w.id}'s lane $r is refused: it must lie on the damage grid, inside the window's area and inside one plane")
                 return null to "a lane off the grid"
             }
         }
@@ -8311,6 +8312,9 @@ class Shell(
      *  pin that a Settings adjust notch composes the content once reads it. Loop-only. */
     private var contentComposes = 0
     internal fun contentComposesForTest(): Int = contentComposes
+    /** Exclusive mode's repaints that changed something ([composeContent] does not run there; stage S's once-a-second pin). */
+    private var exclusiveRepaints = 0
+    internal fun exclusiveRepaintsForTest(): Int = exclusiveRepaints
 
     /** The window whose content [composeContent] paints — null for Main's rows. One definition for the compose and
      *  for [showsRequestOf], so the two cannot disagree. R4 item 4 (review 3A-2): while the wheel is open it is the
