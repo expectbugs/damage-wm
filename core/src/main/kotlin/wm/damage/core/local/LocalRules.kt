@@ -433,7 +433,6 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     /** The entry the phone holds for [eventId] on [list] (SET sent, no CLEAR since), or null. */
     fun heldFor(list: Int, eventId: Int): BoundList.Entry? =
         held.values.firstOrNull { it.list == list && it.entry.eventId == eventId }?.entry
-    fun holdsEntry(entry: Int): Boolean = held.containsKey(entry)
     fun heldEntry(entry: Int): Held? = held[entry]
     fun markOf(list: Int): Int = if (list in 0 until CfwModes.BIND_LISTS) wireMark[list] else -1
 
@@ -493,7 +492,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         if (tap) {
             tapNoClick()
             tapAwaitingClick = nowMs
-            tapsLive = bindFlag                      // RIGHT has shown it holds the tap entry this session
+            // RIGHT has shown it holds the tap entry this session — unless the entry that fired is not one the phone holds for
+            // the report's list (C3 DW-2c: another list's stale tap entry, which the table repair re-sends): then it has not,
+            // and a click with no report acts as today until a tap 115 or a read shows the tap entry
+            tapsLive = bindFlag && !repair.disagrees(a, this)
         }
         // the slot and list (a 3 or 14 body carries neither: the entry the phone holds for its event id names them)
         val f = front

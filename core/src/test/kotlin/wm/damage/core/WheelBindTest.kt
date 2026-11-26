@@ -731,6 +731,49 @@ class WheelBindTest {
     }
 
     /**
+     * C3 DW-2c (decisions EA; `C3-DW2a-built.md` §6 item 5, seed 424200905): the close's batch lost on RIGHT alone — RIGHT
+     * keeps the wheel's table (its report-only tap at entry 0, 6 and 7) and none of Main's SETs, while the record holds
+     * entry 0 for Main (its down entry). A tap on RIGHT reports "entry 0, list 2": the tap is dropped (`focus`), and the
+     * report is the table repair's evidence — the entry is held, but for list 0 — so the next batch carries Main's SET of
+     * entry 0, which replaces the wheel's tap entry on RIGHT. The NEXT tap is acted on: RIGHT now holds no tap entry
+     * (Main's SET of 2 went with the lost close), so it is a click with no report, and the stale tap's report did not set
+     * `tapsLive` — under `glasses` such a click is acted on as today, not dropped as `no-report`. Before the cure every
+     * tap reported the wheel's entry and was dropped until the next front change.
+     */
+    @Test
+    fun aLostCloseOnRightLeavesTheWheelsTapEntryAndTheRepairTakesItFromTheReport_DW2c(): Unit = runBlocking {
+        val r = Rig(taps = Taps.GLASSES, tweak = noActs)
+        try {
+            r.up(); r.open("w0"); r.open("w1"); r.toMain()
+            r.until("Main bound") { r.onLoop { r.shell.slot0ForTest() == "main" } && r.entriesOn(Arm.RIGHT, 0).size == 3 }
+            r.chord(); r.bound("the open in Main")
+            val wheels = synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).entries.copyOf() }
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("closed into Main") { !r.shell.switcherIsOpen }
+            r.until("Main bound again") { r.onLoop { r.shell.slot0ForTest() == "main" } && r.entriesOn(Arm.RIGHT, 0).size == 3 }
+            r.settle("Main")
+            // the close's table messages lost on RIGHT alone: RIGHT's table is the wheel's again, LEFT's is Main's
+            synchronized(r.sim) { wheels.copyInto(r.sim.bindForTest(Arm.RIGHT).entries) }
+            assertEquals(listOf(0, 6, 7) to emptyList<Int>(), r.entriesOn(Arm.RIGHT, 2) to r.entriesOn(Arm.RIGHT, 0), "precondition: RIGHT holds the wheel's table")
+            assertEquals(listOf(0, 1, 2), r.entriesOn(Arm.LEFT, 0), "precondition: LEFT holds Main's")
+            assertEquals(null, r.onLoop { r.shell.currentWindowId() }, "precondition: Main in front")
+            val at = r.right.size
+            val s1 = r.fire(CfwModes.EV_TAP)
+            r.until("the stale tap's report dropped") { r.notes("tapdrop").any { "S=$s1 " in it && "list=2" in it } }
+            r.until("the repair's SET of entry 0 in Main's form on RIGHT", maxMs = 10_000) {
+                synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).entries[0]?.list == 0 } }
+            r.settle("the repair")
+            assertTrue(r.since(at).any { ss -> ss.any { r.isSetOf(it, 0) && r.setEntry(it) == 0 } }, "a SET of entry 0 for list 0 after the tap")
+            val repairs = Files.readAllLines(r.journal).filter { "\"ev\":\"note\",\"kind\":\"repair\"" in it }
+            assertTrue(repairs.any { "entry 0 held for list 0, reported for list 2" in it && "Set(entry=0)" in it }, "the repair's note names the evidence: ${repairs.takeLast(2)}")
+            assertEquals(null, r.onLoop { r.shell.currentWindowId() }, "the stale tap was not acted on")
+            val s2 = r.fire(CfwModes.EV_TAP)
+            r.until("the next tap acts on Main's row", maxMs = 10_000) { r.onLoop { r.shell.currentWindowId() } != null }
+            assertTrue(r.notes("tapdrop").none { "cause=no-report" in it }, "no tap dropped as no-report: ${r.notes("tapdrop").takeLast(2)} (S $s2)")
+        } finally { r.close() }
+    }
+
+    /**
      * The envelope's "a session that ends with the wheel open" (the DW spec §5): the session ends with the wheel bound (the
      * shell stopped and started: the rig has no keeper to rebuild a dropped link) — the new
      * session's start sends nothing of list 2 (the offer goes at the start; the cache went with the session), the block is
