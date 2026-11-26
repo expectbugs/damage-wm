@@ -12771,5 +12771,23 @@
   ],
   "note": "the answer's DISCARD with two lists (K1-2 4b's row): it names the row handed for the list in front, whatever list the slot's report named — (1)/(9); the gate size by named reach seed 100564 (4b's first failing seed, list 1)",
   "from": "DW-2a"
+ },
+ {
+  "id": "DW3-wheel-swap-level",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "lvl1 = LEVEL_SWAP_CENTRE,",
+    "lvl1 = LEVEL_SWAP_NEIGHBOUR,"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest.theWheelsProgramsInVDwFireAreTheProductsBytes_DW3"
+  ],
+  "expect": [
+   "theWheelsProgramsInVDwFireAreTheProductsBytes_DW3"
+  ],
+  "note": "DW-3 (DQ (7)): the leaving centre dims to the neighbour form's unscaled level (15) instead of its swap level (4) — v5-dw-fire's down and up programs no longer equal Wheel.program's",
+  "from": "DW-3"
  }
 ]
