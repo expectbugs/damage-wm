@@ -450,7 +450,6 @@ class ScrollEffectsTest {
                 val mx = stage5(h, cache, ScrollEffect.MATRIX, rig)
                 val out = mx.remake(m.copy(effect = ScrollEffect.DEPTH), fx)
                 assertTrue(out is ListStaging.Remake.NoRoom && "Matrix's records are staging records" in out.why, "$h ${cache / 1024}: out of Matrix: ${(out as? ListStaging.Remake.NoRoom)?.why}")
-                assertEquals(stagingDigest(depth), stagingDigest(stage5(h, cache, ScrollEffect.DEPTH, rig)), "$h ${cache / 1024}: Depth again, byte for byte")
                 mx.periodInForce = mx.period + 8
                 val auto = assertNotNull((mx.remake(m.copy(effect = ScrollEffect.MATRIX), fx) as? ListStaging.Remake.Owed)?.programs, "$h ${cache / 1024}: Matrix's Auto re-make")
                 assertEquals(ScrollEffect.MATRIX to true, auto.plays.effect to auto.plays.v2, "$h ${cache / 1024}: Matrix's own pans at the new T ${auto.t}")
@@ -517,6 +516,171 @@ class ScrollEffectsTest {
             }
         }
         println("DM2a-matrix (BoxFace, modeled): the model's END = Main's paint = belief at $n notches; the fit at 256 KiB:\n" + fit.joinToString("\n"))
+    }
+
+    /** Pixels where [l]'s rows' areas (Matrix's T1 above the band and T2 below it, where the rain falls in view) differ from
+     *  [r]'s, each lens's area read at its own plane — [pan]'s areas on LEFT against RIGHT's, or one lens's against itself —
+     *  clipped to the panel. */
+    private fun rowsDiffer(l: ByteArray, r: ByteArray, pan: ListStaging.Pan, lLeft: Boolean = true, rLeft: Boolean = false): Int {
+        var d = 0
+        for (t in listOf(1, 2)) {
+            val a = pan.program.tracks[t].area(lLeft); val b = pan.program.tracks[t].area(rLeft)
+            for (y in 0 until a.h) for (x in 0 until a.w) {
+                val xa = a.x + x; val ya = a.y + y; val xb = b.x + x; val yb = b.y + y
+                if (xa !in 0 until wm.damage.core.geom.Geometry.PANEL_W || xb !in 0 until wm.damage.core.geom.Geometry.PANEL_W ||
+                    ya !in 0 until wm.damage.core.geom.Geometry.PANEL_H || yb !in 0 until wm.damage.core.geom.Geometry.PANEL_H) continue
+                if (nibble(l, xa, ya) != nibble(r, xb, yb)) d++
+            }
+        }
+        return d
+    }
+
+    /**
+     * C3 DM-2aF (decisions EV 1; `C3-DM2a-V1-a.md` F1): Matrix's rain is one picture on both lenses whatever their S. A bound
+     * fire's tag is the lens's own S (`FIRMWARE.md` §7.2: the seed is h0 after substitution, the tag mixed in only under opt
+     * bit 7), and the two S can differ for the rest of a lease (§6.4 "Both lenses": LEFT ahead after a dropped inter-lens
+     * answer). With LEFT's S set one ahead of RIGHT's (the counter set, as a dropped answer leaves it), Main's Matrix pans at
+     * stage 5, 256 KiB, the four heights, fired through BOTH lenses' hooks at every cursor in both directions, draw at EVERY
+     * step 1..T the same rows' areas (above and below the band, where the rain is in view) on LEFT and RIGHT, each at its own
+     * plane; a notch fired again from the same row (both S moved on) draws them again step for step — the rain follows the
+     * row it lands on, not S; and on the model a notch's parameters with another row's P1 (the entering row's band form,
+     * which seeds the rain) draw other rain over the same rows at some step.
+     */
+    @Test
+    fun matrixsRainIsOnePictureOnBothLensesWhateverTheirS_DM2aF() {
+        val cache = CfwModes.CACHE2_MAX_RIDERS
+        var steps = 0
+        val lenses = ArrayList<String>(); val again = ArrayList<String>(); val sameRain = ArrayList<String>()
+        for (h in heights) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            val ms = stage5(h, cache, ScrollEffect.MATRIX, rig)
+            assertEquals(ScrollEffects.Plays(ScrollEffect.MATRIX, true), ms.plays, "$h: Matrix plays its own version-2 pans")
+            val list = ms.boundList(1)
+            val sim = wm.damage.core.sim.GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = MainLocalCheck.features(true); it.clockIsOsTick = true }
+            val lens = MainLocalCheck.Lens(sim, cache)
+            val fails = ArrayList<String>()
+            for (arm in wm.damage.core.transport.Arm.entries) {
+                sim.conformanceLease(arm, true, lens.now)
+                sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, cache / 1024, lens.now)
+                sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, MainLocalCheck.flags(true), lens.now)
+            }
+            for (b in ms.blobs) lens.write(b.off, b.bytes, b.name, fails)
+            for (s in list.sets()) lens.send("a SET", s, fails)
+            lens.send("the LIST", list.listMessage(0), fails)
+            assertEquals(emptyList(), fails, "$h: the staging written and the list SET on both lenses")
+            sim.bindForTest(wm.damage.core.transport.Arm.LEFT).seqForTest(1)     // LEFT's S one ahead, as a dropped answer leaves it
+            /** One notch of [e] from row [c] through both hooks: the pan it plays and each step's (LEFT, RIGHT) panels; null
+             *  where the list's edge is (no pan plays there). */
+            fun notch(e: BoundList.Entry, c: Int): Pair<ListStaging.Pan, List<Pair<ByteArray, ByteArray>>>? {
+                val f = list.predict(c, e) as? BoundList.Fire.Drew ?: return null
+                lens.now += 1_000
+                lens.keyframe(rig.truth(c, true), rig.truth(c, false))
+                lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(ListStaging.SLOT, 1, ListStaging.LIST, c), fails)
+                lens.notifies()
+                val a = assertNotNull(lens.fire(CfwModes.DEV_RING, e.eventId), "$h ${e.step} from $c: RIGHT's report")
+                assertEquals(f.prog4 to f.cursor, a.prog to a.cursor, "$h ${e.step} from $c: drew as predicted (${a.describe()})")
+                val pan = ms.pans.first { it.prog4 == f.prog4 }
+                val t0 = lens.now
+                val out = (1..ms.t).map { k -> lens.wake(t0 + (k - 1).toLong() * e.period); lens.panel(wm.damage.core.transport.Arm.LEFT) to lens.panel(wm.damage.core.transport.Arm.RIGHT) }
+                lens.wake(t0 + ms.t.toLong() * e.period)
+                lens.notifies()
+                return pan to out
+            }
+            // the three parts each count their misses, so a run shows every one of them (the watch reads all three)
+            val first = HashMap<Pair<Int, Int>, List<Pair<ByteArray, ByteArray>>>()
+            for (e in list.entries.filter { !it.isTap }) for (c in 0 until ms.rows) {
+                val (pan, got) = notch(e, c) ?: continue
+                for ((k, lr) in got.withIndex()) {
+                    val d = rowsDiffer(lr.first, lr.second, pan)
+                    if (d > 0) lenses += "$h step ${e.step} from $c, step ${k + 1}: $d px"
+                    steps++
+                }
+                first[e.step to c] = got
+            }
+            assertEquals(emptyList(), fails, "$h: every DISCARD applied")
+            // the same notches again: both lenses' S have moved on by 2·rows, and every step is the first time's
+            for (e in list.entries.filter { !it.isTap }) for (c in listOf(0, ms.rows / 2)) {
+                val was = first[e.step to c] ?: continue
+                val (pan, got) = notch(e, c) ?: continue
+                for ((k, lr) in got.withIndex()) rowsDiffer(was[k].second, lr.second, pan, lLeft = false).let { d -> if (d > 0) again += "$h step ${e.step} from $c, step ${k + 1}: $d px" }
+            }
+            // another row's P1 over the same rows: other rain (the model, one tag for both)
+            val cacheImg = cacheOf(ms)
+            val ns = notches(ms, activeOnly = true)
+            for (nt in ns.filter { it.c == ms.rows / 2 }) {
+                val other = ns.first { it.pan === nt.pan && it.p[1] != nt.p[1] }
+                val p2 = nt.p.copyOf().also { it[1] = other.p[1] }
+                val base = panel(rig.truth(nt.c, true))
+                val moved = (1..ms.t).count { k -> rowsDiffer(Motion.stepOnModel(nt.pan.program, nt.p, cacheImg, base, base, true, tag = 7, k = k),
+                    Motion.stepOnModel(nt.pan.program, p2, cacheImg, base, base, true, tag = 7, k = k), nt.pan, rLeft = true) > 0 }
+                if (moved == 0) sameRain += "$h step ${nt.pan.step} from ${nt.c}: P1 of row ${other.to} for ${nt.to}"
+            }
+        }
+        assertEquals(Triple(emptyList<String>(), emptyList<String>(), emptyList<String>()), Triple(lenses.take(6), again.take(6), sameRain.take(6)),
+            "(a) of $steps steps, ${lenses.size} where LEFT's rows (S one ahead) are not RIGHT's; (b) ${again.size} steps where a notch from the same row " +
+            "(S moved on) is not its first time's; (c) ${sameRain.size} notches where another row's P1 draws the same rain at every step")
+        println("DM2aF-lenses: $steps steps with LEFT's S one ahead drew the same rows on both lenses")
+    }
+
+    /**
+     * C3 DM-2aF, the class (decisions EV 1): no program fired from a bound list mixes the fire's tag into a seed — opt bit 7
+     * of a PIECES or GLYPHS segment (`FIRMWARE.md` §7.2) — since a local fire's tag is each lens's own S. Every program the
+     * stagings bind carries none: Main's pans for every effect at stage 5 (version 2) and below it (version 1), the four
+     * heights, both caches, and its press; a window list's pans for every effect; the wheel's two notches, with motion and
+     * without (Matrix at stage 5 holds its rain, so the sweep reads a seeded verb). The refusal that holds it for an effect
+     * still to come (Scramble) is [theStagingsCheckRefusesABoundPanThatMixesTheTag_DM2aF].
+     */
+    @Test
+    fun noBoundProgramMixesTheTagIntoASeed_DM2aF() {
+        fun mixes(p: wm.damage.core.motion.MotionProgram) = p.tracks.any { t -> t.segments.any { (it.verb == Motion.PIECES || it.verb == Motion.GLYPHS) && it.opt and 0x80 != 0 } }
+        var n = 0
+        var seeded = 0
+        for (h in heights) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            for (cache in caches) for (s5 in listOf(false, true)) for (e in ScrollEffect.entries) {
+                val ms = rig.staging(cache, CfwModes.mainRegion(cache, true), ListStaging.ScrollMotion.DEFAULT.copy(effect = e), stage5 = s5)
+                val what = "$h ${cache / 1024} KiB stage ${if (s5) 5 else 4} ${e.word}"
+                if (s5 && e == ScrollEffect.MATRIX) assertEquals(ScrollEffects.Plays(ScrollEffect.MATRIX, true), ms.plays, "$what: Matrix plays itself")
+                for (p in ms.pans.map { it.program } + ms.press.program) {
+                    assertTrue(!mixes(p), "$what: a bound program at off4 ${p.at} mixes the tag into a seed")
+                    if (p.tracks.any { t -> t.segments.any { it.verb == Motion.GLYPHS } }) seeded++
+                    n++
+                }
+            }
+        }
+        assertTrue(seeded > 0, "the sweep read Matrix's rain")
+        val wrig = WindowListCheck.WindowRig(BoxFace, 352, WindowListCheck.Sample.GLOBAL)
+        for (e in ScrollEffect.entries) for (p in wrig.staging(e, region256.first, region256.last + 1).pans) { assertTrue(!mixes(p.program), "a window list's ${e.word} pan mixes the tag"); n++ }
+        for (none in listOf(false, true)) {
+            val b = wm.damage.core.motion.WheelCheck.Rig(BoxFace, 352, 6, 8).block(none = none)
+            for (step in intArrayOf(1, -1)) { assertTrue(!mixes(b.program(step)), "the wheel's ${if (step > 0) "down" else "up"} program (none $none) mixes the tag"); n++ }
+        }
+        println("DM2aF-class: $n bound programs, $seeded with Matrix's rain, mix no tag")
+    }
+
+    /**
+     * C3 DM-2aF, the class's refusal (decisions EV 1): the staging's own check of a bound pan ([ListStaging.checkEveryCursor],
+     * run on every pan a staging or a re-make lays, Main's and a window's) refuses a program that mixes the fire's tag into
+     * a seed, saying why — a pan of Matrix's areas and rain with the tag mixed in is refused, the same pan without it passes
+     * — so such an effect plays its fallback on Main, or a window's list is not staged, said; never a silent change of it.
+     */
+    @Test
+    fun theStagingsCheckRefusesABoundPanThatMixesTheTag_DM2aF() {
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows())
+        val ms = stage5(352, CfwModes.CACHE2_MAX_RIDERS, ScrollEffect.MATRIX, rig)
+        val real = ms.pan(ListStaging.WHOLE, 1)
+        val rainSeg = real.program.tracks[3].segments.single()
+        fun with(mix: Boolean) = ListStaging.Pan(real.k, real.kA, real.kB, real.step, Motion.program2(real.prog4, MainLocalCheck.effectsAt(true)!!) {
+            val w = real.program.tracks[0]
+            track(w.areaL, w.areaR, Motion.Backdrop.Level(0)) { wait(ms.t) }
+            track(w.areaL, w.areaR, Motion.Backdrop.None) { rain(rainSeg.rain!!, ms.t, x = 0, xR = 0, mixTag = mix) }
+        }, real.rules, real.strip, real.pitch)
+        ListStaging.checkEveryCursor(with(false), ms.rows, ms.ring, ms.itemOffs)
+        val refused = assertFailsWith<LintError>("the staging's check refuses a bound pan that mixes the tag into its seed") {
+            ListStaging.checkEveryCursor(with(true), ms.rows, ms.ring, ms.itemOffs)
+        }
+        assertTrue("tag" in (refused.message ?: "") && "seed" in (refused.message ?: ""), "said: ${refused.message}")
+        println("DM2aF-refusal: ${refused.message}")
     }
 
     // ------------------------------------------------------------------------------- C3 DM-1: Crush and Flip

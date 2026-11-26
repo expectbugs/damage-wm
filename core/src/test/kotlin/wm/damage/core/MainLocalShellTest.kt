@@ -936,6 +936,128 @@ class MainLocalShellTest {
     @Test fun oneStepUnderACoverStillSwitchesOnTheReturn_X3(): Unit = runBlocking { stepsUnderACover(listOf("crush"), 300) }
 
     /**
+     * C3 DM-2aF (decisions EV 2; `C3-DM2a-V1-a.md` F2, `C3-DM2a-V1-b.md` finding 1 — its probe's shape): `Scroll effect` set
+     * through Matrix with Main covered by Settings (stage 5, 256 KiB, [gapMs] between the steps). Matrix's records rule
+     * (a change into or out of a records effect is a full staging, decisions DV 2) is left standing under the cover and
+     * acted on with Main in front:
+     * - under the cover, whatever the steps: no drop and no staging — Main's staging is the one there was;
+     * - through Matrix on to another effect (the last step not "matrix"): back on Main no staging, the pans in force are
+     *   the last effect's (the programs-only re-make, as before DM-2a), the return's SETs name them, and the first notch
+     *   plays them on both lenses, COMMITted, the oracle holding;
+     * - Matrix kept: back on Main one drop (said: Matrix's records) and ONE full staging, Matrix's records in it; no SET
+     *   since the return names the old pans, and no notch on the glasses plays them — a notch at once is drawn as today
+     *   (the list is not bound until Matrix's staging is counted); once bound, a notch plays Matrix's pan on both lenses.
+     */
+    private suspend fun throughMatrixUnderACover(steps: List<String>, gapMs: Long = 300) {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            val d0 = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+            val old = d0.pans.map { it.prog4 }.toSet()
+            r.onLoop { r.shell.services.openWindow("settings", null) }
+            r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.until("Settings' transition landed") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.settle("in Settings")
+            val m = marks(r)
+            for (e in steps) { r.shell.updateSettings { it.copy(scrollEffect = e) }; delay(gapMs) }
+            delay(2_000)                                                   // a while in Settings, as he would spend there
+            r.settle("after the steps")
+            assertEquals("settings", r.onLoop { r.shell.currentWindowId() }, "still in Settings")
+            val m1 = marks(r)
+            val what = steps.joinToString("→")
+            assertEquals(m.staged to m.dropped, m1.staged to m1.dropped, "$what under the cover: no staging and no drop: ${r.notes("mainstage").takeLast(4)}")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging } === d0, "$what under the cover: Main's staging is the one there was")
+            // each scroll SET from here on, with the program record RIGHT holds at the off4 it names as the SET goes (before
+            // the lens handles it): its version and track count — Matrix's staging lays its pans where Depth's lay, so the
+            // bytes, not the offset, say whose pans a SET names
+            val named = java.util.concurrent.CopyOnWriteArrayList<String>()
+            r.onImage = { img -> for (sub in r.subs(img)) if (r.isSub(sub, 27, 0) && sub[4].toInt() == CfwModes.EV_UPROLL && sub[5].toInt() == 0) {
+                val o = r.u16(sub, 9) * 4
+                val head = synchronized(r.sim) { r.sim.right.textureCache?.copyOfRange(o, o + 2) }
+                named += if (head == null) "no cache" else "v${head[0]} ${head[1]} tracks" } }
+            val at = r.right.size
+            val s0 = r.sim.bindForTest(Arm.RIGHT).seq
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }
+            fun setsSince(): List<Int> = r.right.drop(at).flatMap { r.subs(it) }.filter { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL && it[5].toInt() == 0 }.map { r.u16(it, 9) }
+            if (steps.last() != "matrix") {
+                r.until("back on Main and its list bound on RIGHT") { r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
+                r.until("the return's transition landed") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+                r.settle("back on Main")
+                val (ms, pan) = r.onLoop { r.shell.mainBinding.staging!!.let { it to it.pan(ListStaging.WHOLE, 1) } }
+                assertTrue(ms === d0, "$what: no staging on the return")
+                assertEquals(steps.last(), ms.motion?.effect?.id, "$what: the pans in force are asked for ${steps.last()}")
+                val m2 = marks(r)
+                assertEquals(Triple(m.staged, m.dropped, m.switched + 1), Triple(m2.staged, m2.dropped, m2.switched), "$what: one switch, no staging, no drop")
+                assertTrue(setsSince().isNotEmpty() && setsSince().all { it == pan.prog4 }, "$what: the return's SETs name ${steps.last()}'s pan ${pan.prog4}: ${setsSince()}")
+                val s = r.fire(CfwModes.EV_UPROLL)
+                for (a in Arm.entries) r.until("$a plays the notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]?.prog4 } == pan.prog4 }
+                delay(r.motionMs() + r.q() + 300); r.settle("after the notch")
+                assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "$what: a COMMIT of S $s")
+                r.assertOracle("$what: after the notch")
+            } else {
+                // a notch at once, the return's transition still in hand: a lens that matched it (its S moved on) plays a
+                // program of five tracks — Matrix's — never the old pans' three
+                val s1 = r.fire(CfwModes.EV_UPROLL)
+                val drew = if (s1 == s0) null else Arm.entries.map { a -> synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]?.takeIf { it.tag == s1 }?.prog?.tracks?.size } }
+                r.until("$what: staged again on the return", 30_000) { r.onLoop { r.shell.mainBinding.staging }.let { it != null && it !== d0 } }
+                r.bound("$what: Matrix bound")
+                val (ms, pan) = r.onLoop { r.shell.mainBinding.staging!!.let { it to it.pan(ListStaging.WHOLE, 1) } }
+                val m2 = marks(r)
+                assertEquals(m1.staged + 1 to m1.dropped + 1, m2.staged to m2.dropped, "$what: one drop and ONE full staging on the return")
+                assertTrue(r.notes("mainstage").any { it.startsWith("dropped") && "Matrix's records are staging records" in it }, "$what: the drop says why: ${r.notes("mainstage").takeLast(3)}")
+                assertTrue(ms.recordEffect == wm.damage.core.motion.ScrollEffect.MATRIX && ms.plays.effect == wm.damage.core.motion.ScrollEffect.MATRIX, "$what: Matrix plays, its records staged: ${ms.plays}")
+                assertTrue(named.isNotEmpty() && named.all { it == "v2 5 tracks" }, "$what: every scroll SET since the return names Matrix's pans (version 2, five tracks), none the old ones: $named (${setsSince()}, old $old)")
+                assertTrue(drew == null || drew.all { it == null || it == 5 }, "$what: the notch at once drew no old pan on either lens (tracks per lens: $drew)")
+                delay(r.motionMs() + r.q() + 300); r.settle("after the first notch")
+                val s = r.fire(CfwModes.EV_UPROLL)
+                for (a in Arm.entries) r.until("$a plays Matrix's notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]?.prog4 } == pan.prog4 }
+                assertEquals(5, pan.program.tracks.size, "Matrix's pan")
+                delay(r.motionMs() + r.q() + 300); r.settle("after Matrix's notch")
+                assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "$what: a COMMIT of S $s")
+                r.assertOracle("$what: after Matrix's notch")
+            }
+            println("DM2aF $what gap $gapMs: ${r.notes("mainstage").drop(0).filter { "pans" in it || it.startsWith("dropped") || it.startsWith("staged") }.takeLast(6).map { it.take(90) }}")
+        } finally { r.close() }
+    }
+
+    @Test fun throughMatrixOnToNoneUnderACoverKeepsTheStaging_DM2aF(): Unit = runBlocking { throughMatrixUnderACover(listOf("crush", "matrix", "none")) }
+    @Test fun throughMatrixOnToCrushUnderACoverKeepsTheStaging_DM2aF(): Unit = runBlocking { throughMatrixUnderACover(listOf("none", "matrix", "crush")) }
+    @Test fun matrixKeptUnderACoverIsOneFullStagingOnTheReturn_DM2aF(): Unit = runBlocking { throughMatrixUnderACover(listOf("matrix")) }
+
+    /**
+     * C3 DM-2aF (`C3-DM2a-V1-b.md` §2: its probe, kept as a directed test; the fuzz and the stage-5 walk stay as they are):
+     * Depth → Matrix with Main in front on a link that takes time (20 ms a packet down, 30 up), four notches 400 ms apart
+     * from 4 ms after the drop — the first can race RIGHT's unbind. Every notch is counted (the row moves one a notch,
+     * whoever drew it), Matrix is staged and bound, and the oracle holds after its staging and after a Matrix notch.
+     */
+    @Test
+    fun notchesWhileMatrixIsStagedOnALinkThatTakesTimeAreEachCounted_DM2aF(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, link = 20L to 30L, features = 0xdff)
+        try {
+            r.up()
+            val d0 = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+            val n = r.list().count
+            val row0 = r.row()
+            r.shell.updateSettings { it.copy(scrollEffect = "matrix") }
+            r.until("Depth's staging dropped") { r.onLoop { r.shell.mainBinding.staging } !== d0 }
+            delay(4)
+            repeat(4) { r.fire(CfwModes.EV_UPROLL); delay(400) }
+            r.until("Matrix staged and bound", 60_000) { r.onLoop { r.shell.mainBinding.staging }?.recordEffect == wm.damage.core.motion.ScrollEffect.MATRIX &&
+                r.onLoop { r.shell.mainBoundForTest().first } != null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
+            r.settle("after Matrix's staging")
+            assertEquals((row0 + 4).mod(n), r.row(), "every notch counted: four rows on from $row0 (of $n)")
+            r.assertOracle("after Matrix's staging")
+            val pan = r.onLoop { r.shell.mainBinding.staging!!.pan(ListStaging.WHOLE, 1) }
+            r.fire(CfwModes.EV_UPROLL)
+            for (a in Arm.entries) r.until("$a plays Matrix's notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]?.prog4 } == pan.prog4 }
+            delay(r.motionMs() + r.q() + 300); r.settle("after Matrix's notch")
+            assertEquals((row0 + 5).mod(n), r.row(), "Matrix's notch counted")
+            r.assertOracle("after Matrix's notch")
+        } finally { r.close() }
+    }
+
+    /**
      * K1-2 stage 2, item 3a (decisions CM (1); `C3-FR-DM1.md` item 1, the narrow path of the covered switch): a programs
      * switch made with the list uncovered (Depth → Slide from another surface) falls in a pump with no room on the link, and
      * a cover (Settings) arrives before the next pump — so the switch's SETs never go; the cover's CLEAR goes instead. Then
