@@ -1078,20 +1078,21 @@ class MainLocalShellTest {
      * from 4 ms after the drop — the first can race RIGHT's unbind. Every notch is counted (the row moves one a notch,
      * whoever drew it), Matrix is staged and bound, and the oracle holds after its staging and after a Matrix notch.
      * C3 DM-2aV: the notches the glasses drew (both lenses' S moved and each lens's slot holds that S's instance) are
-     * counted and printed (measured in the rig; not asserted, the rate is the DM-2aV report's), and the leg out of
-     * Matrix runs the same.
+     * counted and printed, and the leg out of Matrix runs the same. Measured over twenty runs each (DM-2aV's report):
+     * into Matrix the glasses drew one notch in 18 and none in 2, so it is printed only; out of Matrix one in all 20, so
+     * at least one is asserted there.
      */
     @Test
     fun notchesWhileMatrixIsStagedOnALinkThatTakesTimeAreEachCounted_DM2aF(): Unit = runBlocking {
-        notchesDuringTheReStaging(ScrollEffect.DEPTH, ScrollEffect.MATRIX)
+        notchesDuringTheReStaging(ScrollEffect.DEPTH, ScrollEffect.MATRIX, glassesAtLeast = 0)
     }
 
     @Test
     fun notchesWhileMatrixIsLeftOnALinkThatTakesTimeAreEachCounted_DM2aV(): Unit = runBlocking {
-        notchesDuringTheReStaging(ScrollEffect.MATRIX, ScrollEffect.DEPTH)
+        notchesDuringTheReStaging(ScrollEffect.MATRIX, ScrollEffect.DEPTH, glassesAtLeast = 1)
     }
 
-    private suspend fun notchesDuringTheReStaging(from: ScrollEffect, to: ScrollEffect) {
+    private suspend fun notchesDuringTheReStaging(from: ScrollEffect, to: ScrollEffect, glassesAtLeast: Int) {
         val r = Rig(Taps.REPORT, stage = 5, link = 20L to 30L, features = 0xdff)
         try {
             r.up()
@@ -1110,16 +1111,17 @@ class MainLocalShellTest {
             r.shell.updateSettings { it.copy(scrollEffect = to.id) }
             r.until("${from.word}'s staging dropped") { r.onLoop { r.shell.mainBinding.staging } !== d0 }
             delay(4)
-            var glasses = 0
-            repeat(4) {
+            val glasses = ArrayList<Int>()
+            repeat(4) { k ->
                 val s0 = Arm.entries.map { a -> synchronized(r.sim) { r.sim.bindForTest(a).seq } }
                 r.fire(CfwModes.EV_UPROLL)
                 if (Arm.entries.withIndex().all { (i, a) -> synchronized(r.sim) { r.sim.bindForTest(a).seq.let { sa ->
-                        sa != s0[i] && r.sim.motionForTest(a).slots[ListStaging.SLOT]?.tag == sa } } }) glasses++
+                        sa != s0[i] && r.sim.motionForTest(a).slots[ListStaging.SLOT]?.tag == sa } } }) glasses += k + 1
                 delay(400)
             }
             r.until("${to.word} staged and bound", 60_000) { plays(to, d0) }
-            println("DM2aV ${from.word} → ${to.word}: $glasses of 4 notches during the re-staging drawn by the glasses")
+            println("DM2aV ${from.word} → ${to.word}: ${glasses.size} of 4 notches during the re-staging drawn by the glasses (notches $glasses)")
+            assertTrue(glasses.size >= glassesAtLeast, "${from.word} → ${to.word}: the glasses drew ${glasses.size} of the 4 notches (at least $glassesAtLeast)")
             r.settle("after ${to.word}'s staging")
             assertEquals((row0 + 4).mod(n), r.row(), "every notch counted: four rows on from $row0 (of $n)")
             r.assertOracle("after ${to.word}'s staging")
