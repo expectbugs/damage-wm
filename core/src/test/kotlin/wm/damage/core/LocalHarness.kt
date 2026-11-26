@@ -279,7 +279,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // C3 DW-2a (decisions DP 3): the wheel's case first, as `Shell.slot0` (3222) decides it — the switcher's cursor while
         // the wheel is offered, −1 while it is open and not (an open wheel is a cover: neither Main nor a window list under it)
         wheelOpen -> if (l2Bound) row2 else -1
-        !list1 -> row
+        // (a sequence with neither list 1 nor the wheel hands Main's row everywhere, as the harness always did — AF.2 credits a
+        // row handed with nothing in front to the list last in front, which is Main there; with the wheel it may be list 2,
+        // so a wheel sequence hands −1 under a cover and a window without a list, as the shell does: seed 100008 at stage 5,
+        // a DISCARD naming Main's row 7 on a wheel of 7 rows, refused 12 on both lenses)
+        !list1 && !wheel -> row
         covered || trans -> -1
         window -> if (win1 && l1Bound && staged1Key == win1Key) row1 else -1
         else -> row
