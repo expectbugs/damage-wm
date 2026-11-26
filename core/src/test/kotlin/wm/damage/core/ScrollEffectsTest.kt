@@ -588,6 +588,11 @@ class ScrollEffectsTest {
                         val belief = start.copy().also { ms.paintEnd(nt.pan, nt.p, left, it) }
                         assertEquals(0, differModel(end, belief, nt.pan.areas(left)), "$what: px where belief's END is not the model's")
                         val boxes = cellBoxes(nt.pan.program, nt.p, left)
+                        // the band's masks (T6, track index 5) are row nt.to's own band glyphs — the boxes the band's old
+                        // list (T7) holds for that row; a wrong table index masks another row's letters and leaves the new bare
+                        fun bandBoxes(p: IntArray, ti: Int) = cellBoxes(nt.pan.program, p, left).filter { it.third == ti }.map { it.first }
+                            .sortedWith(compareBy({ it.x }, { it.y }, { it.w }, { it.h }))
+                        assertEquals(bandBoxes(nt.p.copyOf().also { it[2] = nt.to }, 6), bandBoxes(nt.p, 5), "$what: the band's masks are row ${nt.to}'s band glyphs")
                         val one = Motion.stepOnModel(nt.pan.program, nt.p, cacheImg, base, base, left, tag = 7, k = 1)
                         val inBox = BooleanArray(wm.damage.core.geom.Geometry.PANEL_W * wm.damage.core.geom.Geometry.PANEL_H)
                         for ((r, _, _) in boxes) for (y in r.y until r.bottom) for (x in r.x until r.right) inBox[y * wm.damage.core.geom.Geometry.PANEL_W + x] = true
