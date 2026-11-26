@@ -752,7 +752,10 @@ ladder stage 5 Select, Close / Back and Lock Screen, then Popups), each saying w
 tier's rows on a tap; inside, a row is drawn without the tier's name, the title reads "animations · <tier>", Back
 returns to the tier's row. It is a list level like a category's; no other category is split (asked of him first).
 The rows (`core/…/shell/SettingsWindow.kt`, `ShellSettings.kt`): Scroll — Effect (None · Depth · Slide · Flip · Fall
-· Crush, default Depth), Length (225 · 300 · 450 · 600 · 800 ms, default 300), Frames (auto default); Select and
+· Crush, default Depth; below stage 5 Crush plays Slide and Flip its height turn, the row saying so), Length (225 ·
+300 · 450 · 600 · 800 ms, default 300), Frames (auto default), and at stage 5 each app's own `Scroll effect` row in
+its category (default · None · Depth · Slide · Fall; "default" follows this row and says what it plays on a window's
+list); Select and
 Close / Back — Length (450), Frames (10), one on/off row per effect (Depth · Warp · Flip · Fall · Glitch · Encode ·
 Matrix · Explode, Depth on); Lock Screen — the same with Fade · Build · Matrix · Encode · Glitch · Explode, Fade on;
 Popups — Length (300), Frames (auto), Unfurl (on), Fade, Slide (off).
