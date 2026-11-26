@@ -98,8 +98,9 @@ class ConformanceVectorTest {
         // the ship acts K1-2 stage 1 moved, C3 stage X2MX2's Warp, Flip and Encode acts and its new Crush act, and SV3's
         // new act (ended with SV3's comparison, X10T), Music's stage L's two lane shapes and K1-2 stage 4f's list-1 acts
         // with the four ring-tap acts it wrote again (both ended with K1-2 stage 4h's comparison), and C3 stage DW-3's for
-        // the app switcher's acts with the acts DW-3 and DW-3h wrote again (ended with DW-3h's comparison) — are gone:
-        // every unfilled file in the repo fails like any other.
+        // the app switcher's acts with the acts DW-3 and DW-3h wrote again (ended with DW-3h's comparison), and C3 stage
+        // OM-V's for every ship act written again after OM-1 (ended with OM-V's comparison) — are gone: every unfilled
+        // file in the repo fails like any other.
         // C3 stage DM-2a, one exception for its two new files (decisions DW 6, 7) — `v5-dm-rain-fire` (`make_vectors.py`) and
         // Main's Matrix ship act — exactly the names in [DM2A_UNFILLED], which wait for the fork's fill (F1, after DM-2b):
         // reported "not filled" with a count and run through the model ([theUnfilledVectorsRunThroughTheModel]); a filled
@@ -872,7 +873,9 @@ class ConformanceVectorTest {
      * 3a) written again, and the list-1 acts ([ShipVectors.list1Acts], compared on their ring form too); filled at K1-2
      * stage 4h's comparison. C3 DW-3: the wheel's acts ([ShipVectors.wheelActs], compared on [ShipVectors.wheelForms]) and
      * the 64 acts whose session writes the wheel's block, written again; C3 DW-3h: the 37 stage-5 160 KiB acts that stage
-     * Main, written again in today's form; filled at DW-3h's comparison.
+     * Main, written again in today's form; filled at DW-3h's comparison. C3 OM-V: every act written again for OM-1's form
+     * of its cache writes (mode 19 now mode 25, the same inflated bytes; their programs compare as before); filled at
+     * OM-V's comparison, but Main's Matrix act, which waits under [DM2A_UNFILLED].
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */

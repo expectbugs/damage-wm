@@ -1803,8 +1803,11 @@ bound 0x4000 below now reaches the lens a lagging numbering leaves behind, so th
 firmware's S at the entry match is proved by `v4-fail` (3 and 14 carry S); S6, the empty table clearing entries
 only — no phone path reaches it (every re-made table goes through the start's bind batch, whose LIST and SETTLE
 replace the list before a fire can read it), and it is proved on the firmware's side (its host pin, `v4-list`); S21L,
-a LIST lost on LEFT alone — it heals without the riding LIST, since LEFT's refusal fails the flush's ack and the table
-goes again (P1; I).
+a LIST lost on LEFT alone — in the host harness it heals without the riding LIST, since the runner reads each lens's
+return, so LEFT's refusal fails the flush and the table goes again (P1); on the glasses the image ack goes out before
+the decode, so a refusal on LEFT, reason 11 included, fails no ack and reaches the phone by no path today (LEFT sends
+nothing; there is no inter-lens report) — read in the fork's source on 2026-11-26, the ack's order not re-checked at
+instruction level that day.
 
 **No vector can prove** (one thread, one lens at a time, no UART): the inter-lens answer-and-drop order, a lost 115 or
 stock message, LVGL holding the gate, a release point on another task during a fire, step 1 within a time slice, the
@@ -2792,7 +2795,7 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 | the in-place base (b = d, OWN only) | with the instance | — | d | display task under the word; each lens moves its own picture | once per present | the overlay (carried along when shown); later tracks (§7.2's fold rule) |
 | G(b → k) | built per present | — | (b, k) and the levels | — | once | DRAW's ramp |
 | GLYPHS: the schedule (stateless), the read range | with the instance | a write over a named record closes it | the read range | written by the ui_task under the word, read by the hook under it | once per step; each (font, code) walked once a walk for the first four fonts (§7.6) | mode 18's glyph check (reused); the atlas planner (phone) |
-| the seed and the tag | — | — | h0 after substitution, the tag | LEFT's S ahead after a dropped answer draws other noise on LEFT until SETTLE | once | the fire's S |
+| the seed and the tag | — | — | h0 after substitution, the tag | LEFT's S ahead after a dropped answer draws other noise on LEFT on every later fire until a release point or a restart (a SETTLE ends only the picture then on the lens) | once | the fire's S |
 | the instance's path bit; the kept start per record segment and the kept record geometry | with the instance; the start and geometry recomputed at RETARGET (the path kept) | — (the walk that keeps them is the opening message's or the RETARGET's) | the instance; its record bytes are closed on meet | written on the ui_task under the word, read by the hook under it; a FLAGS_SET never touches them | once per present | every renderer of a record; an instance opened with EFFECTS clear runs C2's path to its end |
 | the byte table | built per track and step | — | the track's level ramp or G | display task only, under the word | once per track and step | the 16-entry LUT and G |
 | the step budget and each instance's C | C with the instance (written at its walk, replaced at a RETARGET) | — (a refusal changes nothing) | the program, its parameters and its records as walked; both lenses' rects; the slots drawing after the closes and the recorded triples | ui_task under the word | once per walk; each slot's C read once per sum | the values checks before it; PLAY-AFTER's waiting test (the chain rule reads the same triple) |
@@ -2922,7 +2925,8 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   and `v5-x3-hint`, and the `v5-ship-*` files — the shipped programs played as acts (transitions, scroll effects, the
   notice, the ring list; C3 X3D and SVR; a window's list bound as list 1, the `v5-ship-list1-*` acts, K1-2 stage 4;
   the app switcher's wheel, five `v5-ship-wheel-*` acts — opening with notches, a yield, Main's late report, a commit
-  to a window, a cancel — C3 DW-3), the wheel's hand-made `v5-dw-fire` (both wheel programs bound on ring lists: fires
+  to a window, a cancel — C3 DW-3; every act captured again after OM-1, each cache write that shrinks sent as mode
+  25, §5.9 — C3 OM-V), the wheel's hand-made `v5-dw-fire` (both wheel programs bound on ring lists: fires
   mid-list and at both wraps, the COMMITs of the reports, the report-only tap), and Music's four held-lane shapes
   (`v5-mml-*`: the bar and its chain, stage L; Scope and its chain, stage S), all filled by the fork's runner.
   The differential fuzz (`firmware/fuzz_vectors.py`; each switch's text is its docstring) has a switch per build —
