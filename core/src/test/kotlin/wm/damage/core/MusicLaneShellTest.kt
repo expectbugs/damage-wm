@@ -276,12 +276,12 @@ class MusicLaneShellTest {
             for (x in bar.x until bar.right) assertEquals(belief[x, y] / 17, lv(panel2, x, y), "paused: the panel is belief at x $x")
             // the window's continuous bar (the truth) at the paused place: its lit run is the place's, within a pixel
             val nominalX = (barL.x + bar.x) / 2
-            val (truthLit, want) = r.onLoop {
+            val (pausedLit, pausedWant) = r.onLoop {
                 val dur = r.player.state.durMs.takeIf { it > 0 } ?: r.player.state.track!!.durMs.toLong()
                 (0 until bar.w).takeWhile { Pack.level(r.shell.comp.composed[nominalX + it, y]) == 8 }.count() to
                     wm.damage.core.windows.music.MusicMotion.litPx(bar.w, r.player.positionMs(), dur)
             }
-            assertTrue(kotlin.math.abs(truthLit - want) <= 1, "the window's bar at the paused place: $truthLit px lit, the place's $want")
+            assertTrue(kotlin.math.abs(pausedLit - pausedWant) <= 1, "the window's bar at the paused place: $pausedLit px lit, the place's $pausedWant")
         } finally { r.stop() }
     }
 
