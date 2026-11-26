@@ -160,11 +160,11 @@ class SettingsLocalRowsTest {
     @Test
     fun theDefaultScrollLengthIs300_AZ7() {
         assertEquals(300, ShellSettings().scrollLength)
-        assertEquals(wm.damage.core.shell.MainStaging.ScrollMotion(300, 0), wm.damage.core.shell.MainStaging.ScrollMotion.DEFAULT)
+        assertEquals(wm.damage.core.shell.ListStaging.ScrollMotion(300, 0), wm.damage.core.shell.ListStaging.ScrollMotion.DEFAULT)
         assertTrue("scrollLength" !in ShellSettings().toJson(), "a default is not written, so an older record's omitted key reads the new default")
         val rig = wm.damage.core.shell.MainLocalCheck.MainRig(wm.damage.core.motion.BoxFace, 352, wm.damage.core.shell.MainLocalCheck.sampleRows())
         val ms = rig.staging(wm.damage.core.wire.CfwModes.CACHE2_MAX, wm.damage.core.wire.CfwModes.mainRegion(wm.damage.core.wire.CfwModes.CACHE2_MAX, true),
-            wm.damage.core.shell.MainStaging.ScrollMotion(ShellSettings().scrollLength, ShellSettings().frames))
+            wm.damage.core.shell.ListStaging.ScrollMotion(ShellSettings().scrollLength, ShellSettings().frames))
         assertEquals(46 to 6, ms.period to ms.t, "the default at 352")
     }
 }

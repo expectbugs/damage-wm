@@ -1725,7 +1725,7 @@ class LocalSequenceFuzzTest {
     /** C3 FZ5 (`private/c3-design/briefs/C3-FZ5-brief.md`): the motion a sequence's list plays. [DEFAULT] is the fuzz's
      *  short motion — T 3 at P 16, the press T 2, the notice's timer at P 16, a ring list per [ringOf], a wrap record on a
      *  plain list — exactly what an unset `LOCAL_FUZZ_TIMING` runs; [STAGE4] his glasses on APK 0.83: T 6 at P 46, the
-     *  press `MainStaging.PRESS_T` at P 46, the timer at `PopupPrograms.TIMER_PERIOD`, plain lists only; [STAGE5] the next
+     *  press `ListStaging.PRESS_T` at P 46, the timer at `PopupPrograms.TIMER_PERIOD`, plain lists only; [STAGE5] the next
      *  build with the fast-path fit: T 19 at P 16 (his Main at 352), the press at P 16, the timer at 128, a ring list per
      *  [ringOf], and no wrap record on a plain list (no stage-5 staging holds one: its edge is the phone's frames). */
     enum class Timing(val tScroll: Int, val period: Int, val tPress: Int, val noticePeriod: Int, val rings: Boolean, val wrapRecord: Boolean,
@@ -1735,8 +1735,8 @@ class LocalSequenceFuzzTest {
                        *  are out of this value's reach there: 3.0 and 3.2 at 0.30, with the owes at 23. */
                       val hisDrop: Double) {
         DEFAULT(LocalHarness.T_SCROLL, LocalHarness.PERIOD, LocalHarness.T_PRESS, LocalHarness.PERIOD, true, true, 0.57),
-        STAGE4(6, 46, wm.damage.core.shell.MainStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, false, true, 0.58),
-        STAGE5(19, 16, wm.damage.core.shell.MainStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, true, false, 0.58)
+        STAGE4(6, 46, wm.damage.core.shell.ListStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, false, true, 0.58),
+        STAGE5(19, 16, wm.damage.core.shell.ListStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, true, false, 0.58)
     }
 
     /** `LOCAL_FUZZ_TIMING=stage4|stage5|default` for the random bases and his profile; unset: the harness exactly as before

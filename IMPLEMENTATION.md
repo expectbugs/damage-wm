@@ -84,7 +84,7 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       ContentKit (lens/list/document), slides, persistence, settings,
                                       MenuSurface, KeyboardSurface (§4.8), ShellKeeper, Staging, Status,
                                       BatteryLatch, WindowContract (`DamageWindow`), AnchorCursor,
-                                      QuietHours, LoopWatch, MainSurface + MainStaging + MainBinding +
+                                      QuietHours, LoopWatch, MainSurface + ListStaging + ListBinding +
                                       MainLocalCheck (C2), TransitionRun (C3)
             wm.damage.core.app        the PC record, operation log, core executor, the merge rule
                                       (Merge: the latest input wins); + the `app` lane (AppWire, AppNet, AppClient,
@@ -1073,7 +1073,7 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   the fit below. C1's test programs (`motion/TestPrograms.kt`: list, popover, recede, flip; Main's pans from
   `MainPan.kt`) play only by hand (`probe motion=NAME`, `Transport.sendMotion`, ENGINE in force; their cache write is
   another writer's, so the shell drops its atlas for that session). `TestProgramsTest`, `MotionCheckTest`.
-- **Main's list staged** (C2; `shell/MainStaging.kt`, `MainBinding.kt`, `Shell.pumpMainBind`): the records from Main's
+- **Main's list staged** (C2; `shell/ListStaging.kt`, `ListBinding.kt`, `Shell.pumpListBind`): the records from Main's
   own painters — the strip (every row's row form, margin rows past each end), each row's band form, the item table,
   the programs — in Main's own 128 KiB region on a 256 KiB session with BIND, else the shared stage reserve
   (`CfwModes.mainRegion`); written as pieces of one mode-19 message (`STAGE_CHUNK`, 0.82), proven by the cache count,
@@ -1090,8 +1090,8 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
 - **The scroll effects and the fit** (`motion/ScrollEffects.kt`, K1-1; the `Scroll effect` row): None · Depth (the
   default) · Slide · Fall in version 1 from stage 4; Crush and Flip's width turn in version 2 at stage 5 (below it Crush
   plays Slide and Flip its height turn, and the row says so). A notch's period is fitted on the effect's painted area:
-  C2's fit `MainStaging.timing` (P0 with a margin, inside 16..128 ticks), at stage 5 the fast DRAW path's
-  `MainStaging.fastStepMs` (§7.12; four modeled figures, the fourth for Flip's scaled turn), both through `timingOf`; Auto frames take the steps
+  C2's fit `ListStaging.timing` (P0 with a margin, inside 16..128 ticks), at stage 5 the fast DRAW path's
+  `ListStaging.fastStepMs` (§7.12; four modeled figures, the fourth for Flip's scaled turn), both through `timingOf`; Auto frames take the steps
   that fit `Scroll length`, and the glasses' measured period (notify 114 field 9) raises the period. `ScrollEffectsTest`.
 - **The ring list** (C3 DM-0, 0.84): at stage 5, where Main's paint wraps (his eight rows at 288 and 352), the list is
   bound with LIST-RING (`CfwModes.bindListRing`, `BoundList.ring`); the strip carries the other end's rows as margins
@@ -1406,7 +1406,7 @@ the sections cited):
   the shell's one wake; `isQuiescent` waits for it); the hold loop has a throwing backstop (`HOLD_ROUNDS_MAX`) that
   lands in the shell's assemble-error path (the one loop on the shell's thread whose end rests on an argument).
   **Main as the bound list**
-  (`shell/MainStaging.kt`, `MainBinding.kt`): the strip covers every row; the row key is what the row DRAWS (never a
+  (`shell/ListStaging.kt`, `ListBinding.kt`): the strip covers every row; the row key is what the row DRAWS (never a
   value that moves without the picture — the Music row's progress as its lit blocks); one strip at every cache size — a
   row-form change withdraws the list, writes the row and binds it again; the band slots are sized per row, with two
   spares. The instruments: `LocalSequenceFuzzTest` (eight invariants), `desktop --local-check`,

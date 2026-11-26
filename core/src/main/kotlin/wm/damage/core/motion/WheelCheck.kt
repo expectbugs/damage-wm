@@ -14,7 +14,7 @@ import wm.damage.core.gfx.Zl
 import wm.damage.core.local.BoundList
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.MainLocalCheck
-import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ListStaging
 import wm.damage.core.shell.Shell
 import wm.damage.core.shell.Switcher
 import wm.damage.core.sim.GlassFirmwareSim
@@ -107,7 +107,7 @@ object WheelCheck {
 
         /** The block as its first tenant from the end of Main's region lies (decisions BD; the shell's placement,
          *  `WheelResident.baseFor`). */
-        fun block(motion: MainStaging.ScrollMotion = MainStaging.ScrollMotion.DEFAULT, none: Boolean = false, cells: List<Wheel.Cell> = cells()): Wheel.Block {
+        fun block(motion: ListStaging.ScrollMotion = ListStaging.ScrollMotion.DEFAULT, none: Boolean = false, cells: List<Wheel.Cell> = cells()): Wheel.Block {
             val end = CfwModes.mainRegion(CACHE, bind = true).last + 1
             val size = Wheel.block(0, geo, cells, effects(), motion, none).size
             return Wheel.block(wm.damage.core.shell.WheelResident.baseFor(end, size), geo, cells, effects(), motion, none)
@@ -270,7 +270,7 @@ object WheelCheck {
         val rig = Rig(text, h, n, d)
         val block = rig.block()
         val listNo = Shell.WHEEL_LIST
-        val slot = MainStaging.SLOT
+        val slot = ListStaging.SLOT
         var image: ByteArray? = null
         val list = block.boundList(listNo, slot, Shell.WHEEL_ENTRIES, 1) { image ?: block.cache(CACHE).also { image = it } }
         val rules = wm.damage.core.local.LocalRules()
@@ -376,7 +376,7 @@ object WheelCheck {
     }
 
     /** His nine windows' [cells] (the switcher's order) and the block's bytes with them: [block] as built (a quarter's slack
-     *  a cell, `MainStaging.slack`), [blockEighth] with an eighth's (`MainStaging.segSlack`), the rest as built. */
+     *  a cell, `ListStaging.slack`), [blockEighth] with an eighth's (`ListStaging.segSlack`), the rest as built. */
     class CellBytes(val cells: List<Wheel.Cell>, val block: Int, val blockEighth: Int)
 
     /** C3 X1W (decisions BK (2)): the wheel of his nine windows (Main and the first eight of [WINDOWS]) at [height], d 8, its
@@ -385,6 +385,6 @@ object WheelCheck {
         val rig = Rig(text, height, 9, 8, icons = icons)
         val cells = rig.cells()
         val block = rig.block(cells = cells)
-        return CellBytes(cells, block.size, block.size - block.cellSlots.sum() + cells.sumOf { MainStaging.segSlack(it.encoded.size) })
+        return CellBytes(cells, block.size, block.size - block.cellSlots.sum() + cells.sumOf { ListStaging.segSlack(it.encoded.size) })
     }
 }
