@@ -328,9 +328,6 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         count("starts")
     }
 
-    /** The link or the session ended: nothing more is planned until the next start. */
-    fun sessionEnd() { active = false; front = null; pending.clear() }
-
     /** BIND in the flags in force, as the last telemetry record (or the transport's state) shows it: `tapsLive` needs it
      *  as well as field 39's bit (decisions M.4). Whether anything is SENT is the shell's gate (BIND in force and the
      *  lease held, P9), not this. */

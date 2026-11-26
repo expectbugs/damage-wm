@@ -6,6 +6,8 @@ import java.nio.file.Paths
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.CoroutineScope
@@ -177,11 +179,32 @@ class WheelStage4Test {
                 if (a?.first != b?.first) return "act ${i + 1}: recorded \"${a?.first}\", now \"${b?.first}\""
                 for ((part, x, y) in listOf(Triple("frame", a!!.second, b!!.second), Triple("cache write", a.third, b.third))) {
                     val k = (0 until maxOf(x.size, y.size)).firstOrNull { x.getOrNull(it) != y.getOrNull(it) } ?: continue
-                    return "${a.first}: $part ${k + 1} of ${x.size} (recorded ${x.getOrNull(k)?.take(120)}, now ${y.getOrNull(k)?.take(120)})"
+                    val r = x.getOrNull(k).orEmpty(); val n = y.getOrNull(k).orEmpty()
+                    val c = r.indices.firstOrNull { it >= n.length || r[it] != n[it] } ?: r.length
+                    val from = maxOf(0, c - 24)
+                    return "${a.first}: $part ${k + 1} of ${x.size}, first differing at character $c of ${r.length} " +
+                        "(recorded …${r.drop(from).take(96)}, now …${n.drop(from).take(96)})"
                 }
             }
             return null
         }
+    }
+
+    /** C3 DW-F item 12 (b): the comparison's two sides, on the recording itself — a cache write moved past the frame after
+     *  it in its act is the same act; a frame changed by one character, or the write moved into the next act, is not. */
+    @Test
+    fun theComparisonFollowsTheSwitchersMessagesAndNotWhereACacheWriteFalls_DWF() {
+        val want = assertNotNull(file("stage4-h352.txt"), "the recording")
+        fun frame(l: String) = !l.startsWith("#") && !isCacheWrite(l)
+        val i = (0 until want.size - 3).first { isCacheWrite(want[it]) && isCacheWrite(want[it + 1]) && frame(want[it + 2]) && frame(want[it + 3]) }
+        val later = want.take(i) + want.subList(i + 2, i + 4) + want.subList(i, i + 2) + want.drop(i + 4)
+        assertTrue(later != want, "the moved write changes the exact order")
+        assertNull(difference(want, later), "a cache write one frame later in its act")
+        val changed = want.toMutableList().also { l -> l[i + 2] = l[i + 2].dropLast(1) + if (l[i + 2].last() == '0') '1' else '0' }
+        assertNotNull(difference(want, changed), "a frame changed by one character")
+        val next = (i + 4 until want.size).first { want[it].startsWith("#") }
+        val acrossAct = want.take(i) + want.subList(i + 2, next + 1) + want.subList(i, i + 2) + want.drop(next + 1)
+        assertNotNull(difference(want, acrossAct), "a cache write moved into the next act")
     }
 
     /** A window whose content is rows across the whole content width (so the columns beside the wheel's panel hold ink). */

@@ -671,7 +671,7 @@ class OracleWalkTest {
                         continue
                     }
                     val g = GESTURES[rig.rnd.nextInt(GESTURES.size)]
-                    rig.shell.postGesture(g)
+                    postDrawn(rig, g)
                     // a notice every so often: the box arrives at the content
                     // plane and steps FORWARD after its grace — two plane maps
                     // no gesture produces
@@ -782,7 +782,7 @@ class OracleWalkTest {
             }
             // away from Main, a double tap back one level now and then: the local events are Main's
             val g = if (rig.surface() != "main" && rig.rnd.nextInt(3) == 0) EvenHubMsg.EV_DOUBLE_CLICK else GESTURES[rig.rnd.nextInt(GESTURES.size)]
-            rig.shell.postGesture(g)
+            postDrawn(rig, g)
             val where = "$tag step $step (${EvenHubMsg.eventName(g)})"
             rig.settle(where)
             rig.assertOracle(where)
@@ -844,7 +844,7 @@ class OracleWalkTest {
                     }
                     val g = if (rig.rnd.nextInt(3) == 0) EvenHubMsg.EV_DOUBLE_CLICK else GESTURES[rig.rnd.nextInt(GESTURES.size)]
                     rig.mark("step $step (${EvenHubMsg.eventName(g)})")
-                    rig.shell.postGesture(g)
+                    postDrawn(rig, g)
                     if (rig.rnd.nextInt(13) == 0) { rig.mark("step $step notice"); rig.shell.postNotice(Notifications.Notice("SMS · WALK", "t$step", "step $step", "12:00")) }
                     val where = "$tag step $step (${EvenHubMsg.eventName(g)})"
                     rig.settle(where)
@@ -939,6 +939,16 @@ class OracleWalkTest {
         var boundAtOpen = 0; var boundMidOpen = 0; var neverBound = 0; var firstMidOpen = false
         val l1ByWindow = java.util.TreeMap<String, Int>()
         val trace = StringBuilder()
+    }
+
+    /** C3 DW-F item 4 (reader b's finding 3): a gesture the seed drew, posted so that the walk's path follows the seed
+     *  alone. Outside the switcher a double tap opens it when a long press armed the chord within `chordWindowMs` before
+     *  it — and how long the steps between took to settle decided that. A release posted just before the double tap
+     *  starts that window again when a long press armed it and does nothing when none did. Under the switcher §1.3's
+     *  grammar applies and nothing is added. */
+    private fun postDrawn(rig: Rig, g: Int, underWheel: Boolean = rig.shell.onLoop { rig.shell.switcherIsOpen }) {
+        if (g == EvenHubMsg.EV_DOUBLE_CLICK && !underWheel) rig.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE)
+        rig.shell.postGesture(g)
     }
 
     /** C3 DW-2: the chord as the ring delivers it (`ShellSettings.longPress` off, the default): a long press arms it, a
@@ -1082,7 +1092,7 @@ class OracleWalkTest {
             }
             // away from Main, a double tap back one level now and then
             val g = if (p.surface != "main" && dBack == 0) EvenHubMsg.EV_DOUBLE_CLICK else GESTURES[dGesture]
-            rig.shell.postGesture(g)
+            postDrawn(rig, g, underWheel = "+wheel" in p.surface)
             val where = "$tag step $step (${EvenHubMsg.eventName(g)} in ${p.surface})"
             rig.ready(where)
             rig.assertOracle(where)
