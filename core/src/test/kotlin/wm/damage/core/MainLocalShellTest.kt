@@ -75,7 +75,9 @@ class MainLocalShellTest {
      *  AD.1, `LadderRecord.sessionKib`), so its first start asks 256 KiB and Main stages into its own region; the start
      *  rig's mirror is its own model of the phone's bytes, as on glass (not the lens, as `SimTransport`'s is). */
     private class Rig(val taps: Taps, val stage: Int = 4, nRows: Int = 7, val kib256: Boolean = false, val link: Pair<Long, Long>? = null,
-                      val linkLatency: Long = 0, /** C3 DM-0: 0xdff for a bit-11 build (stage 5 arms EFFECTS). */ features: Int = 0x5ff) {
+                      val linkLatency: Long = 0, /** C3 DM-0: 0xdff for a bit-11 build (stage 5 arms EFFECTS). */ features: Int = 0x5ff,
+                      /** C3 DM-2aF: the rig's face ([FakeText] unless a pin needs one that lacks a glyph). */
+                      text: wm.damage.core.text.TextRasterizer = FakeText()) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-mainlocal")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
@@ -88,7 +90,7 @@ class MainLocalShellTest {
         }
         val journal = tmp.resolve("journal.jsonl")
         val persistence = Persistence(tmp.resolve("state.json"))
-        val shell = Shell(CachedText(FakeText()), t, persistence, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        val shell = Shell(CachedText(text), t, persistence, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val rows = (0 until nRows).map { Row("w$it", "Win $it", DamageWindow.Summary("summary $it", detail = "detail of $it", progress = if (it == 3) 0.25 else null)) }
         /** RIGHT's top-level images, in order. */
         val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
@@ -1024,6 +1026,50 @@ class MainLocalShellTest {
     @Test fun throughMatrixOnToNoneUnderACoverKeepsTheStaging_DM2aF(): Unit = runBlocking { throughMatrixUnderACover(listOf("crush", "matrix", "none")) }
     @Test fun throughMatrixOnToCrushUnderACoverKeepsTheStaging_DM2aF(): Unit = runBlocking { throughMatrixUnderACover(listOf("none", "matrix", "crush")) }
     @Test fun matrixKeptUnderACoverIsOneFullStagingOnTheReturn_DM2aF(): Unit = runBlocking { throughMatrixUnderACover(listOf("matrix")) }
+
+    /**
+     * C3 DM-2aF (`C3-DM2b-V1-a.md` §3, decisions EP 2): a staging that gave Matrix's records up stays on its fallback's
+     * pans through Auto's re-makes. The rig's face cannot draw 'F' (one of the noise set's codes), so Matrix's records
+     * cannot be made: Matrix asked at stage 5, 256 KiB, plays Depth, said. Then the glasses' steps are measured at 30 ms
+     * against the fit's 8.8 ms (modeled, 352), so the period in force rises and Auto owes another step count: over six
+     * slow notches and 3 s of quiet after them no staging is made again and none is dropped — Depth's pans are re-made
+     * alone ("pans re-made — the period in force …"), the staging the same object, the oracle holding. The counts are
+     * printed either way (measured in the rig).
+     */
+    @Test
+    fun aStagingThatGaveMatrixsRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2aF(): Unit = runBlocking {
+        val noF = object : wm.damage.core.text.TextRasterizer by FakeText() {
+            override fun covers(text: String, font: wm.damage.core.text.FontSpec) = text != "F"
+        }
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff, text = noF)
+        try {
+            r.up()
+            val d0 = r.onLoop { r.shell.mainBinding.staging }
+            r.shell.updateSettings { it.copy(scrollEffect = "matrix") }
+            r.until("Matrix asked and staged without its records") { r.onLoop { r.shell.mainBinding.staging }.let { it != null && it !== d0 &&
+                it.motion?.effect == wm.damage.core.motion.ScrollEffect.MATRIX } }
+            r.bound("Matrix asked, its records given up")
+            r.settle("staged")
+            val ms = r.onLoop { r.shell.mainBinding.staging!! }
+            assertTrue(ms.recordEffect == null && ms.plays.effect == wm.damage.core.motion.ScrollEffect.DEPTH &&
+                ms.plays.why?.startsWith("its records cannot be made") == true, "the records given up, said: ${ms.plays}")
+            val m = marks(r)
+            val p0 = r.onLoop { r.shell.periodInForceForTest() }
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
+            repeat(6) { n -> r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL); delay(r.motionMs() + r.q() + 300) }
+            delay(3_000)
+            val m2 = marks(r)
+            val p1 = r.onLoop { r.shell.periodInForceForTest() }
+            val remade = r.notes("mainstage").count { it.startsWith("pans re-made — the period in force") }
+            println("DM2aF given-up: ${m2.staged - m.staged} staging(s) and ${m2.dropped - m.dropped} drop(s) over 6 slow notches and 3 s; " +
+                "period in force $p0 → $p1; $remade Auto re-make(s); drops: ${r.notes("mainstage").filter { it.startsWith("dropped") }.takeLast(3).map { it.take(160) }}")
+            assertEquals(0 to 0, (m2.staged - m.staged) to (m2.dropped - m.dropped), "no staging again and no drop while Matrix's records stay given up")
+            assertTrue(p1 > p0 && remade > 0, "the period rose ($p0 → $p1) and Depth's pans were re-made alone for it ($remade)")
+            r.settle("after the notches")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging } === ms, "the same staging")
+            r.assertOracle("after the notches")
+        } finally { r.close() }
+    }
 
     /**
      * C3 DM-2aF (`C3-DM2a-V1-b.md` §2: its probe, kept as a directed test; the fuzz and the stage-5 walk stay as they are):

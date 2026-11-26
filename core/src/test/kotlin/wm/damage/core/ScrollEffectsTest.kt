@@ -464,15 +464,24 @@ class ScrollEffectsTest {
      * lands on, both directions, the four heights, both caches — the model's END (`Motion.endOnModel`) is Main's own paint
      * at the new cursor in the program's areas, and so is belief's; every bound program's first read range lies inside
      * Main's region (D1: private records, no atlas byte); at the middle step lit rain cells differ from Depth's pan at the
-     * same T in the rows' areas and nowhere in the band (the rain falls behind it), and at step T none do.
+     * same T in the rows' areas and nowhere in the band (the rain falls behind it), and at step T none do. C3 DM-2aF
+     * (decisions FA 2): at 256 KiB on [NoisyText], whose 16 noise codes are 16 different glyphs (the box face draws them as
+     * one), the rain's whole cells at the middle step show two or more of the noise set's glyphs as staged ([rainGlyphs]) —
+     * so a rain of one code, or of fills with no glyph, is seen; at 160 KiB the box face (NoisyText's rows alone overfill
+     * Main's 64 KiB region there).
      */
     @Test
     fun matrixsRainFallsThroughTheRowsAndIsGoneAtT_DM2a() {
         var n = 0
         val fit = ArrayList<String>()
+        var cells = 0
+        val kinds = HashSet<Int>()
         for (h in heights) {
-            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            val noisyRig = MainLocalCheck.MainRig(NoisyText(), h, MainLocalCheck.sampleRows())
+            val boxRig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
             for (cache in caches) {
+                val noisy = cache == CfwModes.CACHE2_MAX_RIDERS
+                val rig = if (noisy) noisyRig else boxRig
                 val ms = stage5(h, cache, ScrollEffect.MATRIX, rig)
                 val what0 = "$h ${cache / 1024} KiB Matrix"
                 assertEquals(ScrollEffects.Plays(ScrollEffect.MATRIX, true), ms.plays, "$what0: its own version-2 pans at stage 5")
@@ -480,6 +489,18 @@ class ScrollEffectsTest {
                 val cacheImg = cacheOf(ms)
                 val records = listOfNotNull(ms.strip.record, ms.wrap?.record) + ms.bands.map { it.record }
                 val staged = ScrollEffects.Staged(ms.layout, ms.listD, ms.bandD, ms.bands[0].record, records)
+                // C3 DM-2aF: the noise set's glyphs as staged — the first 16 records of Matrix's records, in the alphabet's
+                // order, read from the staged bytes (not through the font table the glasses' walk reads)
+                val recs = ms.blobs.last()
+                assertEquals("Matrix's records", recs.name, "$what0: Matrix's records lie last")
+                val noise = ArrayList<Triple<Int, Int, ByteArray>>()
+                var o = 0
+                for (code in ScrollEffects.NOISE_CODES) {
+                    val gw = recs.bytes[o].toInt() and 0xFF; val gh = recs.bytes[o + 1].toInt() and 0xFF
+                    val (px, end) = assertNotNull(wm.damage.core.sim.MotionSim.rle(recs.bytes, o + 2, gw * gh), "$what0: the glyph record of '${code.toChar()}' at ${recs.off + o}")
+                    noise += Triple(gw, gh, px); o = (end + 3) and 3.inv()
+                }
+                if (noisy) assertEquals(noise.size, noise.map { it.third.toList() }.distinct().size, "$what0: the face draws the ${noise.size} noise codes as as many glyphs")
                 for (nt in notches(ms)) {
                     Motion.play(nt.pan.program, ListStaging.SLOT, ms.period, 1, 0, nt.p)
                     val range = nt.pan.program.firstRange(nt.p)
@@ -504,6 +525,13 @@ class ScrollEffectsTest {
                         }
                         val rows = listOf(nt.pan.program.tracks[1].area(left), nt.pan.program.tracks[2].area(left))
                         assertTrue(lit(mid, rows) > 0, "$what: at step $mid of ${ms.t} the rain lights cells over the rows")
+                        if (noisy) {
+                            val seen = rainGlyphs(Motion.stepOnModel(nt.pan.program, nt.p, cacheImg, base, base, left, tag = 7, k = mid),
+                                nt.pan.program.tracks[3].area(left), bandAreas[if (left) 0 else 1], noise)
+                            assertTrue(seen.toSet().size >= 2, "$what: at step $mid the rain's whole cells show ${seen.size} noise glyph(s) of " +
+                                "${seen.toSet().size} kind(s): ${seen.toSet().map { ScrollEffects.NOISE_CODES[it].toChar() }} — two kinds or more are the noise set's")
+                            cells += seen.size; kinds += seen
+                        }
                         assertEquals(0, lit(mid, listOf(bandAreas[if (left) 0 else 1])), "$what: no rain over the band at step $mid")
                         assertEquals(0, lit(ms.t, nt.pan.areas(left)), "$what: at step T no cell is lit")
                     }
@@ -515,7 +543,39 @@ class ScrollEffectsTest {
                     "the records ${ms.blobs.last().bytes.size} B, a pan slot ${ms.progSlot} B, the free span ${ms.freeSpan} B"
             }
         }
-        println("DM2a-matrix (BoxFace, modeled): the model's END = Main's paint = belief at $n notches; the fit at 256 KiB:\n" + fit.joinToString("\n"))
+        println("DM2a-matrix (NoisyText at 256 KiB, the box face at 160 KiB; modeled): the model's END = Main's paint = belief at $n notches; at the middle step $cells whole rain " +
+            "cells drew a noise glyph, ${kinds.size} of the ${ScrollEffects.NOISE_CODES.size} codes seen; the fit at 256 KiB:\n" + fit.joinToString("\n"))
+    }
+
+    /** C3 DM-2aF (decisions FA 2): the noise glyphs in [pic] (a panel's nibbles) — each whole rain cell of [area] (Matrix's
+     *  T3: column c at its x + c·[ScrollEffects.RAIN_CW], cell row r at its y + r·ch, the rain's X and Y being 0; §7.6 RAIN)
+     *  inside the panel and clear of [band] (drawn over the rain) whose every pixel is one of [glyphs] (w, h, levels) at one
+     *  level L of 1..15 — its box filled 0, the glyph at the box's corner through `make_lut(L)` — gives that glyph's index.
+     *  A cell of the rows' own picture, or a fill with no glyph, gives none. */
+    private fun rainGlyphs(pic: ByteArray, area: Rect, band: Rect, glyphs: List<Triple<Int, Int, ByteArray>>): List<Int> {
+        val cw = ScrollEffects.RAIN_CW; val ch = glyphs[0].second
+        val out = ArrayList<Int>()
+        fun drawn(x0: Int, y0: Int, g: Triple<Int, Int, ByteArray>, lv: Int): Boolean {
+            for (yy in 0 until ch) for (xx in 0 until cw) {
+                val v = if (xx < g.first && yy < g.second) g.third[yy * g.first + xx].toInt() else 0
+                if (nibble(pic, x0 + xx, y0 + yy) != v * lv / 15) return false
+            }
+            return true
+        }
+        var y0 = area.y
+        while (y0 + ch <= area.bottom) {
+            var x0 = area.x
+            while (x0 + cw <= area.right) {
+                if (x0 >= 0 && y0 >= 0 && x0 + cw <= wm.damage.core.geom.Geometry.PANEL_W && y0 + ch <= wm.damage.core.geom.Geometry.PANEL_H &&
+                    Rect(x0, y0, cw, ch).intersect(band) == null) {
+                    val hit = glyphs.indices.firstOrNull { i -> (1..15).any { lv -> drawn(x0, y0, glyphs[i], lv) } }
+                    if (hit != null) out += hit
+                }
+                x0 += cw
+            }
+            y0 += ch
+        }
+        return out
     }
 
     /** Pixels where [l]'s rows' areas (Matrix's T1 above the band and T2 below it, where the rain falls in view) differ from
