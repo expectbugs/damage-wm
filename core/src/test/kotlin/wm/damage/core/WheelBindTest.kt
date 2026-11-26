@@ -50,9 +50,11 @@ class WheelBindTest {
     private class Win(id: String, name: String, @Volatile var n: Int = 4) : DamageWindow(id, name, IconKind.FILES) {
         val model = ListModel()
         @Volatile var heavy = false
+        /** Taps acted on in this window's own list (its `onCommit`). */
+        @Volatile var commits = 0
         override fun view(): WindowView = WindowView.ListView(model, { n },
             { g, i, r, _ -> for (k in 0..(i % 5)) g.fillRect(r.x + 12 + k * 22, r.y + 6, 14, 12, 120 + 20 * (k % 4)) },
-            { g, r, i -> g.fillRect(r.x + 4, r.y + 4, 8 + (i * 13) % 200, r.h - 8, 255) }, {})
+            { g, r, i -> g.fillRect(r.x + 4, r.y + 4, 8 + (i * 13) % 200, r.h - 8, 255) }, { commits++ })
         override fun summary() = if (heavy) Summary("M@W#".repeat(24), detail = "detail of $name", more = true) else Summary("summary of $name", detail = "detail")
         override fun saveState(): JsonObject = JsonObject(emptyMap())
         override fun restoreState(state: JsonObject) {}
@@ -340,6 +342,52 @@ class WheelBindTest {
             r.until("the tap commits") { !r.shell.switcherIsOpen }
             r.done("the commit")
             assertEquals(shown, r.onLoop { r.shell.currentWindowId() }, "the commit goes to the window the lens showed")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 DW-F (decisions EE 1; `C3-V2DW-a.md` F1): a notch the glasses draw on the bound wheel repaints the panel only, as a
+     * notch the phone draws does — the window behind the panel is not composed again (`composeContent`'s count) — and the
+     * frame it settles on, on both lenses, is the one a phone-drawn notch to the same row leaves (both with the preview of
+     * that row's window painted, after the burst's SETTLE), the status bar's rows aside (its throughput readout moves with
+     * every ack). Over a window, where Main's rest cannot compose in between.
+     */
+    @Test
+    fun anAdoptedWheelNotchPaintsThePanelOnlyAndSettlesAsAPhoneDrawnNotch_DWF(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up(); r.open("w0"); r.open("w1")
+            r.chord(); r.bound("the open over w1")
+            fun composes() = r.onLoop { r.shell.contentComposesForTest() }
+            fun panels() = listOf(true, false).map { r.panel(it).pix.copyOf() }
+            /** The preview of the cursor's window painted after the burst's SETTLE, belief equal to both lenses. */
+            suspend fun previewed(what: String) {
+                val b = assertNotNull(r.block())
+                val want = r.regs[b.cellOffs.indexOf(r.list().items!![r.row()] * 4)] ?: "@main"
+                r.until("$what: the preview of $want") { r.onLoop { r.shell.previewForTest() }.let { !it.first && it.second == want } }
+                r.settle(what); r.assertOracle(what)
+            }
+            val c0 = composes()
+            notch(r, CfwModes.EV_UPROLL, "a notch the glasses draw")
+            assertEquals(c0, composes(), "the adopted notch composed the window behind the panel")
+            val row1 = r.row()
+            previewed("after the adopted notch")
+            val adopted = panels()
+            notch(r, CfwModes.EV_DOWNROLL, "back by a notch the glasses draw")
+            previewed("back")
+            r.shell.postGesture(assertNotNull(BoundList.stockEvent(CfwModes.EV_UPROLL)))   // the phone draws the same notch
+            r.until("the phone's notch reached row $row1") { r.row() == row1 }
+            previewed("after the phone's notch")
+            val phone = panels()
+            // the status bar's rows are left out: its throughput cell reads the link's moving averages (`K/s · ms`), which
+            // change with every ack, so two moments a second apart differ there whichever notch came before
+            val w = Geometry.PANEL_W
+            val bar = r.onLoop { r.shell.layout.statusBar }
+            val differ = listOf("LEFT", "RIGHT").mapIndexedNotNull { k, lens ->
+                val d = adopted[k].indices.filter { it / w !in bar.y until bar.bottom && adopted[k][it] != phone[k][it] }
+                if (d.isEmpty()) null else "$lens ${d.size} px in x ${d.minOf { it % w }}..${d.maxOf { it % w }}, y ${d.minOf { it / w }}..${d.maxOf { it / w }}"
+            }
+            assertTrue(differ.isEmpty(), "the adopted notch's frame is the phone-drawn notch's: ${differ.joinToString("; ")}")
         } finally { r.close() }
     }
 
@@ -684,49 +732,41 @@ class WheelBindTest {
 
     // --------------------------------------------------------------------------------------------------- the envelope
     /**
-     * The envelope's lost CLEARs (decisions DA (d) 1): the close's CLEARs of the wheel's entries lost on both lenses. Into
-     * Main — Main's SET 0 replaced the tap entry and Main's 0 and 1 match before 6 and 7, so a notch is Main's, adopted.
-     * Into a window whose list is bound (3–5) — a tap fires the wheel's stale tap entry 0 first: its 115 names an entry the
-     * phone does not hold, the table repair CLEARs it in the next batch (the rule that exists), and the next tap fires list
-     * 1's. (That first tap is not acted on: the cost of the case, said in the report.)
+     * The envelope's lost close into a window whose list is bound (decisions DA (d) 1; C3 DW-F, decisions EE 5): the close's
+     * batch lost on RIGHT alone — RIGHT keeps the wheel's whole table (its report-only tap at entry 0, 6 and 7) and none of
+     * Files' entries (3–5), LEFT holds Files'. A tap on RIGHT fires the wheel's stale tap entry 0: its 115 names an entry the
+     * phone does not hold, so the table repair CLEARs it in the next batch and the tap is not acted on (the cost of the case,
+     * said in the report); the next tap finds no tap entry on RIGHT, so it is a click with no report, and it acts on Files'
+     * list. The same loss into Main is DW-2c's pin.
      */
     @Test
     fun aLostClearOfTheWheelsEntriesIsMendedByTheRulesThatExist_DW1b1(): Unit = runBlocking {
-        val r = Rig(extra = listOf(Win("files", "Files", n = 6)))
+        val files = Win("files", "Files", n = 6)
+        val r = Rig(extra = listOf(files))
         try {
             r.up(); r.open("w0"); r.open("w1"); r.toMain()
-            r.chord(); r.bound("the open in Main")
-            val kept = Arm.entries.associateWith { a -> synchronized(r.sim) { listOf(6, 7).associateWith { r.sim.bindForTest(a).entries[it] } } }
-            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
-            r.until("closed into Main") { !r.shell.switcherIsOpen }
-            r.until("Main bound") { r.onLoop { r.shell.slot0ForTest() == "main" } && r.entriesOn(Arm.RIGHT, 0).size == 3 }
-            r.settle("Main")
-            synchronized(r.sim) { for (a in Arm.entries) for ((e, v) in kept.getValue(a)) r.sim.bindForTest(a).entries[e] = v }
-            assertEquals(listOf(0, 1, 2), r.entriesOn(Arm.RIGHT, 0), "Main's SET 0 replaced the wheel's tap entry")
-            val at = r.right.size
-            val (main0, row0) = r.onLoop { r.shell.mainBoundForTest() }
-            val s = r.fire(CfwModes.EV_UPROLL)
-            delay(1_200); r.settle("a notch in Main")
-            assertEquals((row0 + 1).mod(assertNotNull(main0).count), r.onLoop { r.shell.mainBoundForTest().second }, "the notch is Main's, adopted")
-            assertTrue(r.since(at).any { ss -> ss.any { r.isCommit(it, s) } }, "a COMMIT of S $s (a fire of list 2 would be answered by a DISCARD)")
-            // into a window whose list is bound
             r.open("files")
             r.until("Files' list bound") { r.onLoop { r.shell.slot0ForTest() == "window" } && r.entriesOn(Arm.RIGHT, 1).size == 3 }
             r.chord(); r.bound("the open in Files")
-            val kept2 = Arm.entries.associateWith { a -> synchronized(r.sim) { listOf(0, 6, 7).associateWith { r.sim.bindForTest(a).entries[it] } } }
+            val wheels = synchronized(r.sim) { r.sim.bindForTest(Arm.RIGHT).entries.copyOf() }
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             r.until("closed into Files") { !r.shell.switcherIsOpen }
             r.until("Files' list bound again") { r.onLoop { r.shell.slot0ForTest() == "window" } && r.entriesOn(Arm.RIGHT, 1).size == 3 }
             r.settle("Files")
-            synchronized(r.sim) { for (a in Arm.entries) for ((e, v) in kept2.getValue(a)) r.sim.bindForTest(a).entries[e] = v }
-            val at2 = r.right.size
-            r.fire(CfwModes.EV_TAP)
+            // the close's table messages lost on RIGHT alone: RIGHT's table is the wheel's again, LEFT's is Files'
+            synchronized(r.sim) { wheels.copyInto(r.sim.bindForTest(Arm.RIGHT).entries) }
+            assertEquals(listOf(0, 6, 7) to emptyList<Int>(), r.entriesOn(Arm.RIGHT, 2) to r.entriesOn(Arm.RIGHT, 1), "precondition: RIGHT holds the wheel's table")
+            assertEquals(3, r.entriesOn(Arm.LEFT, 1).size, "precondition: LEFT holds Files'")
+            val at = r.right.size
+            val s1 = r.fire(CfwModes.EV_TAP)
             r.until("the stale entry 0 CLEARed on RIGHT") { r.entriesOn(Arm.RIGHT, 2).let { 0 !in it } }
             r.settle("the repair")
-            assertTrue(r.since(at2).any { ss -> ss.any { r.isClearOf(it, 0) } }, "the repair's CLEAR of entry 0")
-            assertTrue(r.notes("tapdrop").any { "list=2" in it }, "the stale tap's report is not acted on: ${r.notes("tapdrop").takeLast(2)}")
-            val s2 = r.fire(CfwModes.EV_TAP)
-            r.until("the next tap acts on Files' list") { r.notes("tapdrop").none { "S=$s2 " in it } && r.onLoop { r.shell.localCountsForTest()["tapActed"] ?: 0 } > 0 }
+            assertTrue(r.since(at).any { ss -> ss.any { r.isClearOf(it, 0) } }, "the repair's CLEAR of entry 0")
+            assertTrue(r.notes("tapdrop").any { "S=$s1 " in it && "list=2" in it }, "the stale tap's report is not acted on: ${r.notes("tapdrop").takeLast(2)}")
+            assertEquals(0 to "files", files.commits to r.onLoop { r.shell.currentWindowId() }, "the stale tap acted on nothing")
+            r.fire(CfwModes.EV_TAP)
+            r.until("the next tap acts on Files' list") { files.commits == 1 }
+            assertEquals("files", r.onLoop { r.shell.currentWindowId() }, "still in Files")
         } finally { r.close() }
     }
 

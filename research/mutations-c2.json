@@ -12849,5 +12849,117 @@
   ],
   "note": "C3 DW-2c: a tap 115 from another list's stale tap entry sets tapsLive — after the repair RIGHT holds no tap entry, and under glasses the next tap's click (no report) is dropped as no-report until a telemetry read: (6)",
   "from": "DW-2c"
+ },
+ {
+  "id": "DWF-adopt-wheel-composes",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (boundSurface() === wheelBind) paintSwitcherFrame() else composeContent()",
+    "                composeContent()"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.anAdoptedWheelNotchPaintsThePanelOnly*"
+  ],
+  "expect": [
+   "anAdoptedWheelNotchPaintsThePanelOnlyAndSettlesAsAPhoneDrawnNotch_DWF"
+  ],
+  "note": "C3 DW-F item 1 (V2DW reader a): an adopted wheel notch composes the window behind the panel, where the phone's own wheel notch paints the panel only",
+  "from": "DW-F"
+ },
+ {
+  "id": "DWF-waitsfor-kept-after-place",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            stageWaitsFor = null                  // C3 DW-F item 2",
+    "            // stageWaitsFor = null                  // C3 DW-F item 2"
+   ]
+  ],
+  "tests": [
+   "*WheelBindTest.aSessionStartWithADocument*"
+  ],
+  "expect": [
+   "(declared, no pin: the wait a placed strip leaves set matters only when that strip is evicted and wanted first again with no registry clear between, when pageStagingFirst lets the wheel's block go ahead of it once; reaching it needs the 32 KiB reserve filled with pinned strips and the block placed again, more than the 40 lines the brief allows (decisions DY 7.3))"
+  ],
+  "note": "C3 DW-F item 2 (decisions DY 7.3): the strip that waited on a reserve of pinned records stays the wait after it is placed",
+  "from": "DW-F"
+ },
+ {
+  "id": "K12S4b-owed-sets-only-list0",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "pending.removeAll { it is Pending.Set && it.list.list == old.list }",
+    "pending.removeAll { it is Pending.Set && it.list.list == 0 }"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "(declared, no pin: unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; kept because it states its function's rule; even with the line deleted the owed SETs at a front() are telemetry's for the old front's held entries, which the CLEARs on the next line follow, so only bytes change, never the lens's table)"
+  ],
+  "note": "P9 with two lists: a SET still owed for list 1 when it leaves the front is sent after it left (K12S4b; not caught at 8,000 in DW-2a)",
+  "from": "DW-F"
+ },
+ {
+  "id": "DW2a-holds-any-list",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        return h.list == list && sameEntry(h.entry, e)",
+    "        return sameEntry(h.entry, e)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "(declared, equivalent: sameEntry compares event, step, period, program and parameters, and the one entry number two lists share (0: Main's UPROLL, the wheel's report-only tap) differs in event, so no input tells the two apart; also unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; kept because it states its function's rule)"
+  ],
+  "note": "DP 5 candidate 2: holds without the list, so an entry another list holds in the same form counts as held (DW-2a; not caught at 8,000)",
+  "from": "DW-F"
+ },
+ {
+  "id": "DW2a-taps-tap-entry-any-list",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "?: held.entries.firstOrNull { it.value.list == f.list && it.value.entry.isTap }?.key",
+    "?: held.entries.firstOrNull { it.value.entry.isTap }?.key"
+   ],
+   [
+    "if (e == null) held.entries.firstOrNull { it.value.list == f.list && it.value.entry.isTap }?.let",
+    "if (e == null) held.entries.firstOrNull { it.value.entry.isTap }?.let"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "(declared, no pin: unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; kept because it states its function's rule)"
+  ],
+  "note": "DP 5 candidate 3: a Taps switch finds the tap entry to CLEAR among every list's held entries, not the front's (DW-2a; not caught at 8,000)",
+  "from": "DW-F"
+ },
+ {
+  "id": "DW2a-repair14-any-list",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "if (h != null && f != null && h.list == f.list) pending += Pending.Set(f, h.entry)",
+    "if (h != null && f != null) pending += Pending.Set(f, h.entry)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants"
+  ],
+  "expect": [
+   "(declared, no pin: unreached by real use (C3 V2DW reader b, Part EA; decisions EE item 7): every front() is followed in the same pump by tail(), which drains pending whole and brings held up to date, so no message is handled while held or pending holds an entry of a list not in front; kept because it states its function's rule)"
+  ],
+  "note": "DP 5 candidate 4: the batch-14 repair re-SETs an entry another list holds as the front's (DW-2a; not caught at 8,000)",
+  "from": "DW-F"
  }
 ]
