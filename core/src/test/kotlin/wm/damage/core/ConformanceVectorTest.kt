@@ -914,7 +914,9 @@ class ConformanceVectorTest {
             // act's, those and its ring form — every LIST and COMMIT of the act (C3 SVR)
             val project: (JsonObject) -> List<String> = when (spec) {
                 is ShipVectors.Spec -> ShipVectors::programs
-                is ShipVectors.RingSpec, is ShipVectors.ListSpec -> ShipVectors::ringForms
+                // C3 DM-2bF (decisions FA 4): a records act's, those and the whole of what it writes into the cache
+                is ShipVectors.RingSpec -> if (wm.damage.core.motion.ScrollEffects.hasRecords(spec.effect)) ShipVectors::recordsForms else ShipVectors::ringForms
+                is ShipVectors.ListSpec -> ShipVectors::ringForms
                 is ShipVectors.WheelSpec -> ShipVectors::wheelForms
                 else -> ShipVectors::namedPrograms
             }

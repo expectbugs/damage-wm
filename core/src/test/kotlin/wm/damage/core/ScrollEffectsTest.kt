@@ -781,17 +781,27 @@ class ScrollEffectsTest {
      * region (D1: private records, no atlas byte) and its step budget inside 80 % of the cap. The picture: outside every
      * cell box it is END from step 1 (nothing moves); at step 1 the old letters stand in their boxes (at least half of them:
      * a cell whose noise starts at step 1 shows noise); at the middle step some box holds neither its old picture nor END's
-     * (an alphabet glyph). Where the records do not fit the staging is Depth's, said.
+     * (an alphabet glyph). Where the records do not fit the staging is Depth's, said. C3 DM-2bF (decisions FA 2, FA 4): at
+     * 256 KiB Main is drawn on [NoisyText] (every code its own glyph; the box face draws the alphabet as one) and the
+     * records fit at every height; at the middle step whole cell boxes that changed show an alphabet glyph of the cell's
+     * own font at its level over a fill of 0 ([cellGlyph]: the glyph images read from the staged bytes), two kinds or more
+     * per height — so noise that is off, or one code, is seen. At 160 KiB the box face (NoisyText's rows overfill Main's
+     * region there, as for Matrix).
      */
     @Test
     fun scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b() {
         var n = 0
         val fit = ArrayList<String>()
+        var glyphCells = 0
         for (h in heights) {
-            val rig = cachedRig(h)
+            val boxRig = cachedRig(h)
+            val noisyRig = MainLocalCheck.MainRig(NoisyText(), h, MainLocalCheck.sampleRows(), cached = true)
             for (cache in caches) {
+                val noisyFace = cache == CfwModes.CACHE2_MAX_RIDERS
+                val rig = if (noisyFace) noisyRig else boxRig
                 val ms = stage5(h, cache, ScrollEffect.SCRAMBLE, rig)
                 val what0 = "$h ${cache / 1024} KiB Scramble"
+                if (noisyFace) assertEquals(ScrollEffect.SCRAMBLE, ms.recordEffect, "$what0: its records fit at 256 KiB at every height (decisions FA 4): ${ms.plays}")
                 if (ms.recordEffect == null) {
                     assertEquals(ScrollEffect.DEPTH, ms.plays.effect, "$what0: its records given up, Depth plays")
                     assertTrue(ms.plays.why != null, "$what0: said")
@@ -804,6 +814,8 @@ class ScrollEffectsTest {
                 var oldCells = 0; var oldShown = 0; var noisy = 0
                 // the band's own (T7, track index 6): a wrong table index puts another row's letters there
                 var bandOld = 0; var bandShown = 0
+                val glyphKinds = HashSet<String>(); var glyphs = 0
+                val glyphAt = HashMap<Int, Triple<Int, Int, ByteArray>>()
                 for (nt in notches(ms)) {
                     Motion.play(nt.pan.program, ListStaging.SLOT, ms.period, 1, 0, nt.p)
                     // the staging's own parameters (its belief's, `ListStaging.params`) name the list's P2: the cursor before
@@ -841,9 +853,16 @@ class ScrollEffectsTest {
                             if (c.old != 32 && ti == 6) { bandOld++; if (same(one, start)) bandShown++ }
                             if (!same(mid, start) && !same(mid, endG)) noisy++
                         }
+                        if (noisyFace) for ((b, c) in wholeCells(nt.pan.program, nt.p, left)) {
+                            val start8 = { x: Int, y: Int -> wm.damage.core.gfx.Pack.level(start[x, y]) }
+                            if ((b.y until b.bottom).all { y -> (b.x until b.right).all { x -> nibble(mid, x, y) == start8(x, y) } }) continue
+                            cellGlyph(mid, b, c, cacheImg, glyphAt)?.let { glyphKinds += it; glyphs++ }
+                        }
                     }
                     n++
                 }
+                if (noisyFace) assertTrue(glyphKinds.size >= 2, "$what0: at step ${ms.t / 2} the changed whole cells show $glyphs alphabet glyph(s) of ${glyphKinds.size} kind(s) — two kinds or more are the noise")
+                glyphCells += glyphs
                 assertTrue(oldCells > 0 && oldShown * 2 >= oldCells, "$what0: at step 1 the old letters stand in $oldShown of $oldCells old-role boxes")
                 assertTrue(bandOld > 0 && bandShown * 2 >= bandOld, "$what0: at step 1 the band's old letters stand in $bandShown of its $bandOld old-role boxes")
                 assertTrue(noisy > 0, "$what0: at step ${ms.t / 2} no box holds an alphabet glyph")
@@ -853,13 +872,53 @@ class ScrollEffectsTest {
             }
         }
         assertTrue(n > 0, "Scramble played somewhere")
-        println("DM2b-scramble (BoxFace through its atlas, modeled): the model's END = Main's paint = belief at $n notches; the fit:\n" + fit.joinToString("\n"))
+        println("DM2b-scramble (NoisyText through its atlas at 256 KiB, the box face at 160 KiB; modeled): the model's END = Main's paint = belief at $n notches; " +
+            "at the middle step $glyphCells changed whole cells drew an alphabet glyph; the fit:\n" + fit.joinToString("\n"))
+    }
+
+    /** C3 DM-2bF: each cell box a notch's cell tracks draw on [left]'s lens with the parameters [p] that lies whole inside its
+     *  track's area and the panel, with its cell. */
+    private fun wholeCells(prog: wm.damage.core.motion.MotionProgram, p: IntArray, left: Boolean): List<Pair<Rect, Motion.Cell>> {
+        val out = ArrayList<Pair<Rect, Motion.Cell>>()
+        val panel = Rect(0, 0, wm.damage.core.geom.Geometry.PANEL_W, wm.damage.core.geom.Geometry.PANEL_H)
+        prog.resolve(p, staticOnly = false).forEachIndexed { ti, segs ->
+            val area = prog.tracks[ti].area(left)
+            for (r in segs) {
+                val tb = r.cells ?: continue
+                val x0 = if (left) r.xL else r.xR
+                for (c in tb.lists[r.aux0].cells) Rect(x0 + c.bx, r.y + c.by, c.bw, c.bh).let { b ->
+                    if (b.w > 0 && b.h > 0 && b.intersect(area) == b && b.intersect(panel) == b) out += b to c }
+            }
+        }
+        return out
+    }
+
+    /** C3 DM-2bF (decisions FA 2): the alphabet glyph cell [c]'s box [b] shows in [pic] (a panel's nibbles) — the box filled
+     *  0 and, at its corner, the glyph its font names for one of [ScrollEffects.NOISE_CODES] at the cell's level through
+     *  `make_lut(L)` (§7.6) — as that glyph's picture (its key), or null. The glyph images are decoded from the staged
+     *  bytes [cache] at the off4 the font names ([seen] keeps them). */
+    private fun cellGlyph(pic: ByteArray, b: Rect, c: Motion.Cell, cache: ByteArray, seen: HashMap<Int, Triple<Int, Int, ByteArray>>): String? {
+        for (code in ScrollEffects.NOISE_CODES) {
+            val o4 = c.font.entries[code - 32]
+            val g = seen.getOrPut(o4) {
+                val o = o4 * 4; val gw = cache[o].toInt() and 0xFF; val gh = cache[o + 1].toInt() and 0xFF
+                Triple(gw, gh, assertNotNull(wm.damage.core.sim.MotionSim.rle(cache, o + 2, gw * gh), "the glyph record at off4 $o4").first)
+            }
+            var lit = false
+            val drawn = (0 until b.h).all { yy -> (0 until b.w).all { xx ->
+                val v = (if (xx < g.first && yy < g.second) g.third[yy * g.first + xx].toInt() else 0) * c.level / 15
+                if (v != 0) lit = true
+                nibble(pic, b.x + xx, b.y + yy) == v } }
+            if (drawn && lit) return g.third.joinToString("") { (it.toInt() and 0xF).toString(16) } + "/${g.first}"
+        }
+        return null
     }
 
     /**
      * C3 DM-2b, the records rule for Scramble (decisions DW 1, DW 2, EP 2; the DM-2 spec §8): Depth → Scramble → Depth on
      * Main at stage 5 — each change a full staging (NoRoom, its reason the records); Scramble's own Auto re-make at a T'
-     * its lists' noise allows keeps its records; one at a T' with T' − N < 1 is NoRoom, said (a full staging is owed); a
+     * its lists' noise allows keeps its records; C3 DM-2bF (decisions EZ 2): Auto at a period whose T' leaves the noise
+     * no step is floored at N + 1 (Scramble's own pans, said), and the Frames row asking such a T' is NoRoom, said; a
      * staging whose records were given up (Depth, said) re-makes Depth's pans for Scramble's own re-makes and asks no
      * further staging; without Scramble's runs (cached text off) its records are not made — Depth, said.
      */
@@ -905,9 +964,19 @@ class ScrollEffectsTest {
                 val longPeriod = ls.period * ls.t
                 ls.periodInForce = longPeriod
                 val tShort = ScrollEffects.stepsAt(lm, longPeriod, ls.t)
-                assertTrue(tShort - maxOf(1, ls.t / 3) < 1, "$what0: precondition: T' $tShort − N ${maxOf(1, ls.t / 3)} < 1")
-                val refused = ls.remake(lm, fx)
-                assertTrue(refused is ListStaging.Remake.NoRoom && "Scramble's re-made pans were refused" in refused.why, "$what0: T' − N < 1 owes a full staging, said: ${(refused as? ListStaging.Remake.Owed)?.programs?.plays}")
+                val nLs = maxOf(1, ls.t / 3)
+                assertTrue(tShort - nLs < 1, "$what0: precondition: T' $tShort − N $nLs < 1")
+                // C3 DM-2bF (decisions EZ 2): Auto there is floored at N + 1 — Scramble's own pans at T' = N + 1, its records
+                // kept, the floor said in the reason the re-make's note carries
+                val owed = assertNotNull(ls.remakeOwed(lm), "$what0: Auto at the long period owes a re-make")
+                assertTrue("gives Auto ${nLs + 1} steps" in owed && "floored at Scramble's noise + 1 = ${nLs + 1} steps" in owed, "$what0: the floor said: $owed")
+                val floored = ls.remake(lm, fx)
+                val fp = assertNotNull((floored as? ListStaging.Remake.Owed)?.programs, "$what0: Auto at T' − N < 1 floored at N + 1: ${(floored as? ListStaging.Remake.NoRoom)?.why}")
+                assertEquals(Triple(ScrollEffect.SCRAMBLE, true, nLs + 1), Triple(fp.plays.effect, fp.plays.v2, fp.t), "$what0: Scramble's own pans at T' = N + 1")
+                // the Frames row asking T' = N (no step past the noise; its T is laid by the fit, not floored): NoRoom, said —
+                // a full staging is owed
+                val refused = ls.remake(lm.copy(frames = nLs), fx)
+                assertTrue(refused is ListStaging.Remake.NoRoom && "Scramble's re-made pans were refused" in refused.why, "$what0: the Frames row at T' − N < 1 owes a full staging, said: ${(refused as? ListStaging.Remake.Owed)?.programs?.plays}")
                 // a full staging that still refuses (the region one word short of the records) ends at Depth, said, and its
                 // re-makes for Scramble keep that: Depth's pans, no further staging
                 val region = CfwModes.mainRegion(cache, true)
@@ -917,6 +986,9 @@ class ScrollEffectsTest {
                 short.periodInForce = longPeriod
                 val kept = short.remake(m.copy(effect = ScrollEffect.SCRAMBLE), fx)
                 assertEquals(ScrollEffect.DEPTH, (kept as? ListStaging.Remake.Owed)?.programs?.plays?.effect, "$what0: the given-up staging's re-make: ${(kept as? ListStaging.Remake.NoRoom)?.why}")
+                // C3 DM-2bF: his own change of Scroll length there tries the records once more (a full staging, the records rule's)
+                val again = short.remake(m.copy(effect = ScrollEffect.SCRAMBLE, lengthMs = 450), fx)
+                assertTrue(again is ListStaging.Remake.NoRoom && again.records && "this staging holds none" in again.why, "$what0: his length change on the given-up staging: ${(again as? ListStaging.Remake.Owed)?.programs?.plays}")
                 // without the runs (cached text off): Depth, said
                 val plain = stage5(h, cache, ScrollEffect.SCRAMBLE, MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows()))
                 assertTrue(plain.recordEffect == null && plain.plays.effect == ScrollEffect.DEPTH && "cached text is off" in plain.plays.why!!, "$what0: no runs: ${plain.plays}")

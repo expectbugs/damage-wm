@@ -6030,7 +6030,9 @@ class Shell(
         periodSamplesSinceChange = 0
         listBind.relisted()
         note("period $was → $want: steps measured up to ${"%.1f".format((stepWindow.maxOrNull() ?: 0L) / 1000.0)} ms " +
-            "over the last ${stepWindow.size} motion(s) (×${PERIOD_MARGIN_MEASURED}); the entries are SET again, ${ms.t} frames × ${"%.0f".format(want * 1000.0 / 1024)} ms")
+            "over the last ${stepWindow.size} motion(s) (×${PERIOD_MARGIN_MEASURED}); the entries are SET again, ${ms.t} frames × ${"%.0f".format(want * 1000.0 / 1024)} ms" +
+            // C3 DM-2bF (decisions EZ 2): where Auto's re-make for this period is floored at Scramble's noise + 1, said
+            (ms.motion?.let { ms.autoFloorWords(it) } ?: ""))
     }
 
     /** Decisions AZ.4: the wrap's PLAY bytes and its END plan for the assemble. */

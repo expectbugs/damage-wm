@@ -579,7 +579,10 @@ object ScrollEffects {
      *  below the band for each step ([above], [below]), the band's old-role lists ([bandOld]: row c's) and its new-role
      *  lists for each step ([bandNew]: row (c + step) mod n's). */
     class CellTables(val above: Map<Int, Motion.CellTable>, val below: Map<Int, Motion.CellTable>, val bandOld: Motion.CellTable,
-                     val bandNew: Map<Int, Motion.CellTable>)
+                     val bandNew: Map<Int, Motion.CellTable>,
+                     /** C3 DM-2bF: N, every list's noise steps (max(1, ⌊T / 3⌋) of the staging's T): a CELLS segment of n steps
+                      *  needs n − N ≥ 1 (§7.6, 12), so Auto's re-makes are floored at N + 1 (`ListStaging.remakeOwed`). */
+                     val noise: Int)
 
     /** A records blob as it is laid: each part 4-byte aligned from byte [at]. */
     private class Blob4(val at: Int) {
@@ -706,7 +709,7 @@ object ScrollEffects {
         val bandNew = text.bands.map { gs -> list(gs.map { cell(it, it.second.y, 32) }) }
         val oldT = table(bandOld)
         val newT = intArrayOf(1, -1).associateWith { d -> table(List(n) { c -> bandNew[(c + d).mod(n)] }) }
-        return EffectRecords(at, b.out.toByteArray(), cells = CellTables(above, below, oldT, newT))
+        return EffectRecords(at, b.out.toByteArray(), cells = CellTables(above, below, oldT, newT, steps))
     }
 
     /**

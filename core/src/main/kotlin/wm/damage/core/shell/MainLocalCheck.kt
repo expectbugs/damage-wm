@@ -462,6 +462,10 @@ object MainLocalCheck {
         val whole = ms.pan(ListStaging.WHOLE, 1)
         val inside = region.first <= ms.start && ms.end <= region.last + 1
         if (!inside) setup += "the staging ${ms.start}..${ms.end} leaves its region ${region.first}..${region.last + 1}"
+        // C3 DM-2bF (decisions FA 4): his session's size holds a records effect's records at every height — a growth that
+        // gives them up there fails here, not only says "does not fit → Depth"
+        if (stage5 && kib == 256 && wm.damage.core.motion.ScrollEffects.hasRecords(effect) && ms.recordEffect == null)
+            setup += "${effect.word}'s records are given up at 256 KiB, stage 5: ${ms.plays.why}"
         val tableLine = "$tag: ${effect.word}, ${ms.bytes} B at ${ms.start}..${ms.end} (${if (region.last + 1 == cacheSize) "shared reserve" else "Main's region"}), " +
             "strip ${ms.blobs[0].bytes.size} B in a ${ms.strip.slot} B slot, band forms ${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots, " +
             "${ms.wrap?.let { "wrap record ${it.encoded.size} B in a ${it.slot} B slot, " } ?: ""}programs ${ms.blobs.first { it.name == "programs" }.bytes.size} B${ms.progSlots?.let { " (pan slots of ${ms.progSlot} B at ${it[0]} and ${it[1]})" } ?: " (no spare pan slot)"}; " +

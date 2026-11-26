@@ -847,6 +847,51 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
+    /**
+     * C3 DM-2bF (decisions EZ 2; `C3-DM2b-V1-a.md` §2, its probe A): Scramble at 450 ms (stage 5, 256 KiB) on a glass whose
+     * steps take 83.5 ms — about 2.6 times the fit — so the period in force rises and Auto asks fewer steps than the noise
+     * needs (T' − N < 1). The re-make is floored at N + 1: Scramble's own pans re-made and switched, its records kept, the
+     * staging the same object (no drop, no staging), the period note and the re-make's note saying the floor and the
+     * notch's length against the 450 ms asked; a notch after it plays the new pans on both lenses, the oracle holding.
+     * Before the cure the re-make was refused, unsaid, and laid out again at every idle pump (93 times in 5 s, measured in
+     * this rig on the PC) while T stayed at the raised period.
+     */
+    @Test
+    fun aSlowGlassFloorsScramblesAutoStepsAtItsNoisePlusOne_DM2bF(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            val d0 = r.onLoop { r.shell.mainBinding.staging }
+            r.shell.updateSettings { it.copy(scrollEffect = "scramble", scrollLength = 450) }
+            r.until("Scramble staged at 450 ms") { r.onLoop { r.shell.mainBinding.staging }.let { it != null && it !== d0 &&
+                it.recordEffect == wm.damage.core.motion.ScrollEffect.SCRAMBLE && it.motion?.lengthMs == 450 } }
+            r.bound("Scramble bound"); r.settle("staged")
+            val ms = r.onLoop { r.shell.mainBinding.staging!! }
+            val t0 = ms.t; val p0 = ms.period
+            val n = maxOf(1, t0 / 3)
+            val m = marks(r)
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 83_500L
+            r.fire(CfwModes.EV_UPROLL); delay(r.motionMs() + r.q() + 300)
+            r.until("Scramble's pans re-made at N + 1 and switched") { r.onLoop { r.shell.mainBinding.staging?.t } == n + 1 && marks(r).switched > m.switched }
+            r.settle("after the re-make")
+            val notes = r.notes("mainstage")
+            val pif = r.onLoop { r.shell.periodInForceForTest() }
+            println("DM2bF floor (the PC rig, modeled): staged P $p0 T $t0 N $n; at 83.5 ms a step the period in force $pif, T ${ms.t}: " +
+                "${notes.filter { it.startsWith("period ") || it.startsWith("pans re-made") }.takeLast(2).map { it.take(260) }}")
+            val m2 = marks(r)
+            assertTrue(r.onLoop { r.shell.mainBinding.staging } === ms && m2.staged == m.staged && m2.dropped == m.dropped, "the same staging: no drop, no staging")
+            assertTrue(ms.plays.effect == wm.damage.core.motion.ScrollEffect.SCRAMBLE && ms.recordEffect == wm.damage.core.motion.ScrollEffect.SCRAMBLE, "Scramble's own pans, its records kept: ${ms.plays}")
+            assertTrue(notes.any { it.startsWith("period ") && "floored at Scramble's noise + 1 = ${n + 1} steps" in it }, "the period note says the floor: ${notes.filter { it.startsWith("period") }}")
+            assertTrue(notes.any { it.startsWith("pans re-made — the period in force") && "floored at Scramble's noise + 1 = ${n + 1} steps" in it && "against the 450 ms asked" in it },
+                "the re-make's note says the floor and the notch's length: ${notes.filter { it.startsWith("pans re-made") }}")
+            val pan = r.onLoop { r.shell.mainBinding.staging!!.pan(ListStaging.WHOLE, 1) }
+            r.fire(CfwModes.EV_UPROLL)
+            for (a in Arm.entries) r.until("$a plays the re-made pan") { synchronized(r.sim) { r.sim.motionForTest(a).slots[ListStaging.SLOT]?.prog4 } == pan.prog4 }
+            delay(r.motionMs() + r.q() + 300); r.settle("after a notch at N + 1")
+            r.assertOracle("after a notch at N + 1")
+        } finally { r.close() }
+    }
+
     /** K1-1, the brief's pin "no change in a burst": a change of the scroll rows inside a burst writes nothing and SETs
      *  nothing until the burst's lone SETTLE has gone; then the pans are re-made. */
     @Test
@@ -1089,10 +1134,24 @@ class MainLocalShellTest {
      * against the fit's 8.8 ms (modeled, 352), so the period in force rises and Auto owes another step count: over six
      * slow notches and 3 s of quiet after them no staging is made again and none is dropped — Depth's pans are re-made
      * alone ("pans re-made — the period in force …"), the staging the same object, the oracle holding. The counts are
-     * printed either way (measured in the rig).
+     * printed either way (measured in the rig). C3 DM-2bF (the lead's ruling on DM-2aF's last point): his own change of
+     * `Scroll length` then tries the records once more — ONE drop and ONE staging, which gives them up again, said — and
+     * three slow notches and quiet after it stage nothing more ([givenUpStaysOnItsFallback]).
      */
     @Test
     fun aStagingThatGaveMatrixsRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2aF(): Unit = runBlocking {
+        givenUpStaysOnItsFallback("matrix", wm.damage.core.motion.ScrollEffect.MATRIX)
+    }
+
+    /** C3 DM-2bF (decisions EZ 3): Scramble's side of [aStagingThatGaveMatrixsRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2aF]
+     *  — the face that cannot draw 'F' cannot draw Scramble's noise set either, so its records are given up (Depth, said),
+     *  and the same predicate keeps the staging through Auto's re-makes and tries the records again on his length change. */
+    @Test
+    fun aStagingThatGaveScramblesRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2bF(): Unit = runBlocking {
+        givenUpStaysOnItsFallback("scramble", wm.damage.core.motion.ScrollEffect.SCRAMBLE)
+    }
+
+    private suspend fun givenUpStaysOnItsFallback(id: String, effect: wm.damage.core.motion.ScrollEffect) {
         val noF = object : wm.damage.core.text.TextRasterizer by FakeText() {
             override fun covers(text: String, font: wm.damage.core.text.FontSpec) = text != "F"
         }
@@ -1100,14 +1159,14 @@ class MainLocalShellTest {
         try {
             r.up()
             val d0 = r.onLoop { r.shell.mainBinding.staging }
-            r.shell.updateSettings { it.copy(scrollEffect = "matrix") }
-            r.until("Matrix asked and staged without its records") { r.onLoop { r.shell.mainBinding.staging }.let { it != null && it !== d0 &&
-                it.motion?.effect == wm.damage.core.motion.ScrollEffect.MATRIX } }
-            r.bound("Matrix asked, its records given up")
+            r.shell.updateSettings { it.copy(scrollEffect = id) }
+            r.until("${effect.word} asked and staged without its records") { r.onLoop { r.shell.mainBinding.staging }.let { it != null && it !== d0 &&
+                it.motion?.effect == effect } }
+            r.bound("${effect.word} asked, its records given up")
             r.settle("staged")
             val ms = r.onLoop { r.shell.mainBinding.staging!! }
             assertTrue(ms.recordEffect == null && ms.plays.effect == wm.damage.core.motion.ScrollEffect.DEPTH &&
-                ms.plays.why?.startsWith("its records cannot be made") == true, "the records given up, said: ${ms.plays}")
+                "cannot draw 'F'" in (ms.plays.why ?: ""), "the records given up, said: ${ms.plays}")
             val m = marks(r)
             val p0 = r.onLoop { r.shell.periodInForceForTest() }
             for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
@@ -1116,13 +1175,27 @@ class MainLocalShellTest {
             val m2 = marks(r)
             val p1 = r.onLoop { r.shell.periodInForceForTest() }
             val remade = r.notes("mainstage").count { it.startsWith("pans re-made — the period in force") }
-            println("DM2aF given-up: ${m2.staged - m.staged} staging(s) and ${m2.dropped - m.dropped} drop(s) over 6 slow notches and 3 s; " +
+            println("DM2aF given-up (${effect.word}): ${m2.staged - m.staged} staging(s) and ${m2.dropped - m.dropped} drop(s) over 6 slow notches and 3 s; " +
                 "period in force $p0 → $p1; $remade Auto re-make(s); drops: ${r.notes("mainstage").filter { it.startsWith("dropped") }.takeLast(3).map { it.take(160) }}")
-            assertEquals(0 to 0, (m2.staged - m.staged) to (m2.dropped - m.dropped), "no staging again and no drop while Matrix's records stay given up")
+            assertEquals(0 to 0, (m2.staged - m.staged) to (m2.dropped - m.dropped), "no staging again and no drop while ${effect.word}'s records stay given up")
             assertTrue(p1 > p0 && remade > 0, "the period rose ($p0 → $p1) and Depth's pans were re-made alone for it ($remade)")
             r.settle("after the notches")
             assertTrue(r.onLoop { r.shell.mainBinding.staging } === ms, "the same staging")
             r.assertOracle("after the notches")
+            // C3 DM-2bF: his own change of Scroll length tries the records once more — one full staging, given up again, said
+            r.shell.updateSettings { it.copy(scrollLength = 450) }
+            r.until("staged again for his length") { r.onLoop { r.shell.mainBinding.staging }.let { it != null && it !== ms && it.motion?.lengthMs == 450 } }
+            r.bound("staged again for his length"); r.settle("staged again for his length")
+            val ms2 = r.onLoop { r.shell.mainBinding.staging!! }
+            val m3 = marks(r)
+            assertEquals(1 to 1, (m3.staged - m2.staged) to (m3.dropped - m2.dropped), "his length change: one drop and one staging")
+            assertTrue(r.notes("mainstage").any { it.startsWith("dropped") && "${effect.word}'s records are staging records" in it }, "the drop says why: ${r.notes("mainstage").takeLast(3)}")
+            assertTrue(ms2.recordEffect == null && "cannot draw 'F'" in (ms2.plays.why ?: ""), "the records tried and given up again, said: ${ms2.plays}")
+            repeat(3) { n -> r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL); delay(r.motionMs() + r.q() + 300) }
+            delay(3_000)
+            val m4 = marks(r)
+            assertEquals(0 to 0, (m4.staged - m3.staged) to (m4.dropped - m3.dropped), "Auto's re-makes after it stage nothing")
+            r.settle("after his change"); r.assertOracle("after his change")
         } finally { r.close() }
     }
 

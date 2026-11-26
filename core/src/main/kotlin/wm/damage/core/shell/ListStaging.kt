@@ -677,21 +677,40 @@ class ListStaging private constructor(
     /** C3 DM-2aF (decisions EP 2; `C3-DM2b-V1-a.md` §3): what [want] plays on this staging — [ScrollEffects.playsFor]'s
      *  answer, except where this staging gave the asked effect's records up (they did not fit, or could not be made:
      *  [recordEffect] null while that effect draws records): it keeps its fallback ([plays], its reason with it) while
-     *  the same effect is asked, so Auto's re-makes are the fallback's pans alone, as Depth's are. A change of the effect
-     *  asked, the rows or the cache stages again. Without it every slow notch's re-make was a full staging that gave the
-     *  records up again. */
+     *  the motion it was made for is asked, so Auto's re-makes are the fallback's pans alone, as Depth's are. Without it
+     *  every slow notch's re-make was a full staging that gave the records up again. C3 DM-2bF (the lead's ruling on
+     *  DM-2aF's last point): his own change of `Scroll length` or `Scroll frames` asks another motion, so the records are
+     *  tried once more — one full staging per change he makes; a change of the effect, the rows or the cache stages again. */
     private fun playsHere(want: ScrollMotion, fx: Motion.Effects?): ScrollEffects.Plays {
         val p = ScrollEffects.playsFor(want.effect, form, fx)
-        return if (ScrollEffects.hasRecords(p.effect) && recordEffect == null && want.effect == motion?.effect) plays else p
+        return if (ScrollEffects.hasRecords(p.effect) && recordEffect == null && want == motion) plays else p
     }
 
     /** Why the pans in force are not what [want] asks — the scroll rows changed, or under Auto the period in force gives
-     *  another step count (K1-1 item 4) — or null. The probes' fixed rule ([motion] null) is never re-made. */
+     *  another step count (K1-1 item 4; [autoSteps]) — or null. The probes' fixed rule ([motion] null) is never re-made. */
     fun remakeOwed(want: ScrollMotion): String? {
         val m = motion ?: return null
         if (m != want) return "the motion changed (${m.words()} → ${want.words()})"
-        val tp = ScrollEffects.stepsAt(want, periodInForce, t)
-        return if (tp != t) "the period in force $periodInForce gives Auto $tp steps, not $t" else null
+        val tp = autoSteps(want)
+        return if (tp != t) "the period in force $periodInForce gives Auto $tp steps, not $t${autoFloorWords(want)}" else null
+    }
+
+    /** Auto's steps for [want] at the period in force — [ScrollEffects.stepsAt], and C3 DM-2bF (decisions EZ 2): floored at
+     *  N + 1 while Scramble's records are in force, N their lists' noise ([ScrollEffects.CellTables.noise]): fewer steps
+     *  leave a cell no step past its noise (T' − N < 1, which the DSL refuses, 12), so a glass slower than the fit made a
+     *  re-make that was refused and laid out again at every idle pump. [remakeOwed] and [remake] both read it. The Frames
+     *  and Length rows lay their T by the fit, not here: a T they ask that leaves the noise no step is staged again whole. */
+    private fun autoSteps(want: ScrollMotion): Int = maxOf(ScrollEffects.stepsAt(want, periodInForce, t), autoFloor(want))
+
+    private fun autoFloor(want: ScrollMotion): Int =
+        if (recordEffect == ScrollEffect.SCRAMBLE && want.effect == ScrollEffect.SCRAMBLE && want.frames == 0) (staged.recs?.cells?.noise ?: 0) + 1 else 0
+
+    /** The period note's words while [autoSteps]' floor is in force for [want] at the period in force: the floor, and the
+     *  notch's length against the length asked; "" otherwise. */
+    fun autoFloorWords(want: ScrollMotion): String {
+        val f = autoFloor(want)
+        if (ScrollEffects.stepsAt(want, periodInForce, t) >= f) return ""
+        return " (floored at Scramble's noise + 1 = $f steps: a notch of ${"%.0f".format(f * periodInForce * 1000.0 / 1024)} ms against the ${want.lengthMs} ms asked)"
     }
 
     /** The pans for [want] laid out in the free slot (the effect's own timing on a change of the rows; under Auto the
@@ -710,7 +729,7 @@ class ListStaging private constructor(
         val wantRecords = asked.effect.takeIf { ScrollEffects.hasRecords(it) }
         // DM-0: the rules' P0 and P3 by the strip's own margin (k + 1 on a ring strip; `layout.rowsAbove` was one row short there)
         val made = lay(staged, asked, fx, slots[to], specs, margin, rows, ring, itemOffs, { recordOf(it) }) { pl ->
-            if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form, cellsStep) else periodInForce to ScrollEffects.stepsAt(want, periodInForce, t) }
+            if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form, cellsStep) else periodInForce to autoSteps(want) }
         // C3 DM-2b (decisions EP 2): pans of an effect with records that come back as its fallback — Scramble's T' − N < 1
         // (its lists' noise is the staging's) — are not made beside its records: staged again whole, with the reason
         if (wantRecords != null && made.plays.effect != wantRecords) return Remake.NoRoom("${wantRecords.word}'s re-made pans were refused " +

@@ -559,8 +559,9 @@ internal object ShipVectors {
 
     /** C3 stage DM-2b (decisions DW 6, EP 4): Scramble on Main at stage 5 — Matrix's twin: its ring NOTCHES at 352, its
      *  cells and private faces staged with the list from Main's runs through the atlas; unfilled until the fork's fill
-     *  (`DM2B_UNFILLED`). */
-    fun dm2bActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-scramble-352", ScrollEffect.SCRAMBLE, 352, RingForm.NOTCHES))
+     *  (`DM2B_UNFILLED`). C3 DM-2bF (decisions FA 3): captured with [NoisyText], so the fill sees which glyph and which
+     *  private font each cell draws. */
+    fun dm2bActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-scramble-352", ScrollEffect.SCRAMBLE, 352, RingForm.NOTCHES, noisy = true))
 
     /** C3 stage X2MX2 (decisions CM (2)): Crush's notch on Main's ring list at 352 answered only after its END ([RingForm.LATE]). */
     fun x2mx2Acts(): List<Act> = listOf(RingSpec("${PREFIX}ring-crush-late-352", ScrollEffect.CRUSH, 352, RingForm.LATE))
@@ -2032,6 +2033,30 @@ internal object ShipVectors {
                     out += "LIST " + hex(s.copyOfRange(0, 11)) + "··" + hex(s.copyOfRange(12, s.size))
                 isSub(s, 26, CfwModes.MOTION_COMMIT) -> out += "COMMIT ${hex(s)}"
             }
+        }
+        return out.toList()
+    }
+
+    /**
+     * C3 DM-2bF (decisions FA 4): a records act's projection — [ringForms], then the whole of what the act writes into
+     * the cache: every write of every step applied in order, and each maximal span written given whole as the writes
+     * left it ("CACHE @from..to" and its bytes). An effect's records (Matrix's rain, Scramble's cells and private fonts)
+     * are no program the other forms name, so a change of them alone moves this.
+     */
+    fun recordsForms(vec: JsonObject): List<String> {
+        val out = LinkedHashSet(ringForms(vec))
+        val cache = ByteArray(256 * 1024); val written = BooleanArray(cache.size)
+        for (st in vec["steps"]!!.jsonArray) for (o in st.jsonObject["ops"]!!.jsonArray) {
+            val m = bytes(o.jsonObject["msg"]?.jsonPrimitive?.content ?: continue)
+            for (s in subs(m)) if ((s[0].toInt() and 0x7F).let { it == 19 || it == 25 })
+                for ((off, d) in cacheWrites(s)) { d.copyInto(cache, off); for (i in off until off + d.size) written[i] = true }
+        }
+        var i = 0
+        while (i < cache.size) {
+            if (!written[i]) { i++; continue }
+            var j = i; while (j < cache.size && written[j]) j++
+            out += "CACHE @$i..$j ${hex(cache.copyOfRange(i, j))}"
+            i = j
         }
         return out.toList()
     }

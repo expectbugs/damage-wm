@@ -422,7 +422,7 @@ class Version2MotionTest {
             assertEquals(pan.rules.map { listOf(it.kind, it.arg) }, p["rules"]!!.jsonArray.map { r -> r.jsonArray.map { it.jsonPrimitive.content.toInt() } }, "pan $step: the SET's rules are the staging's")
             assertEquals(wm.damage.core.wire.CfwModes.KIND_CURSOR, pan.rules[2].kind, "pan $step: P2 is the cursor before the move (kind 3)")
             val tables = wm.damage.core.motion.ScrollEffects.CellTables(mapOf(step to tableAt(pi("above4"))), mapOf(step to tableAt(pi("below4"))), bandOld,
-                mapOf(step to tableAt(pi("bandNew4"))))
+                mapOf(step to tableAt(pi("bandNew4"))), bandOld.lists[0].noise)
             val staged = wm.damage.core.motion.ScrollEffects.Staged(l, ms.listD, ms.bandD, band, records,
                 recs = wm.damage.core.motion.ScrollEffects.EffectRecords(0, ByteArray(0), cells = tables))
             val built = wm.damage.core.motion.ScrollEffects.program(wm.damage.core.motion.ScrollEffects.Plays(wm.damage.core.motion.ScrollEffect.SCRAMBLE, true),
