@@ -3,6 +3,7 @@ package wm.damage.core
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -32,6 +33,7 @@ import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.text.Face
 import wm.damage.core.text.FontSpec
 import wm.damage.core.text.TextRasterizer
+import wm.damage.core.transport.Arm
 import wm.damage.core.transport.DisplayOp
 import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.SimTransport
@@ -292,14 +294,17 @@ class StagingTest {
     }
 
     /** The (offset, length) of every mode-19 write in [f], from the bytes on the wire. */
-    private fun writesOf(f: FlushRequest): List<Pair<Int, Int>> = f.ops.filterIsInstance<DisplayOp.CacheWrite2>().flatMap { op ->
+    private fun writesOf(f: FlushRequest): List<Pair<Int, Int>> = dataOf(f).map { (off, data) -> off to data.size }
+
+    /** The (offset, bytes) of every mode-19 write in [f], from the list the shell submitted. */
+    private fun dataOf(f: FlushRequest): List<Pair<Int, ByteArray>> = f.ops.filterIsInstance<DisplayOp.CacheWrite2>().flatMap { op ->
         val p = op.payload
-        val out = ArrayList<Pair<Int, Int>>()
+        val out = ArrayList<Pair<Int, ByteArray>>()
         var pos = 1
         while (pos + 4 <= p.size) {
             val off4 = (p[pos].toInt() and 0xFF) or ((p[pos + 1].toInt() and 0xFF) shl 8)
             val len = (p[pos + 2].toInt() and 0xFF) or ((p[pos + 3].toInt() and 0xFF) shl 8)
-            out.add(off4 * 4 to len)
+            out.add(off4 * 4 to p.copyOfRange(pos + 4, pos + 4 + len))
             pos += 4 + len
         }
         out
@@ -761,6 +766,193 @@ class StagingTest {
             rig.shell.stop()
         } finally {
             scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * C3 OM-1P. One middle piece of a staged record is acked and never applied (its entry's offset rewritten past the
+     * cache: the model acks it, then refuses it, 5); every other write lands. The count is the one judge, and it heals the
+     * record. In order: the count reads short, and a notch over the record's band ships no draw from it (pixels; belief
+     * equals the glass); the ledger's two verdicts — Short ("settled reading 1"), then Shortfall ("never landed") — are
+     * said in the journal (`stage`) and the shortfall in a `cache/short` notice; the record's pieces are written again,
+     * each exactly once and the same bytes; the count proves the record; the next notch over the band draws from it, and
+     * both lenses equal those of the same scene with no write lost. The record is the first strip a relayout stages (the
+     * next notch's), and the interval is its pieces alone: the scene's chrome glyphs were gained before the hook, the
+     * page's strips proven and the count agreed (the notice's count of acked writes is the record's pieces).
+     * The refusal twin ([zwrite]: a C1 build at stage 1, ZWRITE in force): the lost piece is a mode-25 message and RIGHT's
+     * refusal record names 25 — mode 25 is withdrawn for the session (said once), the second copy goes as mode 19, and
+     * nothing after the first copy goes as mode 25.
+     * Mutation watched: the shortfall's records left in the registry (`OM1P-shortfall-keeps`: nothing is written again).
+     */
+    @Test
+    fun aMissingPieceOfAStagedRecordIsFoundByTheCountAndWrittenAgainOnce(): Unit = runBlocking { missingPieceHealed(zwrite = false) }
+
+    @Test
+    fun aRefusedMode25PieceOfAStagedRecordGoesAgainAsMode19_OMP(): Unit = runBlocking { missingPieceHealed(zwrite = true) }
+
+    /** Up on the document with strips of eight lines (a record of three pieces or more), a notice shown and dismissed, and
+     *  a notch down and back — so nothing of the scene's own brings a face live or gains the chrome a glyph later: the
+     *  session's first notice brings its faces live, and a live-set change drops the page's records (the shortfall's
+     *  notice would drop the strip being written again); the first visit to line 8 gains the chrome a glyph (an atlas
+     *  message in the interval, sent once more by the shortfall). Each stop waits for the strips the page wants, proven,
+     *  and the count agreed on every write. */
+    private suspend fun pageStaged(r: Rig) {
+        r.doc.step = 8
+        r.upWithTheDocStaged()
+        agreed(r, "at the top", 16, 24, 32)
+        r.shell.services.notifyInternal("test", "the glasses acknowledged 0 cache write(s) and counted 0 — the notice's faces go live before the scene")
+        r.until("the notice is up") { r.shell.notifications.current != null }
+        r.dismissNotices()
+        agreed(r, "after the notice", 16, 24, 32)
+        r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); r.settle("down")
+        agreed(r, "at line 8", 24, 32, 0, 40)
+        r.shell.postGesture(EvenHubMsg.EV_SCROLL_TOP); r.settle("back to the top")
+        agreed(r, "back at the top", 16, 24, 32)
+    }
+
+    private suspend fun agreed(r: Rig, at: String, vararg lines: Int) {
+        r.until("$at: the strips the page wants proven and the count agreed on every write") {
+            r.shell.stagedProvenLines.map { it.first }.containsAll(lines.toList()) && r.shell.cacheCountUnjudged == 0L }
+        r.settle(at)
+    }
+
+    /** Another layout of the same page: every record goes, and the page's strips are staged again, the next notch's first. */
+    private fun relayout(r: Rig) {
+        r.doc.layoutKey = Any()
+        r.shell.services.runOnShell { r.shell.services.requestRender(r.doc) }
+    }
+
+    private fun details(r: Rig, kind: String) = r.notes(kind).map { it.substringAfter("\"detail\":\"").substringBefore("\"") }
+
+    private suspend fun missingPieceHealed(zwrite: Boolean) {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val ref = Rig(scope, zwrite = zwrite)
+        val rig = Rig(scope, zwrite = zwrite)
+        val key = "lines 16..23"                  // the first strip a relayout at the top stages: the next notch's
+        val down = EvenHubMsg.EV_SCROLL_BOTTOM; val up = EvenHubMsg.EV_SCROLL_TOP
+        try {
+            // the run with no loss: the same page and gestures, every write landing
+            pageStaged(ref)
+            relayout(ref)
+            ref.until("ref: the strip of $key staged again for the new layout") {
+                ref.notes("stage").any { "another layout" in it } && ref.shell.stagedProvenLines.any { it.first == 16 } }
+            for (g in listOf(down, up)) { ref.shell.postGesture(g); ref.settle("ref: notch $g") }
+            ref.until("ref: the strip of $key proven") { ref.shell.stagedProvenLines.any { it.first == 16 } }
+            ref.shell.postGesture(down); ref.settle("ref: down over the band of $key")
+            ref.assertGlassMatchesBelief("ref, at line 8")
+            val want = listOf(ref.lens(true), ref.lens(false))
+            ref.shell.stop()
+
+            pageStaged(rig)
+            val stage0 = rig.all().count { it.label == "STAGE" }
+            val notes0 = details(rig, "stage").size
+            val atlas0 = details(rig, "atlas").size
+            // the hook: the next record's piece 1 goes as it is and arms the break; piece 2 goes past the cache and disarms it
+            val seen = java.util.concurrent.atomic.AtomicInteger(0)
+            rig.spy.onStageSubmit = { _ -> when (seen.incrementAndGet()) { 1 -> rig.spy.breakStageWrites = true; 2 -> rig.spy.breakStageWrites = false } }
+            val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()      // RIGHT's cache writes from here, as they arrive
+            rig.sim.imageObserver = { arm, img -> val m = img[0].toInt() and 0x7F; if (arm == Arm.RIGHT && (m == 19 || m == 25)) right += img }
+            relayout(rig)
+            fun mine() = details(rig, "stage").drop(notes0)
+            val firstRe = Regex("""^lines 16\.\.23 \((\d+) B at (\d+)\) submitted as flush \d+ — piece 1 of (\d+) """)
+            rig.until("the strip of $key submitted for the new layout") { mine().any { firstRe.containsMatchIn(it) } }
+            assertTrue(mine().first().startsWith("dropped ") && "another layout" in mine().first(), "the relayout dropped the records first: ${mine()}")
+            val m1 = firstRe.find(mine().first { firstRe.containsMatchIn(it) })!!.groupValues
+            val off1 = m1[2].toInt(); val n = m1[3].toInt()
+            assertTrue(n >= 3, "the record goes in three pieces or more, so piece 2 is a middle one: ${mine()}")
+            rig.until("the strip of $key written to its last piece") { mine().any { it.startsWith("$key: piece $n of $n ") } }
+
+            // 1. the count reads short, and nothing is drawn from the unproven record
+            rig.until("the count reads short after the settle window") { mine().any { "short after the settle window (settled reading 1)" in it } }
+            val n1 = rig.all().size
+            rig.shell.postGesture(down); rig.settle("down over the band of the unproven record")
+            val downFlushes = rig.all().drop(n1).filter { it.label != "STAGE" }
+            assertTrue(downFlushes.isNotEmpty() && downFlushes.flatMap { it.ops }.none { it is DisplayOp.DrawImage2 && it.w > 255 },
+                "the band of $key went as pixels, nothing drawn from the unproven record: ${downFlushes.map(::shape)}")
+            rig.assertGlassMatchesBelief("the band of $key while its record is unproven")
+            rig.shell.postGesture(up); rig.settle("back to the top: the strip of $key wanted again")
+            assertTrue(mine().none { "never landed" in it }, "the scene: both notches came while the count read short, before the shortfall: ${mine()}")
+
+            // 2. the verdicts the journal reads: Short, then Shortfall; the shortfall a notice
+            rig.until("two settled short readings: a shortfall") { mine().any { "never landed" in it } }
+            val v = mine()
+            val iShort = v.indexOfFirst { "short after the settle window" in it }; val iFall = v.indexOfFirst { "never landed" in it }
+            assertTrue(iShort in 0 until iFall, "Short, then Shortfall: $v")
+            assertEquals(1, v.count { "short after the settle window" in it }, "one settled short reading before the shortfall: $v")
+            assertTrue("read the generation 1 short after the settle window (settled reading 1)" in v[iShort], v[iShort])
+            assertTrue(v[iFall].endsWith("the generation says 1 of the cache writes since the last reading never landed — 1 record(s) dropped"),
+                "${v[iFall]}; the count's own notes since the hook: ${details(rig, "atlas").drop(atlas0)}")
+            rig.until("the shortfall is a notice") { rig.cacheNotices().any { it.thread == "cache/short" } }
+            assertEquals("the glasses acknowledged $n cache write(s) and counted ${n - 1} — 1 staged strip(s) staged again",
+                rig.cacheNotices().single { it.thread == "cache/short" }.body, "the interval is the record's $n pieces, one not counted")
+
+            // 3. the record's pieces written again, each once and the same bytes; the count proves it
+            rig.until("the strip of $key written again and proven by the count") {
+                val s = mine()
+                val again = s.indexOfLast { it.startsWith("$key (") && "submitted as flush" in it }
+                again > iFall && s.drop(again).any { it.startsWith("the stage check proved 1 record(s)") }
+            }
+            val subs = mine().filter { it.startsWith("$key (") && "submitted as flush" in it }
+            assertEquals(2, subs.size, "the strip written twice — the first copy and the one the count asked for: ${mine()}")
+            val m2 = firstRe.find(subs[1])!!.groupValues
+            val off2 = m2[2].toInt()
+            assertEquals(m1[1], m2[1], "the same record, the same size"); assertEquals(n, m2[3].toInt(), "in as many pieces")
+            val st = rig.all().filter { it.label == "STAGE" }.drop(stage0).map(::dataOf)
+            assertTrue(st.size >= 2 * n && st.take(2 * n).all { it.size == 1 }, "two copies of the record, one write a piece: ${st.map { w -> w.map { it.first } }}")
+            val first = st.take(n).map { it.single() }; val second = st.drop(n).take(n).map { it.single() }
+            for (i in 0 until n) {
+                assertEquals(if (i == 1) 0xFFFF * 4 else off1 + i * Shell.STAGE_CHUNK, first[i].first, "the first copy's piece ${i + 1} (the second went past the cache)")
+                assertEquals(off2 + i * Shell.STAGE_CHUNK, second[i].first, "the second copy's piece ${i + 1} at its place")
+                assertTrue(first[i].second.contentEquals(second[i].second), "piece ${i + 1} written again with the same bytes")
+            }
+
+            // 4. the record is used, and the picture is the one of the run with no loss
+            rig.dismissNotices()
+            val n3 = rig.all().size
+            rig.shell.postGesture(down); rig.settle("down over the band of $key")
+            val draws = rig.all().drop(n3).filter { it.label != "STAGE" }.flatMap { it.ops }.filterIsInstance<DisplayOp.DrawImage2>().filter { it.w > 255 }
+            assertTrue(draws.isNotEmpty() && draws.all { it.off4 == off2 / 4 }, "the band of $key drawn from the record written again (off4 ${off2 / 4}): $draws")
+            rig.assertGlassMatchesBelief("at line 8, the band from the record")
+            // the page's rows, whole: every row above the content's bottom edge. Below it the status row says the fault
+            // episode the shortfall opened (`raiseFault`), which the run with no loss has not had — printed, not compared
+            val pageBottom = rig.shell.layout.content.y + rig.shell.layout.content.h
+            for ((i, left) in listOf(true, false).withIndex()) {
+                val g = rig.lens(left); val w = want[i]
+                var diffs = 0; var at: String? = null
+                var below = 0; var x0 = 640; var y0 = 480; var x1 = -1; var y1 = -1
+                for (y in 0 until 480) for (x in 0 until 640) if (g[x, y] != w[x, y]) {
+                    if (y < pageBottom) { diffs++; if (at == null) at = "($x,$y) ${g[x, y]} vs ${w[x, y]}" }
+                    else { below++; x0 = minOf(x0, x); y0 = minOf(y0, y); x1 = maxOf(x1, x); y1 = maxOf(y1, y) }
+                }
+                assertEquals(0, diffs, "${if (left) "L" else "R"}: the page differs from the run with no loss ($diffs px above row $pageBottom, first $at)")
+                println("OM-1P ${if (zwrite) "zwrite" else "plain"} ${if (left) "L" else "R"}: the page's rows 0..${pageBottom - 1} equal the run with no loss; " +
+                    "below them $below px differ" + (if (below > 0) " in [$x0..$x1] x [$y0..$y1]" else ""))
+            }
+
+            // never a third time
+            delay(2 * CacheLedger.SETTLE_MS + 600)
+            rig.settle("two settle windows on")
+            val writes = rig.all().filter { it.label == "STAGE" }.drop(stage0).flatMap(::dataOf)       // from the hook on
+            for (i in 0 until n) assertEquals(2, writes.count { it.second.contentEquals(first[i].second) }, "piece ${i + 1} written twice, never a third time")
+            assertEquals(1, details(rig, "stage").count { "never landed" in it }, "one shortfall: ${mine()}")
+
+            if (zwrite) {
+                fun mode(img: ByteArray) = img[0].toInt() and 0x7F
+                fun at(img: ByteArray) = ((img[1].toInt() and 0xFF) or ((img[2].toInt() and 0xFF) shl 8)) * 4
+                val r = right.toList()
+                assertEquals(25, mode(r[1]), "the lost piece went as mode 25 (ZWRITE in force, the list shrank): ${r.map(::mode)}")
+                val said = details(rig, "glass").filter { it.startsWith("mode 25 refused by RIGHT") }
+                assertEquals(1, said.size, "the withdrawal said once: ${details(rig, "glass").takeLast(4)}")
+                for (i in 0 until n) assertTrue(r.any { mode(it) == 19 && at(it) == off2 + i * Shell.STAGE_CHUNK },
+                    "the second copy's piece ${i + 1} reached RIGHT as mode 19: ${r.map { "${mode(it)}" + if (mode(it) == 19) "@${at(it)}" else "" }}")
+                assertTrue(r.drop(n).all { mode(it) == 19 }, "nothing after the first copy went as mode 25: ${r.map(::mode)}")
+                assertFalse(rig.spy.nextListDeflates(), "mode 25 stays off for the session")
+            }
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            ref.tmp.toFile().deleteRecursively()
             rig.tmp.toFile().deleteRecursively()
         }
     }
