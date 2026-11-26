@@ -13374,13 +13374,14 @@
    ]
   ],
   "tests": [
+   "*MotionTransportTest.aRefusalStandingFromTheSessionBeforeLeavesMode25OnAtAStage5Start_OMP*",
    "*MotionTransportTest.aRefusedMode25IsNotSentAgainAndTheNextListGoesAsMode19_5_9*"
   ],
   "expect": [
-   "(no pin: reached only by a RIGHT record that arrives after the start's arming and before its fid-ring clear (mode 7 sub 0 empties fields 23-25, FIRMWARE.md section 4) while a mode-25 refusal stands from before the session; run once by C3-OM1F against the 5_9 test's second session, nothing failed)"
+   "aRefusalStandingFromTheSessionBeforeLeavesMode25OnAtAStage5Start_OMP"
   ],
-  "note": "only a NEW record naming 25 withdraws: a refusal standing on RIGHT's record from before the session is its baseline (the C1 list's P-zw-judge-differs re-pointed, C3-OM1F)",
-  "from": "C1 / C3-OM1F"
+  "note": "only a NEW record naming 25 withdraws: a refusal standing on RIGHT's record from the session before is its baseline. Reached at every stage-4 and stage-5 start (ZWRITE is armed before BIND and EFFECTS, whose FLAGS_SET replies carry the standing record; the start's mode 7 sub 0 comes after the warmup). Caught by the stage-5 pin (C3-OM1-V2 finding 1's probe, placed by C3-OM1P); the 5_9 test (stage 1) does not see it",
+  "from": "C1 / C3-OM1F / C3-OM1P"
  },
  {
   "id": "OMF-start-keeps-off",
@@ -13419,5 +13420,25 @@
   ],
   "note": "C3-OM1F: the withdrawal of mode 25 is said once, naming the count as the judge (no silent failure)",
   "from": "C3-OM1F"
+ },
+ {
+  "id": "OM1P-shortfall-keeps",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                for (r in lost) stage.remove(r)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aMissingPieceOfAStagedRecordIsFoundByTheCountAndWrittenAgainOnce*",
+   "*StagingTest.aRefusedMode25PieceOfAStagedRecordGoesAgainAsMode19_OMP*"
+  ],
+  "expect": [
+   "aMissingPieceOfAStagedRecordIsFoundByTheCountAndWrittenAgainOnce",
+   "aRefusedMode25PieceOfAStagedRecordGoesAgainAsMode19_OMP"
+  ],
+  "note": "C3-OM1P: a shortfall drops the staged records acked in its interval, so their owner writes them again (left in the registry, the record stays acked and unproven, staging holds behind it, and nothing is written again)",
+  "from": "C3-OM1P"
  }
 ]

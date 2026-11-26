@@ -4194,8 +4194,9 @@ abstract class CfwTransportBase(
      * NEWLY names mode 25 (it differs from the one before it; the session's first is the reset check's, read before
      * ZWRITE is armed, so a refusal standing from earlier is the baseline) while ZWRITE is in force turns mode 25 off for
      * the session, said once. Nothing is sent again: the record cannot say which write it names, and the refused write
-     * is missing from field 17's count, which the shell reads — the count is its one judge, and the shell's re-send of
-     * it is then mode 19.
+     * is missing from field 17's count, which the shell reads — the count is its one judge. The count finds the interval
+     * short; the staged records and first-time atlas messages of that interval are written again (then as mode 19); a
+     * transition's write is not (RIGHT's END CRC keyframes).
      */
     private fun zwriteJudge(t: DamageMsg.Telemetry) {
         val ref = t.refusal
@@ -4209,8 +4210,9 @@ abstract class CfwTransportBase(
             withdraw
         }
         if (withdrawn) emitNote("glass", "mode 25 refused by RIGHT (${ref!!.describe()}) — this session writes mode 19 from " +
-            "here, and nothing is sent again: the refused write is missing from field 17's count, the shell's count finds it " +
-            "and writes it again")
+            "here, and nothing is sent again: the refused write is missing from field 17's count, which the shell's count finds " +
+            "short; the staged records and first-time atlas messages of its interval are written again (a transition's write " +
+            "is not: RIGHT's END CRC keyframes)")
     }
 
     // ------------------------------------------------- build C1's A-S1, the phone's half (`C1-R5-decisions.md`)
