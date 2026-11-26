@@ -621,6 +621,11 @@ class WindowListShellTest {
             plays("default with Animations at Crush", ScrollEffect.CRUSH, ScrollEffect.SLIDE)
             assertEquals("default (plays Slide)", r.onLoop { row.current() }, "the row says what a window's list plays for Crush")
             assertTrue(r.notes("liststage").any { it.startsWith("Scroll effect Crush plays Slide") }, "${r.notes("liststage").takeLast(4)}")
+            // C3 DM-2a: Matrix on a window's list plays Depth (its form plays None, Depth, Slide and Fall), said
+            r.shell.updateSettings { it.copy(scrollEffect = "matrix") }
+            plays("default with Animations at Matrix", ScrollEffect.MATRIX, ScrollEffect.DEPTH)
+            assertEquals("default (plays Depth)", r.onLoop { row.current() }, "the row says what a window's list plays for Matrix")
+            assertTrue(r.notes("liststage").any { it.startsWith("Scroll effect Matrix plays Depth") }, "${r.notes("liststage").takeLast(4)}")
         } finally { r.close() }
     }
 

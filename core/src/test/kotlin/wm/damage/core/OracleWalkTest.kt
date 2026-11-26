@@ -794,11 +794,12 @@ class OracleWalkTest {
      * C3 DM-1 (the brief's item 8): the local walk at stage 5 on a bit-11 build (256 KiB) with Crush and with Flip on Main —
      * version-2 pans fired through the simulator's input hook on both lenses (Crush at pitch +rowH, its source windows; a
      * ring list at 288 and 352, the wrap among the notches), the shell's own rules answering every report — the truth
-     * oracle at every settle, and the walk must have fired notches that drew.
+     * oracle at every settle, and the walk must have fired notches that drew. C3 DM-2a: and with Matrix (its rain records
+     * staged; pitch −rowH), at 288 (a ring list) and 416.
      */
     @Test
     fun localEventsWithCrushAndFlipKeepTheOracleAtStage5_DM1(): Unit = runBlocking {
-        for ((h, effect) in listOf(288 to "crush", 352 to "crush", 352 to "flip", 416 to "flip", 480 to "crush")) {
+        for ((h, effect) in listOf(288 to "crush", 352 to "crush", 352 to "flip", 416 to "flip", 480 to "crush", 288 to "matrix", 416 to "matrix")) {
             val taps = wm.damage.core.local.Taps.REPORT
             val rig = Rig(h, seed = 0xD3_11CAL + h + effect.length, contract = 2, cached = true, stage5 = true, taps = taps, scrollEffect = effect)
             val tag = "c3 stage 5 h=$h $effect"

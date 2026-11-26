@@ -4,6 +4,7 @@ import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -747,6 +748,46 @@ class MainLocalShellTest {
                 r.assertOracle("after Slide")
             } finally { r.close() }
         }
+    }
+
+    /**
+     * C3 DM-2a, the records rule on the shell (decisions DW 2; the DM-2 spec §8): Depth → Matrix → Depth on Main at stage 5
+     * on 256 KiB — each change a full staging (the staging replaced, one drop and one staging more, no pans switched, a new
+     * mark), never pans re-made beside records that are not there or left behind; Matrix's staging holds its records once,
+     * last, and a notch plays its five tracks and is committed, belief equal to both lenses; Depth's staging after it is
+     * the first one byte for byte.
+     */
+    @Test
+    fun aChangeIntoOrOutOfMatrixIsAFullStagingEachWay_DM2a(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            val d1 = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+            suspend fun change(what: String, to: String, from: ListStaging): ListStaging {
+                val m = marks(r)
+                val mark0 = r.list().mark
+                r.shell.updateSettings { it.copy(scrollEffect = to) }
+                r.until("$what: staged again", 30_000) { r.onLoop { r.shell.mainBinding.staging }.let { it != null && it !== from } }
+                r.bound("$what: bound")
+                val ms = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+                val m1 = marks(r)
+                assertEquals(Triple(m.staged + 1, m.dropped + 1, m.switched), Triple(m1.staged, m1.dropped, m1.switched), "$what: one drop and one staging, no pans switched")
+                assertTrue(r.list().mark != mark0, "$what: a new mark")
+                assertTrue(r.notes("mainstage").any { it.startsWith("dropped") && "Matrix's records are staging records" in it }, "$what: the drop says why: ${r.notes("mainstage").takeLast(3)}")
+                return ms
+            }
+            val mx = change("Depth → Matrix", "matrix", d1)
+            assertTrue(mx.recordEffect == wm.damage.core.motion.ScrollEffect.MATRIX && mx.plays.effect == wm.damage.core.motion.ScrollEffect.MATRIX, "Matrix plays, its records staged: ${mx.plays}")
+            assertEquals(1, mx.blobs.count { it.name == "Matrix's records" }, "the records once")
+            assertEquals("Matrix's records", mx.blobs.last().name, "the records last")
+            assertEquals(5, r.list().entryFor(CfwModes.EV_UPROLL)!!.program!!.tracks.size, "Matrix's pans")
+            notch(r, CfwModes.EV_UPROLL, "a notch with Matrix")
+            r.assertOracle("after Matrix")
+            val d2 = change("Matrix → Depth", "depth", mx)
+            assertNull(d2.recordEffect, "no records after Matrix")
+            assertEquals(d1.blobs.map { it.name to it.off }, d2.blobs.map { it.name to it.off }, "Depth's staging as the first: its records' places")
+            assertTrue(d1.blobs.zip(d2.blobs).all { (a, b) -> a.bytes.contentEquals(b.bytes) }, "Depth's staging as the first, byte for byte")
+        } finally { r.close() }
     }
 
     /** K1-1, the brief's pin "no change in a burst": a change of the scroll rows inside a burst writes nothing and SETs

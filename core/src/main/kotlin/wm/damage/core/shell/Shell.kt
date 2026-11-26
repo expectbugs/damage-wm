@@ -6833,7 +6833,8 @@ class Shell(
                 floor = region.first, top = region.last + 1, room = room) else
             // the bound list's pans only (AF.10); one strip at every cache size (K1-2 stage 1, decisions BC O1: a row form's
             // change withdraws the list, at 256 KiB as at 160)
-            ListStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(ListStaging.WHOLE), motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom)
+            ListStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(ListStaging.WHOLE), motion = motionInForce(), room = room, stage5 = stage5, fx = fx, bandRoom = bandRoom,
+                text = chromeText)
         } catch (e: wm.damage.core.geom.LintError) {
             listBindRefused(what, "$who's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until $who's layout, planes, rows or their content change, or the next session", pt)
             return false
@@ -6875,7 +6876,9 @@ class Shell(
             "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B, ${ms.rows} band forms " +
             "${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots each its own size " +
             "(two spares of ${ms.free.values.max()} B, the largest; ${ms.bands.count { it.slot == ms.free.values.max() }} row(s) at that size), " +
-            "the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
+            "the item table and ${ms.pans.size + 1} programs ${ms.blobs.filter { it.name == "items" || it.name == "programs" }.sumOf { it.bytes.size }} B; " +
+            // C3 DM-2a: the record effect's records, laid last
+            (ms.recordEffect?.let { e -> "${e.word}'s records ${ms.blobs.last().bytes.size} B last; " } ?: "") +
             "the region's free span ${ms.freeSpan} B at ${ms.end}..${ms.regionEnd}; " +
             "planes $listD/$bandD, press to ${ms.press.pressD}; ${listBind.stagings} staging(s) and ${listBind.stagedBytes} B this process; " +
             "${motionWords(ms)}${if (ms.stage5) " (the fast DRAW path's fit: EFFECTS in force)" else ""}" +
@@ -6910,7 +6913,7 @@ class Shell(
      *  (decisions W, D-6). */
     private fun effectsToken(st: LinkState): wm.damage.core.motion.Motion.Effects? = if (!st.effects) null else
         try { wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(st.damageContract, st.damageFeatures), st.flagsInForce) }
-        catch (e: wm.damage.core.geom.LintError) { journal.note("mainstage", "the version-2 gate refuses with EFFECTS in force: ${e.message} — Crush and Flip play their fallbacks"); null }
+        catch (e: wm.damage.core.geom.LintError) { journal.note("mainstage", "the version-2 gate refuses with EFFECTS in force: ${e.message} — Crush, Flip and Matrix play their fallbacks"); null }
 
     /** C3 DM-1 (D3): why the asked effect plays its fallback, said once per change of what plays and why (the row says
      *  what plays: [scrollPlaysWords]). */

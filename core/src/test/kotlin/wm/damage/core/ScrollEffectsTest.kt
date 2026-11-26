@@ -144,8 +144,11 @@ class ScrollEffectsTest {
                 if (!wraps) {
                     // C3 FF: today's form — every record but the programs byte for byte (the programs take the fast fit's
                     // T); END is checked below at every cursor a notch lands on, the ends being edges
-                    assertEquals(s4.blobs.dropLast(1).map { it.off to it.bytes.toList() }, s5.blobs.dropLast(1).map { it.off to it.bytes.toList() }, "$what0: today's form, byte for byte")
-                    assertEquals("programs", s5.blobs.last().name, "$what0: the programs last")
+                    // (C3 DM-2a: Matrix's records lie past the programs, a staging record of their own)
+                    fun form(ms: ListStaging) = ms.blobs.filter { it.name != "programs" && it.name != "Matrix's records" }.map { it.off to it.bytes.toList() }
+                    assertEquals(form(s4), form(s5), "$what0: today's form, byte for byte")
+                    assertEquals(if (e == ScrollEffect.MATRIX) listOf("programs", "Matrix's records") else listOf("programs"),
+                        s5.blobs.map { it.name }.dropWhile { it != "programs" }, "$what0: the programs last (Matrix's records after them)")
                 } else {
                     assertEquals(null, s5.wrap, "$what0: no wrap record")
                     assertEquals(k + 1, s5.margin, "$what0: margins of k + 1")
@@ -334,6 +337,186 @@ class ScrollEffectsTest {
         assertTrue(short.wrap != null, "the wrap kept")
         assertEquals(digest(full.pans), digest(short.pans), "the same pans")
         assertTrue(short.remake(ListStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.SLIDE)) is ListStaging.Remake.NoRoom)
+    }
+
+    // ------------------------------------------------------------------------------- C3 DM-2a: Matrix and its records
+
+    /** Every record of [ms] (its name, offset and bytes), its pan slots, its end, P and T — the staging as the glasses get it. */
+    private fun stagingDigest(ms: ListStaging): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        for (b in ms.blobs) { md.update("${b.name}@${b.off}:".toByteArray()); md.update(b.bytes) }
+        md.update("slot ${ms.progSlot} ${ms.progSlots?.toList()} end ${ms.end} P ${ms.period} T ${ms.t}".toByteArray())
+        return md.digest().take(8).joinToString("") { "%02x".format(it) }
+    }
+
+    /** Today's stagings ("height KiB stage effect" → [stagingDigest]), measured on the tree before DM-2a (`b9744a18` with
+     *  DM-2a part 1, which changes only the window form) by the same digest. */
+    private val todaysStagings = mapOf(
+        "288 160 4 none" to "a81a0f5f77e2bc3d", "288 160 4 depth" to "365e73feb912e4a5", "288 160 4 slide" to "8b7147d9586888da",
+        "288 160 4 flip" to "7680bfb1330739e3", "288 160 4 fall" to "f8151fe78d1e9488", "288 160 4 crush" to "8b7147d9586888da",
+        "288 160 5 none" to "98e9d6af04897b70", "288 160 5 depth" to "0a2377d030710e97", "288 160 5 slide" to "5b5f1e74150216b1",
+        "288 160 5 flip" to "134893f0e4848c53", "288 160 5 fall" to "6839690fe7a12be8", "288 160 5 crush" to "bb079feaa0e5436c",
+        "288 256 4 none" to "a81a0f5f77e2bc3d", "288 256 4 depth" to "365e73feb912e4a5", "288 256 4 slide" to "8b7147d9586888da",
+        "288 256 4 flip" to "7680bfb1330739e3", "288 256 4 fall" to "f8151fe78d1e9488", "288 256 4 crush" to "8b7147d9586888da",
+        "288 256 5 none" to "98e9d6af04897b70", "288 256 5 depth" to "0a2377d030710e97", "288 256 5 slide" to "5b5f1e74150216b1",
+        "288 256 5 flip" to "134893f0e4848c53", "288 256 5 fall" to "6839690fe7a12be8", "288 256 5 crush" to "bb079feaa0e5436c",
+        "352 160 4 none" to "202815ff73c68606", "352 160 4 depth" to "ae7ff9d276084515", "352 160 4 slide" to "cefae98fef2fd6e0",
+        "352 160 4 flip" to "8ce30022942427a8", "352 160 4 fall" to "418529a21cbb9077", "352 160 4 crush" to "cefae98fef2fd6e0",
+        "352 160 5 none" to "17f6082dfac69924", "352 160 5 depth" to "3bea12fffa8706b6", "352 160 5 slide" to "975f162387a884cb",
+        "352 160 5 flip" to "1a05c316422179ca", "352 160 5 fall" to "eec17ed54dca8a52", "352 160 5 crush" to "c1ad5c657813bf77",
+        "352 256 4 none" to "202815ff73c68606", "352 256 4 depth" to "ae7ff9d276084515", "352 256 4 slide" to "cefae98fef2fd6e0",
+        "352 256 4 flip" to "8ce30022942427a8", "352 256 4 fall" to "418529a21cbb9077", "352 256 4 crush" to "cefae98fef2fd6e0",
+        "352 256 5 none" to "17f6082dfac69924", "352 256 5 depth" to "3bea12fffa8706b6", "352 256 5 slide" to "975f162387a884cb",
+        "352 256 5 flip" to "1a05c316422179ca", "352 256 5 fall" to "eec17ed54dca8a52", "352 256 5 crush" to "c1ad5c657813bf77",
+        "416 160 4 none" to "f643fdae0216823a", "416 160 4 depth" to "c681e454c5eef178", "416 160 4 slide" to "0154d51ebf12ddd5",
+        "416 160 4 flip" to "9ed1cfc6812da864", "416 160 4 fall" to "7769eb2024f5a3c5", "416 160 4 crush" to "0154d51ebf12ddd5",
+        "416 160 5 none" to "a015126cf400c47a", "416 160 5 depth" to "fa3ee964c36adf9e", "416 160 5 slide" to "022df0a7922dead5",
+        "416 160 5 flip" to "00079ce6debf1ad0", "416 160 5 fall" to "553c415fb9a41363", "416 160 5 crush" to "cadb41d71af16f7d",
+        "416 256 4 none" to "f643fdae0216823a", "416 256 4 depth" to "c681e454c5eef178", "416 256 4 slide" to "0154d51ebf12ddd5",
+        "416 256 4 flip" to "9ed1cfc6812da864", "416 256 4 fall" to "7769eb2024f5a3c5", "416 256 4 crush" to "0154d51ebf12ddd5",
+        "416 256 5 none" to "a015126cf400c47a", "416 256 5 depth" to "fa3ee964c36adf9e", "416 256 5 slide" to "022df0a7922dead5",
+        "416 256 5 flip" to "00079ce6debf1ad0", "416 256 5 fall" to "553c415fb9a41363", "416 256 5 crush" to "cadb41d71af16f7d",
+        "480 160 4 none" to "084fc8f4a54718fe", "480 160 4 depth" to "152d18ddaf50eecf", "480 160 4 slide" to "127c2b256ba04938",
+        "480 160 4 flip" to "d0283ec34fa7603d", "480 160 4 fall" to "59f2cbb981c9d4e8", "480 160 4 crush" to "127c2b256ba04938",
+        "480 160 5 none" to "cb81a5d60f56bec2", "480 160 5 depth" to "6e92816352afb0eb", "480 160 5 slide" to "8965a3b168d171f0",
+        "480 160 5 flip" to "73dc6412095e4364", "480 160 5 fall" to "e61fd8838fe45f7e", "480 160 5 crush" to "1077923b39641f77",
+        "480 256 4 none" to "084fc8f4a54718fe", "480 256 4 depth" to "152d18ddaf50eecf", "480 256 4 slide" to "127c2b256ba04938",
+        "480 256 4 flip" to "d0283ec34fa7603d", "480 256 4 fall" to "59f2cbb981c9d4e8", "480 256 4 crush" to "127c2b256ba04938",
+        "480 256 5 none" to "cb81a5d60f56bec2", "480 256 5 depth" to "6e92816352afb0eb", "480 256 5 slide" to "8965a3b168d171f0",
+        "480 256 5 flip" to "73dc6412095e4364", "480 256 5 fall" to "e61fd8838fe45f7e", "480 256 5 crush" to "1077923b39641f77")
+
+    /**
+     * C3 DM-2a, the pan slots' and the records' pin (decisions DV 2, DW 3, DW 4; the DM-2 spec §8): a staging with no record
+     * effect in force is today's byte for byte — every record's offset and bytes, the pan slots, the end, P and T — at the
+     * four heights, both caches, below and at stage 5, for every effect without records; Matrix asked below stage 5 is
+     * Depth's staging byte for byte, said. Where a Matrix staging's records do not fit, they are given up FIRST — the
+     * staging is Depth's, byte for byte, with the spare pan slot kept (today's order then follows) — said "does not fit".
+     */
+    @Test
+    fun aStagingWithoutRecordsIsTodaysAndRecordsAreGivenUpFirst_DM2a() {
+        var n = 0
+        for (h in heights) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            for (cache in caches) for (s5 in listOf(false, true)) {
+                val region = CfwModes.mainRegion(cache, true)
+                fun st(e: ScrollEffect, end: Int = region.last + 1) = ListStaging.build(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, cache, region.first, end,
+                    widths = listOf(ListStaging.WHOLE), motion = ListStaging.ScrollMotion.DEFAULT.copy(effect = e), stage5 = s5, fx = MainLocalCheck.effectsAt(s5), text = rig.text)
+                val what0 = "$h ${cache / 1024} KiB stage ${if (s5) 5 else 4}"
+                for (e in ScrollEffect.entries.filter { !ScrollEffects.hasRecords(it) }) {
+                    val ms = st(e)
+                    assertEquals(todaysStagings["$h ${cache / 1024} ${if (s5) 5 else 4} ${e.id}"], stagingDigest(ms), "$what0 ${e.word}: today's staging byte for byte")
+                    assertNull(ms.recordEffect, "$what0 ${e.word}: no records")
+                    n++
+                }
+                val mx = st(ScrollEffect.MATRIX)
+                val depth = st(ScrollEffect.DEPTH)
+                if (!s5) {
+                    assertEquals(stagingDigest(depth), stagingDigest(mx), "$what0: Matrix below stage 5 is Depth's staging")
+                    assertEquals("plays Depth", mx.plays.words(ScrollEffect.MATRIX), "$what0: said")
+                    continue
+                }
+                assertEquals(ScrollEffect.MATRIX, mx.recordEffect, "$what0: Matrix's staging holds its records")
+                assertEquals(depth.blobs.take(depth.blobs.size - 1).map { it.name to it.off }, mx.blobs.take(depth.blobs.size - 1).map { it.name to it.off }, "$what0: nothing before the programs moves")
+                assertEquals(listOf("programs", "Matrix's records"), mx.blobs.takeLast(2).map { it.name }, "$what0: the records last")
+                assertEquals(mx.progSlots!![1] + mx.progSlot, mx.blobs.last().off, "$what0: the records right past the spare pan slot")
+                // given up first: a region that ends one word short of Matrix's records
+                val short = st(ScrollEffect.MATRIX, mx.end - 4)
+                val dShort = st(ScrollEffect.DEPTH, mx.end - 4)
+                assertEquals(stagingDigest(dShort), stagingDigest(short), "$what0: Matrix's records do not fit — Depth's staging in that region byte for byte")
+                assertTrue(short.progSlots != null && short.recordEffect == null, "$what0: the records given up before the spare pan slot")
+                assertTrue(short.plays.effect == ScrollEffect.DEPTH && short.plays.why!!.startsWith("does not fit"), "$what0: said: ${short.plays}")
+            }
+        }
+        println("DM2a-today: $n stagings without records are today's byte for byte")
+    }
+
+    /**
+     * C3 DM-2a, the records rule (decisions DW 1, DW 2; the DM-2 spec §8): Depth → Matrix → Depth on Main at stage 5 — a
+     * programs-only re-make into Matrix from a staging without its records, and out of it from Matrix's, is refused
+     * (NoRoom, its reason the records), so each change is a full staging (the shell's branch); Matrix's own Auto re-make
+     * (another T at the period in force) keeps its records and fits its pan slot; and below stage 5 Matrix asked of a Depth
+     * staging is Depth's pans re-made (nothing to stage).
+     */
+    @Test
+    fun aChangeIntoOrOutOfMatrixIsAFullStaging_DM2a() {
+        for (h in heights) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            for (cache in caches) {
+                val fx = MainLocalCheck.effectsAt(true)
+                val m = ListStaging.ScrollMotion.DEFAULT
+                val depth = stage5(h, cache, ScrollEffect.DEPTH, rig)
+                val into = depth.remake(m.copy(effect = ScrollEffect.MATRIX), fx)
+                assertTrue(into is ListStaging.Remake.NoRoom && "Matrix's records are staging records" in into.why, "$h ${cache / 1024}: into Matrix: ${(into as? ListStaging.Remake.NoRoom)?.why}")
+                val mx = stage5(h, cache, ScrollEffect.MATRIX, rig)
+                val out = mx.remake(m.copy(effect = ScrollEffect.DEPTH), fx)
+                assertTrue(out is ListStaging.Remake.NoRoom && "Matrix's records are staging records" in out.why, "$h ${cache / 1024}: out of Matrix: ${(out as? ListStaging.Remake.NoRoom)?.why}")
+                assertEquals(stagingDigest(depth), stagingDigest(stage5(h, cache, ScrollEffect.DEPTH, rig)), "$h ${cache / 1024}: Depth again, byte for byte")
+                mx.periodInForce = mx.period + 8
+                val auto = assertNotNull((mx.remake(m.copy(effect = ScrollEffect.MATRIX), fx) as? ListStaging.Remake.Owed)?.programs, "$h ${cache / 1024}: Matrix's Auto re-make")
+                assertEquals(ScrollEffect.MATRIX to true, auto.plays.effect to auto.plays.v2, "$h ${cache / 1024}: Matrix's own pans at the new T ${auto.t}")
+                val below = staging(h, cache, ScrollEffect.DEPTH, rig).remake(m.copy(effect = ScrollEffect.MATRIX))
+                assertEquals(ScrollEffect.DEPTH, (below as? ListStaging.Remake.Owed)?.programs?.plays?.effect, "$h ${cache / 1024}: below stage 5 Matrix plays Depth's pans")
+            }
+        }
+    }
+
+    /**
+     * C3 DM-2a, Matrix (the DM spec §1.5, §5's pins; decisions DR (b), (n), AD's D1): at stage 5, at EVERY cursor a notch
+     * lands on, both directions, the four heights, both caches — the model's END (`Motion.endOnModel`) is Main's own paint
+     * at the new cursor in the program's areas, and so is belief's; every bound program's first read range lies inside
+     * Main's region (D1: private records, no atlas byte); at the middle step lit rain cells differ from Depth's pan at the
+     * same T in the rows' areas and nowhere in the band (the rain falls behind it), and at step T none do.
+     */
+    @Test
+    fun matrixsRainFallsThroughTheRowsAndIsGoneAtT_DM2a() {
+        var n = 0
+        val fit = ArrayList<String>()
+        for (h in heights) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            for (cache in caches) {
+                val ms = stage5(h, cache, ScrollEffect.MATRIX, rig)
+                val what0 = "$h ${cache / 1024} KiB Matrix"
+                assertEquals(ScrollEffects.Plays(ScrollEffect.MATRIX, true), ms.plays, "$what0: its own version-2 pans at stage 5")
+                assertEquals(-ms.layout.rowH, ms.boundList(1).pitch, "$what0: pitch −rowH (Depth's rules)")
+                val cacheImg = cacheOf(ms)
+                val records = listOfNotNull(ms.strip.record, ms.wrap?.record) + ms.bands.map { it.record }
+                val staged = ScrollEffects.Staged(ms.layout, ms.listD, ms.bandD, ms.bands[0].record, records)
+                for (nt in notches(ms)) {
+                    Motion.play(nt.pan.program, ListStaging.SLOT, ms.period, 1, 0, nt.p)
+                    val range = nt.pan.program.firstRange(nt.p)
+                    assertTrue(range.first >= ms.regionStart && range.last < ms.end, "$what0 ${nt.c}→${nt.to}: the read range $range inside Main's ${ms.regionStart}..${ms.end}")
+                    val depth = ScrollEffects.program(ScrollEffects.Plays(ScrollEffect.DEPTH, false), staged,
+                        if (nt.pan.strip == 0) ms.strip.record else ms.wrap!!.record, nt.pan.kA, nt.pan.kB, nt.pan.step, ms.t, nt.pan.prog4)
+                    val bandAreas = listOf(nt.pan.program.tracks.last().area(true), nt.pan.program.tracks.last().area(false))
+                    for (left in listOf(true, false)) {
+                        val base = panel(rig.truth(nt.c, left))
+                        val what = "$what0 step ${nt.pan.step} ${nt.c}→${nt.to} left=$left"
+                        val end = Motion.endOnModel(nt.pan.program, nt.p, cacheImg, base, base, left, tag = 7)
+                        assertEquals(0, differModel(end, rig.truth(nt.to, left), nt.pan.areas(left)), "$what: px where the model's END is not Main's paint at ${nt.to}")
+                        val belief = rig.truth(nt.c, left).copy().also { ms.paintEnd(nt.pan, nt.p, left, it) }
+                        assertEquals(0, differModel(end, belief, nt.pan.areas(left)), "$what: px where belief's END is not the model's")
+                        val mid = ms.t / 2
+                        fun lit(k: Int, areas: List<Rect>): Int {
+                            val a = Motion.stepOnModel(nt.pan.program, nt.p, cacheImg, base, base, left, tag = 7, k = k)
+                            val b = Motion.stepOnModel(depth, nt.p, cacheImg, base, base, left, tag = 7, k = k)
+                            var d = 0
+                            for (r in areas) for (y in r.y until r.bottom) for (x in r.x until r.right) if (nibble(a, x, y) != nibble(b, x, y)) d++
+                            return d
+                        }
+                        val rows = listOf(nt.pan.program.tracks[1].area(left), nt.pan.program.tracks[2].area(left))
+                        assertTrue(lit(mid, rows) > 0, "$what: at step $mid of ${ms.t} the rain lights cells over the rows")
+                        assertEquals(0, lit(mid, listOf(bandAreas[if (left) 0 else 1])), "$what: no rain over the band at step $mid")
+                        assertEquals(0, lit(ms.t, nt.pan.areas(left)), "$what: at step T no cell is lit")
+                    }
+                    n++
+                }
+                if (cache == CfwModes.CACHE2_MAX_RIDERS) fit += "h$h: P ${ms.period} (${"%.1f".format(ms.period * 1000.0 / 1024)} ms) T ${ms.t}, the step " +
+                    "${"%.1f".format(ListStaging.fastStepMs(ScrollEffects.areaPx(ScrollEffect.MATRIX, ms.layout, ms.listD, ms.bandD), ScrollEffects.walkBytes(ScrollEffect.MATRIX, ms.layout), 0, ScrollEffects.rainCells(ScrollEffect.MATRIX, ms.layout)))} ms, " +
+                    "${ms.pan(ListStaging.WHOLE, 1).areaPx} px a step, C ${"%,d".format(ms.pans.maxOf { p -> (0 until ms.rows).mapNotNull { c -> ms.params(p, c) }.maxOf { p.program.cost(it) } })} u at most; " +
+                    "the records ${ms.blobs.last().bytes.size} B, a pan slot ${ms.progSlot} B, the free span ${ms.freeSpan} B"
+            }
+        }
+        println("DM2a-matrix (BoxFace, modeled): the model's END = Main's paint = belief at $n notches; the fit at 256 KiB:\n" + fit.joinToString("\n"))
     }
 
     // ------------------------------------------------------------------------------- C3 DM-1: Crush and Flip

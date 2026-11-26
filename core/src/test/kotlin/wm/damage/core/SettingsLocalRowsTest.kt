@@ -107,10 +107,10 @@ class SettingsLocalRowsTest {
 
     /** K1-1: `Scroll effect` cycles None · Depth · Slide · Fall (Depth the default); an older record reads Depth, a value
      *  no effect has reads Depth, and the key round-trips. C3 DM-1: Flip and Crush in the order his plan gives (Depth,
-     *  Slide, Flip, Fall, …, Crush; None first, as K1-1 put it). */
+     *  Slide, Flip, Fall, …, Crush; None first, as K1-1 put it). C3 DM-2a: Matrix after Crush. */
     @Test
     fun theScrollEffectRowCyclesTheFourEffects_K11() {
-        assertEquals(listOf("none", "depth", "slide", "flip", "fall", "crush"), ShellSettings.SCROLL_EFFECTS)
+        assertEquals(listOf("none", "depth", "slide", "flip", "fall", "crush", "matrix"), ShellSettings.SCROLL_EFFECTS)
         assertEquals("depth", ShellSettings().scrollEffect)
         assertEquals("depth", ShellSettings.fromJson(kotlinx.serialization.json.buildJsonObject { put("taps", kotlinx.serialization.json.JsonPrimitive("report")) }).scrollEffect)
         assertEquals("depth", ShellSettings.fromJson(kotlinx.serialization.json.buildJsonObject { put("scrollEffect", kotlinx.serialization.json.JsonPrimitive("glitch")) }).scrollEffect)
@@ -119,8 +119,9 @@ class SettingsLocalRowsTest {
         var st = ShellSettings()
         val w = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { true })
         val seen = ArrayList<String>()
-        repeat(6) { seen += w.rowsForTest("Animations", "Scroll").first().second; st = st.copy(scrollEffect = ShellSettings.SCROLL_EFFECTS[(ShellSettings.SCROLL_EFFECTS.indexOf(st.scrollEffect) + 1) % 6]) }
-        assertEquals(listOf("Depth (default)", "Slide", "Flip", "Fall", "Crush", "None"), seen)
+        repeat(7) { seen += w.rowsForTest("Animations", "Scroll").first().second; st = st.copy(scrollEffect = ShellSettings.SCROLL_EFFECTS[(ShellSettings.SCROLL_EFFECTS.indexOf(st.scrollEffect) + 1) % 7]) }
+        assertEquals(listOf("Depth (default)", "Slide", "Flip", "Fall", "Crush", "Matrix", "None"), seen)
+        assertEquals("matrix", ShellSettings.fromJson(ShellSettings().copy(scrollEffect = "matrix").toJson()).scrollEffect, "Matrix round-trips")
         assertEquals("crush", ShellSettings.fromJson(ShellSettings().copy(scrollEffect = "crush").toJson()).scrollEffect, "Crush round-trips")
     }
 
@@ -139,6 +140,11 @@ class SettingsLocalRowsTest {
         assertEquals("Scroll effect" to "Flip", w.rowsForTest("Animations", "Scroll").first(), "at stage 5 Flip plays itself")
         st = st.copy(scrollEffect = "crush"); plays = wm.damage.core.motion.ScrollEffects.playsAt(wm.damage.core.motion.ScrollEffect.CRUSH, false).words(wm.damage.core.motion.ScrollEffect.CRUSH)
         assertEquals("Scroll effect" to "Crush (plays Slide)", w.rowsForTest("Animations", "Scroll").first(), "the words from what plays below stage 5")
+        // C3 DM-2a: Matrix below stage 5 plays Depth, said; at stage 5 itself
+        st = st.copy(scrollEffect = "matrix"); plays = wm.damage.core.motion.ScrollEffects.playsAt(wm.damage.core.motion.ScrollEffect.MATRIX, false).words(wm.damage.core.motion.ScrollEffect.MATRIX)
+        assertEquals("Scroll effect" to "Matrix (plays Depth)", w.rowsForTest("Animations", "Scroll").first(), "Matrix below stage 5")
+        plays = wm.damage.core.motion.ScrollEffects.playsAt(wm.damage.core.motion.ScrollEffect.MATRIX, true).words(wm.damage.core.motion.ScrollEffect.MATRIX)
+        assertEquals("Scroll effect" to "Matrix", w.rowsForTest("Animations", "Scroll").first(), "at stage 5 Matrix plays itself")
     }
 
     /** An older record without the keys reads the defaults (300 ms since decisions AZ.7, Auto); a value off the ladder clamps

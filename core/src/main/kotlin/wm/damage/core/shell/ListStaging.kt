@@ -13,6 +13,7 @@ import wm.damage.core.motion.Motion
 import wm.damage.core.motion.MotionProgram
 import wm.damage.core.motion.ScrollEffect
 import wm.damage.core.motion.ScrollEffects
+import wm.damage.core.text.TextRasterizer
 import wm.damage.core.wire.CfwModes
 
 /**
@@ -128,6 +129,9 @@ class ListStaging private constructor(
     /** K1-2 stage 2: what the staging holds — Main's band forms, item table and press ([ListForm.MAIN_BANDS]), or a window
      *  list's strip and pan slots alone ([ListForm.STRIP_WINDOWS], [assembleWindow]). */
     val form: ListForm = ListForm.MAIN_BANDS,
+    /** C3 DM-2a (the records rule, [ScrollEffects.hasRecords]): the effect whose records this staging holds, laid last in
+     *  it (Matrix's [ScrollEffects.RainRecords]), or null — a change into or out of it is a full staging ([remake]). */
+    val recordEffect: ScrollEffect? = null,
 ) {
     /** The tap's press — Main's alone (a window list stages none). */
     val press: Press get() = press0 ?: throw LintError("a window list stages no press (K1-2: its tap entry is report-only)")
@@ -309,6 +313,9 @@ class ListStaging private constructor(
             }
             val s = (if (start) segs[i].firstOrNull { it.verb != Motion.WAIT } else segs[i].lastOrNull { it.verb != Motion.WAIT })
                 ?: return@forEachIndexed
+            // C3 DM-2a: Matrix's rain (reveal 0) lights no cell at step T — every head is at R + trail (§7.6) — and leaves
+            // what is under it: END draws nothing of it (the state before step 1 likewise holds nothing it drew)
+            if (s.verb == Motion.GLYPHS && s.kind == Motion.RAIN && s.rain?.reveal == 0) return@forEachIndexed
             if (s.verb != Motion.DRAW || s.kind != Motion.KIND_RECORD) throw LintError("Main's programs draw records")
             val own = t.perLens && !left
             val x = (if (own) s.xR else s.xL) + (if (start) 0 else if (own) s.dxR else s.dxL)
@@ -661,8 +668,14 @@ class ListStaging private constructor(
         val reset = motion != want
         val to = 1 - activeProgs
         val specs = pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }
+        val asked = ScrollEffects.playsFor(want.effect, form, fx)
+        // C3 DM-2a, the records rule (decisions DV 2, DW 1): an effect's records are part of the staging, so a change into
+        // or out of one is staged again whole — never pans re-made beside records that are not there, or left behind
+        val wantRecords = asked.effect.takeIf { ScrollEffects.hasRecords(it) }
+        if (wantRecords != recordEffect) return Remake.NoRoom("${(wantRecords ?: recordEffect)!!.word}'s records are staging records " +
+            "(${if (wantRecords != null) "this staging holds none" else "this staging holds them"}): a change into or out of it is staged again whole")
         // DM-0: the rules' P0 and P3 by the strip's own margin (k + 1 on a ring strip; `layout.rowsAbove` was one row short there)
-        val made = lay(staged, ScrollEffects.playsFor(want.effect, form, fx), fx, slots[to], specs, margin, rows, ring, itemOffs, { recordOf(it) }) { pl ->
+        val made = lay(staged, asked, fx, slots[to], specs, margin, rows, ring, itemOffs, { recordOf(it) }) { pl ->
             if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form) else periodInForce to ScrollEffects.stepsAt(want, periodInForce, t) }
         val bytes = joined(made.parts)
         if (bytes.size > progSlot) return Remake.NoRoom("the re-made pans (${bytes.size} B) do not fit the spare slot ($progSlot B)")
@@ -774,8 +787,8 @@ class ListStaging private constructor(
          * 39.8 and 43.6 ms measured on C2's path). At 352 Depth's pan comes to 8.8 ms (the spec's §1.6). The measured period
          * (decisions BF, the 114's field 9) raises the period from the glasses' own steps, as on C2's path.
          */
-        fun fastStepMs(areaPx: Int, walkBytes: Int, pixelPx: Int = 0): Double =
-            FAST_STEP_MS + (FAST_US_PER_PX * areaPx + FAST_US_PER_PIXEL * pixelPx + FAST_US_PER_BYTE * walkBytes) / 1000.0
+        fun fastStepMs(areaPx: Int, walkBytes: Int, pixelPx: Int = 0, rainCells: Int = 0): Double =
+            FAST_STEP_MS + (FAST_US_PER_PX * areaPx + FAST_US_PER_PIXEL * pixelPx + FAST_US_PER_BYTE * walkBytes + FAST_US_PER_RAIN_CELL * rainCells) / 1000.0
         /** FF (modeled, the DM spec §1.1): a step's fixed part on the fast path (ms). */
         const val FAST_STEP_MS = 0.5
         /** FF (modeled, the DM spec §1.1): µs per output pixel written as bytes on the fast path. */
@@ -786,13 +799,18 @@ class ListStaging private constructor(
         const val FAST_US_PER_PIXEL = 0.156
         /** FF (modeled, the DM spec §1.1): µs per byte decoded on the fast path. */
         const val FAST_US_PER_BYTE = 0.20
+        /** C3 DM-2a (modeled, the DM spec §1.6 and the DM-2 spec §1's "lit-rain term"): µs per lit rain cell a step — its box
+         *  filled and its glyph drawn ([ScrollEffects.rainCells]: every cell of every trail, lit every step). */
+        const val FAST_US_PER_RAIN_CELL = 65.0
         /** FF (the DM spec §1.6's assumptions, counted on the PC's renderer from K1-1's local-check staging with the
          *  desktop's faces, M-PC): a real row of the strip ≈ 1,440 B (1,432–1,457), a band form 2,527 B. */
         const val FAST_ROW_BYTES = 1_440
         const val FAST_BAND_FORM_BYTES = 2_527
         /** The motion's length the steps are chosen for (≈ 200 ms: under the ring's least scroll gap, spec §6.6). */
         const val MOTION_MS = 200.0
-        /** Main's list on the glasses and its engine slot (`FIRMWARE.md` §6.3: one slot per list). */
+        /** Main's list on the glasses and its engine slot (`FIRMWARE.md` §6.3: one slot per list). Main's list's numbers:
+         *  [LIST] and [SLOT] index the glasses' lists and engine slots, [ENTRIES] and [ENTRY_DOWN]..[ENTRY_TAP] their
+         *  entries — Main's alone; a window's list and the wheel take their own (decisions BD, DZ). */
         const val LIST = 0
         const val SLOT = 0
         /** Decisions AZ.4: the phone's PLAY across the wrap goes in a slot no list is bound to (P9: no PLAY into a bound
@@ -800,12 +818,12 @@ class ListStaging private constructor(
         const val WRAP_SLOT = 1
         /** B082: [Pan.strip] of the wrap's pans — they draw [wrap], not a strip slot. */
         const val WRAP_STRIP = 2
-        /** The entries' numbers (§6.3: 0..7; the lowest-numbered match fires, and each event id has one). */
+        /** Main's list's entries' numbers (§6.3: 0..7; the lowest-numbered match fires, and each event id has one). */
         const val ENTRY_DOWN = 0
         const val ENTRY_UP = 1
         const val ENTRY_TAP = 2
-        /** K1-2 stage 0: Main's entries' numbers in [boundList]'s order (the pan down, the pan up, the tap) — a value its
-         *  binding passes (decisions BD: the window list's are 3–5, the wheel's 6–8). */
+        /** K1-2 stage 0: Main's list's entries' numbers in [boundList]'s order (the pan down, the pan up, the tap) — a value
+         *  its binding passes (decisions BD: the window list's are 3–5, the wheel's 6–8). */
         val ENTRIES: IntArray get() = intArrayOf(ENTRY_DOWN, ENTRY_UP, ENTRY_TAP)
         /** The press: T = 3 steps, then HOLD (spec §6.6; decisions B.10). */
         const val PRESS_T = 3
@@ -848,10 +866,10 @@ class ListStaging private constructor(
         fun build(layout: Layout, view: WindowView.ListView, kit: ContentKit, listD: Int, bandD: Int, cacheSize: Int,
                   regionStart: Int = cacheSize - CfwModes.STAGE_RESERVE, regionEnd: Int = cacheSize,
                   relay: (Gray8, () -> Unit) -> Unit = { _, b -> b() }, widths: List<Int> = WIDTHS + WHOLE,
-                  motion: ScrollMotion? = null, stage5: Boolean = false, fx: Motion.Effects? = null): ListStaging {
+                  motion: ScrollMotion? = null, stage5: Boolean = false, fx: Motion.Effects? = null, text: TextRasterizer? = null): ListStaging {
             val p = Paint(layout, view, kit)
             while (!p.done) p.step(relay)
-            return assemble(p, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, stage5 = stage5, fx = fx)
+            return assemble(p, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, stage5 = stage5, fx = fx, text = text)
         }
 
         /** DM-0 (S2, decisions AD): whether Main's rows at [layout] take the ring form at stage 5 — only where its own paint
@@ -896,7 +914,13 @@ class ListStaging private constructor(
                      fx: Motion.Effects? = null,
                      /** K1-2 stage 1 (O12): per row, the largest band form a row whose band form changed in the last staging
                       *  drew ([bandSeen], carried by window; 0: none) — that row gets the largest slot. */
-                     bandRoom: IntArray? = null): ListStaging {
+                     bandRoom: IntArray? = null,
+                     /** C3 DM-2a: the text Main's rows are drawn with — Matrix's noise set is drawn in its row face through
+                      *  it ([ScrollEffects.rainRecords]); null: no records can be made (Matrix plays Depth, said). */
+                     text: TextRasterizer? = null,
+                     /** C3 DM-2a (decisions DW 4): why the effect in force lays no records — given up first where the
+                      *  staging with them does not fit, or refused — so it plays its fallback with this reason; null: laid. */
+                     recordsOff: String? = null): ListStaging {
             val layout = paint.layout
             if (cacheSize < CfwModes.STAGE_RESERVE || cacheSize > CfwModes.CACHE2_MAX_RIDERS || cacheSize % 4 != 0)
                 throw LintError("no staging for a cache of $cacheSize B (a contract-2 session's 64..256 KiB)")
@@ -920,6 +944,15 @@ class ListStaging private constructor(
             if (stripRows * l.rowH > CfwModes.MAX_IMAGE2_H) throw LintError("Main's strip of $stripRows rows is taller than a record (${CfwModes.MAX_IMAGE2_H})")
             var at = regionStart
             fun next(size: Int): Int { val o = at; at += (size + 3) and 3.inv(); return o }
+            // C3 DM-1: what plays for the asked effect — Crush, Flip and Matrix in version 2 with the gate's token [fx], else
+            // their fallback (D3), said. C3 DM-2a (decisions DW 4): an effect with records ([ScrollEffects.hasRecords]) lays
+            // them last, and gives them up first — the staging is then made again without them ([withoutRecords]: the effect
+            // plays its fallback with the reason), and today's order of what is given up follows unchanged
+            val askedEffect = motion?.effect ?: ScrollEffect.DEPTH
+            val askedPlays = ScrollEffects.plays(askedEffect, fx).let { p -> if (recordsOff != null && ScrollEffects.hasRecords(p.effect)) ScrollEffects.fallback(askedEffect, recordsOff) else p }
+            val recEffect = askedPlays.effect.takeIf { ScrollEffects.hasRecords(it) }
+            fun withoutRecords(why: String): ListStaging =
+                assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, room, wrapFit, progSpare, stage5, fx, bandRoom, text, why)
 
             // the strip: row form at the pitch, margins as Main shows past the ends; one fixed segment per strip row
             val sl = stripOf(paint, n, wraps, sA, sB, room)
@@ -969,17 +1002,21 @@ class ListStaging private constructor(
             // slots'), then the wrap record's slack, then the wrap
             // record itself (here, and once the programs are laid out below)
             fun lessOrNull(spareFirst: Boolean): ListStaging? = when {
-                spareFirst && progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, room, wrapFit, false, stage5, fx, bandRoom)
-                room != null && room.any { it > 0 } || bandRoom?.any { it > 0 } == true -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit, false, stage5, fx)
-                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx)
+                spareFirst && progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, room, wrapFit, false, stage5, fx, bandRoom, text, recordsOff)
+                room != null && room.any { it > 0 } || bandRoom?.any { it > 0 } == true -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit, false, stage5, fx, text = text, recordsOff = recordsOff)
+                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx, text = text, recordsOff = recordsOff)
                 else -> null
             }
             // (before the programs are laid out the spare slot is not yet taken: the rungs after it)
-            if (at > regionEnd || bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF) lessOrNull(spareFirst = false)?.let { return it }
+            if (at > regionEnd || bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF) {
+                if (recEffect != null) return withoutRecords("does not fit: Main's records pass its region's end $regionEnd before ${recEffect.word}'s are laid")
+                lessOrNull(spareFirst = false)?.let { return it }
+            }
             if (bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF) throw LintError("Main's records pass the u16 off4 reach")
             // every slot a band form can be in is a record the programs know (a parameter names one of them)
             val records = listOfNotNull(strip.record, wrapPic?.record) + bands.map { it.record } + spareOffs.map { Motion.Source.Record(it / 4, rowW, l.lens.h, spareSlot) }
             val staged = ScrollEffects.Staged(l, listD, bandD, bands[0].record, records)
+            fun stagedWith(r: ScrollEffects.RainRecords?) = if (r == null) staged else ScrollEffects.Staged(l, listD, bandD, bands[0].record, records, rain = r.rain)
 
             // the programs after the item table: the press first (no scroll row changes it), then the pans' slot and, where
             // the region holds it, a spare slot of one size (K1-1: a change of the scroll rows writes the re-made pans there
@@ -1010,23 +1047,39 @@ class ListStaging private constructor(
             fun rec(sx: Int) = if (sx == 0) strip.record else wrapPic!!.record
             // one period and one T for every program of the staging: the whole list's (decisions V), by the effect in force
             // (K1-1: its own tracks' area); the probes' fixed rule is Depth's on C2's fit. C3 FF: at stage 5 the fast DRAW
-            // path's fit, which every fire there runs (`FIRMWARE.md` §7.12). C3 DM-1: by what plays — Crush and Flip in
-            // version 2 with the gate's token [fx] and checked at every cursor, else their fallback (D3), said
-            val askedEffect = motion?.effect ?: ScrollEffect.DEPTH
+            // path's fit, which every fire there runs (`FIRMWARE.md` §7.12). C3 DM-1: by what plays ([askedPlays]), a version-2
+            // form checked at every cursor and given up for its fallback where the check refuses it, said
             val slotA = at
-            val laid = lay(staged, ScrollEffects.plays(askedEffect, fx), fx, slotA, specs, sA, n, ring, itemOffs, { rec(it) }) { pl ->
+            val timingOf: (ScrollEffects.Plays) -> Pair<Int, Int> = { pl ->
                 if (motion == null) timing(ScrollEffects.areaPx(pl.effect, l, listD, bandD), null) else ScrollEffects.timing(pl, l, listD, bandD, motion, stage5) }
+            // C3 DM-2a: a record effect's records are made first at the pans' place to size the pan slots (no program's bytes
+            // depend on the offsets it names), then laid past the slots — last in the staging, so nothing before them moves
+            val probe = if (recEffect == null) null else try { ScrollEffects.rainRecords(l, text ?: throw LintError("no face was given to draw its noise in"), slotA) }
+                catch (e: LintError) { return withoutRecords("its records cannot be made: ${e.message}") }
+            val laid0 = lay(stagedWith(probe), askedPlays, fx, slotA, specs, sA, n, ring, itemOffs, { rec(it) }, timingOf)
+            if (recEffect != null && laid0.plays.effect != recEffect) return withoutRecords(laid0.plays.why ?: "its pans were refused")
+            // each pan slot holds, with slack, the largest pans and tables at their own T of the effects a programs-only re-make
+            // can reach from this staging and the one in force (the DM-2 spec §1, decisions DW 3): every effect without records
+            // where none is in force — so a staging that holds none keeps today's bytes — and the record effect alone where it
+            // is (a change out of it is a full staging). A re-make that outgrows it is a full staging (said); C3 DM-1: each
+            // effect as it would play here (version 2 with [fx])
+            val slotEffects = if (recEffect != null) listOf(recEffect) else ScrollEffect.entries.filter { !ScrollEffects.hasRecords(it) }
+            val progSlot = if (!progSpare || motion == null) joined(laid0.parts).size
+                else slack(slotEffects.maxOf { e -> val pl = ScrollEffects.plays(e, fx); val te = ScrollEffects.timing(pl, l, listD, bandD, motion.copy(effect = e), stage5).second
+                    joined(layPans(stagedWith(probe), pl, te, slotA, specs, sA, fx) { rec(it) }.second).size })
+            val slots = if (progSpare && motion != null) 2 else 1
+            val recs = if (probe == null) null else try { ScrollEffects.rainRecords(l, text!!, slotA + slots * progSlot) }
+                catch (e: LintError) { return withoutRecords("does not fit: ${e.message}") }
+            val laid = if (recs == null) laid0 else lay(stagedWith(recs), askedPlays, fx, slotA, specs, sA, n, ring, itemOffs, { rec(it) }, timingOf)
+            if (recEffect != null && laid.plays.effect != recEffect) return withoutRecords(laid.plays.why ?: "its pans were refused")
             val (period, t) = laid.period to laid.t
             val pans = laid.pans
-            val panParts = laid.parts
-            progs += panParts
-            // each pan slot holds the largest effect's pans and tables at its own T for these rows, with slack: a re-make
-            // that outgrows it is a full staging (said); C3 DM-1: each effect as it would play here (version 2 with [fx])
-            val progSlot = if (!progSpare || motion == null) joined(panParts).size
-                else slack(ScrollEffect.entries.maxOf { e -> val pl = ScrollEffects.plays(e, fx); val te = ScrollEffects.timing(pl, l, listD, bandD, motion.copy(effect = e), stage5).second
-                    joined(layPans(staged, pl, te, slotA, specs, sA, fx) { rec(it) }.second).size })
+            progs += laid.parts
             next(progSlot)
-            val progSlots = if (progSpare && motion != null) intArrayOf(slotA, next(progSlot)) else null
+            val progSlots = if (slots == 2) intArrayOf(slotA, next(progSlot)) else null
+            recs?.let { if (next(it.bytes.size) != it.at) throw LintError("Matrix's records laid at ${it.at}, not past the pan slots") }
+            if (at > regionEnd && recEffect != null) return withoutRecords("does not fit: ${recEffect.word}'s records (${recs?.bytes?.size} B) end at $at, " +
+                "past Main's region's end $regionEnd")
             if (at > regionEnd) lessOrNull(spareFirst = true)?.let { return it }
             if (at > regionEnd) throw LintError("Main's staging ends at $at, past its region's end $regionEnd: ${at - regionStart} B " +
                 "for a ${regionEnd - regionStart} B region (the strip ${strip.slot} B, $n band forms ${bands.sumOf { it.slot }} B and two spare slots of $spareSlot B)")
@@ -1037,9 +1090,12 @@ class ListStaging private constructor(
                 bands.map { Blob(it.name, it.off, pad(it.encoded), it.raw) } +
                 listOfNotNull(wrapPic?.let { Blob(it.name, it.off, pad(it.encoded), it.raw) }) +
                 Blob("items", items4 * 4, pad(itemBytes), null) +
-                Blob("programs", progs.first().first, pad(progBytes), null)
+                Blob("programs", progs.first().first, pad(progBytes), null) +
+                // C3 DM-2a: the record effect's records, last (decisions DW 4)
+                listOfNotNull(recs?.let { Blob("${recEffect!!.word}'s records", it.at, pad(it.bytes), null) })
             return ListStaging(layout, listD, bandD, n, cacheSize, period, t, regionStart, regionEnd, strip, bands.toMutableList(), items4, itemOffs,
-                spareOffs.associateWith { spareSlot }.toMutableMap(), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, staged, progSlots, progSlot, ring, stage5, laid.plays)
+                spareOffs.associateWith { spareSlot }.toMutableMap(), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, stagedWith(recs), progSlots, progSlot,
+                ring, stage5, laid.plays, recordEffect = recs?.let { recEffect })
         }
 
         /** K1-2 stage 2: the strip as both forms stage it — every row's row form ([Paint.rowForms]) at the pitch, with [sA]
