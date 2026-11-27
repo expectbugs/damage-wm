@@ -4516,6 +4516,7 @@ def vectors_v5_dm(kf):
     rh, rw, n, mg = g["rowH"], g["rowW"], g["rows"], g["margin"]
     c, s = Cache2(), Seq()
     # the strip: the eight rows with the ring's margins (4 + 8 + 4 rows), each a level with a mark that moves along x
+    # arbitrary test pixels, not §7.8's staging guarantee: a margin row is not the other end's row, so cursor 0 by a step and by the wrap end in two pictures
     sh_ = (n + 2 * mg) * rh
     strip_px = []
     for y in range(sh_):

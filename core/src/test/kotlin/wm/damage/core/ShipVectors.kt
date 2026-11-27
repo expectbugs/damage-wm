@@ -554,7 +554,7 @@ internal object ShipVectors {
     }
 
     /** C3 stage DM-2a (decisions DW 6): Matrix on Main at stage 5 — its ring NOTCHES at 352 (a notch down and up mid-list,
-     *  then the two wraps), its rain records staged with the list; unfilled until the fork's fill (`DM2A_UNFILLED`). */
+     *  then the two wraps), its rain records staged with the list; filled at DM-2aV's comparison. */
     fun dm2aActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-matrix-352", ScrollEffect.MATRIX, 352, RingForm.NOTCHES, noisy = true))
 
     /** C3 stage DM-2b (decisions DW 6, EP 4): Scramble on Main at stage 5 — Matrix's twin: its ring NOTCHES at 352, its

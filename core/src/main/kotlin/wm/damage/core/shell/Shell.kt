@@ -6665,8 +6665,11 @@ class Shell(
             // (a hand disarm), nor C2's fit while every fire runs the fast path (a staging made before EFFECTS landed)
             st.bind && ms.stage5 != st.effects -> "the stage-5 form and fit ${if (ms.stage5) "no longer match: EFFECTS is not in force" else "are wanted: EFFECTS is in force"}"
             // C3 DM-2aF (decisions EV 2): the records rule, left standing while the list is covered (he may only be passing
-            // through the row, `listBindReprogram`), is acted on here with the list in front — before the offer, so no SET
-            // names the old pans and no notch fires them against the effect asked now
+            // through the row, `listBindReprogram`), is acted on here with the list in front and no burst open — before the
+            // offer, so no SET names the old pans then. A burst still open at the return to Main (Main picked from the
+            // switcher's wheel during one) waits for its SETTLE, as X3's switch does: meanwhile the old pans are SET and a
+            // notch plays the previous effect over its own records, a consistent picture; the full staging follows the
+            // burst (DM-2aV: no guard added, ruled)
             inFront() && ms.progSlots != null && ms.remakeOwed(motionInForce()) != null && !listBindBurstOpen() ->
                 ms.recordsRule(motionInForce(), effectsToken(st))?.let { "the motion changed (${ms.motion?.words()} → ${motionInForce().words()}) and $it: a full staging is owed" }
             else -> null

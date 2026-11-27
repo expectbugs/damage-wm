@@ -2487,12 +2487,13 @@ one-period wait; with this it is drawn a few ms late.
   fallback (Scramble at a T that leaves its noise no step). Auto's steps under Scramble's records are floored at its
   noise + 1, so the period in force alone never asks that; the period note says when the floor is in force and the
   notch's length against the length asked. A staging that gave the effect's records up (it then plays Depth, said) keeps
-  Depth's pans while the motion it was made for is asked: Auto's re-makes re-make its programs alone; a change of the
-  effect, `Scroll length` or `Scroll frames` stages again (the records tried once more, one full staging per change).
-  Otherwise its programs alone are re-made into the spare pan slot, counted (field 17) and then SET; where the change
-  moves Main between the two pitches its LIST carries the new pitch ahead of those SETs (the pitch switch, S6, below); a
-  window's list keeps +row height for every effect, so its SETs go alone. A staging with no spare pan slot is staged
-  again whole.
+  Depth's pans while the motion it was made for is asked: Auto's re-makes re-make its programs alone, as does a change to
+  an effect without records; a change back into the effect, of `Scroll length` or of `Scroll frames` stages again (the
+  records tried once more, one full staging per change), as do the rows, the cache, the layout, the depth setting, the
+  effects mode and a session start. Otherwise its programs alone are re-made into the spare pan slot, counted (field 17)
+  and then SET; where the change moves Main between the two pitches its LIST carries the new pitch ahead of those SETs
+  (the pitch switch, S6, below); a window's list keeps +row height for every effect, so its SETs go alone. A staging
+  with no spare pan slot is staged again whole.
 - **A window's list** (decisions BC, CV, DA): a window's list of two rows or more is staged and bound only at stage 5
   on a 256 KiB session — at 160 KiB and below stage 5 nothing of it is sent — as glasses list 1 in slot 0, entries
   3–5 (Main's list is list 0, entries 0–2, in the same slot: the list in front holds it, §6.7). A list of more rows
@@ -2947,8 +2948,10 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   the app switcher's wheel, five `v5-ship-wheel-*` acts — opening with notches, a yield, Main's late report, a commit
   to a window, a cancel — C3 DW-3; every act captured again after OM-1, each cache write that shrinks sent as mode
   25, §5.9 — C3 OM-V), the wheel's hand-made `v5-dw-fire` (both wheel programs bound on ring lists: fires
-  mid-list and at both wraps, the COMMITs of the reports, the report-only tap), and Music's four held-lane shapes
-  (`v5-mml-*`: the bar and its chain, stage L; Scope and its chain, stage S), all filled by the fork's runner.
+  mid-list and at both wraps, the COMMITs of the reports, the report-only tap), Main's hand-made `v5-dm-rain-fire`
+  (Matrix's pans with their rain fired mid-list, at both wraps and in a burst, a reveal-1 rain refused 5 — C3 DM-2a),
+  and Music's four held-lane shapes (`v5-mml-*`: the bar and its chain, stage L; Scope and its chain, stage S), all
+  filled by the fork's runner.
   The differential fuzz (`firmware/fuzz_vectors.py`; each switch's text is its docstring) has a switch per build —
   `--c1` (§5.10), `--c2` (§6.10), `--c3` (§7.13) with its widening `--c3x` — and `--dw` (with `--c3`) for the app
   switcher's shapes `--c3` never draws: version-2 records bound on list 2 as a ring with its scroll entries 6 and 7,
