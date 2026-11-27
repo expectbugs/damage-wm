@@ -1045,8 +1045,8 @@ The contract is `FIRMWARE.md` §5 (C1, the engine), §6 (C2, local input) and §
 its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review hardening"; what 0.84 leaves open, §101.9.
 
 - **The ladder** (`CfwTransportBase`: `ladderFlags`, `ladderKib`, `buildTop`, the probe `c1=N`): stage 0 nothing ·
-  1 ZWRITE (mode 25, a deflated cache write) · 2 and the 256 KiB cache · 3 and ENGINE · 4 and BIND (C2) · 5 and
-  EFFECTS (C3; RIGHT's flags 0x7c). Set only by `c1=N`, armed at the next session start, never above the build's top
+  1 ZWRITE (mode 25: from it every mode-19 cache write that shrinks goes deflated, `zwriteOrList`, `FIRMWARE.md` §5.9)
+  · 2 and the 256 KiB cache · 3 and ENGINE · 4 and BIND (C2) · 5 and EFFECTS (C3; RIGHT's flags 0x7c). Set only by `c1=N`, armed at the next session start, never above the build's top
   stage; a reset within `HOLD_BACK_MS` of an arming (RIGHT's uptime, or LEFT's link ending) drops stages 1–3 one stage
   and arms a stored 4 or 5 as 3 without lowering it. `transport/LadderRecord.kt` keeps the stage, the last stage-4
   arming, the case-in, the hold-back and the session's cache size in the phone's files, so an install keeps them.
@@ -1081,7 +1081,7 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   (`CfwModes.mainRegion`); written as pieces of one mode-19 message (`STAGE_CHUNK`, 0.82), proven by the cache count,
   staged behind the shell's clock screen too (the base records only). `local/BoundList.kt` is the list as bound: its LIST
   and mark, one SET per event id (the two scroll entries and the press), `predict` (§6.2 steps 8–9). One holder,
-  `Shell.ListBind` (Main its only instance, 0.84). `MainStagingTest`, `MainBindTest`, `MainBindShellTest`,
+  `Shell.ListBind` (Main's list, and a window's own list as `WindowListBind`). `MainStagingTest`, `MainBindTest`, `MainBindShellTest`,
   `StagePiecesTest`, `desktop --local-check` (`MainLocalCheck`).
 - **The local scroll** (C2, stage 4): a ring notch fires on the glasses from its SET; RIGHT's report (notify 115,
   `TransportEvent.Applied`) is answered by the phone's rules (`local/LocalRules.kt`: COMMIT · DISCARD · SETTLE, one
@@ -1090,11 +1090,17 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   keyframe (`EngineRefusals`, 0.83). `LocalRulesTest`, `LocalSequenceFuzzTest`, `LocalSkewRigTest`,
   `MainLocalShellTest`.
 - **The scroll effects and the fit** (`motion/ScrollEffects.kt`, K1-1; the `Scroll effect` row): None · Depth (the
-  default) · Slide · Fall in version 1 from stage 4; Crush and Flip's width turn in version 2 at stage 5 (below it Crush
-  plays Slide and Flip its height turn, and the row says so). A notch's period is fitted on the effect's painted area:
+  default) · Slide · Fall in version 1 from stage 4; Crush, Flip's width turn and Matrix in version 2 at stage 5 (below
+  it Crush plays Slide, Flip its height turn and Matrix Depth, and the row says so). **Matrix** (C3 DM-2a; Main's list
+  only, a window's list plays Depth) is Depth's move with noise glyphs raining down through the rows, seeded from the
+  entering row's band form so both lenses draw one picture; its records (the noise glyphs, their table, the alphabet,
+  the rain record: `ScrollEffects.rainRecords`) are part of Main's staging, laid last and given up first (Matrix then
+  plays Depth, said), so a change into or out of it stages the list again whole, with Main in front
+  (`ScrollEffects.hasRecords`, `ListStaging.remake`). A notch's period is fitted on the effect's painted area:
   C2's fit `ListStaging.timing` (P0 with a margin, inside 16..128 ticks), at stage 5 the fast DRAW path's
   `ListStaging.fastStepMs` (§7.12; four modeled figures, the fourth for Flip's scaled turn), both through `timingOf`; Auto frames take the steps
-  that fit `Scroll length`, and the glasses' measured period (notify 114 field 9) raises the period. `ScrollEffectsTest`.
+  that fit `Scroll length`, and the glasses' measured period (notify 114 field 9) raises the period. `ScrollEffectsTest`,
+  `MainLocalShellTest` (Matrix's re-stagings), the `v5-dm-rain-fire` and `v5-ship-ring-matrix-352` vectors.
 - **The ring list** (C3 DM-0, 0.84): at stage 5, where Main's paint wraps (his eight rows at 288 and 352), the list is
   bound with LIST-RING (`CfwModes.bindListRing`, `BoundList.ring`); the strip carries the other end's rows as margins
   and no wrap record, and the phone measures the cursor modulo the count (`BoundList.distance`). `LocalRulesTest`,
