@@ -1091,7 +1091,7 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   `MainLocalShellTest`.
 - **The scroll effects and the fit** (`motion/ScrollEffects.kt`, K1-1; the `Scroll effect` row): None · Depth (the
   default) · Slide · Fall in version 1 from stage 4; Crush, Flip's width turn, Scramble and Matrix in version 2 at stage
-  5 (below it Crush plays Slide, Flip its height turn and Scramble and Matrix Depth, and the row says so). **Matrix**
+  5 (`DESIGN.md` §4.2). **Matrix**
   (C3 DM-2a; Main's list only, a window's list plays Depth) is Depth's move with noise glyphs raining down through the
   rows, seeded from the entering row's band form so both lenses draw one picture; its records (the noise glyphs, their
   table, the alphabet, the rain record: `ScrollEffects.rainRecords`) are part of Main's staging, laid last and given up
@@ -1099,11 +1099,9 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   (`ScrollEffects.hasRecords`, `ListStaging.remake`). **Scramble** (C3 DM-2b; Main's list only, a window's list plays
   Depth) keeps the rows in place and changes their letters in random order to the new ones, one seed for both lenses;
   its records (the rows' cells and the private faces they are drawn in: `ScrollEffects.scrambleRecords`) are part of
-  Main's staging as Matrix's are, laid last and given up first (at 160 KiB it plays Depth, said). Its noise is N =
-  max(1, ⌊T/3⌋) of the staging's T, so a Length or Frames change that gives another noise stages the list again whole;
-  under Auto, where the glasses' measured period leaves fewer steps than the noise needs, the re-make is floored at N +
-  1 steps and every letter changes at once (the period note says so). A notch's period is fitted on the effect's painted
-  area: C2's fit `ListStaging.timing` (P0 with a margin, inside 16..128 ticks), at stage 5 the fast DRAW path's
+  Main's staging as Matrix's are, laid last and given up first (at 160 KiB it plays Depth, said). Its noise and Auto's
+  floor at N + 1, where every letter changes at once: `FIRMWARE.md` §7.11. A notch's period is fitted on the effect's
+  painted area: C2's fit `ListStaging.timing` (P0 with a margin, inside 16..128 ticks), at stage 5 the fast DRAW path's
   `ListStaging.fastStepMs` (§7.12; four modeled figures, the fourth for Flip's scaled turn), both through `timingOf`;
   Auto frames take the steps that fit `Scroll length`, and the glasses' measured period (notify 114 field 9) raises the
   period. `ScrollEffectsTest`, `MainLocalShellTest` (Matrix's and Scramble's re-stagings), the `v5-dm-rain-fire`,

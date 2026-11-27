@@ -2512,7 +2512,7 @@ one-period wait; with this it is drawn a few ms late.
   The band tracks' area is the band less its two 2-px rules; they draw the leaving and the entering row's row form
   (None the entering one alone) 4 px below the band's top, so at END the band area holds the entering row's row
   form, and the band itself goes with the cells P3 holds to the motion's end. It plays None, Depth, Slide and Fall;
-  asked for Crush it plays Slide, for any other effect (Flip, Matrix) Depth. It is kept while Main, the clock or a screen that is not a list is
+  asked for Crush it plays Slide, for any other effect Depth. It is kept while Main, the clock or a screen that is not a list is
   in front — the batch that brings it back carries its SETs and §6.7's DISCARD naming the row, no LIST and no record —
   and is replaced when another window's list is in front; a change of its own view's row count, of the layout or of
   its planes makes a new staging with a new mark. A staging of Main's that reaches into its space drops it (Main
