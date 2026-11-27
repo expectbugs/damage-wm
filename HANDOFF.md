@@ -9722,10 +9722,10 @@ gitignored `private/c3-design/C3-decisions.md` parts BA–CI; each stage's repor
 10. **`python3 tools/ladder.py state|4|5`** sets the phone's ladder stage and arms it without a Claude session
     (`DAILY.md`): stage 4 is the way back if stage 5 misbehaves on a day nobody can send the probe.
 
-## 102. APK 0.85 built, not staged: window lists, the wheel, Matrix and Scramble played by the glasses, deflated cache writes, Music, Games and Settings on the PC's record, the health view (2026-11-22 → 27)
+## 102. APK 0.85, staged and installed 2026-11-27: window lists, the wheel, Matrix and Scramble played by the glasses, deflated cache writes, Music, Games and Settings on the PC's record, the health view (2026-11-22 → 27)
 
 Everything here ran on the simulator's model or the PC's rigs unless it says "measured on his glasses"; nothing was
-flashed and none of it is on his devices. The rulings are in the gitignored `private/c3-design/C3-decisions.md` parts
+flashed. The build is on his PC and phone since 2026-11-27 (item 3); nothing of it is reported from the glasses yet. The rulings are in the gitignored `private/c3-design/C3-decisions.md` parts
 CJ–FR and the stage files under `private/c3-design/`, `private/build084/` and `private/build085/`; each stage's report
 is beside its brief.
 
@@ -9776,5 +9776,11 @@ is beside its brief.
    against `11cf6103`; the games, feed, music and epub checks pass; the phone build and `check_apk_wiring.py` exit 0;
    node 217 of 217; the five selftests; the mutation list 752 rows, all applying; lint 0; no `oom_kill`. The upgrade
    check on a fresh copy of his PC data: 23 checks of 23 (11:14).
-3. **Not staged:** the record's migration makes it a deploy in which the PC and the phone change together, on his word
-   (`DAILY.md`); the app lane's protocol is 4 on both builds. What he is asked to look at: `REMINDER.md`.
+3. **Staged and installed 2026-11-27, on his word** ("Stage 0.85", 11:47), by `DAILY.md`'s way for a deploy that
+   changes the record, from `main` `34d97e25` (the battery's tree and the documents). Both artifacts were built before
+   anything of his changed; 0.84's jar and APK went to `~/.damage/backup/`, and `record.json`, `oplog.jsonl`,
+   `state.json` and `record.seq` to `pre-0.85/` there, copied with the service stopped. The PC's first start on 0.85
+   (11:52, measured): the record opened with its epoch kept, 51 entries; the migration wrote 13 Settings rows, 19 Music
+   and 54 Games from the PC's store; no error line. The 0.84 phone connected at once and the PC said `different builds`
+   for games, music and settings (the app lane's protocol is 4 on both builds); the PC's setup log shows the staged APK
+   fetched at 12:29 and the phone's lane back with no difference said. What he is asked to look at: `REMINDER.md`.

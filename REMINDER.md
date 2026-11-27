@@ -1,7 +1,7 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §102** (0.85 built, not staged) → **§101** (stage 5 on his glasses; APK 0.84) →
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §102** (0.85, on his phone and PC since 11-27) → **§101** (stage 5 on his glasses; APK 0.84) →
 **§100** (APK 0.83: the scroll rules, Main's scroll effects, the notice on the engine and the transitions in one
 build; the ring list built and read once) → **§99** (C3 flashed on both lenses, the first sessions and the stage-4
 trial) → **§98** (C3's final candidate and its flash-readiness review; the transitions; his fast-scroll session read
@@ -17,24 +17,20 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   2026-11-20 12:33 (`HANDOFF.md` §99); the rollback is C2's `b3f04453…`, kept in `fws/`. Stage 5 (the transitions)
   is armed since 2026-11-21 12:41 on his word (§101.1). The way back from stage 5 without a session: `python3
   tools/ladder.py 4` (`DAILY.md`).
-- **His phone and the PC run 0.84** (staged 11-22 01:06 from `main` `f9ddf1b4`; he installed it that day — his word of
-  11-26, and the PC's setup log shows the staged file fetched) (§101): the ring list for Main's wrap, the fast-path
-  fit (Depth 19 steps a notch), the transitions' end rule counted from RIGHT's own report, the mirror's cheaper loops,
-  `Animations` as one row per tier with sub menus, Matrix as rain that wipes, Warp's and Flip's fit raised to the
-  glass, Crush and Flip as scroll effects, the wheel's stage-5 margins. **Told to him at the staging:** a scroll effect
-  stepped through several values at once comes back as the first for a moment (0.85 corrects it); on 0.84 the wheel
-  is phone-drawn.
-- **0.85 is built and not staged** (§102): `main` `e2147fac`, versionCode 85. The whole battery was green on that tree
-  on 2026-11-27 between 09:23 and 11:14 (the counts below), and the upgrade check on a fresh copy of his PC data held 23
-  checks of 23 against it (11:14). **Why not staged:** it carries the record's migration (S1-5), which runs at the PC's
-  first start on the new build, so the PC and the phone change together, on his word (`DAILY.md`, "The way a deploy that
-  changes the lane protocol or the record is done"); the app lane's protocol is 4 on both builds. **What it carries
-  beyond 0.84:** at stage 5, a window's own list bound on the glasses beside Main's (K1-2: Main on one strip with band
+- **His phone and the PC run 0.85** (§102.3; versionCode 85, staged on his word on 2026-11-27 from `main` `34d97e25`):
+  the PC since 11:52, when the record's migration ran once (13 Settings rows, 19 Music, 54 Games written from the PC's
+  store; no error line); the phone since his install — the PC's setup log shows the staged file fetched at 12:29 and
+  the phone's lane back with no build difference said. 0.84's jar, APK and the record files as they stood at the stop
+  are in `~/.damage/backup/` (`pre-0.85/`; the way back: `DAILY.md`). Nothing of 0.85 is reported from the glasses yet.
+- **What 0.85 carries beyond 0.84** (the code of `main` `e2147fac`: the whole battery was green on that tree on
+  2026-11-27 between 09:23 and 11:14, the counts below, and the upgrade check on a fresh copy of his PC data held 23
+  checks of 23 against it): at stage 5, a window's own list bound on the glasses beside Main's (K1-2: Main on one strip with band
   slots per row, its region about 100 → 65 KB on the test rows, measured; the rows kept current; each app's `Scroll
   effect` row), the switcher's wheel drawn by the glasses from a block resident in Main's region (DW; the `Switcher`
   row, Drum or None), and Matrix and Scramble as Main's scroll effects (DM-2a, DM-2b); every cache write that shrinks
   sent deflated (OM: about 1.1 s less link time at each session start and each wake on his records, modeled); every
-  transition filling its tier's length, the rain's plane never behind Global `Depth`, the scroll-effect fix above,
+  transition filling its tier's length, the rain's plane never behind Global `Depth`, a scroll effect stepped
+  through several values at once no longer coming back as the first for a moment,
   Encode's costs once an act; Music's first half (S1-4: on the PC's record, the PC as an output) and its progress bar
   and Scope played by the glasses at stage 5; Games and Settings on the PC's record with a Settings page, and the old
   phone–PC sync removed (S1-5; `Profiler`, `Diag overlay` and `Head tracking` removed, `Battery alert` hidden); the
@@ -104,7 +100,8 @@ Where the code does not do what a ruled design or the contract says; each docume
 
 The order is `REPLAN.md` §17.3 (every run sized first and both meters read, §17.6).
 1. **The motion kit's shell part (K1) goes on, ahead of S2** (`REPLAN.md` §17.3 items 6 and 8): window lists (K1-2), the
-   wheel bound (DW), Matrix and Scramble as scroll effects are built (0.85); next, scroll effects in other windows.
+   wheel bound (DW), Matrix and Scramble as scroll effects are built (0.85); in work: Scramble and Matrix, then Crush
+   and Flip, on a window's own list.
 2. **S1-4** (Music: his five answers are in, `REPLAN.md` §17.3 item 7; half A is in 0.85, §97.5; then his sitting,
    and half B after it), **S1-5** (his five answers of 11-23, `REPLAN.md` §17.3 item 10: built, in 0.85), **R-b** (one
    health view on every surface, §17.4: built, in 0.85; his look comes with it), then §16.1's order. **Music's motion
@@ -114,7 +111,7 @@ The order is `REPLAN.md` §17.3 (every run sized first and both meters read, §1
    feeds on 2026-11-13; measured 11-21 on both of the PC's network paths: HTTP 404. The service still asks every 15
    minutes and logs the refusal. His word on what replaces the source, then the change.
 
-**What waits on him:** his word to stage 0.85 and his install; on glass then — text or a row that differs between the
+**What waits on him:** his look at 0.85 on glass — text or a row that differs between the
 eyes and stays (the sign that a cache write was lost on one lens: LEFT reports nothing, `FIRMWARE.md` §5.7), Matrix and
 Scramble judged from sequences, whether a row that scrambles or rains the same way each time reads as repetition, and
 Scramble's noise on a row's earlier letters after its text changes (a song's title, a transfer's rate: they stay until
