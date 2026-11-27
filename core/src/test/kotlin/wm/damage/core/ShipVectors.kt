@@ -164,7 +164,18 @@ internal object ShipVectors {
     private fun gapOf(spec: Spec): Int = if (spec.page == Page.APART) 16 else 26
 
     // ------------------------------------------------------------------------------------------------- capture
-    private class Event(val arm: Arm?, val msg: ByteArray?, val input: LongArray?, val progress: Int, val act: Boolean)
+    /** C3 B2X: [landed] the progress RIGHT held as an input reached its lens (−1: an image, or not read); [at] RIGHT's
+     *  counted slots as the event was recorded ([slotWords]) — the evidence a failed placement reports. */
+    private class Event(val arm: Arm?, val msg: ByteArray?, val input: LongArray?, val progress: Int, val act: Boolean,
+                        @Volatile var landed: Int = -1, val at: String = "")
+
+    /** C3 B2X: [arm]'s instances in [slots] as `slot:tag d/T drawing|done`, for a failure's evidence. */
+    private fun slotWords(sim: GlassFirmwareSim, arm: Arm, slots: List<Int>): String = slots.joinToString(" ") { s ->
+        sim.motionForTest(arm).slots[s]?.let { i -> "$s:%04x %d/%d %s".format(i.tag, i.d, i.T, if (i.drawing) "drawing" else "done") } ?: "$s:-" }
+
+    /** C3 B2X: an event in a few words — an input's event id, an image's sub-messages as mode/sub. */
+    private fun eventWords(e: Event): String = if (e.msg == null) "input ${e.input!!.joinToString(",")}" else
+        "image " + subs(e.msg).joinToString(",") { if (it.size >= 2) "${it[0].toInt() and 0x7F}/${it[1].toInt() and 0xFF}" else "${it[0].toInt() and 0x7F}" }
 
     /** One act as the rig played it, and the vector made of it; [halves] (C3 X3T): the model's own §7.12 C of each
      *  half it opened in slots 2 and 3 on RIGHT, as the vector is laid out (for the report). */
@@ -216,15 +227,18 @@ internal object ShipVectors {
                         "the PLAY-AFTER's image ${if (ss.any { s -> (s[0].toInt() and 0x7F) !in setOf(19, 25, 26, 27) }) "carries" else "carries no"} drawing sub" } ?: "slot 2 empty")
             }
             // inside the model's own lock (the observer runs in its dispatch): the progress as the message arrives
-            r.onImage = { a, img -> events += Event(a, img.copyOf(), null, progress(r.sim, a, if (a == Arm.LEFT) seenL else seenR), act.get())
+            r.onImage = { a, img -> events += Event(a, img.copyOf(), null, progress(r.sim, a, if (a == Arm.LEFT) seenL else seenR), act.get(),
+                    at = if (a == Arm.RIGHT && act.get()) slotWords(r.sim, a, TRANSITION_SLOTS) else "")
                 if (spec.form == Form.LATE && act.get()) lateSpy(a, img) }
             // and every millisecond between, so a step drawn with no message after it (the out half's last, before the
             // PLAY-AFTER's deferred empty takes the slot) is counted: each instance holds its d for a period (~45 ms)
             r.scope.launch { while (true) { synchronized(r.sim) { progress(r.sim, Arm.LEFT, seenL); progress(r.sim, Arm.RIGHT, seenR) }; delay(1) } }
             fun fire(eventId: Int) {
-                val p = synchronized(r.sim) { progress(r.sim, Arm.RIGHT, seenR) }
-                events += Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get())
-                r.fire(eventId)
+                val (p, at) = synchronized(r.sim) { progress(r.sim, Arm.RIGHT, seenR) to slotWords(r.sim, Arm.RIGHT, TRANSITION_SLOTS) }
+                val e = Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get(), at = at)
+                events += e
+                r.inputSpy = { a -> if (a == Arm.RIGHT) e.landed = progress(r.sim, Arm.RIGHT, seenR) }
+                try { r.fire(eventId) } finally { r.inputSpy = null }
             }
             suspend fun select(what: String, window: String?) {
                 fire(CfwModes.EV_TAP)
@@ -665,22 +679,26 @@ internal object ShipVectors {
         fun prog(a: Arm): Int = progress(r.sim, a, if (a == Arm.LEFT) seenL else seenR, slots, ANY_TAG)
         init {
             // inside the model's own dispatch: the progress as the message arrives; and every millisecond between
-            r.onImage = { a, img -> events += Event(a, img.copyOf(), null, prog(a), act.get()); spy?.invoke(a, img) }
+            r.onImage = { a, img -> events += Event(a, img.copyOf(), null, prog(a), act.get(), at = if (a == Arm.RIGHT && act.get()) slotWords(r.sim, a, slots) else "")
+                spy?.invoke(a, img) }
             r.scope.launch { while (true) { synchronized(r.sim) { prog(Arm.LEFT); prog(Arm.RIGHT) }; delay(1) } }
         }
         /** A gesture on the ring: the hook on both lenses, then its stock echo ([TransitionShellTest.Rig.fire]). */
         fun fire(eventId: Int) {
-            val p = synchronized(r.sim) { prog(Arm.RIGHT) }
-            events += Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get())
-            r.fire(eventId)
+            val (p, at) = synchronized(r.sim) { prog(Arm.RIGHT) to slotWords(r.sim, Arm.RIGHT, slots) }
+            val e = Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get(), at = at)
+            events += e
+            r.inputSpy = { a -> if (a == Arm.RIGHT) e.landed = prog(Arm.RIGHT) }
+            try { r.fire(eventId) } finally { r.inputSpy = null }
         }
         /** C3 SVR: the hook alone on both lenses — the stock echo goes later ([echo]), as the rubber band sends a fast
          *  burst's queued scroll messages after it (`FIRMWARE.md` §6.1, §6.7 P5). */
         fun hook(eventId: Int) {
-            val p = synchronized(r.sim) { prog(Arm.RIGHT) }
-            events += Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get())
+            val (p, at) = synchronized(r.sim) { prog(Arm.RIGHT) to slotWords(r.sim, Arm.RIGHT, slots) }
+            val e = Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get(), at = at)
+            events += e
             val now = System.currentTimeMillis()
-            for (a in Arm.entries) r.sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now)
+            for (a in Arm.entries) synchronized(r.sim) { if (a == Arm.RIGHT) e.landed = prog(Arm.RIGHT); r.sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now) }
         }
         /** C3 SVR: a gesture's stock echo alone (its hook went before, [hook]). */
         fun echo(eventId: Int) = r.t.ringStockForTest(wm.damage.core.local.BoundList.stockEvent(eventId)!!)
@@ -2119,6 +2137,13 @@ internal object ShipVectors {
                        halves: MutableList<String>, slots: List<Int> = TRANSITION_SLOTS, accept: (Int) -> Boolean = TRANSITION_TAG,
                        applied: MutableList<DamageMsg.Applied>? = null,
                        endCheck: (all: List<DamageMsg.Motion>, act: List<DamageMsg.Motion>) -> Unit): JsonObject {
+        // C3 B2X: what the model did from the act's start, and the rig's act events as recorded — added to any failure here
+        val trace = ArrayList<String>()
+        fun evidence(): String = "the rig's act events (the progress recorded; an input's landing on RIGHT; RIGHT's slots as recorded):\n" +
+            events.filter { it.act && it.arm != Arm.LEFT }.withIndex().joinToString("\n") { (i, e) ->
+                "  #$i ${eventWords(e)} rec ${e.progress}${if (e.msg == null) " landed ${e.landed}" else ""} [${e.at}]" } +
+            "\nthe model as laid out, from the act's start:\n" + trace.joinToString("\n") { "  $it" }
+        try {
         val left = events.filter { it.arm == Arm.LEFT }; val right = events.filter { it.arm == Arm.RIGHT }
         check(left.size == right.size && left.indices.all { left[it].msg!!.contentEquals(right[it].msg!!) }) {
             "$name: LEFT and RIGHT were handed different images (${left.size} and ${right.size}; first difference at " +
@@ -2156,7 +2181,8 @@ internal object ShipVectors {
             if (w.isEmpty()) return false
             now += w.min()
             for (a in Arm.entries) sim.conformanceWake(a, now)
-            notes(); progress(sim, Arm.RIGHT, seen, slots, accept)
+            notes(); val p = progress(sim, Arm.RIGHT, seen, slots, accept)
+            trace += "wake at $now: progress $p [${slotWords(sim, Arm.RIGHT, slots)}]"
             record(listOf(op("tick", now), op("wake", true)))
             return true
         }
@@ -2174,15 +2200,17 @@ internal object ShipVectors {
         val sessionBodies = bodies.size
         val sessionReports = reports.size
         // the act
+        trace.clear(); trace += "the session idle at $now: progress ${progress(sim, Arm.RIGHT, seen, slots, accept)} [${slotWords(sim, Arm.RIGHT, slots)}]"
         var first = true
-        for (e in seq.filter { it.act }) {
+        for ((i, e) in seq.filter { it.act }.withIndex()) {
             guard = 0
             while (progress(sim, Arm.RIGHT, seen, slots, accept) < e.progress) check(wake() && ++guard < 64) {
                 "$name: the model's engine never reached progress ${e.progress} (at ${progress(sim, Arm.RIGHT, seen, slots, accept)})" }
             val ops = ArrayList<JsonObject>()
             if (first) { now = maxOf(now, ACT_TICK); ops += op("tick", now); first = false }
             ops += apply(e, act = true)
-            notes(); progress(sim, Arm.RIGHT, seen, slots, accept); costs()
+            notes(); val p = progress(sim, Arm.RIGHT, seen, slots, accept); costs()
+            trace += "#$i ${eventWords(e)} (rec ${e.progress}) applied at $now: progress $p [${slotWords(sim, Arm.RIGHT, slots)}]"
             record(ops)
         }
         guard = 0
@@ -2195,6 +2223,7 @@ internal object ShipVectors {
         endCheck(bodies, bodies.drop(sessionBodies))
         return JsonObject(mapOf("name" to JsonPrimitive(name), "steps" to JsonArray(steps), "contract" to JsonPrimitive(2),
             "start" to JsonPrimitive("zero"), "panel" to JsonPrimitive(true), "features" to JsonArray(listOf(JsonPrimitive(FEATURES)))))
+        } catch (e: IllegalStateException) { throw IllegalStateException("${e.message}\n${evidence()}", e) }
     }
 
     // ------------------------------------------------------------------------------------------------- the programs

@@ -217,9 +217,13 @@ class TransitionShellTest {
         /** A ring gesture: the hook on both lenses, then its stock message through the transport — as the ring's own (the
          *  0.83 integration: since the scroll package's fix stage [wm.damage.core.transport.Transport.injectInput] is a
          *  screen's gesture the local rules leave alone, so the rig's echo goes as `MainLocalShellTest`'s does). */
+        /** C3 B2X: called inside the model's lock just before each lens takes a ring input ([fire]) — what the capture
+         *  records as the progress the input landed at. */
+        @Volatile var inputSpy: ((Arm) -> Unit)? = null
+
         fun fire(eventId: Int) {
             val now = System.currentTimeMillis()
-            for (a in Arm.entries) sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now)
+            for (a in Arm.entries) synchronized(sim) { inputSpy?.invoke(a); sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now) }
             t.ringStockForTest(BoundList.stockEvent(eventId)!!)
         }
 

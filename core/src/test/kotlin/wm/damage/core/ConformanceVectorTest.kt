@@ -887,7 +887,9 @@ class ConformanceVectorTest {
             val files = vectorFiles(vectorDir()).map { it.fileName.toString().removeSuffix(".json") }.filter { it.startsWith(ShipVectors.PREFIX) }.toSet()
             for (n in files - specs.map { it.name }.toSet()) problems += "$n: a ship vector no spec makes"
         }
-        for (spec in specs) {
+        // C3 B2X: `DAMAGE_SHIP_REPEAT=n` captures each act n times in this JVM (a rate on one act; every failure is kept)
+        val repeat = System.getenv("DAMAGE_SHIP_REPEAT")?.toInt() ?: 1
+        for (spec in specs.flatMap { s -> List(repeat) { s } }) {
             // a capture that fails its own checks is a problem of its act; the rest are still played (SV-083)
             val got = try { ShipVectors.captureAct(spec) } catch (e: IllegalStateException) { problems += "${spec.name}: the capture failed — ${e.message}"; continue }
                 catch (e: AssertionError) { problems += "${spec.name}: the capture did not end — ${e.message}"; continue }
@@ -925,7 +927,7 @@ class ConformanceVectorTest {
             if (want != now) problems += "${spec.name}: the program bytes the shell sends today differ from the file's inputs " +
                 "(${now.size} against ${want.size}; first difference at ${now.indices.firstOrNull { it >= want.size || now[it] != want[it] } ?: want.size}) — regenerate it"
         }
-        println("ConformanceVectorTest: ${specs.size} shipped acts played again${dump?.let { ", written to $it" } ?: ", their programs compared with the files"}")
+        println("ConformanceVectorTest: ${specs.size} shipped acts played again${if (repeat > 1) " $repeat times each (${problems.size} problem(s))" else ""}${dump?.let { ", written to $it" } ?: ", their programs compared with the files"}")
         assertEquals(emptyList(), problems, "the ship vectors:\n" + problems.joinToString("\n"))
     }
 
