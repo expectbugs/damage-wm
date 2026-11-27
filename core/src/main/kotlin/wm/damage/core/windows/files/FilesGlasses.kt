@@ -404,7 +404,9 @@ class FilesGlasses(
         // notice, no navSeq bump (a restore's own open must not be cancelled
         // by it), and its result yields to anything newer. §72: the keeper registers again on
         // EVERY start attempt — one quiet listing at a time, its result held (latest) while down
-        if (quietListing?.isActive != true) refreshLocations(quiet = true)
+        // stage SBF (`C3-SB1-read.md` E): while the PC channel has not connected (its state line is not empty) the ask
+        // would fail with an error line that becomes a notice; the channel's hook asks when it comes up ([channelUp])
+        if (quietListing?.isActive != true && provider.stateLine().isEmpty()) refreshLocations(quiet = true)
     }
 
     /** §72: the quiet registration listing in flight, if any. */
@@ -678,10 +680,12 @@ class FilesGlasses(
 
     /** The window channel is up (the provider's state hook, from its own thread; FILES, ruled 2026-11-20): the folder on
      *  screen whose last listing failed is listed again, on the loop, through [refreshList] (its seq/cwd guard). A
-     *  folder whose listing succeeded is not; one call per time the channel comes up, so no loop of its own. */
+     *  folder whose listing succeeded is not; one call per time the channel comes up, so no loop of its own. Stage SBF:
+     *  and the locations, quietly, while none are listed (the registration's ask waits for this hook). */
     fun channelUp() {
         services?.runOnShell("files.channel") {
             if (level == Level_.BROWSE && failedListing == cwd) refreshList()
+            if (locations.isEmpty()) refreshLocations(quiet = true)
         }
     }
 

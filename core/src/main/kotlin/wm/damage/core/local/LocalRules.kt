@@ -955,9 +955,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     private val committed = HashSet<Pair<Int, Int>>()
 
     /**
-     * One notify-114 body from RIGHT in a bound slot (the shell hands every one): a stop (outcome 1) of a local instance
-     * with no DISCARD sent to its slot since the last SETTLE is the SETTLE's — `snapback cause=burst-end`; a refusal
-     * (outcome 2) is a COMMIT, DISCARD or SETTLE refused — `snapback cause=refused` (C1's divergence path keyframes).
+     * One notify-114 body from RIGHT in a bound slot (the shell hands every one but a held lane's, stage SBF): a stop
+     * (outcome 1) of a local instance with no DISCARD sent to its slot since the last SETTLE is the SETTLE's — `snapback
+     * cause=burst-end`; a refusal (outcome 2) is a COMMIT, DISCARD or SETTLE refused — `snapback cause=refused` (C1's
+     * divergence path keyframes).
      * A body naming a slot no list is bound to is not the rules'.
      */
     fun body114(slot: Int, tag: Int, outcome: Int, reason: Int?) {
