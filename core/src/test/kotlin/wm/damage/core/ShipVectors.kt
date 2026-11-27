@@ -164,10 +164,9 @@ internal object ShipVectors {
     private fun gapOf(spec: Spec): Int = if (spec.page == Page.APART) 16 else 26
 
     // ------------------------------------------------------------------------------------------------- capture
-    /** C3 B2X: [landed] the progress RIGHT held as an input reached its lens (−1: an image, or not read); [at] RIGHT's
-     *  counted slots as the event was recorded ([slotWords]) — the evidence a failed placement reports. */
-    private class Event(val arm: Arm?, val msg: ByteArray?, val input: LongArray?, val progress: Int, val act: Boolean,
-                        @Volatile var landed: Int = -1, val at: String = "")
+    /** C3 B2X: [at] RIGHT's counted slots as the event was recorded ([slotWords]) — the evidence a failed placement
+     *  reports. An input's [progress] is read in the same hold of the model's lock as its inputs ([TransitionShellTest.Rig.inputs]). */
+    private class Event(val arm: Arm?, val msg: ByteArray?, val input: LongArray?, val progress: Int, val act: Boolean, val at: String = "")
 
     /** C3 B2X: [arm]'s instances in [slots] as `slot:tag d/T drawing|done`, for a failure's evidence. */
     private fun slotWords(sim: GlassFirmwareSim, arm: Arm, slots: List<Int>): String = slots.joinToString(" ") { s ->
@@ -233,12 +232,9 @@ internal object ShipVectors {
             // and every millisecond between, so a step drawn with no message after it (the out half's last, before the
             // PLAY-AFTER's deferred empty takes the slot) is counted: each instance holds its d for a period (~45 ms)
             r.scope.launch { while (true) { synchronized(r.sim) { progress(r.sim, Arm.LEFT, seenL); progress(r.sim, Arm.RIGHT, seenR) }; delay(1) } }
-            fun fire(eventId: Int) {
-                val (p, at) = synchronized(r.sim) { progress(r.sim, Arm.RIGHT, seenR) to slotWords(r.sim, Arm.RIGHT, TRANSITION_SLOTS) }
-                val e = Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get(), at = at)
-                events += e
-                r.inputSpy = { a -> if (a == Arm.RIGHT) e.landed = progress(r.sim, Arm.RIGHT, seenR) }
-                try { r.fire(eventId) } finally { r.inputSpy = null }
+            fun fire(eventId: Int) = r.fire(eventId) {
+                events += Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), progress(r.sim, Arm.RIGHT, seenR), act.get(),
+                    at = slotWords(r.sim, Arm.RIGHT, TRANSITION_SLOTS))
             }
             suspend fun select(what: String, window: String?) {
                 fire(CfwModes.EV_TAP)
@@ -684,21 +680,13 @@ internal object ShipVectors {
             r.scope.launch { while (true) { synchronized(r.sim) { prog(Arm.LEFT); prog(Arm.RIGHT) }; delay(1) } }
         }
         /** A gesture on the ring: the hook on both lenses, then its stock echo ([TransitionShellTest.Rig.fire]). */
-        fun fire(eventId: Int) {
-            val (p, at) = synchronized(r.sim) { prog(Arm.RIGHT) to slotWords(r.sim, Arm.RIGHT, slots) }
-            val e = Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get(), at = at)
-            events += e
-            r.inputSpy = { a -> if (a == Arm.RIGHT) e.landed = prog(Arm.RIGHT) }
-            try { r.fire(eventId) } finally { r.inputSpy = null }
-        }
+        fun fire(eventId: Int) = r.fire(eventId) { record(eventId) }
         /** C3 SVR: the hook alone on both lenses — the stock echo goes later ([echo]), as the rubber band sends a fast
          *  burst's queued scroll messages after it (`FIRMWARE.md` §6.1, §6.7 P5). */
-        fun hook(eventId: Int) {
-            val (p, at) = synchronized(r.sim) { prog(Arm.RIGHT) to slotWords(r.sim, Arm.RIGHT, slots) }
-            val e = Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get(), at = at)
-            events += e
-            val now = System.currentTimeMillis()
-            for (a in Arm.entries) synchronized(r.sim) { if (a == Arm.RIGHT) e.landed = prog(Arm.RIGHT); r.sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now) }
+        fun hook(eventId: Int) = r.inputs(eventId) { record(eventId) }
+        /** Inside the model's lock, just before both lenses take the input: the input at the progress it lands at. */
+        private fun record(eventId: Int) {
+            events += Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), prog(Arm.RIGHT), act.get(), at = slotWords(r.sim, Arm.RIGHT, slots))
         }
         /** C3 SVR: a gesture's stock echo alone (its hook went before, [hook]). */
         fun echo(eventId: Int) = r.t.ringStockForTest(wm.damage.core.local.BoundList.stockEvent(eventId)!!)
@@ -2139,13 +2127,9 @@ internal object ShipVectors {
                        endCheck: (all: List<DamageMsg.Motion>, act: List<DamageMsg.Motion>) -> Unit): JsonObject {
         // C3 B2X: what the model did from the act's start, and the rig's act events as recorded — added to any failure here
         val trace = ArrayList<String>()
-        fun evidence(): String = "the rig's act events (the progress recorded; an input's landing on RIGHT; RIGHT's slots as recorded):\n" +
-            events.filter { it.act && it.arm != Arm.LEFT }.withIndex().joinToString("\n") { (i, e) ->
-                "  #$i ${eventWords(e)} rec ${e.progress}${if (e.msg == null) " landed ${e.landed}" else ""} [${e.at}]" } +
+        fun evidence(): String = "the rig's act events (the progress recorded; RIGHT's slots as recorded):\n" +
+            events.filter { it.act && it.arm != Arm.LEFT }.withIndex().joinToString("\n") { (i, e) -> "  #$i ${eventWords(e)} rec ${e.progress} [${e.at}]" } +
             "\nthe model as laid out, from the act's start:\n" + trace.joinToString("\n") { "  $it" }
-        // C3 B2X: an input the rig recorded at one progress that reached RIGHT's lens at another, said whether or not it fails
-        for (e in events) if (e.act && e.msg == null && e.landed >= 0 && e.landed != e.progress)
-            println("ShipVectors: $name: an input (${eventWords(e)}) recorded at progress ${e.progress} reached RIGHT at ${e.landed}")
         try {
         val left = events.filter { it.arm == Arm.LEFT }; val right = events.filter { it.arm == Arm.RIGHT }
         check(left.size == right.size && left.indices.all { left[it].msg!!.contentEquals(right[it].msg!!) }) {
