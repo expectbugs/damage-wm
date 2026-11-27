@@ -2143,6 +2143,9 @@ internal object ShipVectors {
             events.filter { it.act && it.arm != Arm.LEFT }.withIndex().joinToString("\n") { (i, e) ->
                 "  #$i ${eventWords(e)} rec ${e.progress}${if (e.msg == null) " landed ${e.landed}" else ""} [${e.at}]" } +
             "\nthe model as laid out, from the act's start:\n" + trace.joinToString("\n") { "  $it" }
+        // C3 B2X: an input the rig recorded at one progress that reached RIGHT's lens at another, said whether or not it fails
+        for (e in events) if (e.act && e.msg == null && e.landed >= 0 && e.landed != e.progress)
+            println("ShipVectors: $name: an input (${eventWords(e)}) recorded at progress ${e.progress} reached RIGHT at ${e.landed}")
         try {
         val left = events.filter { it.arm == Arm.LEFT }; val right = events.filter { it.arm == Arm.RIGHT }
         check(left.size == right.size && left.indices.all { left[it].msg!!.contentEquals(right[it].msg!!) }) {
@@ -2221,6 +2224,8 @@ internal object ShipVectors {
         for (a in Arm.entries) check(sim.shadowCrc32(a) == sim.panelCrc32(a)) { "$name: $a's panel is not its shadow at the end" }
         applied?.addAll(reports.drop(sessionReports))
         endCheck(bodies, bodies.drop(sessionBodies))
+        // C3 B2X: `DAMAGE_SHIP_TRACE=part` says the evidence of a green capture too (the acts whose names hold `part`)
+        if (System.getenv("DAMAGE_SHIP_TRACE")?.let { it.isNotEmpty() && it in name } == true) println("ShipVectors: $name, green:\n${evidence()}")
         return JsonObject(mapOf("name" to JsonPrimitive(name), "steps" to JsonArray(steps), "contract" to JsonPrimitive(2),
             "start" to JsonPrimitive("zero"), "panel" to JsonPrimitive(true), "features" to JsonArray(listOf(JsonPrimitive(FEATURES)))))
         } catch (e: IllegalStateException) { throw IllegalStateException("${e.message}\n${evidence()}", e) }
