@@ -1089,8 +1089,10 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   and two pan slots; no band forms, no item table, a report-only tap) in Main's region from the wheel's block down to
   the end of Main's staging (Main wins an overlap), and bound as glasses list 1 (entries 3–5, slot 0; `FIRMWARE.md`
   §6.9, §7.11). It is kept while Main, the clock or a screen that is not a list is in front and replaced by another list
-  in front; a changed row is found by the compose compare (`composeCompare`) and the round-robin and staged again. It
-  plays its app's own `Scroll effect` row (`ShellSettings.scrollEffectOf`: None · Depth · Slide · Fall,
+  in front; a changed row is found by the compose compare (`composeCompare`) and the round-robin and staged again. A
+  list arriving under a transition is painted under the run and, under a path effect, laid out, written and counted in
+  it (one count reading, at its last record's ack), then bound at the run's end; under Encode and Matrix its records
+  follow the run (`Shell.pumpLane`, LO-1). It plays its app's own `Scroll effect` row (`ShellSettings.scrollEffectOf`: None · Depth · Slide · Fall,
   `ScrollEffects.WINDOW_EFFECTS`; at "default" and on Settings' own lists `Animations`' effect, of which Crush plays
   Slide and any other outside those four Depth, said: `ScrollEffects.playsFor`); a change re-makes its pans alone.
   `WindowListShellTest`, `WindowListCheck` (`--local-check`'s and `--motion-check`'s window-list cases), the

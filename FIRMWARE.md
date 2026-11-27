@@ -2518,14 +2518,17 @@ one-period wait; with this it is drawn a few ms late.
   its planes makes a new staging with a new mark. A staging of Main's that reaches into its space drops it (Main
   wins); one already staged where the wheel's block is laid out yields: its entries are CLEARed in a flush before any
   write of the block's, and it is staged again below the block.
-- **A window's list under a transition** (decisions DA (c) 1 and 3, DK 1): from the act to the run's end a window's
-  list that has no staging yet is only painted, a row per idle turn (the atlas takes the characters its rows draw
-  under the Pacing rule above); its records, its count reading, its LIST and its SETs follow the run's end, and
-  nothing of a staged one is written before it either. **A Select from a bound list into a new level:** the CLEARs of
-  entries 3–5 ride the out half's batch (the cover's CLEAR, above) and nothing of list 1 is SET before the run's end,
-  so a notch in the in half matches no entry — the stock path (§6.2), no 115 — and the phone applies it as today,
-  shown as any write under the in half is (above); the new level is staged after the run and bound at the phone's row
-  (§6.7's return rule). **An arrival at a kept staging** (Settings → Main → Settings): its SETs ride the held frame,
+- **A window's list under a transition** (decisions DA (c) 1, DK 1, GC 1–3, 5): from the act to the run's end a
+  window's list that has no counted staging is painted a row per idle turn (the atlas takes the characters its rows
+  draw under the Pacing rule above); under a run whose effect does not hold the cache it is then laid out and its
+  records are written as every other writer's are (the Pacing rule; they lie in Main's region, which a path effect does
+  not read), and its count is read once, at the last record's acknowledgement; under Encode and Matrix and the one
+  in-half period after them it is only painted and its records follow. Its LIST and its SETs follow the run's end — a
+  staging counted in the run is offered at the first idle turn after it — and nothing of a counted one is re-staged
+  before it. **A Select from a bound list into a new level:** the CLEARs of entries 3–5 ride the out half's batch (the
+  cover's CLEAR, above) and nothing of list 1 is SET before the run's end, so a notch in the in half matches no entry —
+  the stock path (§6.2), no 115 — and the phone applies it as today, shown as any write under the in half is (above);
+  the new level is bound after the run at the phone's row (§6.7's return rule). **An arrival at a kept staging** (Settings → Main → Settings): its SETs ride the held frame,
   so a notch in the in half fires on list 1, is refused 19 (the in half's owner, §7.14) and is applied as today; the
   staging and its mark are kept. Both are modeled (the simulator's rules).
 
@@ -3268,3 +3271,7 @@ phone's keeper applies the hold-back rule before re-arming.
   drawn cell in a step's cost (C3 DM-2b, DM-2bF, DM-2bG). §6.7, §6.10 and §6.11: on the glasses a refusal at the
   decode fails no ack on either lens; a failed flush on a refusal is Damage's rig's own choice (DM-2bF). §9:
   `v5-dm-cells-fire` (DM-2bL).
+- 2026-11-27 — §7.11 (phone rules): a window's list arriving under a transition whose effect does not hold the cache is
+  laid out and its records written in the run, its count read once at the last record's acknowledgement, and it is
+  offered at the first idle turn after the run's end; under Encode and Matrix it is painted only, as before (LO-1,
+  decisions GC).

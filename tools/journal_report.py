@@ -280,6 +280,7 @@ def main(paths, since_ms=0, glasslog=False):
         loop_report(notes)
         local_report(notes)
         wheel_report(notes)
+        list_open_report(notes)
         refusal_report(notes)
         present_report(presents)
         battery_report(notes)
@@ -367,6 +368,7 @@ def main(paths, since_ms=0, glasslog=False):
     loop_report(notes)
     local_report(notes)
     wheel_report(notes)
+    list_open_report(notes)
     whole_report(joined, notes)
     # §41: the cache's account — rects shipped as draws, and why the rest
     # were pixels (the compositor's own reasons, per flush)
@@ -1054,6 +1056,28 @@ def wheel_report(notes):
         print(f'\nfield 38 (reports the glasses could not send, since their boot): +{r38} over the journal\'s `local` readings'
               f' (the first read {first38}; {restarts} restart(s) of the counter seen)')
 
+def list_open_report(notes):
+    """LO-1 (decisions GC 8): a window's list after a transition — for each `liststage` `offered —` note that follows a
+    transition's `owed:` note (the act) with no other act between, the act → offered and the run's end → offered, the run's
+    end being RIGHT's in-half body note or an `ended in` note. An offer standing across the act (a kept staging) writes no
+    `offered` note and is not counted; an offer with no act before it (a row change, a session start) is not counted.
+    Prints nothing without such an open."""
+    act = end = None
+    opens = []
+    for n in notes:
+        k, d, t = n.get('kind'), n.get('detail', ''), n.get('t', 0)
+        if k == 'transition':
+            if d.startswith('owed:'): act, end = t, None
+            elif act is not None and (d.startswith("in half's last step drawn on RIGHT") or ' ended in ' in d): end = t
+        elif k == 'liststage' and d.startswith('offered —') and act is not None:
+            opens.append((t - act, t - end if end is not None else None)); act = end = None
+    if opens:
+        a = [x[0] for x in opens]; e = [x[1] for x in opens if x[1] is not None]
+        print(f'\nthe window list after a transition (LO-1, the `transition` and `liststage` notes): {len(opens)} open(s) — act → offered '
+              f'median {med(a):,} ms (min {min(a):,}, max {max(a):,})'
+              + (f"; the run's end → offered median {med(e):,} ms (min {min(e):,}, max {max(e):,})" if e else '')
+              + (f"; {len(a) - len(e)} with no run's end in the journal" if len(e) < len(a) else ''))
+
 def selftest():
     """The report's own checks (0.64 R1; review 1a, RD-1 and RD-2): `main` run over the synthetic journals
     under tools/fixtures/journal_report/ and its text read. Every fixture line was written by hand from
@@ -1224,6 +1248,13 @@ def selftest():
          and wrow('staging', 'the first staging since the process started') == ['1', '19000']
          and wrow('re-stage', 'a row outgrew its segment: the tail laid out again') == ['1', '6628']
          and 'whole repaints by cause (7; 0.08 h painting' in wt and 'MAIN (no input)' not in wt, wt[:600] or '(no table)')
+    # LO-1 (decisions GC 8): act → offered per open of a window's list after a transition — synthetic notes written from the
+    # shell's own strings (`transitionBody`, `listBindPoll`), values made up by hand; an act with no offer and an offer with no
+    # act are left out
+    lo = run(['liststage-lo1.jsonl'])[1]
+    case("LO-1: act → offered per open, and the run's end → offered, from the `transition` and `liststage` notes",
+         "2 open(s) — act → offered median 1,262 ms (min 705, max 1,819); the run's end → offered median 518 ms (min 5, max 1,032)" in lo,
+         line(lo, 'the window list after a transition'))
     missed = 0
     for name, holds, said in results:
         print(('ok    ' if holds else 'MISS  ') + name + ('' if holds else '\n        said: ' + (said or '(no such line)')))

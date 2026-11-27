@@ -1,0 +1,11 @@
+{"t": 1799999999900, "ev": "submit", "id": 1, "epoch": 1, "label": "MAIN", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "fill", "bytes": 18}]}
+{"t": 1799999999960, "ev": "done", "id": 1, "ok": true, "ackMs": 60, "bytes": 18}
+{"t": 1800000000000, "ev": "note", "kind": "transition", "detail": "owed: 5 steps a half at P 16, records 1200 B"}
+{"t": 1800000000787, "ev": "note", "kind": "transition", "detail": "in half's last step drawn on RIGHT (5 drawn, 0 folded), 787 ms after the act"}
+{"t": 1800000000845, "ev": "note", "kind": "liststage", "detail": "staged — 5392 B in 2 record(s) at 210720..216112 of the 256 KiB cache: settings level 3"}
+{"t": 1800000001819, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 3 rows counted on the glasses: list 1 slot 0 mark 4, 3 entries"}
+{"t": 1800000005000, "ev": "note", "kind": "transition", "detail": "owed: 5 steps a half at P 16, records 1200 B"}
+{"t": 1800000009000, "ev": "note", "kind": "transition", "detail": "owed: 5 steps a half at P 16, records 1200 B"}
+{"t": 1800000009700, "ev": "note", "kind": "transition", "detail": "in half's last step drawn on RIGHT (5 drawn, 0 folded), 700 ms after the act"}
+{"t": 1800000009705, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 20 rows counted on the glasses: list 1 slot 0 mark 5, 3 entries"}
+{"t": 1800000015000, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 21 rows counted on the glasses: list 1 slot 0 mark 6, 3 entries"}
