@@ -36,7 +36,7 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   deflated (OM: about 1.1 s less link time at each session start and each wake on his records, modeled); every
   transition filling its tier's length, the rain's plane never behind Global `Depth`, the scroll-effect fix above,
   Encode's costs once an act; Music's first half (S1-4: on the PC's record, the PC as an output) and its progress bar
-  and Scope played by the glasses at stage 5; Games and Settings on the PC's record, the Settings page and the old
+  and Scope played by the glasses at stage 5; Games and Settings on the PC's record with a Settings page, and the old
   phone–PC sync removed (S1-5; `Profiler`, `Diag overlay` and `Head tracking` removed, `Battery alert` hidden); the
   health view (R-b); a lens the phone still holds a link to connected by its remembered address (BL) and a wake from
   Silent Mode that keeps the links (BW); the test rigs' fixes and the "Open on PC" opener a required argument. Every
