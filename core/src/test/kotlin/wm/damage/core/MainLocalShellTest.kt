@@ -917,6 +917,7 @@ class MainLocalShellTest {
         try {
             val ms = scrambleStagedAt450(r)
             val n = assertNotNull(ms.scrambleNoise, "Scramble's records hold a noise")
+            val t0 = ms.t
             val m = marks(r)
             r.shell.updateSettings { it.copy(scrollLength = 300) }
             r.until("Main's pans asked for 300 ms") { r.onLoop { r.shell.mainBinding.staging }?.motion?.lengthMs == 300 }
@@ -924,7 +925,7 @@ class MainLocalShellTest {
             val ms2 = r.onLoop { r.shell.mainBinding.staging!! }
             val m2 = marks(r)
             val notes = r.notes("mainstage")
-            println("DM2bG length 450 → 300 (the PC rig, modeled): staged T ${ms.t} N $n; after it T ${ms2.t} N ${ms2.scrambleNoise}, " +
+            println("DM2bG length 450 → 300 (the PC rig, modeled): staged T $t0 N $n; after it T ${ms2.t} N ${ms2.scrambleNoise}, " +
                 "${m2.staged - m.staged} staging(s), ${m2.dropped - m.dropped} drop(s), ${m2.switched - m.switched} switch(es); " +
                 "${notes.filter { it.startsWith("dropped") || it.startsWith("pans re-made") }.takeLast(2).map { it.take(240) }}")
             assertEquals(1 to 1, (m2.staged - m.staged) to (m2.dropped - m.dropped), "his length change that changes the noise: one drop and one full staging")
@@ -1004,15 +1005,16 @@ class MainLocalShellTest {
         try {
             val ms = scrambleStagedAt450(r)
             val n = assertNotNull(ms.scrambleNoise, "Scramble's records hold a noise")
-            val f = assertNotNull(listOf(4, 6, 8, 10, 12, 16).firstOrNull { maxOf(1, it / 3) == n && it != ms.t },
-                "precondition: a count of the Frames row keeps the staged noise $n (T ${ms.t})")
+            val t0 = ms.t
+            val f = assertNotNull(listOf(4, 6, 8, 10, 12, 16).firstOrNull { maxOf(1, it / 3) == n && it != t0 },
+                "precondition: a count of the Frames row keeps the staged noise $n (T $t0)")
             val m = marks(r)
             r.shell.updateSettings { it.copy(frames = f) }
             r.until("Main's pans asked for $f frames") { r.onLoop { r.shell.mainBinding.staging }?.motion?.frames == f }
             r.bound("bound at $f frames"); r.settle("at $f frames")
             val m2 = marks(r)
             val notes = r.notes("mainstage")
-            println("DM2bG frames Auto → $f (the PC rig, modeled): staged T ${ms.t} N $n; ${m2.staged - m.staged} staging(s), ${m2.dropped - m.dropped} drop(s), " +
+            println("DM2bG frames Auto → $f (the PC rig, modeled): staged T $t0 N $n; ${m2.staged - m.staged} staging(s), ${m2.dropped - m.dropped} drop(s), " +
                 "${m2.switched - m.switched} switch(es); ${notes.filter { it.startsWith("pans re-made") }.takeLast(1).map { it.take(200) }}")
             assertEquals(0 to 0, (m2.staged - m.staged) to (m2.dropped - m.dropped), "a change that keeps the noise: no drop and no staging")
             assertTrue(r.onLoop { r.shell.mainBinding.staging } === ms && ms.t == f && ms.scrambleNoise == n &&

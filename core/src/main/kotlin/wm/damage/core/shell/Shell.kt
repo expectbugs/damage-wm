@@ -6851,6 +6851,8 @@ class Shell(
         // band form changed there with the largest band slot (every other row's its own size)
         val room = listBind.roomFor(List(pt.n) { rowIdentity(it) })
         val bandRoom = listBind.bandRoomFor(List(pt.n) { rowIdentity(it) })
+        // C3 DM-2bG (decisions FH): the assembly's time on the loop, for the "staged" note (Scramble's measured 34–55 ms on the PC)
+        val assembleT0 = System.nanoTime()
         val ms = try {
             // K1-2 stage 3: a window's list in the window form, laid out down from the region's end (the wheel's block's base)
             // and refused below its start (Main's end) — its strip and two pan slots, the spare given up first
@@ -6872,6 +6874,7 @@ class Shell(
             return false
         }
         mainWaitsForWheel = null
+        val assembleMs = (System.nanoTime() - assembleT0) / 1_000_000.0
         val recs = ms.blobs.mapIndexed { i, blob -> StagedRecord(ListStageKey(ms, i, blob.name, "$who's"), blob.raw ?: Gray8(1, 1), blob.bytes) }
         val shared = region.last + 1 == st.cacheSize
         if (shared) {
@@ -6897,7 +6900,7 @@ class Shell(
         stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: a staging starts from the fit
         listBindRefusalSaid = null
         stageRecount()
-        note(if (form == wm.damage.core.motion.ListForm.STRIP_WINDOWS) windowStagedWords(ms, st, region, pt) else "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
+        note((if (form == wm.damage.core.motion.ListForm.STRIP_WINDOWS) windowStagedWords(ms, st, region, pt) else "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
             "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B, ${ms.rows} band forms " +
             "${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots each its own size " +
             "(two spares of ${ms.free.values.max()} B, the largest; ${ms.bands.count { it.slot == ms.free.values.max() }} row(s) at that size), " +
@@ -6910,7 +6913,8 @@ class Shell(
             (if (ms.ring) "; the stage-5 form: a ring list (LIST-RING), the strip's margins ${ms.margin} rows of the other end, no wrap record " +
                 "— the wrap notch fires on the glasses" else if (ms.wrap == null && ms.rows > ms.layout.rowsAbove + ms.layout.rowsBelow + 1) "; the wrap's own record left out (the region " +
                 "does not hold it): the wrap goes as the shell's frames" else "") +
-            (if (listBehindClock()) " — behind the clock: the list is bound when Main is in front" else ""))
+            (if (listBehindClock()) " — behind the clock: the list is bound when Main is in front" else "")) +
+            "; assembled in ${"%.0f".format(assembleMs)} ms on the loop")
         listBindPlaysNote(ms)
         post(Msg.Pump)
         return true

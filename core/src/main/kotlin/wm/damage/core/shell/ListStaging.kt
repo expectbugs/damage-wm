@@ -666,11 +666,24 @@ class ListStaging private constructor(
     /** C3 DM-2a, the records rule (decisions DV 2, DW 1): an effect's records are part of the staging, so a change into or
      *  out of one is staged again whole — never pans re-made beside records that are not there, or left behind. Why pans
      *  for [want] (with [fx], the gate's token now) break it here, or null. C3 DM-2aF (decisions EP 2): what [want] plays
-     *  is [playsHere]'s, so a staging that gave its records up re-makes its fallback's pans alone. */
+     *  is [playsHere]'s, so a staging that gave its records up re-makes its fallback's pans alone. C3 DM-2bG (decisions
+     *  FH, FI): Scramble's noise follows the fit — his change of `Scroll length` or `Scroll frames` (a [want] other than
+     *  [motion]) whose T by the fit gives another noise ([ScrollEffects.scrambleNoise]) than the staged lists'
+     *  ([scrambleNoise]) is staged again whole; one that keeps it re-makes Scramble's pans alone. Decided here, before any
+     *  layout: under a cover the staging stays and his return acts on the value he left the row on, and an idle pump
+     *  while the refusal stands adds one [ScrollEffects.timing] (arithmetic over the layout), never a layout. */
     fun recordsRule(want: ScrollMotion, fx: Motion.Effects?): String? {
-        val wantRecords = playsHere(want, fx).effect.takeIf { ScrollEffects.hasRecords(it) }
+        val asked = playsHere(want, fx)
+        val wantRecords = asked.effect.takeIf { ScrollEffects.hasRecords(it) }
         if (wantRecords != recordEffect) return "${(wantRecords ?: recordEffect)!!.word}'s records are staging records " +
             "(${if (wantRecords != null) "this staging holds none" else "this staging holds them"}): a change into or out of it is staged again whole"
+        val n = scrambleNoise
+        if (wantRecords == ScrollEffect.SCRAMBLE && n != null && want != motion) {
+            val t2 = ScrollEffects.timing(asked, layout, listD, bandD, want, stage5, form, cellsStep).second
+            val n2 = ScrollEffects.scrambleNoise(t2)
+            if (n2 != n) return "Scramble's noise is part of its records (N $n staged; T $t2 asks N $n2): a change of its length " +
+                "or frames that changes the noise is staged again whole"
+        }
         return null
     }
 
@@ -701,7 +714,8 @@ class ListStaging private constructor(
      *  N + 1 while Scramble's records are in force, N their lists' noise ([ScrollEffects.CellTables.noise]): fewer steps
      *  leave a cell no step past its noise (T' − N < 1, which the DSL refuses, 12), so a glass slower than the fit made a
      *  re-make that was refused and laid out again at every idle pump. [remakeOwed] and [remake] both read it. The Frames
-     *  and Length rows lay their T by the fit, not here: a T they ask that leaves the noise no step is staged again whole. */
+     *  and Length rows lay their T by the fit, not here: a T they ask whose noise is another is staged again whole
+     *  ([recordsRule]). */
     private fun autoSteps(want: ScrollMotion): Int = maxOf(ScrollEffects.stepsAt(want, periodInForce, t), autoFloor(want))
 
     private fun autoFloor(want: ScrollMotion): Int =
@@ -736,8 +750,11 @@ class ListStaging private constructor(
         // DM-0: the rules' P0 and P3 by the strip's own margin (k + 1 on a ring strip; `layout.rowsAbove` was one row short there)
         val made = lay(staged, asked, fx, slots[to], specs, margin, rows, ring, itemOffs, { recordOf(it) }) { pl ->
             if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form, cellsStep) else periodInForce to autoSteps(want) }
-        // C3 DM-2b (decisions EP 2): pans of an effect with records that come back as its fallback — Scramble's T' − N < 1
-        // (its lists' noise is the staging's) — are not made beside its records: staged again whole, with the reason
+        // C3 DM-2b (decisions EP 2): pans of an effect with records that come back as its fallback are not made beside its
+        // records: staged again whole, with the reason. C3 DM-2bG (decisions FI): the backstop for any fallback the records
+        // rule does not decide (the version-2 check at a new T, the step budget among them) — Scramble's noise is decided
+        // there, so a reset re-make that gets here keeps N = max(1, ⌊T/3⌋) and T − N ≥ 2. Not a records refusal: the shell
+        // drops the staging at once, cover or not
         if (wantRecords != null && made.plays.effect != wantRecords) return Remake.NoRoom("${wantRecords.word}'s re-made pans were refused " +
             "(${made.plays.why}): its records are staging records, so it is staged again whole")
         val bytes = joined(made.parts)

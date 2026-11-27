@@ -580,9 +580,15 @@ object ScrollEffects {
      *  lists for each step ([bandNew]: row (c + step) mod n's). */
     class CellTables(val above: Map<Int, Motion.CellTable>, val below: Map<Int, Motion.CellTable>, val bandOld: Motion.CellTable,
                      val bandNew: Map<Int, Motion.CellTable>,
-                     /** C3 DM-2bF: N, every list's noise steps (max(1, ⌊T / 3⌋) of the staging's T): a CELLS segment of n steps
-                      *  needs n − N ≥ 1 (§7.6, 12), so Auto's re-makes are floored at N + 1 (`ListStaging.remakeOwed`). */
+                     /** C3 DM-2bF: N, every list's noise steps ([scrambleNoise] of the staging's T): a CELLS segment of n steps
+                      *  needs n − N ≥ 1 (§7.6, 12), so Auto's re-makes are floored at N + 1 (`ListStaging.remakeOwed`); C3
+                      *  DM-2bG: his change whose T gives another N is staged again whole (`ListStaging.recordsRule`). */
                      val noise: Int)
+
+    /** C3 DM-2bG (decisions FH, FI; the DM spec's "Noise N = max(1, ⌊T/3⌋)"): Scramble's noise steps N for a staging of
+     *  [t] steps — one function, which [scrambleRecords] lays into every list and `ListStaging.recordsRule` compares with
+     *  the staged lists' at his change of `Scroll length` or `Scroll frames`. */
+    fun scrambleNoise(t: Int): Int = maxOf(1, t / 3)
 
     /** A records blob as it is laid: each part 4-byte aligned from byte [at]. */
     private class Blob4(val at: Int) {
@@ -681,7 +687,7 @@ object ScrollEffects {
             Private(font, alpha.maxOf { it.w }, maxOf(e.lineH, alpha.maxOf { it.h }))
         }
         val alphabet = Motion.Alphabet(b.here4(), NOISE_CODES).also { b.put(it.bytes) }
-        val steps = maxOf(1, t / 3)
+        val steps = scrambleNoise(t)
         fun cell(g: Pair<FontSpec, CellLists.Glyph>, by: Int, old: Int) = faces.getValue(g.first).let { f ->
             Motion.Cell(g.second.x, by, minOf(255, maxOf(g.second.w, f.boxW)), minOf(255, f.boxH), f.font, old, 32, fill = 0, level = g.second.level) }
         val blank = Motion.Cell(0, 0, 0, 0, faces.values.first().font, 32, 32)

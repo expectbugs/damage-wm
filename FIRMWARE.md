@@ -2483,10 +2483,14 @@ one-period wait; with this it is drawn a few ms late.
   stage with pitch = −row height. **An effect change keeps the list's staging,** except into or out of Matrix or
   Scramble, whose records are part of the staging: that change is staged again whole — with Main in front (made while
   Settings covers Main it waits for the return, so a pass through Matrix or Scramble to another effect re-makes the
-  programs alone) — as is a change of the `Scroll frames` or `Scroll length` row whose re-made pans come back as the
-  fallback (Scramble at a T that leaves its noise no step). Auto's steps under Scramble's records are floored at its
-  noise + 1, so the period in force alone never asks that; the period note says when the floor is in force and the
-  notch's length against the length asked. A staging that gave the effect's records up (it then plays Depth, said) keeps
+  programs alone). Scramble's noise N = max(1, ⌊T/3⌋) is part of its records: his change of `Scroll length` or `Scroll
+  frames` under them is a programs-only re-make where the T it gives keeps the noise, and staged again whole where it
+  changes it — with Main in front, or at his return when a cover is up (so a pass through such a value to one that
+  keeps the noise, or back to the staging's own motion, stages nothing). A re-make whose pans come back as the fallback
+  (the version-2 check refusing them at the new T) drops the staging at once, cover or not, and Main is staged again
+  whole with Main in front. Auto's steps under Scramble's records are floored at its noise + 1, so the period in force
+  alone never leaves the noise no step; the period note says when the floor is in force and the notch's length against
+  the length asked. A staging that gave the effect's records up (it then plays Depth, said) keeps
   Depth's pans while the motion it was made for is asked: Auto's re-makes re-make its programs alone, as does a change to
   an effect without records; a change back into the effect, of `Scroll length` or of `Scroll frames` stages again (the
   records tried once more, one full staging per change), as do the rows, the cache, the layout, the depth setting, the
