@@ -103,8 +103,16 @@ class ConformanceVectorTest {
         // two new files, `v5-dm-rain-fire` and Main's Matrix ship act (ended with DM-2aV's comparison), and C3 stage
         // DM-2b's for its two new files, `v5-dm-cells-fire` and Main's Scramble ship act (ended with DM-2bL's comparison)
         // — are gone: every unfilled file in the repo fails like any other.
-        for (n in out.notFilled)
+        // C3 stage TXB, one exception for its new file (DM-W's form) — `v5-txb-bench` (`make_vectors.py`), exactly the
+        // name in [TXB_UNFILLED], which waits for the fork's fill: reported "not filled" with a count and run through the
+        // model ([theUnfilledVectorsRunThroughTheModel]); a filled one names the exception stale. The comparison after the
+        // fill removes this exception.
+        val txb = out.notFilled.filter { it.substringBefore(" (") in TXB_UNFILLED }
+        if (txb.isNotEmpty()) println("ConformanceVectorTest: ${txb.size} TXB vector(s) not filled until the comparison: ${txb.joinToString("; ")}")
+        for (n in out.notFilled - txb.toSet())
             out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        for (m in TXB_UNFILLED) if (Files.exists(dir.resolve("$m.json")) && out.notFilled.none { it.startsWith("$m ") })
+            out.problems += "$m: filled — the stage TXB exception TXB_UNFILLED is stale, remove it"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -830,13 +838,18 @@ class ConformanceVectorTest {
             val dm2a = listOf("v5-dm-rain-fire", "v5-ship-ring-matrix-352")
             for (n in dm2a + dm2a.map { "${it}2" })
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
+            // C3 stage TXB's exception holds exactly its one name: reported, not failed, and a name that only begins like it
+            // fails like any other; the comparison after the fork's fill removes this block and the filter
+            assertEquals(setOf("v5-txb-bench"), TXB_UNFILLED, "stage TXB's name")
+            for (n in TXB_UNFILLED + TXB_UNFILLED.map { "${it}2" })
+                Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", "v5-txb-bench2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
                 "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
-            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
+            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", "v5-txb-bench", "v5-txb-bench2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
         } finally {
             Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
             Files.delete(dir); Files.delete(other)
@@ -945,6 +958,9 @@ class ConformanceVectorTest {
          *  names). */
         const val X3_HINT = "v5-x3-hint"
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
+        /** C3 stage TXB (`private/c3-design/C3-TXB-built.md`): its new file, waiting for the fork's fill — `v5-txb-bench`
+         *  (`make_vectors.py`), the probe's six programs. Exactly this name; the comparison after the fill removes the set. */
+        val TXB_UNFILLED = setOf("v5-txb-bench")
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
     }
 }
