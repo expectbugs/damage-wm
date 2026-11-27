@@ -670,6 +670,27 @@ class MotionSimTest {
         }
     }
 
+    // ------------------------------------------------------- DM-2bH: the slow-glass hook's fold (C3-DM2bD-built.md)
+    /** DM-2bH: the test hook `stepUsForTest` models a slow glass by drawing step 3 while step 2 is due. A phone frame
+     *  presented after that fold and before step 3 is due takes the direct path; it must not draw step 2 again (the
+     *  last drawn step never goes back), or step 3 is counted twice and the last body reports T + 1 steps. */
+    @Test
+    fun aDirectPresentAfterTheSlowFoldNeverDrawsAnEarlierStep_DM2bH() {
+        val r = Rig()
+        r.write(64, prog(track(rect(0, 100, 50, 10), 3, seg(FILL, 8, kind = 9))))   // T = 8
+        val m = r.sim.motionForTest(r.arm).also { it.stepUsForTest = 83_500L }        // a step outlasts P 34
+        r.now = 2000
+        assertTrue(r.msg(play(0, 34, 64, 1)))                                        // step 1, d 1
+        val o = m.slots[0]!!
+        val ds = mutableListOf(o.d)
+        r.wake(2034); ds += o.d                                                      // the fold: step 3 drawn while 2 is due
+        r.now = 2050; assertTrue(r.msg(batch(CfwModes.fill(Rect(0, 300, 640, 2), 5)))); ds += o.d   // direct, step 2 still due
+        for (k in 3..8) { r.wake(2000L + (k - 1) * 34); ds += o.d }
+        assertEquals(ds.sorted(), ds, "the last drawn step never decreases: $ds")
+        val b = r.bodies().single { it[4] == 0L }
+        assertEquals(8L, b[6]!! + b[7]!!, "drawn ${b[6]} + folded ${b[7]} = T")
+    }
+
     // ------------------------------------------------------------------------- the encoder of this file
     private companion object {
         const val ENGINE = 1 shl 3

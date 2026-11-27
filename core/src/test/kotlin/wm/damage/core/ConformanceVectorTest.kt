@@ -99,9 +99,10 @@ class ConformanceVectorTest {
         // new act (ended with SV3's comparison, X10T), Music's stage L's two lane shapes and K1-2 stage 4f's list-1 acts
         // with the four ring-tap acts it wrote again (both ended with K1-2 stage 4h's comparison), and C3 stage DW-3's for
         // the app switcher's acts with the acts DW-3 and DW-3h wrote again (ended with DW-3h's comparison), C3 stage
-        // OM-V's for every ship act written again after OM-1 (ended with OM-V's comparison), and C3 stage DM-2a's for its
-        // two new files, `v5-dm-rain-fire` and Main's Matrix ship act (ended with DM-2aV's comparison) — are gone: every
-        // unfilled file in the repo fails like any other.
+        // OM-V's for every ship act written again after OM-1 (ended with OM-V's comparison), C3 stage DM-2a's for its
+        // two new files, `v5-dm-rain-fire` and Main's Matrix ship act (ended with DM-2aV's comparison), and C3 stage
+        // DM-2b's for its two new files, `v5-dm-cells-fire` and Main's Scramble ship act (ended with DM-2bL's comparison)
+        // — are gone: every unfilled file in the repo fails like any other.
         for (n in out.notFilled)
             out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
@@ -867,7 +868,8 @@ class ConformanceVectorTest {
      * the 64 acts whose session writes the wheel's block, written again; C3 DW-3h: the 37 stage-5 160 KiB acts that stage
      * Main, written again in today's form; filled at DW-3h's comparison. C3 OM-V: every act written again for OM-1's form
      * of its cache writes (mode 19 now mode 25, the same inflated bytes; their programs compare as before); filled at
-     * OM-V's comparison. C3 DM-2a: Main's Matrix act ([ShipVectors.dm2aActs]); filled at DM-2aV's comparison.
+     * OM-V's comparison. C3 DM-2a: Main's Matrix act ([ShipVectors.dm2aActs]); filled at DM-2aV's comparison. C3 DM-2b:
+     * Main's Scramble act ([ShipVectors.dm2bActs]); filled at DM-2bL's comparison.
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
@@ -894,7 +896,9 @@ class ConformanceVectorTest {
             // act's, those and its ring form — every LIST and COMMIT of the act (C3 SVR)
             val project: (JsonObject) -> List<String> = when (spec) {
                 is ShipVectors.Spec -> ShipVectors::programs
-                is ShipVectors.RingSpec, is ShipVectors.ListSpec -> ShipVectors::ringForms
+                // C3 DM-2bF (decisions FA 4): a records act's, those and the whole of what it writes into the cache
+                is ShipVectors.RingSpec -> if (wm.damage.core.motion.ScrollEffects.hasRecords(spec.effect)) ShipVectors::recordsForms else ShipVectors::ringForms
+                is ShipVectors.ListSpec -> ShipVectors::ringForms
                 is ShipVectors.WheelSpec -> ShipVectors::wheelForms
                 else -> ShipVectors::namedPrograms
             }

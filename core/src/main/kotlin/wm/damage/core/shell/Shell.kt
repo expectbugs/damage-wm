@@ -5975,7 +5975,6 @@ class Shell(
         val list = b.listBind.list ?: return
         if (ev.slot != list.slot && ev.slot != ListStaging.WRAP_SLOT) return
         val steps = (ev.drawn ?: 0L) + (ev.folded ?: 0L)
-        val complete = ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_DREW || steps >= ms.t
         // G4 item 2: a local instance's own body (no END written) closed by RIGHT — counted, never a keyframe. Every step
         // drawn: at END. Short of them, the partial step on the panel goes at the next present, which the close makes
         // whole (the stale mark): the answer's — the COMMIT writes END and presents, the DISCARD presents — or, with the
@@ -5988,8 +5987,9 @@ class Shell(
                 journal.note("local", "slot ${ev.slot} tag 0x%04x closed on the glasses after $steps of ${ms.t} steps".format(ev.tag))
             }
         }
+        if (steps > ms.t) journal.note("local", "slot ${ev.slot} tag 0x%04x outcome ${ev.outcome} reported $steps steps against T ${ms.t}: above it, not a period sample".format(ev.tag))
         val us = ev.stepUs ?: return
-        if (!complete || steps != ms.t.toLong() || us <= 0L) return
+        if (steps != ms.t.toLong() || us <= 0L) return
         b.stepWindow.addLast(us)
         while (b.stepWindow.size > PERIOD_WINDOW) b.stepWindow.removeFirst()
         b.periodSamplesSinceChange++
@@ -6030,7 +6030,9 @@ class Shell(
         periodSamplesSinceChange = 0
         listBind.relisted()
         note("period $was → $want: steps measured up to ${"%.1f".format((stepWindow.maxOrNull() ?: 0L) / 1000.0)} ms " +
-            "over the last ${stepWindow.size} motion(s) (×${PERIOD_MARGIN_MEASURED}); the entries are SET again, ${ms.t} frames × ${"%.0f".format(want * 1000.0 / 1024)} ms")
+            "over the last ${stepWindow.size} motion(s) (×${PERIOD_MARGIN_MEASURED}); the entries are SET again, ${ms.t} frames × ${"%.0f".format(want * 1000.0 / 1024)} ms" +
+            // C3 DM-2bF (decisions EZ 2): where Auto's re-make for this period is floored at Scramble's noise + 1, said
+            (ms.motion?.let { ms.autoFloorWords(it) } ?: ""))
     }
 
     /** Decisions AZ.4: the wrap's PLAY bytes and its END plan for the assemble. */
@@ -6812,7 +6814,9 @@ class Shell(
         // is painted for this same key — a change of layout, planes, rows or their content starts the paint again
         val pt = listBindPaint?.takeIf { listBindPaintFor == what && it.n == n } ?: run {
             listBindPaintFor = what; listBindPaintVersions = ct?.wantVersion to ct?.seenVersion
-            ListStaging.Paint(lay, surface.view() ?: return false, kit, bands = form == wm.damage.core.motion.ListForm.MAIN_BANDS).also { listBindPaint = it }
+            ListStaging.Paint(lay, surface.view() ?: return false, kit, bands = form == wm.damage.core.motion.ListForm.MAIN_BANDS,
+                // C3 DM-2b: Scramble's cells are made from the rows' text runs, recorded as they are painted for the staging
+                runs = ct?.takeIf { form == wm.damage.core.motion.ListForm.MAIN_BANDS && motionInForce().effect == wm.damage.core.motion.ScrollEffect.SCRAMBLE }).also { listBindPaint = it }
         }
         if (!pt.done) {
             val t0 = System.nanoTime()
@@ -6847,6 +6851,8 @@ class Shell(
         // band form changed there with the largest band slot (every other row's its own size)
         val room = listBind.roomFor(List(pt.n) { rowIdentity(it) })
         val bandRoom = listBind.bandRoomFor(List(pt.n) { rowIdentity(it) })
+        // C3 DM-2bG (decisions FH): the assembly's time on the loop, for the "staged" note (Scramble's measured 34–55 ms on the PC)
+        val assembleT0 = System.nanoTime()
         val ms = try {
             // K1-2 stage 3: a window's list in the window form, laid out down from the region's end (the wheel's block's base)
             // and refused below its start (Main's end) — its strip and two pan slots, the spare given up first
@@ -6868,6 +6874,7 @@ class Shell(
             return false
         }
         mainWaitsForWheel = null
+        val assembleMs = (System.nanoTime() - assembleT0) / 1_000_000.0
         val recs = ms.blobs.mapIndexed { i, blob -> StagedRecord(ListStageKey(ms, i, blob.name, "$who's"), blob.raw ?: Gray8(1, 1), blob.bytes) }
         val shared = region.last + 1 == st.cacheSize
         if (shared) {
@@ -6893,7 +6900,7 @@ class Shell(
         stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: a staging starts from the fit
         listBindRefusalSaid = null
         stageRecount()
-        note(if (form == wm.damage.core.motion.ListForm.STRIP_WINDOWS) windowStagedWords(ms, st, region, pt) else "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
+        note((if (form == wm.damage.core.motion.ListForm.STRIP_WINDOWS) windowStagedWords(ms, st, region, pt) else "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
             "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B, ${ms.rows} band forms " +
             "${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots each its own size " +
             "(two spares of ${ms.free.values.max()} B, the largest; ${ms.bands.count { it.slot == ms.free.values.max() }} row(s) at that size), " +
@@ -6906,7 +6913,8 @@ class Shell(
             (if (ms.ring) "; the stage-5 form: a ring list (LIST-RING), the strip's margins ${ms.margin} rows of the other end, no wrap record " +
                 "— the wrap notch fires on the glasses" else if (ms.wrap == null && ms.rows > ms.layout.rowsAbove + ms.layout.rowsBelow + 1) "; the wrap's own record left out (the region " +
                 "does not hold it): the wrap goes as the shell's frames" else "") +
-            (if (listBehindClock()) " — behind the clock: the list is bound when Main is in front" else ""))
+            (if (listBehindClock()) " — behind the clock: the list is bound when Main is in front" else "")) +
+            "; assembled in ${"%.0f".format(assembleMs)} ms on the loop")
         listBindPlaysNote(ms)
         post(Msg.Pump)
         return true
@@ -6934,7 +6942,7 @@ class Shell(
      *  (decisions W, D-6). */
     private fun effectsToken(st: LinkState): wm.damage.core.motion.Motion.Effects? = if (!st.effects) null else
         try { wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(st.damageContract, st.damageFeatures), st.flagsInForce) }
-        catch (e: wm.damage.core.geom.LintError) { journal.note("mainstage", "the version-2 gate refuses with EFFECTS in force: ${e.message} — Crush, Flip and Matrix play their fallbacks"); null }
+        catch (e: wm.damage.core.geom.LintError) { journal.note("mainstage", "the version-2 gate refuses with EFFECTS in force: ${e.message} — Crush, Flip, Scramble and Matrix play their fallbacks"); null }
 
     /** C3 DM-1 (D3): why the asked effect plays its fallback, said once per change of what plays and why (the row says
      *  what plays: [scrollPlaysWords]). */
@@ -8195,8 +8203,9 @@ class Shell(
     }
 
     /** K1-2 stage 3c: the per-app `Scroll effect` row's name, its options (the "default" option first, then what a window's
-     *  list plays itself) and its "default" option's words — "default", or "default (plays Slide)" where `Animations`'
-     *  Crush, Flip or Matrix plays its fallback on a window's list (decisions CV). */
+     *  list plays itself) and its "default" option's words — "default", or "default (plays …)" where `Animations`' effect
+     *  is not one of [wm.damage.core.motion.ScrollEffects.WINDOW_EFFECTS] and a window's list plays its fallback
+     *  ([wm.damage.core.motion.ScrollEffects.playsFor]; decisions CV). */
     private fun appScrollOptions(): List<String> = listOf(appScrollDefault()) + wm.damage.core.motion.ScrollEffects.WINDOW_EFFECTS.map { it.word }
     private fun appScrollDefault(): String {
         val g = wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT

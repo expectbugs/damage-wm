@@ -130,8 +130,12 @@ class ListStaging private constructor(
      *  list's strip and pan slots alone ([ListForm.STRIP_WINDOWS], [assembleWindow]). */
     val form: ListForm = ListForm.MAIN_BANDS,
     /** C3 DM-2a (the records rule, [ScrollEffects.hasRecords]): the effect whose records this staging holds, laid last in
-     *  it (Matrix's [ScrollEffects.RainRecords]), or null — a change into or out of it is a full staging ([remake]). */
+     *  it ([ScrollEffects.EffectRecords]: Matrix's rain, C3 DM-2b Scramble's cells), or null — a change into or out of it
+     *  is a full staging ([remake]). */
     val recordEffect: ScrollEffect? = null,
+    /** C3 DM-2b: the cells a step of Scramble's draws on these rows (the fit's cell term, [ScrollEffects.timing]); 0 for
+     *  any staging without Scramble's records. */
+    private val cellsStep: Int = 0,
 ) {
     /** The tap's press — Main's alone (a window list stages none). */
     val press: Press get() = press0 ?: throw LintError("a window list stages no press (K1-2: its tap entry is report-only)")
@@ -248,7 +252,7 @@ class ListStaging private constructor(
 
     /** PLAY's P0..P3 for [pan] landing on the new cursor [cPrime], by each parameter's rule — null at an edge (a new
      *  cursor, or an item, outside the rows: no local motion there). A kind-2 value outside s16 is the firmware's 12. */
-    fun params(pan: Pan, cPrime: Int): IntArray? = paramsBy(pan.rules, cPrime, pan.pitch)
+    fun params(pan: Pan, cPrime: Int): IntArray? = paramsBy(pan.rules, cPrime, pan.pitch, pan.step)
 
     /** Decisions AZ.4: Main wraps here — its strip's margins hold the other end's rows (none blank), one more at each end.
      *  (A ring staging's wrap is the glasses' own: no wrap record, so false there.) */
@@ -273,13 +277,16 @@ class ListStaging private constructor(
     /** The press's P0..P3 at the cursor [c] (a tap does not move it), or null outside the rows. */
     fun pressParams(c: Int): IntArray? = paramsBy(press.rules, c, pitch)
 
-    private fun paramsBy(rules: List<Rule>, cPrime: Int, pitch: Int): IntArray? {
+    /** [step]: the notch's (+1, −1; 0 for the press, which does not move the cursor) — C3 DM-2b's kind 3 is the cursor
+     *  before the move, c' − [step] (`FIRMWARE.md` §7.8). */
+    private fun paramsBy(rules: List<Rule>, cPrime: Int, pitch: Int, step: Int = 0): IntArray? {
         if (cPrime !in 0 until rows) return null
         val p = IntArray(4)
         for ((i, r) in rules.withIndex()) p[i] = when (r.kind) {
             CfwModes.KIND_ARG -> r.arg
             CfwModes.KIND_ITEM -> { val j = cPrime + r.arg; if (j !in 0 until rows) return null; s16(itemOffs[j]) }
             CfwModes.KIND_PITCH -> (cPrime * pitch + r.arg).also { if (it !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("P$i = $it is outside s16 — refused (12)") }
+            CfwModes.KIND_CURSOR -> ((if (ring) Math.floorMod(cPrime - step, rows) else cPrime - step) + r.arg).also { if (it !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("P$i = $it is outside s16 — refused (12)") }
             else -> throw LintError("a parameter rule of kind ${r.kind}")
         }
         return p
@@ -316,6 +323,12 @@ class ListStaging private constructor(
             // C3 DM-2a: Matrix's rain (reveal 0) lights no cell at step T — every head is at R + trail (§7.6) — and leaves
             // what is under it: END draws nothing of it (the state before step 1 likewise holds nothing it drew)
             if (s.verb == Motion.GLYPHS && s.kind == Motion.RAIN && s.rain?.reveal == 0) return@forEachIndexed
+            // C3 DM-2b: Scramble's cells draw nothing before step 1, and at step T every cell is settled (s_c + N ≤ n, §7.6)
+            // on its new code 32 — no fill, no glyph: END holds nothing of them. A list settling on another code is not Main's
+            if (s.verb == Motion.GLYPHS && s.kind == Motion.CELLS) {
+                if (s.cells!!.lists[s.aux0].cells.any { it.new != 32 }) throw LintError("Main's cells settle on code 32 (nothing drawn), not ${s.cells.lists[s.aux0].cells.first { it.new != 32 }.new}")
+                return@forEachIndexed
+            }
             if (s.verb != Motion.DRAW || s.kind != Motion.KIND_RECORD) throw LintError("Main's programs draw records")
             val own = t.perLens && !left
             val x = (if (own) s.xR else s.xL) + (if (start) 0 else if (own) s.dxR else s.dxL)
@@ -405,7 +418,7 @@ class ListStaging private constructor(
         // C3 DM-1 (S6): the pans' own pitch — a list made after a switch between the two pitch forms has the other one, so
         // the rules write its LIST (a fresh mark) ahead of the SETs in the switch's batch (`LocalRules.front`)
         return BoundList(list, SLOT, rows, down.pitch, mark, if (window) CfwModes.ITEMS_NONE else items4, if (window) null else itemOffs.copyOf(), entries,
-            paintEnd = { left, prog4, p, pic -> paintEndOf(prog4, p, left, pic) }, ring = ring).also { it.previous = previous }
+            paintEnd = { left, prog4, p, pic -> paintEndOf(prog4, p, left, pic) }, ring = ring, effects = stage5).also { it.previous = previous }
     }
 
     // -------------------------------------------------------------------------------------- re-staging a row
@@ -653,33 +666,71 @@ class ListStaging private constructor(
     /** C3 DM-2a, the records rule (decisions DV 2, DW 1): an effect's records are part of the staging, so a change into or
      *  out of one is staged again whole — never pans re-made beside records that are not there, or left behind. Why pans
      *  for [want] (with [fx], the gate's token now) break it here, or null. C3 DM-2aF (decisions EP 2): what [want] plays
-     *  is [playsHere]'s, so a staging that gave its records up re-makes its fallback's pans alone. */
+     *  is [playsHere]'s, so a staging that gave its records up re-makes its fallback's pans alone. C3 DM-2bG (decisions
+     *  FH, FI): Scramble's noise follows the fit — his change of `Scroll length` or `Scroll frames` (a [want] other than
+     *  [motion]) whose T by the fit gives another noise ([ScrollEffects.scrambleNoise]) than the staged lists'
+     *  ([scrambleNoise]) is staged again whole; one that keeps it re-makes Scramble's pans alone. Decided here, before any
+     *  layout: under a cover the staging stays and his return acts on the value he left the row on, and an idle pump
+     *  while the refusal stands adds one [ScrollEffects.timing] (arithmetic over the layout), never a layout. */
     fun recordsRule(want: ScrollMotion, fx: Motion.Effects?): String? {
-        val wantRecords = playsHere(want, fx).effect.takeIf { ScrollEffects.hasRecords(it) }
+        val asked = playsHere(want, fx)
+        val wantRecords = asked.effect.takeIf { ScrollEffects.hasRecords(it) }
         if (wantRecords != recordEffect) return "${(wantRecords ?: recordEffect)!!.word}'s records are staging records " +
             "(${if (wantRecords != null) "this staging holds none" else "this staging holds them"}): a change into or out of it is staged again whole"
+        val n = scrambleNoise
+        if (wantRecords == ScrollEffect.SCRAMBLE && n != null && want != motion) {
+            val t2 = ScrollEffects.timing(asked, layout, listD, bandD, want, stage5, form, cellsStep).second
+            val n2 = ScrollEffects.scrambleNoise(t2)
+            if (n2 != n) return "Scramble's noise is part of its records (N $n staged; T $t2 asks N $n2): a change of its length " +
+                "or frames that changes the noise is staged again whole"
+        }
         return null
     }
 
     /** C3 DM-2aF (decisions EP 2; `C3-DM2b-V1-a.md` §3): what [want] plays on this staging — [ScrollEffects.playsFor]'s
      *  answer, except where this staging gave the asked effect's records up (they did not fit, or could not be made:
      *  [recordEffect] null while that effect draws records): it keeps its fallback ([plays], its reason with it) while
-     *  the same effect is asked, so Auto's re-makes are the fallback's pans alone, as Depth's are. A change to an effect
-     *  without records re-makes the pans alone too ([recordsRule]: no records on either side); a change back into the
-     *  effect with records stages again, as do the rows, the cache, the layout, the depth setting, the effects mode and
-     *  a session start. Without it every slow notch's re-make was a full staging that gave the records up again. */
+     *  the motion it was made for is asked, so Auto's re-makes are the fallback's pans alone, as Depth's are. A change to
+     *  an effect without records re-makes the pans alone too ([recordsRule]: no records on either side); a change back
+     *  into the effect with records stages again, as do the rows, the cache, the layout, the depth setting, the effects
+     *  mode and a session start. Without it every slow notch's re-make was a full staging that gave the records up again.
+     *  C3 DM-2bF (the lead's ruling on DM-2aF's last point): his own change of `Scroll length` or `Scroll frames` asks
+     *  another motion, so the records are tried once more — one full staging per change he makes. */
     private fun playsHere(want: ScrollMotion, fx: Motion.Effects?): ScrollEffects.Plays {
         val p = ScrollEffects.playsFor(want.effect, form, fx)
-        return if (ScrollEffects.hasRecords(p.effect) && recordEffect == null && want.effect == motion?.effect) plays else p
+        return if (ScrollEffects.hasRecords(p.effect) && recordEffect == null && want == motion) plays else p
     }
 
     /** Why the pans in force are not what [want] asks — the scroll rows changed, or under Auto the period in force gives
-     *  another step count (K1-1 item 4) — or null. The probes' fixed rule ([motion] null) is never re-made. */
+     *  another step count (K1-1 item 4; [autoSteps]) — or null. The probes' fixed rule ([motion] null) is never re-made. */
     fun remakeOwed(want: ScrollMotion): String? {
         val m = motion ?: return null
         if (m != want) return "the motion changed (${m.words()} → ${want.words()})"
-        val tp = ScrollEffects.stepsAt(want, periodInForce, t)
-        return if (tp != t) "the period in force $periodInForce gives Auto $tp steps, not $t" else null
+        val tp = autoSteps(want)
+        return if (tp != t) "the period in force $periodInForce gives Auto $tp steps, not $t${autoFloorWords(want)}" else null
+    }
+
+    /** Auto's steps for [want] at the period in force — [ScrollEffects.stepsAt], and C3 DM-2bF (decisions EZ 2): floored at
+     *  N + 1 while Scramble's records are in force, N their lists' noise ([ScrollEffects.CellTables.noise]): fewer steps
+     *  leave a cell no step past its noise (T' − N < 1, which the DSL refuses, 12), so a glass slower than the fit made a
+     *  re-make that was refused and laid out again at every idle pump. [remakeOwed] and [remake] both read it. The Frames
+     *  and Length rows lay their T by the fit, not here: a T they ask whose noise is another is staged again whole
+     *  ([recordsRule]). */
+    private fun autoSteps(want: ScrollMotion): Int = maxOf(ScrollEffects.stepsAt(want, periodInForce, t), autoFloor(want))
+
+    private fun autoFloor(want: ScrollMotion): Int =
+        if (recordEffect == ScrollEffect.SCRAMBLE && want.effect == ScrollEffect.SCRAMBLE && want.frames == 0) (scrambleNoise ?: 0) + 1 else 0
+
+    /** C3 DM-2bG: N, the noise of Scramble's lists in this staging's records ([ScrollEffects.CellTables.noise]); null where
+     *  it holds none. */
+    internal val scrambleNoise: Int? get() = staged.recs?.cells?.noise
+
+    /** The period note's words while [autoSteps]' floor is in force for [want] at the period in force: the floor, and the
+     *  notch's length against the length asked; "" otherwise. */
+    fun autoFloorWords(want: ScrollMotion): String {
+        val f = autoFloor(want)
+        if (ScrollEffects.stepsAt(want, periodInForce, t) >= f) return ""
+        return " (floored at Scramble's noise + 1 = $f steps: a notch of ${"%.0f".format(f * periodInForce * 1000.0 / 1024)} ms against the ${want.lengthMs} ms asked)"
     }
 
     /** The pans for [want] laid out in the free slot (the effect's own timing on a change of the rows; under Auto the
@@ -695,9 +746,17 @@ class ListStaging private constructor(
         val specs = pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }
         val asked = playsHere(want, fx)
         recordsRule(want, fx)?.let { return Remake.NoRoom(it, records = true) }
+        val wantRecords = asked.effect.takeIf { ScrollEffects.hasRecords(it) }
         // DM-0: the rules' P0 and P3 by the strip's own margin (k + 1 on a ring strip; `layout.rowsAbove` was one row short there)
         val made = lay(staged, asked, fx, slots[to], specs, margin, rows, ring, itemOffs, { recordOf(it) }) { pl ->
-            if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form) else periodInForce to ScrollEffects.stepsAt(want, periodInForce, t) }
+            if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form, cellsStep) else periodInForce to autoSteps(want) }
+        // C3 DM-2b (decisions EP 2): pans of an effect with records that come back as its fallback are not made beside its
+        // records: staged again whole, with the reason. C3 DM-2bG (decisions FI): the backstop for any fallback the records
+        // rule does not decide (the version-2 check at a new T, the step budget among them) — Scramble's noise is decided
+        // there, so a reset re-make that gets here keeps N = max(1, ⌊T/3⌋) and T − N ≥ 2. Not a records refusal: the shell
+        // drops the staging at once, cover or not
+        if (wantRecords != null && made.plays.effect != wantRecords) return Remake.NoRoom("${wantRecords.word}'s re-made pans were refused " +
+            "(${made.plays.why}): its records are staging records, so it is staged again whole")
         val bytes = joined(made.parts)
         if (bytes.size > progSlot) return Remake.NoRoom("the re-made pans (${bytes.size} B) do not fit the spare slot ($progSlot B)")
         return Remake.Owed(Programs(want, if (reset) made.period else period, made.t, made.period, to, slots[to], bytes, made.pans, why, reset, made.plays))
@@ -731,10 +790,17 @@ class ListStaging private constructor(
      */
     class Paint(val layout: Layout, private val view: WindowView.ListView, private val kit: ContentKit,
                 /** K1-2 stage 2: false for a window list — it stages no band forms, so none is painted. */
-                val bands: Boolean = true) {
+                val bands: Boolean = true,
+                /** C3 DM-2b: the cached text Main's rows are drawn through, where Scramble is asked — each picture is then
+                 *  painted through its counted survey (the relay's own counting) and its text runs kept ([rowRuns],
+                 *  [bandRuns]: Scramble's cells), its atlas the faces' glyphs; null: the relay alone, no runs. */
+                val runs: wm.damage.core.comp.CachedText? = null) {
         val n = view.rowCount()
         internal val rowForms = arrayOfNulls<Gray8>(n)
         internal val bandForms = arrayOfNulls<Gray8>(n)
+        /** C3 DM-2b: each row's text runs in its row form's and its band form's own coordinates (with [runs]). */
+        internal val rowRuns = arrayOfNulls<List<wm.damage.core.comp.TextDraw>>(n)
+        internal val bandRuns = arrayOfNulls<List<wm.damage.core.comp.TextDraw>>(n)
         var next = 0
             private set
         val done: Boolean get() = next >= n
@@ -743,10 +809,18 @@ class ListStaging private constructor(
         var ns = 0L
         var underRun = 0
         fun step(relay: (Gray8, () -> Unit) -> Unit) {
-            rowForms[next] = paintStripRow(view, layout, next, relay)
-            if (bands) bandForms[next] = paintBandForm(view, kit, layout, next, relay)
+            var got: List<wm.damage.core.comp.TextDraw> = emptyList()
+            val via: (Gray8, () -> Unit) -> Unit = runs?.let { ct -> { g, b -> got = ct.survey(g, true, b) } } ?: relay
+            rowForms[next] = paintStripRow(view, layout, next, via)
+            if (runs != null) rowRuns[next] = moved(got, -layout.content.x, 0)
+            if (bands) bandForms[next] = paintBandForm(view, kit, layout, next, via)
+            if (runs != null && bands) bandRuns[next] = moved(got, -layout.lens.x, -layout.lens.y)
             next++
         }
+
+        /** Runs recorded on a picture before its crop, in the crop's coordinates (`paintStripRow`, `paintBandForm`). */
+        private fun moved(rs: List<wm.damage.core.comp.TextDraw>, dx: Int, dy: Int) = rs.map { d ->
+            wm.damage.core.comp.TextDraw(Rect(d.rect.x + dx, d.rect.y + dy, d.rect.w, d.rect.h), d.text, d.spec, d.x + dx, d.y + dy, d.level) }
     }
 
     companion object {
@@ -808,8 +882,9 @@ class ListStaging private constructor(
          * 39.8 and 43.6 ms measured on C2's path). At 352 Depth's pan comes to 8.8 ms (the spec's §1.6). The measured period
          * (decisions BF, the 114's field 9) raises the period from the glasses' own steps, as on C2's path.
          */
-        fun fastStepMs(areaPx: Int, walkBytes: Int, pixelPx: Int = 0, rainCells: Int = 0): Double =
-            FAST_STEP_MS + (FAST_US_PER_PX * areaPx + FAST_US_PER_PIXEL * pixelPx + FAST_US_PER_BYTE * walkBytes + FAST_US_PER_RAIN_CELL * rainCells) / 1000.0
+        fun fastStepMs(areaPx: Int, walkBytes: Int, pixelPx: Int = 0, rainCells: Int = 0, cells: Int = 0): Double =
+            FAST_STEP_MS + (FAST_US_PER_PX * areaPx + FAST_US_PER_PIXEL * pixelPx + FAST_US_PER_BYTE * walkBytes + FAST_US_PER_RAIN_CELL * rainCells +
+                FAST_US_PER_CELL * cells) / 1000.0
         /** FF (modeled, the DM spec §1.1): a step's fixed part on the fast path (ms). */
         const val FAST_STEP_MS = 0.5
         /** FF (modeled, the DM spec §1.1): µs per output pixel written as bytes on the fast path. */
@@ -823,6 +898,9 @@ class ListStaging private constructor(
         /** C3 DM-2a (modeled, the DM spec §1.6 and the DM-2 spec §1's "lit-rain term"): µs per lit rain cell a step — its box
          *  filled and its glyph drawn ([ScrollEffects.rainCells]: every cell of every trail, lit every step). */
         const val FAST_US_PER_RAIN_CELL = 65.0
+        /** C3 DM-2b (modeled, the DM spec's cell term, the DM-2 spec §1's "the fit"): µs per drawn cell a step — its box
+         *  filled and its glyph drawn ([ScrollEffects.ScrambleText.cellsPerStep]). */
+        const val FAST_US_PER_CELL = 58.0
         /** FF (the DM spec §1.6's assumptions, counted on the PC's renderer from K1-1's local-check staging with the
          *  desktop's faces, M-PC): a real row of the strip ≈ 1,440 B (1,432–1,457), a band form 2,527 B. */
         const val FAST_ROW_BYTES = 1_440
@@ -887,8 +965,10 @@ class ListStaging private constructor(
         fun build(layout: Layout, view: WindowView.ListView, kit: ContentKit, listD: Int, bandD: Int, cacheSize: Int,
                   regionStart: Int = cacheSize - CfwModes.STAGE_RESERVE, regionEnd: Int = cacheSize,
                   relay: (Gray8, () -> Unit) -> Unit = { _, b -> b() }, widths: List<Int> = WIDTHS + WHOLE,
-                  motion: ScrollMotion? = null, stage5: Boolean = false, fx: Motion.Effects? = null, text: TextRasterizer? = null): ListStaging {
-            val p = Paint(layout, view, kit)
+                  motion: ScrollMotion? = null, stage5: Boolean = false, fx: Motion.Effects? = null, text: TextRasterizer? = null,
+                  /** C3 DM-2b: the cached text the rows are drawn through, for Scramble's runs ([Paint.runs]). */
+                  runs: wm.damage.core.comp.CachedText? = null): ListStaging {
+            val p = Paint(layout, view, kit, runs = runs)
             while (!p.done) p.step(relay)
             return assemble(p, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, stage5 = stage5, fx = fx, text = text)
         }
@@ -1037,7 +1117,7 @@ class ListStaging private constructor(
             // every slot a band form can be in is a record the programs know (a parameter names one of them)
             val records = listOfNotNull(strip.record, wrapPic?.record) + bands.map { it.record } + spareOffs.map { Motion.Source.Record(it / 4, rowW, l.lens.h, spareSlot) }
             val staged = ScrollEffects.Staged(l, listD, bandD, bands[0].record, records)
-            fun stagedWith(r: ScrollEffects.RainRecords?) = if (r == null) staged else ScrollEffects.Staged(l, listD, bandD, bands[0].record, records, rain = r.rain)
+            fun stagedWith(r: ScrollEffects.EffectRecords?) = if (r == null) staged else ScrollEffects.Staged(l, listD, bandD, bands[0].record, records, recs = r)
 
             // the programs after the item table: the press first (no scroll row changes it), then the pans' slot and, where
             // the region holds it, a spare slot of one size (K1-1: a change of the scroll rows writes the re-made pans there
@@ -1071,12 +1151,35 @@ class ListStaging private constructor(
             // path's fit, which every fire there runs (`FIRMWARE.md` §7.12). C3 DM-1: by what plays ([askedPlays]), a version-2
             // form checked at every cursor and given up for its fallback where the check refuses it, said
             val slotA = at
-            val timingOf: (ScrollEffects.Plays) -> Pair<Int, Int> = { pl ->
-                if (motion == null) timing(ScrollEffects.areaPx(pl.effect, l, listD, bandD), null) else ScrollEffects.timing(pl, l, listD, bandD, motion, stage5) }
-            // C3 DM-2a: a record effect's records are made first at the pans' place to size the pan slots (no program's bytes
-            // depend on the offsets it names), then laid past the slots — last in the staging, so nothing before them moves
-            val probe = if (recEffect == null) null else try { ScrollEffects.rainRecords(l, text ?: throw LintError("no face was given to draw its noise in"), slotA) }
+            // C3 DM-2b: Scramble's text — each row's glyphs from the runs its paint recorded — and the cells a step draws
+            val cellText = if (recEffect != ScrollEffect.SCRAMBLE) null else try { scrambleText(paint) }
                 catch (e: LintError) { return withoutRecords("its records cannot be made: ${e.message}") }
+            val cellsStep = cellText?.cellsPerStep(l, ring) ?: 0
+            val timingOf: (ScrollEffects.Plays) -> Pair<Int, Int> = { pl ->
+                if (motion == null) timing(ScrollEffects.areaPx(pl.effect, l, listD, bandD), null) else ScrollEffects.timing(pl, l, listD, bandD, motion, stage5, cells = cellsStep) }
+            // C3 DM-2a, DM-2b: a record effect's records are made first at the pans' place to size the pan slots (no program's
+            // bytes depend on the offsets it names), then laid past the slots — last in the staging, so nothing before them
+            // moves. Scramble's lists take the staging's T (their noise) and chunks of k strip rows: the largest k whose
+            // lists and pans fit (512 cells, the step budget at every cursor), searched
+            val tAsked = timingOf(askedPlays).second
+            fun recordsAt(at: Int, k: Int): ScrollEffects.EffectRecords = when (recEffect) {
+                ScrollEffect.SCRAMBLE -> ScrollEffects.scrambleRecords(l, cellText!!, stripRow, sA, text ?: throw LintError("no face was given to draw its noise in"), at, tAsked, k)
+                else -> ScrollEffects.rainRecords(l, text ?: throw LintError("no face was given to draw its noise in"), at)
+            }
+            var chunk = 0
+            val probe = if (recEffect == null) null else if (recEffect != ScrollEffect.SCRAMBLE) try { recordsAt(slotA, 0) }
+                catch (e: LintError) { return withoutRecords("its records cannot be made: ${e.message}") } else {
+                var why = ""
+                fun fits(k: Int): ScrollEffects.EffectRecords? = try {
+                    recordsAt(slotA, k).also { r -> layPans(stagedWith(r), askedPlays, tAsked, slotA, specs, sA, fx) { rec(it) }.first.forEach { checkEveryCursor(it, n, ring, itemOffs) } }
+                } catch (e: LintError) { why = e.message ?: "refused"; null }
+                var lo = maxOf(mA, mB) + 1
+                var best = fits(lo) ?: return withoutRecords("its cells fit no chunk of strip rows: $why")
+                chunk = lo
+                var hi = stripRows; lo++
+                while (lo <= hi) { val mid = (lo + hi) / 2; val r = fits(mid); if (r != null) { best = r; chunk = mid; lo = mid + 1 } else hi = mid - 1 }
+                best
+            }
             val laid0 = lay(stagedWith(probe), askedPlays, fx, slotA, specs, sA, n, ring, itemOffs, { rec(it) }, timingOf)
             if (recEffect != null && laid0.plays.effect != recEffect) return withoutRecords(laid0.plays.why ?: "its pans were refused")
             // each pan slot holds, with slack, the largest pans and tables at their own T of the effects a programs-only re-make
@@ -1086,10 +1189,10 @@ class ListStaging private constructor(
             // effect as it would play here (version 2 with [fx])
             val slotEffects = if (recEffect != null) listOf(recEffect) else ScrollEffect.entries.filter { !ScrollEffects.hasRecords(it) }
             val progSlot = if (!progSpare || motion == null) joined(laid0.parts).size
-                else slack(slotEffects.maxOf { e -> val pl = ScrollEffects.plays(e, fx); val te = ScrollEffects.timing(pl, l, listD, bandD, motion.copy(effect = e), stage5).second
+                else slack(slotEffects.maxOf { e -> val pl = ScrollEffects.plays(e, fx); val te = ScrollEffects.timing(pl, l, listD, bandD, motion.copy(effect = e), stage5, cells = cellsStep).second
                     joined(layPans(stagedWith(probe), pl, te, slotA, specs, sA, fx) { rec(it) }.second).size })
             val slots = if (progSpare && motion != null) 2 else 1
-            val recs = if (probe == null) null else try { ScrollEffects.rainRecords(l, text!!, slotA + slots * progSlot) }
+            val recs = if (probe == null) null else try { recordsAt(slotA + slots * progSlot, chunk) }
                 catch (e: LintError) { return withoutRecords("does not fit: ${e.message}") }
             val laid = if (recs == null) laid0 else lay(stagedWith(recs), askedPlays, fx, slotA, specs, sA, n, ring, itemOffs, { rec(it) }, timingOf)
             if (recEffect != null && laid.plays.effect != recEffect) return withoutRecords(laid.plays.why ?: "its pans were refused")
@@ -1098,7 +1201,7 @@ class ListStaging private constructor(
             progs += laid.parts
             next(progSlot)
             val progSlots = if (slots == 2) intArrayOf(slotA, next(progSlot)) else null
-            recs?.let { if (next(it.bytes.size) != it.at) throw LintError("Matrix's records laid at ${it.at}, not past the pan slots") }
+            recs?.let { if (next(it.bytes.size) != it.at) throw LintError("${recEffect!!.word}'s records laid at ${it.at}, not past the pan slots") }
             if (at > regionEnd && recEffect != null) return withoutRecords("does not fit: ${recEffect.word}'s records (${recs?.bytes?.size} B) end at $at, " +
                 "past Main's region's end $regionEnd")
             if (at > regionEnd) lessOrNull(spareFirst = true)?.let { return it }
@@ -1116,7 +1219,7 @@ class ListStaging private constructor(
                 listOfNotNull(recs?.let { Blob("${recEffect!!.word}'s records", it.at, pad(it.bytes), null) })
             return ListStaging(layout, listD, bandD, n, cacheSize, period, t, regionStart, regionEnd, strip, bands.toMutableList(), items4, itemOffs,
                 spareOffs.associateWith { spareSlot }.toMutableMap(), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, stagedWith(recs), progSlots, progSlot,
-                ring, stage5, laid.plays, recordEffect = recs?.let { recEffect })
+                ring, stage5, laid.plays, recordEffect = recs?.let { recEffect }, cellsStep = if (recs != null) cellsStep else 0)
         }
 
         /** K1-2 stage 2: the strip as both forms stage it — every row's row form ([Paint.rowForms]) at the pitch, with [sA]
@@ -1229,6 +1332,17 @@ class ListStaging private constructor(
             return assembleWindow(p, listD, bandD, cacheSize, motion, fx, floor, top)
         }
 
+        /** C3 DM-2b: Scramble's text from [paint]'s runs ([Paint.runs]: its atlas's entries and its kerning) — refused
+         *  where no runs were recorded (cached text off, or no atlas): Scramble then plays Depth, said. */
+        internal fun scrambleText(paint: Paint): ScrollEffects.ScrambleText {
+            val ct = paint.runs ?: throw LintError("no text runs were recorded for its cells (cached text is off)")
+            val a = ct.atlas ?: throw LintError("no atlas holds Main's faces")
+            fun glyphs(rs: List<wm.damage.core.comp.TextDraw>?) = wm.damage.core.motion.CellLists.glyphs(rs ?: emptyList(), { a.entry(it) }, { ct.kernOf(it) })
+            val rows = List(paint.n) { glyphs(paint.rowRuns[it]) }
+            val bands = List(paint.n) { glyphs(paint.bandRuns[it]) }
+            return ScrollEffects.ScrambleText(rows, bands, (rows + bands).flatten().map { it.first }.distinct().associateWith { a.entry(it)!! })
+        }
+
         /** K1-1: what plays' ([plays]) pans for [specs] over [t] steps laid out from the byte offset [off] — its ease tables
          *  first (Fall's one, Flip's two), then the programs back to back, each 4-byte aligned: the pans, and the (offset,
          *  bytes) to write. [fx]: the gate's token, for a version-2 form. */
@@ -1295,6 +1409,9 @@ class ListStaging private constructor(
                     CfwModes.KIND_ARG -> r.arg
                     CfwModes.KIND_ITEM -> { val j = if (ring) Math.floorMod(v + r.arg, n) else v + r.arg; if (j !in 0 until n) continue@cursors; s16(itemOffs[j]) }
                     CfwModes.KIND_PITCH -> (v.toLong() * pan.pitch + r.arg).let { x ->
+                        if (x !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("P$i = $x at cursor $c step ${pan.step} is outside s16 (12)"); x.toInt() }
+                    // C3 DM-2b (§7.8): kind 3 — the cursor before the move, on any list
+                    CfwModes.KIND_CURSOR -> (c.toLong() + r.arg).let { x ->
                         if (x !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("P$i = $x at cursor $c step ${pan.step} is outside s16 (12)"); x.toInt() }
                     else -> throw LintError("a parameter rule of kind ${r.kind}")
                 }

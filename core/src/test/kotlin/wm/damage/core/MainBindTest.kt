@@ -56,11 +56,12 @@ class MainBindTest {
         // fires through the hook (`ring-wrap-`), per effect. C3 DM-1: six effects (Flip and Crush: their fallbacks at stage 4,
         // their version-2 pans at stage 5), and the switch between the pitch forms at stage 5 (`-pitchswitch`)
         // C3 DW-1a: and the wheel's block beside Main's staging at stage 5 on 256 KiB, one case a height
-        // C3 DM-2a: seven effects (Matrix: Depth's staging at stage 4, its rain records and version-2 pans at stage 5)
-        assertEquals(2 * (4 * 2 * (7 + 6 * 2 + 1)) + 2 * 2 * 2 * 7 + 2 * 2 * 2 * 7 + 4 * 2 + 4, r.cases.size, "every height and cache ran its cases at stage 4 and 5, and the wrapping heights their wraps per effect")
+        // C3 DM-2a: seven effects (Matrix: Depth's staging at stage 4, its rain records and version-2 pans at stage 5).
+        // C3 DM-2b: eight (Scramble as Matrix, on Main drawn through its atlas)
+        assertEquals(2 * (4 * 2 * (7 + 7 * 2 + 1)) + 2 * 2 * 2 * 8 + 2 * 2 * 2 * 8 + 4 * 2 + 4, r.cases.size, "every height and cache ran its cases at stage 4 and 5, and the wrapping heights their wraps per effect")
         assertEquals(4, r.cases.count { it.name.startsWith("wheel-block-h") && it.failures.isEmpty() }, "the wheel's block placed at every height")
-        assertEquals(56, r.cases.count { it.name.contains("-wrap-") && !it.name.contains("-s5-") }, "the stage-4 wrap cases: ${r.cases.filter { it.name.contains("-wrap-") }.map { it.name }}")
-        assertEquals(56, r.cases.count { it.name.contains("-s5-") && it.name.contains("-ring-wrap-") }, "the ring wraps, both ways, every effect, at 288 and 352 on both caches")
+        assertEquals(64, r.cases.count { it.name.contains("-wrap-") && !it.name.contains("-s5-") }, "the stage-4 wrap cases: ${r.cases.filter { it.name.contains("-wrap-") }.map { it.name }}")
+        assertEquals(64, r.cases.count { it.name.contains("-s5-") && it.name.contains("-ring-wrap-") }, "the ring wraps, both ways, every effect, at 288 and 352 on both caches")
         assertEquals(8, r.cases.count { it.name.endsWith("-pitchswitch") && it.lines.size == 2 }, "the pitch switch both ways at every height and cache at stage 5")
         assertEquals(0, r.cases.count { it.name.contains("-s5-") && it.name.contains("-wrap-") && !it.name.contains("-ring-") }, "no phone-played wrap case on a ring staging")
         assertEquals(16, r.cases.count { it.name.endsWith("-reprogram") && it.lines.isNotEmpty() && it.lines.none { l -> l.startsWith("no spare") } }, "the re-make ran at every height and cache, at both stages")

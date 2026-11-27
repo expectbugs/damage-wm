@@ -38,6 +38,9 @@ class BoundList(
      *  its fires move the cursor modulo [count] and kinds 1 and 2 take the virtual row v (the cursor plus the step,
      *  unwrapped). Only where the staging's margins hold the other end's rows (Main's paint wraps), at stage 5. */
     val ring: Boolean = false,
+    /** C3 DM-2b (§7.8): the list is SET for a session with EFFECTS armed (its staging's stage 5) — an entry may take a
+     *  kind-3 parameter (the cursor before the move: Scramble's tables' index); false: kinds 0..2 only (the SET's lint). */
+    val effects: Boolean = false,
 ) {
     /** One SET (§6.3). [program] is the program at [prog4] as the DSL built it — null for the report-only tap entry
      *  ([prog4] = [CfwModes.PROG_NONE]). [params] are the entry's four {kind, arg}. */
@@ -63,7 +66,7 @@ class BoundList(
         if (items != null && items.size != count) throw LintError("the item table holds ${items.size} entries for $count rows")
         if (entries.map { it.entry }.toSet().size != entries.size) throw LintError("two SETs of one entry number")
         if (entries.map { it.eventId }.toSet().size != entries.size) throw LintError("two entries for one event id: the second never fires")
-        for (e in entries) CfwModes.bindSet(e.entry, e.devType, e.eventId, list, e.step, slot, e.period, e.prog4, e.params)   // its lint
+        for (e in entries) CfwModes.bindSet(e.entry, e.devType, e.eventId, list, e.step, slot, e.period, e.prog4, e.params, effects)   // its lint
     }
 
     /** Build C2, stage DM2 (decisions X.2): the list as it stood before its owner's last switch of a record (Main's band
@@ -108,7 +111,7 @@ class BoundList(
     val maxStep: Int get() = entries.filter { !it.isTap }.maxOfOrNull { kotlin.math.abs(it.step) } ?: 0
 
     /** The SET of [e], as §6.3 lays it out. */
-    fun set(e: Entry): ByteArray = CfwModes.bindSet(e.entry, e.devType, e.eventId, list, e.step, slot, e.period, e.prog4, e.params)
+    fun set(e: Entry): ByteArray = CfwModes.bindSet(e.entry, e.devType, e.eventId, list, e.step, slot, e.period, e.prog4, e.params, effects)
 
     /** Every entry's SET, in entry order. */
     fun sets(): List<ByteArray> = entries.sortedBy { it.entry }.map { set(it) }
@@ -171,6 +174,12 @@ class BoundList(
                     // reads them so): an off4 past 32767 — a record in the top half of a 256 KiB cache — is negative
                     // (build C2, stage DM2: the pin against the simulator's fire found it on Main's 256 KiB region)
                     t[k].toShort().toInt()
+                }
+                // C3 DM-2b (§7.8): kind 3 — the cursor before the move (v − step: the cursor on either form), plus arg
+                CfwModes.KIND_CURSOR -> {
+                    val x = v.toLong() - entry.step + p.arg
+                    if (x !in Short.MIN_VALUE..Short.MAX_VALUE) return REFUSED_12
+                    x.toInt()
                 }
                 else -> {
                     val x = v.toLong() * pitch + p.arg

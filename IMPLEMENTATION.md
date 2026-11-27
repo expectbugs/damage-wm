@@ -1090,17 +1090,22 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   keyframe (`EngineRefusals`, 0.83). `LocalRulesTest`, `LocalSequenceFuzzTest`, `LocalSkewRigTest`,
   `MainLocalShellTest`.
 - **The scroll effects and the fit** (`motion/ScrollEffects.kt`, K1-1; the `Scroll effect` row): None · Depth (the
-  default) · Slide · Fall in version 1 from stage 4; Crush, Flip's width turn and Matrix in version 2 at stage 5 (below
-  it Crush plays Slide, Flip its height turn and Matrix Depth, and the row says so). **Matrix** (C3 DM-2a; Main's list
-  only, a window's list plays Depth) is Depth's move with noise glyphs raining down through the rows, seeded from the
-  entering row's band form so both lenses draw one picture; its records (the noise glyphs, their table, the alphabet,
-  the rain record: `ScrollEffects.rainRecords`) are part of Main's staging, laid last and given up first (Matrix then
-  plays Depth, said), so a change into or out of it stages the list again whole, with Main in front
-  (`ScrollEffects.hasRecords`, `ListStaging.remake`). A notch's period is fitted on the effect's painted area:
-  C2's fit `ListStaging.timing` (P0 with a margin, inside 16..128 ticks), at stage 5 the fast DRAW path's
-  `ListStaging.fastStepMs` (§7.12; four modeled figures, the fourth for Flip's scaled turn), both through `timingOf`; Auto frames take the steps
-  that fit `Scroll length`, and the glasses' measured period (notify 114 field 9) raises the period. `ScrollEffectsTest`,
-  `MainLocalShellTest` (Matrix's re-stagings), the `v5-dm-rain-fire` and `v5-ship-ring-matrix-352` vectors.
+  default) · Slide · Fall in version 1 from stage 4; Crush, Flip's width turn, Scramble and Matrix in version 2 at stage
+  5 (`DESIGN.md` §4.2). **Matrix**
+  (C3 DM-2a; Main's list only, a window's list plays Depth) is Depth's move with noise glyphs raining down through the
+  rows, seeded from the entering row's band form so both lenses draw one picture; its records (the noise glyphs, their
+  table, the alphabet, the rain record: `ScrollEffects.rainRecords`) are part of Main's staging, laid last and given up
+  first (Matrix then plays Depth, said), so a change into or out of it stages the list again whole, with Main in front
+  (`ScrollEffects.hasRecords`, `ListStaging.remake`). **Scramble** (C3 DM-2b; Main's list only, a window's list plays
+  Depth) keeps the rows in place and changes their letters in random order to the new ones, one seed for both lenses;
+  its records (the rows' cells and the private faces they are drawn in: `ScrollEffects.scrambleRecords`) are part of
+  Main's staging as Matrix's are, laid last and given up first (at 160 KiB it plays Depth, said). Its noise and Auto's
+  floor at N + 1, where every letter changes at once: `FIRMWARE.md` §7.11. A notch's period is fitted on the effect's
+  painted area: C2's fit `ListStaging.timing` (P0 with a margin, inside 16..128 ticks), at stage 5 the fast DRAW path's
+  `ListStaging.fastStepMs` (§7.12; four modeled figures, the fourth for Flip's scaled turn), both through `timingOf`;
+  Auto frames take the steps that fit `Scroll length`, and the glasses' measured period (notify 114 field 9) raises the
+  period. `ScrollEffectsTest`, `MainLocalShellTest` (Matrix's and Scramble's re-stagings), the `v5-dm-rain-fire`,
+  `v5-ship-ring-matrix-352` and `v5-dm-cells-fire` vectors.
 - **The ring list** (C3 DM-0, 0.84): at stage 5, where Main's paint wraps (his eight rows at 288 and 352), the list is
   bound with LIST-RING (`CfwModes.bindListRing`, `BoundList.ring`); the strip carries the other end's rows as margins
   and no wrap record, and the phone measures the cursor modulo the count (`BoundList.distance`). `LocalRulesTest`,

@@ -401,7 +401,9 @@ phone's working copy and queue — pull the phone's journal before, `python3 too
   `flags=0xNNNN` (refuses a bit `FIRMWARE.md` does not define, and any ladder bit beyond the stage), `rest=on|off`.
 - **After stage 4 is armed, read in the phone's journal:** `local` (reports, answers, what was not sent and why),
   `mainstage` (what was staged, its bytes, "not staged — why"), `snapback` (with its cause), `tapdrop`, `repair`,
-  and the telemetry fields 35–39. `tools/journal_report.py` prints them.
+  and the telemetry fields 35–39. `tools/journal_report.py` prints them. A `local` note "reported N steps against
+  T M: above it, not a period sample" is a body counted above the T in force: N equal to an earlier T is ordinary
+  (a body of the pans a switch to a smaller T retired); N = T + 1 is the case `FIRMWARE.md` §5.8 excludes.
 - **The flash** is `FORK.md` §7, on his go per lens, never otherwise. Each image, the installed one and its rollback
   included, is kept in `fws/2.2.6.10-cfw-<pin8>/`; which is installed and the stage: `REMINDER.md`.
 

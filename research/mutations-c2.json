@@ -3907,7 +3907,7 @@
   "file": "shell/ListStaging.kt",
   "edits": [
    [
-    "        val tp = ScrollEffects.stepsAt(want, periodInForce, t)\n",
+    "        val tp = autoSteps(want)\n",
     "        val tp = t\n"
    ]
   ],
@@ -3919,7 +3919,7 @@
    "autosStepsFollowThePeriodInForce_K11",
    "theRemakeFollowsTheRowsAndAutosStepsTheMeasuredPeriod_K11"
   ],
-  "note": "0.82's behaviour: Auto's steps stay at the staging's while the measured period changes (the motion runs T x P long)",
+  "note": "0.82's behaviour: Auto's steps stay at the staging's while the measured period changes (the motion runs T x P long) [re-pointed by C3 DM-2bF to its present text: Auto's steps come from autoSteps(), the one function remakeOwed and remake share (the floor under Scramble's records)]",
   "from": "K1-1"
  },
  {
@@ -6764,7 +6764,7 @@
   "file": "comp/CachedText.kt",
   "edits": [
    [
-    "        val quiet = onRelay && surveyed != null                 // [survey]: no use counted, nothing recorded",
+    "        val quiet = onRelay && surveyed != null && !surveyCounted   // [survey]: no use counted, nothing recorded",
     "        val quiet = false"
    ]
   ],
@@ -6774,7 +6774,7 @@
   "expect": [
    "aSurveyRecordsTheRunsAndCountsNothing_X2T"
   ],
-  "note": "C3-X2T: item 4: a survey counts icon uses (a thumbnail shown once packed) (lane row `x2t-survey-counts`)",
+  "note": "C3-X2T: item 4: a survey counts icon uses (a thumbnail shown once packed) (lane row `x2t-survey-counts`) [re-pointed by C3 DM-2b to its present text: the survey's counted form (DM-2b's runs capture) added `&& !surveyCounted`]",
   "from": "C3-X2T"
  },
  {
@@ -8101,8 +8101,8 @@
   "file": "shell/ListStaging.kt",
   "edits": [
    [
-    "else ScrollEffects.timing(pl, l, listD, bandD, motion, stage5) }",
-    "else ScrollEffects.timing(pl, l, listD, bandD, motion, true) }"
+    "else ScrollEffects.timing(pl, l, listD, bandD, motion, stage5, cells = cellsStep) }",
+    "else ScrollEffects.timing(pl, l, listD, bandD, motion, true, cells = cellsStep) }"
    ]
   ],
   "tests": [
@@ -8115,7 +8115,7 @@
    "stage5TakesTheFastPathsFitAndStaysInsideTheBudget_FF",
    "theStartsBindBatchPerTapsValue_P1"
   ],
-  "note": "C3 FF: the fast fit reaches a staging made without EFFECTS — the stage-4 pans' records and the SETs' period are no longer today's bytes [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
+  "note": "C3 FF: the fast fit reaches a staging made without EFFECTS — the stage-4 pans' records and the SETs' period are no longer today's bytes [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays] [re-pointed by C3 DM-2b to its present text: Scramble's cells per step passed beside stage5]",
   "from": "C3-FF"
  },
  {
@@ -8123,8 +8123,8 @@
   "file": "shell/ListStaging.kt",
   "edits": [
    [
-    "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form)",
-    "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, false, form)"
+    "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5, form, cellsStep)",
+    "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, false, form, cellsStep)"
    ]
   ],
   "tests": [
@@ -8135,7 +8135,7 @@
    "stage5TakesTheFastPathsFitAndStaysInsideTheBudget_FF",
    "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
   ],
-  "note": "C3 FF: the programs-only re-make of a stage-5 staging takes C2's fit — an effect change at stage 5 leaves the fast fit (Slide P 52 T 5 at 352 where the staging's fit gives P 16 T 19) [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays; by K1-2 stage 2: the staging's form passed]",
+  "note": "C3 FF: the programs-only re-make of a stage-5 staging takes C2's fit — an effect change at stage 5 leaves the fast fit (Slide P 52 T 5 at 352 where the staging's fit gives P 16 T 19) [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays; by K1-2 stage 2: the staging's form passed] [re-pointed by C3 DM-2b to its present text: Scramble's cells per step passed after the form]",
   "from": "C3-FF"
  },
  {
@@ -8161,7 +8161,7 @@
   "file": "shell/ListStaging.kt",
   "edits": [
    [
-    "        val tp = ScrollEffects.stepsAt(want, periodInForce, t)\n",
+    "        val tp = autoSteps(want)\n",
     "        val tp = t\n"
    ]
   ],
@@ -8171,7 +8171,7 @@
   "expect": [
    "theMeasuredPeriodRaisesAndLowersTheFastFitAndAutosStepsFollow_FF"
   ],
-  "note": "C3 FF item 3: at stage 5 Auto's steps stay at the fit's 19 while the measured period raises P to 34 — the motion runs 19 × 34 ticks (≈ 631 ms) instead of T 9 in its 300 ms",
+  "note": "C3 FF item 3: at stage 5 Auto's steps stay at the fit's 19 while the measured period raises P to 34 — the motion runs 19 × 34 ticks (≈ 631 ms) instead of T 9 in its 300 ms [re-pointed by C3 DM-2bF to its present text: Auto's steps come from autoSteps(), the one function remakeOwed and remake share (the floor under Scramble's records)]",
   "from": "C3-FF"
  },
  {
@@ -13524,17 +13524,18 @@
   "file": "shell/ListStaging.kt",
   "edits": [
    [
-    "        return if (ScrollEffects.hasRecords(p.effect) && recordEffect == null && want.effect == motion?.effect) plays else p",
+    "        return if (ScrollEffects.hasRecords(p.effect) && recordEffect == null && want == motion) plays else p",
     "        return p"
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aStagingThatGaveMatrixsRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2aF*"
+   "*MainLocalShellTest.aStagingThatGave*RecordsUpStaysOnItsFallbackThroughAutosRemakes*"
   ],
   "expect": [
-   "aStagingThatGaveMatrixsRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2aF"
+   "aStagingThatGaveMatrixsRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2aF",
+   "aStagingThatGaveScramblesRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2bF"
   ],
-  "note": "C3 DM-2aF (C3-DM2b-V1-a.md §3): the records rule's exception off — a staging that gave Matrix's records up is staged again whole at every Auto re-make a slow notch owes (and gives them up again)",
+  "note": "C3 DM-2aF (C3-DM2b-V1-a.md §3): the records rule's exception off — a staging that gave Matrix's records up is staged again whole at every Auto re-make a slow notch owes (and gives them up again) [re-pointed by C3 DM-2bF: the predicate reads `want == motion` (his own length or frames change tries the records again); Scramble's pin added; DM-2b's row DM2b-given-up-decision-not-kept folded in — since the merge the two guards are this one site]",
   "from": "DM-2aF"
  },
  {
@@ -13554,5 +13555,397 @@
   ],
   "note": "C3 DM-2aF (decisions FA 2): every entry of the noise set's private font table names the first glyph — the rain draws one code whatever it picks; seen only on a face whose codes differ (NoisyText)",
   "from": "DM-2aF"
+ },
+ {
+  "id": "DM2b-boundlist-kind3-not-before-move",
+  "file": "local/BoundList.kt",
+  "edits": [
+   [
+    "val x = v.toLong() - entry.step + p.arg",
+    "val x = v.toLong() + p.arg"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.randomSequencesHoldTheEightInvariants*"
+  ],
+  "expect": [
+   "randomSequencesHoldTheEightInvariants"
+  ],
+  "note": "C3 DM-2b (FIRMWARE.md §7.8): the phone's kind 3 reads the cursor after the move, not before it — its prediction of a fire's P2 disagrees with RIGHT's; the fuzz's kind-3 probe sequences catch it",
+  "from": "DM-2b"
+ },
+ {
+  "id": "DM2b-staging-kind3-not-before-move",
+  "file": "shell/ListStaging.kt",
+  "edits": [
+   [
+    "CfwModes.KIND_CURSOR -> ((if (ring) Math.floorMod(cPrime - step, rows) else cPrime - step) + r.arg)",
+    "CfwModes.KIND_CURSOR -> (cPrime + r.arg)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b*"
+  ],
+  "expect": [
+   "scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b"
+  ],
+  "note": "C3 DM-2b: the staging's own parameters take kind 3 as the cursor after the move — its belief picks the next cursor's cell lists",
+  "from": "DM-2b"
+ },
+ {
+  "id": "DM2b-remake-fallback-not-noroom",
+  "file": "shell/ListStaging.kt",
+  "edits": [
+   [
+    "if (wantRecords != null && made.plays.effect != wantRecords) return Remake.NoRoom(",
+    "if (wantRecords != null && made.plays.effect != wantRecords && false) return Remake.NoRoom("
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.aChangeIntoOrOutOfScrambleIsAFullStagingAndItsReMakesKeepItsDecision_DM2b*"
+  ],
+  "expect": [
+   "(no pin: since C3 DM-2bG the records rule decides Scramble's noise before the layout (decisions FH, FI), so no reset re-make that reaches the layout comes back as the fallback for a T-dependent reason — the refusal after the layout stays as the backstop (decisions FI) and no test reaches it; the unit line that pinned it now pins the records rule's refusal)"
+  ],
+  "note": "C3 DM-2b (decisions EP 2): an Auto re-make whose pans come back as the fallback (T' − N < 1) is owed as programs alone beside records made for another T, not a full staging [C3 DM-2bG: declared no pin — the backstop is reached by no test; kept declared (decisions FK)]",
+  "from": "DM-2b"
+ },
+ {
+  "id": "DM2b-old-letters-at-new-place",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "rs.flatMap { s -> rowOf(s).map { cell(it, s * l.rowH + it.second.y, it.second.code) } })",
+    "rs.flatMap { s -> rowOf(s).map { cell(it, (s - d) * l.rowH + it.second.y, it.second.code) } })"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b*"
+  ],
+  "expect": [
+   "scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b"
+  ],
+  "note": "C3 DM-2b: the old-role cells stand at the strip row's final place, so the old letters move with the strip instead of standing where they were",
+  "from": "DM-2b"
+ },
+ {
+  "id": "DM2b-band-new-cells-dropped",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "cells(tb.bandNew.getValue(step), n = t, x = cx - dB",
+    "cells(tb.bandOld, n = t, x = cx - dB"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest.mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b*"
+  ],
+  "expect": [
+   "mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b"
+  ],
+  "note": "C3 DM-2b: the band's new-role track names the old-role table — the program the vector holds is not the one the shell sends",
+  "from": "DM-2b"
+ },
+ {
+  "id": "DM2b-seed-moved",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "const val SCRAMBLE_SEED = 0x5343",
+    "const val SCRAMBLE_SEED = 0x5344"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest.mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b*"
+  ],
+  "expect": [
+   "mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b"
+  ],
+  "note": "C3 DM-2b (decisions EP 7): Scramble's seed is a constant of ours that the vector pins",
+  "from": "DM-2b"
+ },
+ {
+  "id": "DM2b-p2-not-kind3",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "ListStaging.Rule(CfwModes.KIND_CURSOR, 0), it[3])",
+    "ListStaging.Rule(CfwModes.KIND_ARG, 0), it[3])"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest.mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b*",
+   "*ScrollEffectsTest.scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b*"
+  ],
+  "expect": [
+   "mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b",
+   "scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b"
+  ],
+  "note": "C3 DM-2b (FIRMWARE.md §7.8): the cell tables' index is a constant 0 instead of the cursor before the move — every cursor draws cursor 0's cells",
+  "from": "DM-2b"
+ },
+ {
+  "id": "DM2b-shell-no-runs",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "runs = ct?.takeIf { form == wm.damage.core.motion.ListForm.MAIN_BANDS && motionInForce().effect == wm.damage.core.motion.ScrollEffect.SCRAMBLE }",
+    "runs = null"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aChangeIntoOrOutOfScrambleIsAFullStagingEachWay_DM2b*"
+  ],
+  "expect": [
+   "aChangeIntoOrOutOfScrambleIsAFullStagingEachWay_DM2b"
+  ],
+  "note": "C3 DM-2b: the shell paints Main's rows without recording their runs, so Scramble's records are never made (Depth, said) on the real shell",
+  "from": "DM-2b"
+ },
+ {
+  "id": "DM2b-enum-order",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "SCRAMBLE(\"scramble\", \"Scramble\"), MATRIX(\"matrix\", \"Matrix\");",
+    "MATRIX(\"matrix\", \"Matrix\"), SCRAMBLE(\"scramble\", \"Scramble\");"
+   ]
+  ],
+  "tests": [
+   "*SettingsLocalRowsTest.theScrollEffectRowCyclesTheFourEffects_K11*"
+  ],
+  "expect": [
+   "theScrollEffectRowCyclesTheFourEffects_K11"
+  ],
+  "note": "C3 DM-2b (decisions EP 6): the enum's order CRUSH, SCRAMBLE, MATRIX is the Scroll effect row's cycle (no ordinal is stored or sent)",
+  "from": "DM-2b"
+ },
+ {
+  "id": "DM2b-step-ignores-cells",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "if (e == ScrollEffect.SCRAMBLE) cells else 0), m) else ListStaging.timing(area, m)",
+    "0), m) else ListStaging.timing(area, m)"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest.mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b*"
+  ],
+  "expect": [
+   "mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b"
+  ],
+  "note": "C3 DM-2b: the step's time leaves Scramble's cells out (FAST_US_PER_CELL, modeled), so its period is a move's",
+  "from": "DM-2b"
+ },
+ {
+  "id": "DM2b-band-new-index",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "table(List(n) { c -> bandNew[(c + d).mod(n)] })",
+    "table(List(n) { c -> bandNew[c] })"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b*"
+  ],
+  "expect": [
+   "scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b"
+  ],
+  "note": "C3 DM-2b (the DM-2 spec §1): the band's new table maps the cursor before the move to row (c + d) mod n's masks — the arriving row's letters, masked till they resolve",
+  "from": "C3 DM-2b"
+ },
+ {
+  "id": "DM2bF-scramble-tag",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "seed = SCRAMBLE_SEED, prefs = listOf(cursor, Motion.Pref(0, Motion.Field.Y)))",
+    "seed = SCRAMBLE_SEED, mixTag = true, prefs = listOf(cursor, Motion.Pref(0, Motion.Field.Y)))"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.noBoundProgramMixesTheTagIntoASeed_DM2aF*"
+  ],
+  "expect": [
+   "noBoundProgramMixesTheTagIntoASeed_DM2aF"
+  ],
+  "note": "C3 DM-2bF (cure 1; decisions EZ 1, EV 1): one of Scramble's cell tracks mixes the fire's tag into its seed again — the staging's check refuses it, Scramble plays Depth (said), and the class sweep, now staged on Scramble too, sees it",
+  "from": "DM-2bF"
+ },
+ {
+  "id": "DM2bF-auto-floor-off",
+  "file": "shell/ListStaging.kt",
+  "edits": [
+   [
+    "private fun autoSteps(want: ScrollMotion): Int = maxOf(ScrollEffects.stepsAt(want, periodInForce, t), autoFloor(want))",
+    "private fun autoSteps(want: ScrollMotion): Int = ScrollEffects.stepsAt(want, periodInForce, t)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.aChangeIntoOrOutOfScrambleIsAFullStagingAndItsReMakesKeepItsDecision_DM2b*",
+   "*MainLocalShellTest.aSlowGlassFloorsScramblesAutoStepsAtItsNoisePlusOne_DM2bF*"
+  ],
+  "expect": [
+   "aChangeIntoOrOutOfScrambleIsAFullStagingAndItsReMakesKeepItsDecision_DM2b",
+   "aSlowGlassFloorsScramblesAutoStepsAtItsNoisePlusOne_DM2bF"
+  ],
+  "note": "C3 DM-2bF (cure 2): Auto's steps under Scramble's records are no longer floored at N + 1 — a slow glass's re-make lays T' − N < 1, its pans come back as the fallback and the staging is staged again whole",
+  "from": "DM-2bF"
+ },
+ {
+  "id": "DM2bF-length-tries-again",
+  "file": "shell/ListStaging.kt",
+  "edits": [
+   [
+    "&& recordEffect == null && want == motion) plays else p",
+    "&& recordEffect == null && want.effect == motion?.effect) plays else p"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aStagingThatGave*RecordsUpStaysOnItsFallbackThroughAutosRemakes*"
+  ],
+  "expect": [
+   "aStagingThatGaveMatrixsRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2aF",
+   "aStagingThatGaveScramblesRecordsUpStaysOnItsFallbackThroughAutosRemakes_DM2bF"
+  ],
+  "note": "C3 DM-2bF (cure 3): a staging that gave its records up keeps the fallback through his own change of Scroll length too — the records are never tried again until the effect changes",
+  "from": "DM-2bF"
+ },
+ {
+  "id": "DM2bF-noise-off",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        val steps = scrambleNoise(t)",
+    "        val steps = 0"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b*"
+  ],
+  "expect": [
+   "scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b"
+  ],
+  "note": "C3 DM-2bF (cure 5; decisions FA 2): Scramble's cells hold no noise steps — the letters change without passing through the noise set [re-pointed by C3 DM-2bG: the noise is one function, ScrollEffects.scrambleNoise; the records' call to it is set to 0]",
+  "from": "DM-2bF"
+ },
+ {
+  "id": "DM2bF-records-font-one-glyph",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "IntArray(224) { i -> (own[i + TextureCache.FIRST_CHAR] ?: noiseOf[i + TextureCache.FIRST_CHAR] ?: noise[0]).off4 }",
+    "IntArray(224) { noise[0].off4 }"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b*",
+   "*ConformanceVectorTest.theShipVectorsHoldTheProgramsTheShellSends_X3D*"
+  ],
+  "expect": [
+   "scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b",
+   "theShipVectorsHoldTheProgramsTheShellSends_X3D"
+  ],
+  "note": "C3 DM-2bF (cure 5; decisions FA 2, FA 3): every entry of Scramble's private font table names the first noise glyph — the programs are the same bytes, the records are not; caught by the noise pin, first on the box face at 288 / 160 KiB (the noise face's glyph spills out of the 13-px face's boxes: \"px outside every cell box where step 1 is not END\"), and by the ship pin, which compares what the act writes into the cache [note corrected by C3 DM-2bG, decisions FI; C3-DM2b-V2-b.md 4]",
+  "from": "DM-2bF"
+ },
+ {
+  "id": "DM2bF-records-given-up-at-256",
+  "file": "shell/ListStaging.kt",
+  "edits": [
+   [
+    "if (at > regionEnd && recEffect != null) return withoutRecords(",
+    "if ((at > regionEnd || recEffect == ScrollEffect.SCRAMBLE) && recEffect != null) return withoutRecords("
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b*",
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "expect": [
+   "scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b",
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 DM-2bF (cure 5; decisions FA 4): Scramble's records are given up wherever they would fit — Depth plays, said; the fit at 256 KiB, stage 5 is asserted at all four heights by the pin and by the local check",
+  "from": "DM-2bF"
+ },
+ {
+  "id": "V2b-scramble-noise-one-code",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        }\n        val alphabet = Motion.Alphabet(b.here4(), NOISE_CODES).also { b.put(it.bytes) }\n        val steps = scrambleNoise(t)",
+    "        }\n        val alphabet = Motion.Alphabet(b.here4(), intArrayOf(NOISE_CODES[0])).also { b.put(it.bytes) }\n        val steps = scrambleNoise(t)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b*"
+  ],
+  "expect": [
+   "scramblesLettersChangeInPlaceAndSettleOnMainsPaint_DM2b"
+  ],
+  "note": "C3 DM-2bG (decisions FI; reader b's probe, C3-DM2b-V2-b.md 1): Scramble's alphabet holds one code — every noise step shows the same letter (in each face's own glyph); the noise pin counts codes, so it sees it",
+  "from": "DM-2bG"
+ },
+ {
+  "id": "DM2bG-noise-term-absent",
+  "file": "shell/ListStaging.kt",
+  "edits": [
+   [
+    "        if (wantRecords == ScrollEffect.SCRAMBLE && n != null && want != motion) {",
+    "        if (wantRecords == ScrollEffect.SCRAMBLE && n != null && want != motion && false) {"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.hisLengthChangeThatChangesScramblesNoiseStagesItAgainWhole_DM2bG*",
+   "*MainLocalShellTest.framesThroughFour*_DM2bG*",
+   "*ScrollEffectsTest.aChangeIntoOrOutOfScrambleIsAFullStagingAndItsReMakesKeepItsDecision_DM2b*"
+  ],
+  "expect": [
+   "hisLengthChangeThatChangesScramblesNoiseStagesItAgainWhole_DM2bG",
+   "framesThroughFourOnToSixUnderACoverStagesOnceOnHisReturn_DM2bG",
+   "framesThroughFourBackToAutoUnderACoverStagesNothing_DM2bG",
+   "aChangeIntoOrOutOfScrambleIsAFullStagingAndItsReMakesKeepItsDecision_DM2b"
+  ],
+  "note": "C3 DM-2bG (decisions FH, FI): the records rule's noise term absent — his change of Scroll length or frames under Scramble's records re-makes the pans alone over the old noise (in front), and a count that leaves the noise no step drops the staging at once under the cover",
+  "from": "DM-2bG"
+ },
+ {
+  "id": "DM2bG-noise-term-every-change",
+  "file": "shell/ListStaging.kt",
+  "edits": [
+   [
+    "            if (n2 != n) return \"Scramble's noise is part of its records",
+    "            if (true) return \"Scramble's noise is part of its records"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.hisChangeThatKeepsScramblesNoiseReMakesThePansAlone_DM2bG*"
+  ],
+  "expect": [
+   "hisChangeThatKeepsScramblesNoiseReMakesThePansAlone_DM2bG"
+  ],
+  "note": "C3 DM-2bG (decisions FH): the noise term true for every change of his — a count that keeps the noise is staged again whole too (the control fails)",
+  "from": "DM-2bG"
+ },
+ {
+  "id": "DM2bH-slow-fold-step-held",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    " else if (slowFor(o)) maxOf(k0, o.d) else k0 }",
+    " else k0 }"
+   ]
+  ],
+  "tests": [
+   "*MotionSimTest.aDirectPresentAfterTheSlowFoldNeverDrawsAnEarlierStep_DM2bH*"
+  ],
+  "expect": [
+   "aDirectPresentAfterTheSlowFoldNeverDrawsAnEarlierStep_DM2bH"
+  ],
+  "note": "C3 DM-2bH: the hold out — a slow instance's step (stepUsForTest) may fall below the step it last drew, so a direct present inside step 2's window after the fold draws step 2 again and d goes back",
+  "from": "DM-2bH"
  }
 ]

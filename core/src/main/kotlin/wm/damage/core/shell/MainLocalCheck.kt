@@ -79,11 +79,20 @@ object MainLocalCheck {
     /** Main at [height] as the shell draws it: the planes `Shell.updatePlanes` gives Main at Global `Depth` [depth]
      *  (both bars and the content at d, the band one notch nearer, never nearer than the screen plane), `ContentKit.
      *  paintList` over `MainSurface`, and the per-lens truth the compositor renders under those planes. */
-    class MainRig(val text: TextRasterizer, val height: Int, val rows: List<DamageWindow>, val depth: Int = 8) {
+    class MainRig(val text: TextRasterizer, val height: Int, val rows: List<DamageWindow>, val depth: Int = 8,
+                  /** C3 DM-2b: Main drawn through a cached text whose atlas holds its three faces whole (as the phone's with
+                   *  `Cached text` on: every packed glyph blitted from the atlas), so Scramble's cells are made from the runs
+                   *  it records while the rows are painted; false: the rasterizer itself, every other case's bytes. */
+                  cached: Boolean = false) {
         val layout: Layout = Layout().let { if (height >= Geometry.PANEL_H) it else it.withHeightMode(height, VPos.TOP) }
         val comp = Compositor()
         val kit = ContentKit(comp)
-        val surface = MainSurface(text, { rows }, {})
+        val cachedText: wm.damage.core.comp.CachedText? = if (!cached) null else wm.damage.core.comp.CachedText(text).also { ct ->
+            ct.atlas = wm.damage.core.comp.GlyphAtlas(text, v2 = true, capacity = CfwModes.CACHE2_MAX).also { a ->
+                for (f in MainSurface.FACES) if (!a.add(f, wm.damage.core.comp.GlyphAtlas.allCodes(true))) throw wm.damage.core.geom.LintError("the rig's atlas refuses $f") }
+            ct.live = MainSurface.FACES.toSet()
+        }
+        val surface = MainSurface(cachedText ?: text, { rows }, {})
         val view = surface.view()
         val listD = depth
         val bandD = if (depth == 0) 0 else maxOf(0, depth - Geometry.X_STEP)
@@ -123,7 +132,7 @@ object MainLocalCheck {
          *  cache size (K1-2 stage 1, decisions BC O1). */
         fun staging(cacheSize: Int, region: IntRange, motion: ListStaging.ScrollMotion? = ListStaging.ScrollMotion.DEFAULT, stage5: Boolean = false): ListStaging =
             ListStaging.build(layout, view, kit, listD, bandD, cacheSize, region.first, region.last + 1,
-                widths = listOf(ListStaging.WHOLE), motion = motion, stage5 = stage5, fx = effectsAt(stage5), text = text)
+                widths = listOf(ListStaging.WHOLE), motion = motion, stage5 = stage5, fx = effectsAt(stage5), text = text, runs = cachedText)
     }
 
     /** Runs every case at [heights] × [cachesKib] for [effects]; [frames] keeps the strips' frames (the desktop writes them). */
@@ -228,7 +237,7 @@ object MainLocalCheck {
      */
     fun effectBursts(text: TextRasterizer, height: Int = 352, depth: Int = 8,
                      effects: List<ScrollEffect> = listOf(ScrollEffect.NONE, ScrollEffect.DEPTH, ScrollEffect.SLIDE, ScrollEffect.FALL, ScrollEffect.CRUSH, ScrollEffect.FLIP,
-                         ScrollEffect.MATRIX),
+                         ScrollEffect.SCRAMBLE, ScrollEffect.MATRIX),
                      fast: List<ScrollEffect> = listOf(ScrollEffect.DEPTH, ScrollEffect.CRUSH),
                      /** Each burst handed over as it is made (the desktop writes its strip); the list then keeps it without frames. */
                      onBurst: ((Burst) -> Unit)? = null): List<Burst> {
@@ -254,7 +263,7 @@ object MainLocalCheck {
     private fun sequence(text: TextRasterizer, height: Int, depth: Int, effect: ScrollEffect, kind: String, c0: Int,
                          notches: List<Pair<Int, Long>>, about: String): Burst {
         val kib = 256
-        val m = MainRig(text, height, sampleRows(), depth)
+        val m = MainRig(text, height, sampleRows(), depth, cached = effect == ScrollEffect.SCRAMBLE)
         val cacheSize = kib * 1024
         val ms = m.staging(cacheSize, CfwModes.mainRegion(cacheSize, bind = true), ListStaging.ScrollMotion.DEFAULT.copy(effect = effect), stage5 = true)
         val list = ms.boundList(1)
@@ -429,7 +438,7 @@ object MainLocalCheck {
     private fun runOne(text: TextRasterizer, height: Int, kib: Int, depth: Int, keepFrames: Boolean,
                        effect: ScrollEffect = ScrollEffect.DEPTH, pansOnly: Boolean = false, stage5: Boolean = false): Pair<List<Case>, String> {
         val rows = sampleRows()
-        val m = MainRig(text, height, rows, depth)
+        val m = MainRig(text, height, rows, depth, cached = effect == ScrollEffect.SCRAMBLE)
         val cacheSize = kib * 1024
         val region = CfwModes.mainRegion(cacheSize, bind = true)
         val ms = m.staging(cacheSize, region, ListStaging.ScrollMotion.DEFAULT.copy(effect = effect), stage5)
@@ -453,6 +462,10 @@ object MainLocalCheck {
         val whole = ms.pan(ListStaging.WHOLE, 1)
         val inside = region.first <= ms.start && ms.end <= region.last + 1
         if (!inside) setup += "the staging ${ms.start}..${ms.end} leaves its region ${region.first}..${region.last + 1}"
+        // C3 DM-2bF (decisions FA 4): his session's size holds a records effect's records at every height — a growth that
+        // gives them up there fails here, not only says "does not fit → Depth"
+        if (stage5 && kib == 256 && wm.damage.core.motion.ScrollEffects.hasRecords(effect) && ms.recordEffect == null)
+            setup += "${effect.word}'s records are given up at 256 KiB, stage 5: ${ms.plays.why}"
         val tableLine = "$tag: ${effect.word}, ${ms.bytes} B at ${ms.start}..${ms.end} (${if (region.last + 1 == cacheSize) "shared reserve" else "Main's region"}), " +
             "strip ${ms.blobs[0].bytes.size} B in a ${ms.strip.slot} B slot, band forms ${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots, " +
             "${ms.wrap?.let { "wrap record ${it.encoded.size} B in a ${it.slot} B slot, " } ?: ""}programs ${ms.blobs.first { it.name == "programs" }.bytes.size} B${ms.progSlots?.let { " (pan slots of ${ms.progSlot} B at ${it[0]} and ${it[1]})" } ?: " (no spare pan slot)"}; " +

@@ -32,9 +32,14 @@ class MainSurface(
     val model = ListModel()
     var resting = false
 
-    private val fSmall = FontSpec(Face.SYSTEM, 13, bold = true)
-    private val fRow = FontSpec(Face.SYSTEM, 18)
-    private val fRowB = FontSpec(Face.SYSTEM, 18, bold = true)
+    private val fSmall = FACES[0]
+    private val fRow = FACES[1]
+    private val fRowB = FACES[2]
+
+    companion object {
+        /** Main's three faces: a row's name (small bold), its summary and detail (the row face), the band's name (bold). */
+        val FACES = listOf(FontSpec(Face.SYSTEM, 13, bold = true), FontSpec(Face.SYSTEM, 18), FontSpec(Face.SYSTEM, 18, bold = true))
+    }
 
     override fun view(): WindowView.ListView = WindowView.ListView(
         model,

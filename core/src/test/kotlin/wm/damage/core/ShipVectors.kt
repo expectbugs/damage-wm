@@ -557,6 +557,12 @@ internal object ShipVectors {
      *  then the two wraps), its rain records staged with the list; filled at DM-2aV's comparison. */
     fun dm2aActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-matrix-352", ScrollEffect.MATRIX, 352, RingForm.NOTCHES, noisy = true))
 
+    /** C3 stage DM-2b (decisions DW 6, EP 4): Scramble on Main at stage 5 — Matrix's twin: its ring NOTCHES at 352, its
+     *  cells and private faces staged with the list from Main's runs through the atlas; filled at DM-2bL's comparison.
+     *  C3 DM-2bF (decisions FA 3): captured with [NoisyText], so the fill sees which glyph and which
+     *  private font each cell draws. */
+    fun dm2bActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-scramble-352", ScrollEffect.SCRAMBLE, 352, RingForm.NOTCHES, noisy = true))
+
     /** C3 stage X2MX2 (decisions CM (2)): Crush's notch on Main's ring list at 352 answered only after its END ([RingForm.LATE]). */
     fun x2mx2Acts(): List<Act> = listOf(RingSpec("${PREFIX}ring-crush-late-352", ScrollEffect.CRUSH, 352, RingForm.LATE))
 
@@ -628,7 +634,7 @@ internal object ShipVectors {
 
     /** Every ship act: the transitions ([specs]), then SV-083's scroll and notice acts, then SVR's ring acts, then SV2's,
      *  then X2MX2's, then SV3's, then K1-2 stage 4f's list-1 acts, then DW-3's wheel acts. */
-    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts() + x2mx2Acts() + sv3Acts() + list1Acts() + wheelActs() + dm2aActs()
+    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts() + x2mx2Acts() + sv3Acts() + list1Acts() + wheelActs() + dm2aActs() + dm2bActs()
 
     /** [act] as the rig plays it, and its vector. */
     suspend fun captureAct(act: Act): Captured = when (act) {
@@ -2027,6 +2033,30 @@ internal object ShipVectors {
                     out += "LIST " + hex(s.copyOfRange(0, 11)) + "··" + hex(s.copyOfRange(12, s.size))
                 isSub(s, 26, CfwModes.MOTION_COMMIT) -> out += "COMMIT ${hex(s)}"
             }
+        }
+        return out.toList()
+    }
+
+    /**
+     * C3 DM-2bF (decisions FA 4): a records act's projection — [ringForms], then the whole of what the act writes into
+     * the cache: every write of every step applied in order, and each maximal span written given whole as the writes
+     * left it ("CACHE @from..to" and its bytes). An effect's records (Matrix's rain, Scramble's cells and private fonts)
+     * are no program the other forms name, so a change of them alone moves this.
+     */
+    fun recordsForms(vec: JsonObject): List<String> {
+        val out = LinkedHashSet(ringForms(vec))
+        val cache = ByteArray(256 * 1024); val written = BooleanArray(cache.size)
+        for (st in vec["steps"]!!.jsonArray) for (o in st.jsonObject["ops"]!!.jsonArray) {
+            val m = bytes(o.jsonObject["msg"]?.jsonPrimitive?.content ?: continue)
+            for (s in subs(m)) if ((s[0].toInt() and 0x7F).let { it == 19 || it == 25 })
+                for ((off, d) in cacheWrites(s)) { d.copyInto(cache, off); for (i in off until off + d.size) written[i] = true }
+        }
+        var i = 0
+        while (i < cache.size) {
+            if (!written[i]) { i++; continue }
+            var j = i; while (j < cache.size && written[j]) j++
+            out += "CACHE @$i..$j ${hex(cache.copyOfRange(i, j))}"
+            i = j
         }
         return out.toList()
     }

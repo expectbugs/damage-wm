@@ -4601,6 +4601,152 @@ def vectors_v5_dm(kf):
               "matrix": matrix})
     return v
 
+DM_SCRAMBLE_SEED = 0x5343      # the product's `ScrollEffects.SCRAMBLE_SEED`: a constant of ours (decisions EP 7); the vector pins the bytes
+
+def dm_scramble_prog(g, strip4, band4, above4, below4, band_new4, band_old4, step, T):
+    """Main's Scramble pan (the DM spec §1.4; the DM-2 spec §1): seven per-lens tracks, version 2, no OWN — T1 and T2 the
+    rows above and below the band at level 0 (the strip at y ← P0 and y ← P3, one pitch in ONE step, then held); T3 the
+    band at level 0 (the entering form, src ← P1, at the band's plane, one step); T4 and T5 the rows' cells (backdrop
+    none, inside T1 and T2: aux0 ← P2, the cursor before the move by kind 3, and y ← P0 / P3) over T; T6 and T7 the band's
+    new-role then old-role cells (aux0 ← P2) over T — every cell track seeded with DM_SCRAMBLE_SEED alone, no tag mixed
+    in (C3 DM-2bF: opt bit 7 clear, as every program a bound list fires)."""
+    lx, ly, lw, lh = g["lens"]
+    rh, cx, rw, dL, dB, kA, kB = g["rowH"], g["cx"], g["rowW"], g["listD"], g["bandD"], g["kA"], g["kB"]
+    bandW = rw + abs(dL - dB)
+    A = (rect(cx - dL, ly - kA * rh, rw, kA * rh), rect(cx + dL, ly - kA * rh, rw, kA * rh))
+    B = (rect(cx - dL, ly + lh, rw, kB * rh), rect(cx + dL, ly + lh, rw, kB * rh))
+    N = (rect(cx - max(dL, dB), ly, bandW, lh), rect(cx + min(dL, dB), ly, bandW, lh))
+    rows = lambda pr: d2(1, strip4, cx - dL, 0, dy=-step * rh, xR=cx + dL, pref0=pref(pr, F_Y))
+    rcells = lambda tb4, pr: gly(T, CELLS, tb4, x=cx - dL, xR=cx + dL, seed=DM_SCRAMBLE_SEED,
+                                 pref0=pref(2, F_AUX0), pref1=pref(pr, F_Y))
+    bcells = lambda tb4: gly(T, CELLS, tb4, x=cx - dB, y=ly, xR=cx + dB, seed=DM_SCRAMBLE_SEED, pref0=pref(2, F_AUX0))
+    return prog2(
+        track(A, 0, rows(0)),
+        track(B, 0, rows(3)),
+        track(N, 0, d2(1, band4, cx - dB, ly, xR=cx + dB, pref0=pref(1, F_SRC))),
+        track(A, BD_NONE, rcells(above4, 0)),
+        track(B, BD_NONE, rcells(below4, 3)),
+        track(N, BD_NONE, bcells(band_new4)),
+        track(N, BD_NONE, bcells(band_old4)))
+
+def vectors_v5_dm2b(kf):
+    """C3 stage DM-2b's hand-made input (decisions EP 4; the standing pattern of DQ (7); the DM-2 spec §1's vector): one
+    NEW file, `v5-dm-cells-fire` — every earlier file stays byte-identical (Main's Scramble ship act,
+    `v5-ship-ring-scramble-352`, comes from the Kotlin `ShipVectors`). Main's own Scramble pans at 352 on its ring list of
+    eight (pitch −rowH; P and T the staging's fast-path fit, modeled): CELLS whose list is chosen by kind 3 (the cursor
+    before the move) and placed by kind 2 at −rowH, old = code / new = 32 cells and old = new = 32 masks over level-0
+    record tracks, every cell settled on 32 at T — so END at a COMMIT is the record tracks' — fired and COMMITted: mid-list
+    after T, one cursor whose down pan names three 512-cell lists (over the cap: refused 12 at the fire, nothing drawn,
+    the cursor kept) and the up pan at that cursor drawn (adopted while it draws), both wraps. The strip, band forms,
+    glyphs and cells are the vector's own at the staging's sizes; the "scramble" key names the parameters, and
+    `Version2MotionTest` pins that the product's builder called with them gives these programs (a difference is a finding,
+    never an edit). S as RIGHT counts it; cursors and parameters as §7.8 computes them on a ring, for the COMMITs only."""
+    v = []
+    g = DM_GEO
+    P, T = 37, 8                                     # the staging's period and steps at 352 (modeled; `Version2MotionTest` pins them)
+    noise = max(1, T // 3)                           # the product's N = max(1, ⌊T / 3⌋)
+    lx, ly, lw, lh = g["lens"]
+    rh, rw, n, mg, kA, kB = g["rowH"], g["rowW"], g["rows"], g["margin"], g["kA"], g["kB"]
+    c, s = Cache2(), Seq()
+    sh_ = (n + 2 * mg) * rh                          # the strip: as v5-dm-rain-fire's (4 + 8 + 4 rows), a level and a mark a row
+    strip_px = []
+    for y in range(sh_):
+        r, iy = y // rh, y % rh
+        row = [0] * rw if iy >= rh - 6 else [2 + r % 12] * rw
+        if iy < rh - 6:
+            for x in range(20 + 30 * r, 60 + 30 * r): row[x] = 15
+        strip_px += row
+    strip4 = c.add(image2(rw, sh_, strip_px))
+    def band_form(i):
+        px = []
+        for y in range(lh):
+            row = [4 + i] * rw
+            if 16 <= y < 48:
+                for x in range(30 * i, 30 * i + 100): row[x] = 15
+            px += row
+        return image2(rw, lh, px)
+    items = [c.add(band_form(i)) for i in range(n)]
+    itab = c.add(b"".join(u16(o) for o in items))
+    codes = b"0123456789ABCDEF"
+    grecs = [glyph(14, 27, pattern(14, 27, 1300 + i)) for i in range(len(codes))]
+    gs = [c.add(r) for r in grecs]
+    ent = [gs[0]] * 224
+    for i, ch in enumerate(codes): ent[ch - 32] = gs[i]
+    font4 = c.add(font224(ent))
+    alpha4 = c.add(alphabet(list(codes)))
+    code = lambda r, j: codes[(3 * (r % n) + j) % len(codes)]          # row r's three letters
+    def row_cells(srow, d):
+        """Strip row srow's three letters: masks (old = new = 32) at its final place, then old = code / new = 32 at its start."""
+        r = srow - mg
+        xs = [20 + 30 * (r % n) + 13 * j for j in range(3)]
+        return ([cell(x, (srow - d) * rh + 2, 14, 27, font4, 32, 32, 0) for x in xs],
+                [cell(x, srow * rh + 2, 14, 27, font4, code(r, j), 32, 0, 15) for j, x in enumerate(xs)])
+    def window_list(srows, d):
+        masks, olds = [], []
+        for sr in srows:
+            m_, o_ = row_cells(sr, d); masks += m_; olds += o_
+        return c.add(cell_list(alpha4, noise, masks + olds))
+    def big_list(i0):
+        """512 cells over the area (the cap's cursor): each counts its box, 16 × the longest alphabet RLE and 10 × its glyph."""
+        return c.add(cell_list(alpha4, noise, [cell(4 + 15 * (k % 38), 2 + 3 * (k // 38), 14, 27, font4, codes[(k + i0) % 16], 32, 0)
+                                               for k in range(512)]))
+    BIG = 1                                          # the cursor whose down pan is over the cap
+    tables = {}
+    for d in (1, -1):
+        above = [big_list(0) if (d == 1 and cur == BIG) else
+                 window_list(range(cur + mg - kA - (1 if d < 0 else 0), cur + mg - kA - (1 if d < 0 else 0) + kA + 1), d) for cur in range(n)]
+        below = [big_list(5) if (d == 1 and cur == BIG) else
+                 window_list(range(cur + mg + (1 if d > 0 else 0), cur + mg + (1 if d > 0 else 0) + kB + 1), d) for cur in range(n)]
+        tables[d] = (c.add(cell_table(above)), c.add(cell_table(below)))
+    def band_list(r, old):
+        xs = [10 + 30 * r + 13 * j for j in range(3)]
+        return c.add(cell_list(alpha4, noise, [cell(x, 16, 14, 27, font4, code(r, j) if old else 32, 32, 0) for j, x in enumerate(xs)]))
+    band_old4 = c.add(cell_table([band_list(r, True) for r in range(n)]))
+    band_new = {d: c.add(cell_table([big_list(9) if (d == 1 and cur == BIG) else band_list((cur + d) % n, False) for cur in range(n)]))
+                for d in (1, -1)}
+    # the cap's cursor, a lower bound of C from §7.12's CELLS term alone (three lists of 512): past the cap
+    lg = max(len(r) - 2 for r in grecs)
+    assert 3 * 512 * (64 + 10 * 14 * 27 + 16 * lg) > CAP, "the cap's cursor is not over the cap"
+    progs = {d: c.add(dm_scramble_prog(g, strip4, items[0], tables[d][0], tables[d][1], band_new[d], band_old4, d, T)) for d in (1, -1)}
+    def rules(stp):                                  # P0, P3 kind 2 (Depth's), P1 the entering row's form, P2 the cursor before the move
+        return [(K_PITCH, ly + (stp - mg) * rh), (K_ITEM, 0), (K_CUR, 0), (K_PITCH, ly + lh + (stp - 1 - mg) * rh)]
+    rec_len = lambda o4: next(len(dd) for a, dd in c.entries if a == o4)
+    scramble = {"height": 352, "geo": g, "period": P, "noise": noise,
+                "strip": [strip4, rw, sh_, rec_len(strip4)], "band": [items[0], rw, lh, rec_len(items[0])], "items": items,
+                "font4": font4, "alpha4": alpha4, "bandOld4": band_old4, "big": BIG,
+                "programs": [{"at4": progs[stp], "step": stp, "t": T, "above4": tables[stp][0], "below4": tables[stp][1],
+                              "bandNew4": band_new[stp], "rules": [list(x) for x in rules(stp)]} for stp in (1, -1)]}
+    def params(cur, stp):
+        """§7.8 on a ring list: v = cursor + step, c' = v mod n; kind 1 the item at (v + arg) mod n, kind 2 v × pitch +
+        arg, kind 3 the cursor before the move + arg."""
+        vv = cur + stp
+        return vv % n, tuple(items[(vv + a) % n] if k == K_ITEM else (cur + a) if k == K_CUR else vv * -rh + a for k, a in rules(stp))
+    def run(t_, ev, wakes=(T // 2, T - 1, T)):
+        """A matched event at t_ (S + 1 on both lenses), the wake that draws step 1, then wakes at those steps."""
+        s.fire()
+        return ([step(tk(t_), inp(RING, ev)), step(tk(t_), wake())]
+                + [step(tk(t_ + k * P), wake()) for k in wakes])
+    st = [step(tk(1000), {"lease": "acquire"}, flags(FULL5), page(True), msg(kf), *[msg(m) for m in c.messages()])]
+    # Main's list in slot 0: LIST-RING of eight at pitch −rowH from cursor 0, then its SETs (the shell's order)
+    st += [step(tk(1010), msg(bind_ring(0, itab, n, 0, -rh, 1)),
+                msg(bind_set(0, ANY, UP, 0, 1, 0, P, progs[1], rules(1))),
+                msg(bind_set(1, ANY, DOWN, 0, -1, 0, P, progs[-1], rules(-1))),
+                msg(bind_set(2, RING, TAP, 0, 0, 0, P, NONE)))]                 # the report-only tap (`Taps · report`)
+    cur = 0
+    cur, p = params(cur, 1)                                                # at 0: index 0, v 1, c' 1 — answered after T
+    st += run(2000, UP) + [step(tk(2000 + T * P + 20), msg(commit(0, s.n, 0, cur, progs[1], p)))]
+    st += run(2700, UP, wakes=(1,))                                        # at 1: the down pan's index 1 names three lists of 512 — refused 12, nothing drawn, the cursor kept
+    cur, p = params(cur, -1)                                               # at 1: the up pan's index 1 — drawn, answered while it draws (adopted)
+    st += run(3000, DOWN, wakes=(4,)) + [step(tk(3000 + 5 * P), msg(commit(0, s.n, 0, cur, progs[-1], p))),
+                                         step(tk(3000 + (T - 1) * P), wake()), step(tk(3000 + T * P), wake())]
+    cur, p = params(cur, -1)                                               # at 0: index 0, v −1, c' 7; field 18
+    st += run(3700, DOWN) + [step(tk(3700 + T * P + 20), msg(commit(0, s.n, 0, cur, progs[-1], p)))]
+    cur, p = params(cur, 1)                                                # at 7: index 7, v 8, c' 0; field 18
+    st += run(4400, UP) + [step(tk(4400 + T * P + 20), msg(commit(0, s.n, 0, cur, progs[1], p)))]
+    v.append({"name": "v5-dm-cells-fire", "steps": st, "contract": 2, "start": "zero", "panel": True, "features": [FEATURES_C3],
+              "scramble": scramble})
+    return v
+
 # ---- the self-check (spec §3 D1): every message decodes by its builder's inverse, every program walks to its
 # own length. It proves the encoders' lengths, not the semantics (that is the C's and the simulator's).
 def walk_prog(buf, off):
@@ -4816,6 +4962,7 @@ def main():
     v5x += vectors_v5_x3(kf)                         # stage X3D: one new file (`v5-x3-hint`); `v5-ship-*` are ShipVectors' (Kotlin)
     v5x += vectors_v5_dw(kf)                         # C3 stage DW-3: one new file (`v5-dw-fire`); `v5-ship-wheel-*` are ShipVectors'
     v5x += vectors_v5_dm(kf)                         # C3 stage DM-2a: one new file (`v5-dm-rain-fire`); `v5-ship-ring-matrix-352` is ShipVectors'
+    v5x += vectors_v5_dm2b(kf)                       # C3 stage DM-2b: one new file (`v5-dm-cells-fire`); `v5-ship-ring-scramble-352` is ShipVectors'
     n_msgs, n_progs, found3, _ = check_v3(v3)
     m4, p4, found4, _ = check_v3(v4, c2=True)
     m5, p5, found5, g5 = check_v3(v5 + v5x, c3=True)
@@ -4823,7 +4970,7 @@ def main():
     check_found(found3 | found4 | found5)
     n_neutral = check_neutral(v12 + v3)
     n_neutral3 = check_neutral_c3(v12 + v3 + v4)
-    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (lambda k: vectors_v5_x2(k) + vectors_v5_x3(k) + vectors_v5_dw(k) + vectors_v5_dm(k), v5x)):
+    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (lambda k: vectors_v5_x2(k) + vectors_v5_x3(k) + vectors_v5_dw(k) + vectors_v5_dm(k) + vectors_v5_dm2b(k), v5x)):
         assert json.dumps(build(kf)) == json.dumps(got), f"{build.__name__} is not deterministic"
     print(f"self-check: {len(v3)} C1 vectors, {n_msgs} mode-25/26 messages decoded, {n_progs} named programs walked; "
           f"{len(v4)} C2 vectors, {m4} mode-26/27/28 messages and inputs decoded, {p4} named programs walked; "

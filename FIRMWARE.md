@@ -1282,8 +1282,10 @@ is stated there.
   that a refusal on RIGHT is seen within about Q, **at a burst's lone SETTLE a COMMIT sent since the last SETTLE that
   has had no outcome-3 body from RIGHT asks for one telemetry read** (the existing read; a lost body costs one read
   and nothing else; decisions AA.2). **A flush that carried the rules' messages** (COMMIT, DISCARD, SETTLE, SET,
-  CLEAR or LIST) **and was refused** — its image ack failed; the transport cannot say on which lens or at which sub (I)
-  — sends the whole table again the same way, journaled, beside the shell's usual repaint of what a failed flush drew: a
+  CLEAR or LIST) **and was refused** — its image ack failed (in Damage's rig, `LocalHarness`, which fails a refused flush
+  by its own choice; on the glasses the success ack goes out before the decode, so a refusal at the decode fails no ack
+  on either lens: RIGHT's reaches the phone through its refusal record, LEFT's by no path); the transport cannot say on
+  which lens or at which sub (I) — sends the whole table again the same way, journaled, beside the shell's usual repaint of what a failed flush drew: a
   lens that refused one of them ends its batch there, and on LEFT nothing else is heard of it. **A refusal record naming
   a batch dropped whole** (mode 8, reason 14: recorded so, never as 27, §4) re-sends each table object a batch carried
   since the previous telemetry read — or less than 2 × the cache count's settle window (4 s) before this read, since
@@ -1707,12 +1709,18 @@ the item table and the programs, 35.6–43.7 KB at the four heights (43,700 B at
 at 160 KiB in the shared stage reserve (from byte 98,304, staged when Main comes to the front; Reader stages again on
 its return), at 256 KiB in a region of Main's own below the reserve (bytes [98,304, 229,376), with the atlas over the
 96 KiB below it, decisions AU.1, `CfwModes.mainRegion`; an atlas made before BIND was armed leaves Main in the shared
-reserve). With Matrix in force (stage 5) its records — its noise glyphs, their font table, the alphabet and the rain
-record, 1,892 B at every height with the PC's face (I: counted offline by `--local-check`, not on his pair) — lie
-last, past the pan slots, and are given up first where the staging does not fit (Matrix then plays Depth, said). The
-list is offered — its
+reserve). With Matrix or Scramble in force (stage 5) the effect's records lie last, past the pan slots, and are given
+up first where the staging does not fit (the effect then plays Depth, said): Matrix's — its noise glyphs, their font
+table, the alphabet and the rain record, 1,892 B at every height with the PC's face (I: counted offline by
+`--local-check`, not on his pair); Scramble's — the noise glyphs, one private font per face the rows' text uses (its own
+copies of the glyphs that text names), the alphabet, each strip row's cells in chunks of strip rows and the seven cell
+tables that pick a chunk by the cursor before the move (kind 3), 33,612 B at 352 with the PC's face (I: counted offline
+by `--local-check`, not on his pair). Scramble's cells are the rows' text runs recorded while the rows are painted for the staging (cached text off:
+Depth, said); a row's text that changes later keeps its old cells until the next full staging — the settled picture is
+the row's paint. The list is offered — its
 SETs sent — only after field 17 counts every write; the first staging is about 44 KB, about 5–6 s on the phone's link
-before the first local notch (I). Rows are kept current as P9 says. **A window's list** (glasses list 1, §7.11; ladder
+before the first local notch (I); with Scramble's records at 256 KiB, stage 5, 56,956–78,312 B with the PC's faces (I:
+counted offline by `--local-check`), about 7–10 s at that rate (modeled). Rows are kept current as P9 says. **A window's list** (glasses list 1, §7.11; ladder
 stage 5 on a 256 KiB session only) lies in the same region above Main's records: its strip, then its pan slots, laid
 out downward so that its last byte is the base of the wheel's block (P9; the region's end, byte 229,376, where no block
 is placed) and refused where its first byte would lie below the end of Main's staging (the region's start where Main
@@ -1795,8 +1803,8 @@ lost scroll-entry SET, which fails (7); a lost SET that changed an entry's progr
 (D1). So are the rules stage DP2 added: without the riding LIST a re-stage's batch lost whole on RIGHT alone (nothing
 recorded on RIGHT, LEFT's ack arriving) leaves RIGHT on the old list, so its notches are never adopted again — the case
 that holds the riding LIST end to end (C3 X4M0); a LIST refused on one lens is repaired by RIGHT's refusal record or,
-in the harness, by the refused flush — on glass a refusal on LEFT fails no ack (the success ack precedes the decode,
-`CLAIMS.md`), so there the riding LIST is its only cure too; with the
+in Damage's rig (`LocalHarness`, seed S21L), by the refused flush — on the glasses a refusal fails no ack on either lens
+(the success ack precedes the decode, `CLAIMS.md`), so there the riding LIST is LEFT's only cure too; with the
 old S a SET landing between the two lenses' handling of one notch, or lost on LEFT alone, fails (2); without P1's
 keyframe a riding LIST refused 14 on RIGHT with a COMMIT behind it fails (2). **Three seeded cases are declared
 without a pin** (`LocalSequenceFuzzTest`), each with its reason: S4, an S taken after the lease and the claim — the
@@ -1804,9 +1812,9 @@ bound 0x4000 below now reaches the lens a lagging numbering leaves behind, so th
 firmware's S at the entry match is proved by `v4-fail` (3 and 14 carry S); S6, the empty table clearing entries
 only — no phone path reaches it (every re-made table goes through the start's bind batch, whose LIST and SETTLE
 replace the list before a fire can read it), and it is proved on the firmware's side (its host pin, `v4-list`); S21L,
-a LIST lost on LEFT alone — in the host harness it heals without the riding LIST, since the runner reads each lens's
-return, so LEFT's refusal fails the flush and the table goes again (P1); on the glasses the image ack goes out before
-the decode, so a refusal on LEFT, reason 11 included, fails no ack and reaches the phone by no path today (LEFT sends
+a LIST lost on LEFT alone — in Damage's own rig (`LocalHarness`, `LocalSequenceFuzzTest.listLostOn`) it heals without
+the riding LIST, since the rig fails the refused flush (its choice, not the glasses') and the table goes again (P1); on
+the glasses the image ack goes out before the decode, so a refusal on LEFT fails no ack and reaches the phone by no path today (LEFT sends
 nothing; there is no inter-lens report) — read in the fork's source on 2026-11-26, the ack's order not re-checked at
 instruction level that day.
 
@@ -1833,7 +1841,7 @@ case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal 
 
 | new state, wait or guard | (a) cleared at | (b) a write that never lands | (c) keyed on | (d) other tasks, the other lens | (e) one read | (f) siblings checked |
 |---|---|---|---|---|---|---|
-| `bind_live`, 8 entries, 4 lists (items, count, cursor, pitch, mark, newest S) | a release point (`bind_live`, one store in the masked section); the next accepted mode 27 empties entries and lists first; CLEAR (entries); a restart. Not at arming or disarming | a lost SET, CLEAR or LIST: the lens fires with the old table (P3 or the tap rule finds the mark or prediction differs → DISCARD) or passes through; a lost or refused LIST heals at the next answer (its LIST rides before it, §6.7 P9); a SET or CLEAR the evidence re-sends (§6.7, the table repair); a refused one is re-sent on the refusal record or when the refused flush's ack fails; every start re-sends | entry, list; the program by off4, walked at every fire | written on the ui_task under the word (mode 27, the fire, COMMIT, DISCARD, SETTLE); `bind_live` cleared by a release point on any task inside the masked section. Each lens applies mode 27 in its own order against input: P3 judges RIGHT's result; SETTLE and DISCARD realign LEFT | the fire reads each once after its claim | SET's shapes and PLAY's walk; the three writers of the cursor (COMMIT, DISCARD/SETTLE, LIST) and the fire's edge test; the simulator's copy |
+| `bind_live`, 8 entries, 4 lists (items, count, cursor, pitch, mark, newest S) | a release point (`bind_live`, one store in the masked section); the next accepted mode 27 empties entries and lists first; CLEAR (entries); a restart. Not at arming or disarming | a lost SET, CLEAR or LIST: the lens fires with the old table (P3 or the tap rule finds the mark or prediction differs → DISCARD) or passes through; a lost or refused LIST heals at the next answer (its LIST rides before it, §6.7 P9); a SET or CLEAR the evidence re-sends (§6.7, the table repair); a refused one is re-sent on RIGHT's refusal record, or in Damage's rig (`LocalHarness`) when the refused flush's ack fails (on the glasses a refusal fails no ack: LEFT's reaches the phone by no path, and a LIST is repaired by the riding LIST); every start re-sends | entry, list; the program by off4, walked at every fire | written on the ui_task under the word (mode 27, the fire, COMMIT, DISCARD, SETTLE); `bind_live` cleared by a release point on any task inside the masked section. Each lens applies mode 27 in its own order against input: P3 judges RIGHT's result; SETTLE and DISCARD realign LEFT | the fire reads each once after its claim | SET's shapes and PLAY's walk; the three writers of the cursor (COMMIT, DISCARD/SETTLE, LIST) and the fire's edge test; the simulator's copy |
 | S (u16) | a release point (one store beside `bind_live`), a restart | a lost 115 is a gap: P5's owes, P3's bound | per lens, taken at the entry match; LEFT ahead after a dropped answer, behind after a SET that landed between the two lenses' handling of one gesture or a mode 27 lost on LEFT alone — DISCARD's and SETTLE's S, 0x4000 below, reach it either way | one atomic add on the ui_task; the clear inside the masked section (an add crossing it gives old + 1, read as a gap) | one add per matched event | `eng_seq` (the same shape) |
 | the local instance (C1 slot + local flag + HOLD at d = T; tag S, t0, P, T, d, first range, entry stamp) | §6.4's list | an unanswered one: SETTLE, a keyframe or the lease's lapse; the shadow never held it | slot + tag S; bytes by its first range | opened on the ui_task under the word; drawn by the copy hook under the word (display task, 45); planned by the thread without it (C1's torn-read rule); emptied by release points; LEFT opens it one answer earlier and may hold one RIGHT never had | as §5.11 | C1's instances; the plan's skip; the three present paths; a keyframe's close; a cache write's close-on-meet |
 | the fire's claim and let-down | every exit lets down, refusals and the edge included | a failed claim → refused 14 → today's path | the word's three values | §5.11 row 3; the let-down precedes the sends and the stock call | one compare-exchange each | every ui_task holder: mode 26, a live mode 6, mode 11's closes, cache writes, mode 27 |
@@ -2472,15 +2480,24 @@ one-period wait; with this it is drawn a few ms late.
 - **A list whose programs use a source window** (Main's while Crush plays; a window's list for every effect, below)
   stages with pitch = +row height and draws its strip tracks as windows at fixed y's; the strip carries margins (blank
   rows, or on a ring list the other end's rows, §7.8) so that no window leaves the record (5). Main's other effects
-  stage with pitch = −row height. **An effect change keeps the list's staging,** except into or out of Matrix, whose
-  records are part of the staging: that change is staged again whole — with Main in front (made while Settings covers
-  Main it waits for the return, so a pass through Matrix to another effect re-makes the programs alone). A staging that
-  gave Matrix's records up (Matrix then plays Depth, said) keeps Depth's pans while Matrix is asked: Auto's re-makes
-  re-make its programs alone, as does a change to an effect without records; a change back into Matrix stages again,
-  as do the rows, the cache, the layout, the depth setting, the effects mode and a session start. Otherwise its
-  programs alone are re-made into the spare pan slot, counted (field 17) and then SET; where the change moves Main
-  between the two pitches its LIST carries the new pitch ahead of those SETs (the pitch switch, S6, below); a window's
-  list keeps +row height for every effect, so its SETs go alone. A staging with no spare pan slot is staged again whole.
+  stage with pitch = −row height. **An effect change keeps the list's staging,** except into or out of Matrix or
+  Scramble, whose records are part of the staging: that change is staged again whole — with Main in front (made while
+  Settings covers Main it waits for the return, so a pass through Matrix or Scramble to another effect re-makes the
+  programs alone). Scramble's noise N = max(1, ⌊T/3⌋) is part of its records: his change of `Scroll length` or `Scroll
+  frames` under them is a programs-only re-make where the T it gives keeps the noise, and staged again whole where it
+  changes it — with Main in front, or at his return when a cover is up (so a pass through such a value to one that
+  keeps the noise, or back to the staging's own motion, stages nothing). A re-make whose pans come back as the fallback
+  (the version-2 check refusing them at the new T) drops the staging at once, cover or not, and Main is staged again
+  whole with Main in front. Auto's steps under Scramble's records are floored at its noise + 1, so the period in force
+  alone never leaves the noise no step; the period note says when the floor is in force and the notch's length against
+  the length asked. A staging that gave the effect's records up (it then plays Depth, said) keeps
+  Depth's pans while the motion it was made for is asked: Auto's re-makes re-make its programs alone, as does a change to
+  an effect without records; a change back into the effect, of `Scroll length` or of `Scroll frames` stages again (the
+  records tried once more, one full staging per change), as do the rows, the cache, the layout, the depth setting, the
+  effects mode and a session start. Otherwise its programs alone are re-made into the spare pan slot, counted (field 17)
+  and then SET; where the change moves Main between the two pitches its LIST carries the new pitch ahead of those SETs
+  (the pitch switch, S6, below); a window's list keeps +row height for every effect, so its SETs go alone. A staging
+  with no spare pan slot is staged again whole.
 - **A window's list** (decisions BC, CV, DA): a window's list of two rows or more is staged and bound only at stage 5
   on a 256 KiB session — at 160 KiB and below stage 5 nothing of it is sent — as glasses list 1 in slot 0, entries
   3–5 (Main's list is list 0, entries 0–2, in the same slot: the list in front holds it, §6.7). A list of more rows
@@ -2495,7 +2512,7 @@ one-period wait; with this it is drawn a few ms late.
   The band tracks' area is the band less its two 2-px rules; they draw the leaving and the entering row's row form
   (None the entering one alone) 4 px below the band's top, so at END the band area holds the entering row's row
   form, and the band itself goes with the cells P3 holds to the motion's end. It plays None, Depth, Slide and Fall;
-  asked for Crush it plays Slide, for any other effect (Flip, Matrix) Depth. It is kept while Main, the clock or a screen that is not a list is
+  asked for Crush it plays Slide, for any other effect Depth. It is kept while Main, the clock or a screen that is not a list is
   in front — the batch that brings it back carries its SETs and §6.7's DISCARD naming the row, no LIST and no record —
   and is replaced when another window's list is in front; a change of its own view's row count, of the layout or of
   its planes makes a new staging with a new mark. A staging of Main's that reaches into its space drops it (Main
@@ -2634,15 +2651,18 @@ pixel of a byte fill or copy, about eight times the measured copy's rate (I); 3 
 1,024 u a track's setup — its clip, ease, levels and tables (I). Field 34 on the glasses checks them.
 
 **The phone's fit of a fast-path step** (phone code, `ListStaging.fastStepMs`; none of it is firmware, and none of
-its four figures is a rate of this budget — the rates above are upper bounds, not a step's time): for a list's bound
+its six figures is a rate of this budget — the rates above are upper bounds, not a step's time): for a list's bound
 programs staged with EFFECTS in force, the phone takes a step's drawing time as **0.5 ms + 0.036 µs a pixel of the
-tracks' areas + 0.156 µs a pixel written a pixel at a time + 0.20 µs a byte the step decodes** (k + 1 strip rows a
+tracks' areas + 0.156 µs a pixel written a pixel at a time + 0.20 µs a byte the step decodes + 65 µs a lit rain cell +
+58 µs a drawn cell** (k + 1 strip rows a
 row track, one band form a band track — on a window's list one strip row, its row form, a band track, whose area is
 the band less its two rules; a pixel at a time is a draw whose width scales, Flip's turn — Depth, Slide, Fall, None
-and Crush have none, C3 DM-1), then the period P = ⌈⌈ms × 1.024⌉ × 1.10⌉ ticks inside 16..128 (the
+and Crush have none, C3 DM-1; rain cells Matrix's alone, C3 DM-2a; drawn cells Scramble's alone, its cells a step at the
+worst cursor, C3 DM-2b), then the period P = ⌈⌈ms × 1.024⌉ × 1.10⌉ ticks inside 16..128 (the
 phone's rule since the first trial at stage 4: the fitted step plus 10 %, as on C2's path, §6.9) and, for `Scroll
-frames` Auto, ⌊length × 1.024 / P⌋ steps. All four figures are modeled (I: calibrated on the table's one modeled
-figure below, Main's pan at 352 ≈ 8 ms; the third is C2's measured step slope). With
+frames` Auto, ⌊length × 1.024 / P⌋ steps. All six figures are modeled (I: calibrated on the table's one modeled
+figure below, Main's pan at 352 ≈ 8 ms; the third is C2's measured step slope; the last two are the DM-2 spec's, not
+timed on glass). With
 them Main's Depth
 comes to 6.9 / 8.8 / 10.8 / 12.7 ms a step at 288 / 352 / 416 / 480, P 16 and 19 steps at a 300-ms length at all four
 (C2's fit: P 39–59, 7–5 steps); Slide and Fall the same, at 480 P 17 and 18 steps. **The glasses correct it:** the
@@ -2933,8 +2953,9 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   to a window, a cancel — C3 DW-3; every act captured again after OM-1, each cache write that shrinks sent as mode
   25, §5.9 — C3 OM-V), the wheel's hand-made `v5-dw-fire` (both wheel programs bound on ring lists: fires
   mid-list and at both wraps, the COMMITs of the reports, the report-only tap), Main's hand-made `v5-dm-rain-fire`
-  (Matrix's pans with their rain fired mid-list, at both wraps and in a burst, a reveal-1 rain refused 5 — C3 DM-2a),
-  and Music's four held-lane shapes (`v5-mml-*`: the bar and its chain, stage L; Scope and its chain, stage S), all
+  (Matrix's pans with their rain fired mid-list, at both wraps and in a burst, a reveal-1 rain refused 5 — C3 DM-2a)
+  and `v5-dm-cells-fire` (Scramble's pans with their cells fired mid-list and at both wraps, a pan over the cell cap
+  refused 12 — C3 DM-2b), and Music's four held-lane shapes (`v5-mml-*`: the bar and its chain, stage L; Scope and its chain, stage S), all
   filled by the fork's runner.
   The differential fuzz (`firmware/fuzz_vectors.py`; each switch's text is its docstring) has a switch per build —
   `--c1` (§5.10), `--c2` (§6.10), `--c3` (§7.13) with its widening `--c3x` — and `--dw` (with `--c3`) for the app

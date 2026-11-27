@@ -882,7 +882,10 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
             // §7.7 / §5.3 (C3): a PLAY-AFTER whose t0 is ahead, or whose `after` slot held its recorded instance drawing
             // when the present began, has nothing due and is drawn on no path
             if (o.after >= 0 && waits(o, tick, began)) continue
-            val k = dueStep(o, tick).let { k0 -> if (slowFor(o) && o.d == 1 && k0 == 2 && o.T > 2) 3 else k0 }
+            // tests only (stepUsForTest): a slow glass draws step 3 while step 2 is due (the one fold per motion); its chosen
+            // step then never falls below the step it last drew, so a phone frame inside step 2's window redraws step 3 (what
+            // the panel holds) and d never goes back — step 3 is not counted twice (C3 DM-2bH)
+            val k = dueStep(o, tick).let { k0 -> if (slowFor(o) && o.d == 1 && k0 == 2 && o.T > 2) 3 else if (slowFor(o)) maxOf(k0, o.d) else k0 }
             // §5.3: the preserve path draws an instance only when k > d (its framebuffer still holds step d — a HOLD's
             // step T too, §6.4); the direct path redraws every drawing one over the shadow it has just copied. §7.3 (C3):
             // an owning instance draws only at k > d on every path (its owned rect was not copied)

@@ -422,6 +422,16 @@ class LocalSequenceFuzzTest {
     private fun wheelOf(seed: Long) = wheelOn && ringOf(seed) && (seed / 16) % 2 == 0L && seed !in RING_GATE_SEEDS.keys &&
         seed !in STAGE4_GATE_SEEDS.keys && seed !in STAGE5_GATE_SEEDS.keys
 
+    /** C3 DM-2b: half the ring sequences that carry neither list 1 nor the wheel (a stage-5 build: kind 3 needs EFFECTS
+     *  armed; list 1 and the wheel bind Main's scroll programs with parameters of their own, which would draw the probe)
+     *  fire Main's scroll entries with P1 by kind 3 — the cursor before the move, Scramble's tables' index — drawing a
+     *  probe, and switch Main's effect into and out of it by a full staging every sixth driven event (a new mark among the
+     *  notches; no draw), never a seed of a class map, chosen by the seed with no draw from the sequence's stream.
+     *  `LOCAL_FUZZ_CELLS=0`: none (the fuzz as it stood, for a mutant watched "before"). */
+    private val cellsOn = System.getenv("LOCAL_FUZZ_CELLS") != "0"
+    private fun cellsOf(seed: Long) = cellsOn && ringOf(seed) && (seed / 8) % 2 == 1L && (seed / 16) % 2 == 1L && (seed / 32) % 2 == 1L &&
+        seed !in RING_GATE_SEEDS.keys && seed !in STAGE4_GATE_SEEDS.keys && seed !in STAGE5_GATE_SEEDS.keys
+
     /** [stopAfter]: run only the first events of the sequence (the same stream; `LOCAL_FUZZ_SHRINK`'s prefixes). */
     fun randomSequence(seed: Long, events: Int = 40, stopAfter: Int = Int.MAX_VALUE): Verdict {
         val r = java.util.Random(seed)
@@ -486,6 +496,8 @@ class LocalSequenceFuzzTest {
             }
             // C3 DM-1 (S6): a switch between the pitch forms, every sixth event of a pitch sequence (no draw)
             if (pitch && it % 6 == 5) h.pitchSwitch()
+            // C3 DM-2b: a switch into or out of the kind-3 entries by a full staging, every sixth event (no draw)
+            if (h.cursorProbe && it % 6 == 2) h.cellsSwitch()
             h.runUntil(h.now + 30 + r.nextInt(370))
         }
         val failed = ArrayList<String>()
@@ -525,6 +537,9 @@ class LocalSequenceFuzzTest {
         // C3 DM-1 (S6): the pitch sequences and the switches they made
         if (h.pitchProbe) { counted["DM-1: pitch-switch sequences"] = (counted["DM-1: pitch-switch sequences"] ?: 0) + 1
             counted["DM-1: pitch switches"] = (counted["DM-1: pitch switches"] ?: 0) + h.pitchSwitches }
+        // C3 DM-2b: the kind-3 sequences and the full stagings into and out of it they made
+        if (h.cursorProbe) { counted["DM-2b: kind-3 sequences"] = (counted["DM-2b: kind-3 sequences"] ?: 0) + 1
+            counted["DM-2b: full stagings into or out of kind 3"] = (counted["DM-2b: full stagings into or out of kind 3"] ?: 0) + h.cellsSwitches }
         // decisions AW.3: windows that opened over a COMMITted motion still drawing, cut by a CLOSE ahead of their frame
         if (h.windowCuts > 0) counted["AW.3: windows that cut a COMMITted motion"] = (counted["AW.3: windows that cut a COMMITted motion"] ?: 0) + h.windowCuts
         // decisions AZ.4: the wraps animated from the phone, and those a later batch's drawing in the list closed first
@@ -1871,11 +1886,11 @@ class LocalSequenceFuzzTest {
     private fun harnessFor(seed: Long, taps: Taps, pitch: Boolean = false, l1: Boolean = true): LocalHarness {
         // K1-2 stage 4b: list 1 rides a ring build only ([list1Of]; the stage-4 timing has none)
         val t = timing ?: return if (!pitch) LocalHarness(seed, taps, ring = ringOf(seed), list1 = l1 && ringOf(seed) && list1Of(seed),
-            wheel = l1 && ringOf(seed) && wheelOf(seed)) else LocalHarness(seed, taps, pitchProbe = true)
+            wheel = l1 && ringOf(seed) && wheelOf(seed), cursorProbe = l1 && cellsOf(seed)) else LocalHarness(seed, taps, pitchProbe = true)
         val ring = !pitch && t.rings && ringOf(seed)
         // C3 DW-2a: the wheel rides a ring build only, as list 1 ([l1] false: his profile, none of either)
         return LocalHarness(seed, taps, tScroll = t.tScroll, period = t.period, ring = ring, tPress = t.tPress, pitchProbe = pitch, list1 = l1 && ring && list1Of(seed),
-            wheel = l1 && ring && wheelOf(seed))
+            wheel = l1 && ring && wheelOf(seed), cursorProbe = l1 && ring && cellsOf(seed))
             .also { it.noticePeriod = t.noticePeriod; it.wrapRecord = t.wrapRecord }
     }
 

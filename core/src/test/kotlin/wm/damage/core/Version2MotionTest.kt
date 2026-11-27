@@ -316,7 +316,7 @@ class Version2MotionTest {
             return Motion.Rain(o4, u8(cache, b), u8(cache, b + 1), u8(cache, b + 2), u8(cache, b + 3), font, alpha,
                 u8(cache, b + 8), u8(cache, b + 9), u8(cache, b + 10), u8(cache, b + 11), u8(cache, b + 12), u8(cache, b + 13))
         }
-        val own = wm.damage.core.motion.ScrollEffects.rainRecords(l, rig.text, 0).rain
+        val own = wm.damage.core.motion.ScrollEffects.rainRecords(l, rig.text, 0).rain!!
         fun fields(r: Motion.Rain) = listOf(r.cols, r.trail, r.cw, r.ch, r.headLvl, r.tailLvl, r.fillLvl, r.spread, r.flicker, r.alphabet.codes.toList())
         val items = ints("items")
         assertEquals(ms.itemOffs.size, items.size, "one band form a row")
@@ -332,7 +332,7 @@ class Version2MotionTest {
             val pan = ms.pan(wm.damage.core.shell.ListStaging.WHOLE, step)
             assertEquals(listOf(ms.t, ms.period, pan.kA, pan.kB), listOf(t, k["period"]!!.jsonPrimitive.content.toInt(), gi("kA"), gi("kB")), "pan $step: T, P and the rows it draws are the staging's")
             assertEquals(pan.rules.map { listOf(it.kind, it.arg) }, p["rules"]!!.jsonArray.map { r -> r.jsonArray.map { it.jsonPrimitive.content.toInt() } }, "pan $step: the SET's rules are the staging's")
-            val staged = wm.damage.core.motion.ScrollEffects.Staged(l, ms.listD, ms.bandD, band, records, rain = rain)
+            val staged = wm.damage.core.motion.ScrollEffects.Staged(l, ms.listD, ms.bandD, band, records, recs = wm.damage.core.motion.ScrollEffects.EffectRecords(0, ByteArray(0), rain = rain))
             fun build() = wm.damage.core.motion.ScrollEffects.program(wm.damage.core.motion.ScrollEffects.Plays(wm.damage.core.motion.ScrollEffect.MATRIX, true),
                 staged, strip, pan.kA, pan.kB, step, t, pi("at4"), fx = fx)
             val at = pi("at4") * 4
@@ -352,6 +352,84 @@ class Version2MotionTest {
             val built = build()
             assertEquals(built.bytes.size, u16(cache, at + 2), "pan $i's length field")
             assertContentEquals(built.bytes, cache.copyOfRange(at, at + built.bytes.size), "v5-dm-rain-fire's pan $i (step $step) is ScrollEffects.program's")
+        }
+    }
+
+    /**
+     * C3 DM-2b (decisions EP 4, the standing pattern of DQ (7)): `v5-dm-cells-fire`'s programs, written by `make_vectors.py`'s
+     * `dm_scramble_prog`, are byte for byte what the product's own builder ([wm.damage.core.motion.ScrollEffects.program]
+     * with Scramble's version-2 pans) gives called with the parameters the vector's "scramble" key names — its strip, band
+     * form and cell tables (read back from the cache step 0 leaves), each pan's off4, step and T — at the geometry of Main's
+     * own staging at 352 (BoxFace through its atlas, his eight rows, stage 5, 256 KiB), whose period, T, noise, pans' rows
+     * and rules (P2 kind 3) are the key's. A difference is a finding, never an edit of either side.
+     */
+    @Test
+    fun mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b() {
+        val vec = Json.parseToJsonElement(Files.readString(vectorDir().resolve("v5-dm-cells-fire.json"))).jsonObject
+        val cache = ByteArray(256 * 1024)
+        for (op in vec["steps"]!!.jsonArray[0].jsonObject["ops"]!!.jsonArray) {
+            val h = op.jsonObject["msg"]?.jsonPrimitive?.content ?: continue
+            for (m in subs(hex(h))) if (u8(m, 0) == 19) {
+                var i = 1
+                while (i + 4 <= m.size) { val o4 = u16(m, i); val n = u16(m, i + 2); m.copyInto(cache, o4 * 4, i + 4, i + 4 + n); i += 4 + n }
+            }
+        }
+        val k = vec["scramble"]!!.jsonObject
+        fun ints(key: String) = k[key]!!.jsonArray.map { it.jsonPrimitive.content.toInt() }
+        fun ki(key: String) = k[key]!!.jsonPrimitive.content.toInt()
+        val g = k["geo"]!!.jsonObject
+        fun gi(key: String) = g[key]!!.jsonPrimitive.content.toInt()
+        val rig = wm.damage.core.shell.MainLocalCheck.MainRig(wm.damage.core.motion.BoxFace, ki("height"), wm.damage.core.shell.MainLocalCheck.sampleRows(), cached = true)
+        val cacheSize = wm.damage.core.wire.CfwModes.CACHE2_MAX_RIDERS
+        val ms = rig.staging(cacheSize, wm.damage.core.wire.CfwModes.mainRegion(cacheSize, true),
+            wm.damage.core.shell.ListStaging.ScrollMotion.DEFAULT.copy(effect = wm.damage.core.motion.ScrollEffect.SCRAMBLE), stage5 = true)
+        val l = ms.layout
+        val lens = g["lens"]!!.jsonArray.map { it.jsonPrimitive.content.toInt() }
+        assertEquals(listOf(l.lens.x, l.lens.y, l.lens.w, l.lens.h, l.rowH, l.content.x, l.content.w - wm.damage.core.geom.Layout.RAIL_W, ms.listD, ms.bandD, ms.rows, ms.margin),
+            lens + listOf(gi("rowH"), gi("cx"), gi("rowW"), gi("listD"), gi("bandD"), gi("rows"), gi("margin")), "the key's geometry is Main's staging's")
+        assertTrue(ms.ring && ms.plays.effect == wm.damage.core.motion.ScrollEffect.SCRAMBLE && ms.plays.v2, "Main plays Scramble on a ring list: ${ms.plays}")
+        assertEquals(listOf(ms.period, ms.t, maxOf(1, ms.t / 3)), listOf(ki("period"), vec["scramble"]!!.jsonObject["programs"]!!.jsonArray[0].jsonObject["t"]!!.jsonPrimitive.content.toInt(), ki("noise")),
+            "the key's P, T and N are the staging's")
+        val st = ints("strip"); val bd = ints("band")
+        val strip = Source.Record(st[0], st[1], st[2], st[3], cache.copyOfRange(st[0] * 4, st[0] * 4 + st[3]))
+        val band = Source.Record(bd[0], bd[1], bd[2], bd[3], cache.copyOfRange(bd[0] * 4, bd[0] * 4 + bd[3]))
+        assertEquals(listOf(ms.strip.raw.w, ms.strip.raw.h, ms.bands[0].raw.w, ms.bands[0].raw.h), listOf(st[1], st[2], bd[1], bd[2]), "the strip's and band forms' sizes are the staging's")
+        val fonts = HashMap<Int, Motion.Font>()
+        fun fontAt(f4: Int) = fonts.getOrPut(f4) { IntArray(224) { u16(cache, f4 * 4 + 2 * it) }.let { e -> Motion.Font(f4, e, e.distinct().map { Motion.Glyph.of(it, cache.copyOfRange(it * 4, it * 4 + 4096)) }) } }
+        fun tableAt(t4: Int): Motion.CellTable {
+            val n = u16(cache, t4 * 4)
+            return Motion.CellTable(t4, List(n) { i ->
+                val l4 = u16(cache, t4 * 4 + 4 + 2 * i); val b = l4 * 4
+                val a4 = u16(cache, b + 2)
+                val alpha = Motion.Alphabet(a4, IntArray(u8(cache, a4 * 4)) { u8(cache, a4 * 4 + 1 + it) })
+                Motion.CellList(l4, alpha, u8(cache, b + 4), List(u16(cache, b)) { j ->
+                    val c = b + 8 + 12 * j
+                    Motion.Cell(u16(cache, c).toShort().toInt(), u16(cache, c + 2).toShort().toInt(), u8(cache, c + 4), u8(cache, c + 5), fontAt(u16(cache, c + 6)),
+                        u8(cache, c + 8), u8(cache, c + 9), u8(cache, c + 10), u8(cache, c + 11) and 15, (u8(cache, c + 11) and 0x20) != 0)
+                })
+            })
+        }
+        val bandOld = tableAt(ki("bandOld4"))
+        assertEquals(ms.rows, bandOld.lists.size, "one band list a row")
+        val records = listOf(strip, band)
+        val programs = k["programs"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf(1, -1), programs.map { it["step"]!!.jsonPrimitive.content.toInt() }, "the down and up pans")
+        for ((i, p) in programs.withIndex()) {
+            fun pi(key: String) = p[key]!!.jsonPrimitive.content.toInt()
+            val step = pi("step"); val t = pi("t")
+            val pan = ms.pan(wm.damage.core.shell.ListStaging.WHOLE, step)
+            assertEquals(listOf(pan.kA, pan.kB), listOf(gi("kA"), gi("kB")), "pan $step: the rows it draws are the staging's")
+            assertEquals(pan.rules.map { listOf(it.kind, it.arg) }, p["rules"]!!.jsonArray.map { r -> r.jsonArray.map { it.jsonPrimitive.content.toInt() } }, "pan $step: the SET's rules are the staging's")
+            assertEquals(wm.damage.core.wire.CfwModes.KIND_CURSOR, pan.rules[2].kind, "pan $step: P2 is the cursor before the move (kind 3)")
+            val tables = wm.damage.core.motion.ScrollEffects.CellTables(mapOf(step to tableAt(pi("above4"))), mapOf(step to tableAt(pi("below4"))), bandOld,
+                mapOf(step to tableAt(pi("bandNew4"))), bandOld.lists[0].noise)
+            val staged = wm.damage.core.motion.ScrollEffects.Staged(l, ms.listD, ms.bandD, band, records,
+                recs = wm.damage.core.motion.ScrollEffects.EffectRecords(0, ByteArray(0), cells = tables))
+            val built = wm.damage.core.motion.ScrollEffects.program(wm.damage.core.motion.ScrollEffects.Plays(wm.damage.core.motion.ScrollEffect.SCRAMBLE, true),
+                staged, strip, pan.kA, pan.kB, step, t, pi("at4"), fx = fx)
+            val at = pi("at4") * 4
+            assertEquals(built.bytes.size, u16(cache, at + 2), "pan $i's length field")
+            assertContentEquals(built.bytes, cache.copyOfRange(at, at + built.bytes.size), "v5-dm-cells-fire's pan $i (step $step) is ScrollEffects.program's")
         }
     }
 
@@ -388,8 +466,10 @@ class Version2MotionTest {
         val dw = ShipVectors.wheelActs().size
         // C3 DM-2a: Main's Matrix act (in `acts()`) and the hand-made v5-dm-rain-fire (its programs pinned by [mainsMatrixPansInVDmRainFireAreTheProductsBytes_DM2a])
         val dm2a = ShipVectors.dm2aActs().size
-        assertEquals(28 + ShipVectors.acts().size + 1 + mml + 1 + 1, files.size,
-            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2, X2MX2's $x2mx2, SV3's $sv3, K1-2 stage 4f's $k12, stage L's and S's $mml, DW-3's $dw and v5-dw-fire, DM-2a's $dm2a and v5-dm-rain-fire")
+        // C3 DM-2b: Main's Scramble act (in `acts()`) and the hand-made v5-dm-cells-fire (its programs pinned by [mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b])
+        val dm2b = ShipVectors.dm2bActs().size
+        assertEquals(28 + ShipVectors.acts().size + 1 + mml + 1 + 1 + 1, files.size,
+            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2, X2MX2's $x2mx2, SV3's $sv3, K1-2 stage 4f's $k12, stage L's and S's $mml, DW-3's $dw and v5-dw-fire, DM-2a's $dm2a and v5-dm-rain-fire, DM-2b's $dm2b and v5-dm-cells-fire")
         val comparedProg = HashMap<String, Int>(); val comparedTab = HashMap<String, Int>()
         val seenProg = HashSet<String>(); val seenTab = HashSet<String>()
         val inexpressible = LinkedHashMap<String, String>(); val refusedByDsl = LinkedHashMap<String, String>()
