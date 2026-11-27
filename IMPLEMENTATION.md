@@ -1042,7 +1042,7 @@ fork's C (`~/damage-cfw`).
 
 The contract is `FIRMWARE.md` §5 (C1, the engine), §6 (C2, local input) and §7 (C3, effects); the plan is `MOTION.md`
 §7; operating the ladder is `DAILY.md`. Nothing here is sent unless its ladder stage is armed on a build that reports
-its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review hardening"; what 0.84 leaves open, §101.9.
+its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review hardening".
 
 - **The ladder** (`CfwTransportBase`: `ladderFlags`, `ladderKib`, `buildTop`, the probe `c1=N`): stage 0 nothing ·
   1 ZWRITE (mode 25: from it every mode-19 cache write that shrinks goes deflated, `zwriteOrList`, `FIRMWARE.md` §5.9)

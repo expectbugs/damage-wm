@@ -13,13 +13,13 @@ own interface on it.
 last frame (the X11 DAMAGE extension). Batching a frame's damage into one Bluetooth message
 instead of one per region is the whole thesis: the round-trip cost is per message, not per region.
 
-## Status (2026-11-22)
+## Status (2026-11-26)
 
 **Built and in daily use since 2026-08-31** (on the author's glasses since first light, 2026-08-30):
 - **The phone APK** drives the glasses: the radio and the shell.
-  **The PC service** (OpenRC, headless) owns every window's state, serves the content, tmux and the window channel,
-  and watches the bus's alerts; it never drives the glasses by itself — PC-direct BlueZ is a
-  manual choice (`HANDOFF.md` §79). How it runs: [`IMPLEMENTATION.md`](IMPLEMENTATION.md); operations: `DAILY.md`;
+  **The PC service** (OpenRC, headless) owns the state of Reader, Tmux, Files, Torrents and Feed, serves the content,
+  tmux and the window channel, and watches the bus's alerts; it never drives the glasses by itself — PC-direct BlueZ
+  is a manual choice (`HANDOFF.md` §79). How it runs: [`IMPLEMENTATION.md`](IMPLEMENTATION.md); operations: `DAILY.md`;
   the state today: [`REMINDER.md`](REMINDER.md).
 - **Nine windows:** Main, Settings, Reader, Tmux, Files, Torrents, Music (with Music Mode), Games (Texas
   Hold'em against a persistent cast) and Feed (Reddit, Slashdot, webcomics). Per-window records: `TMUX.md`,
@@ -32,8 +32,12 @@ instead of one per region is the whole thesis: the round-trip cost is per messag
   refresh, LE 2M (`FIRMWARE.md` §3, §4) — and, from builds C1–C3, motion programs the glasses play on their own
   clock, local ring input and the transition effects (`FIRMWARE.md` §5–§7; the animation plan is `MOTION.md` §7).
 
-**Designed, not built** — the order of work is [`REPLAN.md`](REPLAN.md) §17: the PC becomes the one owner of every
-window's state (Music, Games, Main and Settings follow); four more interfaces present the same windows (the desktop,
+**Built, not yet on the author's devices** (the next build; [`REMINDER.md`](REMINDER.md)): every window's state on the PC's
+record (Music, Games and Settings joined it; the old phone–PC sync is removed), a Settings page and a health view, and
+at ladder stage 5 a window's own list, the switcher's wheel, Matrix as Main's scroll effect and Music's progress bar
+and Scope played by the glasses.
+
+**Designed, not built** — the order of work is [`REPLAN.md`](REPLAN.md) §17: four more interfaces present the same windows (the desktop,
 the phone app's own screen, a TV, any browser — `INTERFACES.md`), beside a dashboard and control system
 (`BASTION.md`) and a reminders window (`REMINDERS.md`); [`CONTRACT.md`](CONTRACT.md) is the app contract they share.
 The glasses kit redraws every window on the new firmware. New windows follow.
