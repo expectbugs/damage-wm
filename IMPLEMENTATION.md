@@ -1459,7 +1459,9 @@ the sections cited):
   (`shell/ListStaging.kt`, `ListBinding.kt`): the strip covers every row; the row key is what the row DRAWS (never a
   value that moves without the picture — the Music row's progress as its lit blocks); one strip at every cache size — a
   row-form change withdraws the list, writes the row and binds it again; the band slots are sized per row, with two
-  spares. The instruments: `LocalSequenceFuzzTest` (eight invariants), `desktop --local-check`,
+  spares; a row whose band form or row form changed in the last staging keeps the largest band slot and its strip room
+  in the next staging, and its own size from the staging after (K1-2 S1 §1.2, B083 S3).
+  The instruments: `LocalSequenceFuzzTest` (eight invariants), `desktop --local-check`,
   `research/mutations-c2.json`.
 
 ## Verification

@@ -5134,10 +5134,24 @@ class Shell(
         // B083 (the focused read of 0.82, S4): so is a record in pieces — a reading between two of them judges none of it
         // (it stays SENT to its last ack) and cost a RIGHT round trip per piece, lengthening the re-stage
         if (based && stageCursor?.let { it.next in 1 until it.pieces.size } == true) return false
+        // LO-1 (decisions GC 5): so is a list's staging between two of its base records while its lane can write the next
+        if (based && lists.any { it.baseRecordsOpen(st) }) return false
         if (comp.hasPending || comp.needsKeyframe) return false               // yields to content, as a chunk does
         // the pace; a base counts nothing short and ignores it
         if (based && System.currentTimeMillis() < ledgerReadNotBeforeMs) return false
         return tryLedgerRead(st)
+    }
+
+    /** LO-1 (decisions GC 5): [ListBind.listBind]'s staging is between two of its base records — one sent, one still
+     *  WANTED — and its lane can write the next now (no reason [pumpListBind] or the lane's own gate gives: Main writes no
+     *  base record under a run, the window list none under the open wheel, no list under a glyph run's hold), so the count
+     *  is read once, at the last one's ack, and a lane that has stopped never holds the reading. */
+    private fun ListBind.baseRecordsOpen(st: LinkState): Boolean {
+        val b = listBind
+        if (b.staging == null || b.counted || cacheWritesHeld() || atlasResendMissing > 0L || listBindBlocked(st) != null) return false
+        if (if (this === mainList) transition != null else switcher.open) return false
+        val recs = b.records.filter { stage.records[it.key] === it }
+        return recs.any { it.state == StagedRecord.State.WANTED } && recs.any { it.state != StagedRecord.State.WANTED }
     }
 
     /** What harnesses wait on: the writes a reading will still judge (0 where none will be asked). */
@@ -6303,8 +6317,9 @@ class Shell(
      * base ([wheelBase]) down to Main's staging's end: Main wins an overlap, and a list already staged where the block goes
      * yields (`wheelPlace`, the one place a block is laid out). Kept while Main, the clock or a screen that is not a list is in front (Settings →
      * Main → Settings writes nothing); another list in front replaces it; a row count, layout or planes change of its own
-     * view makes a new staging (a new mark). Its effect is Global `Animations`' (Crush, Flip and Matrix play their fallback on the
-     * window form, decisions CV); an effect change re-makes its pans alone, as Main's. Its rows' keys are null: a changed row
+     * view makes a new staging (a new mark). Its effect is its app's own `Scroll effect` ("default": `Animations`'; Settings' lists
+     * `Animations`', [motionInForce]), played on the window form as [wm.damage.core.motion.ScrollEffects.playsFor] gives it
+     * (an effect outside [wm.damage.core.motion.ScrollEffects.WINDOW_EFFECTS] plays its fallback, decisions CV); an effect change re-makes its pans alone, as Main's. Its rows' keys are null: a changed row
      * is found by the compose compare ([composeCompare], stage 3b) and the round-robin. Notes under `liststage`.
      */
     private inner class WindowListBind : ListBind(WindowListSurface({ windowList.viewNow()?.v }, { windowListMatches() }), WindowListCheck.LIST, WindowListCheck.ENTRIES) {
@@ -6474,18 +6489,20 @@ class Shell(
         return windowList.pumpLane(st)
     }
 
-    /** One rule for both lists' lanes while a transition is in hand (K1-2 stage 4a for the window list, 4i for Main: the
-     *  K1-2 spec §5.3, `FIRMWARE.md` §7.11; decisions DA (c) 3, DK 2): a list whose staging is not held and counted — a
-     *  level a Select brings, Main arriving with none (a session started inside a window, then Back) — is only PAINTED,
-     *  a row per loop turn as Main's paint (AF.8), in this lowest-priority step that runs only in a turn with nothing to
-     *  send, ahead of [pumpListBind]'s refusals of a flush in flight or pending, which a run's frames meet for much of it.
-     *  Its layout and every write (the records, the count's reading, LIST, the SETs) follow the run's end, so it is staged
-     *  after the run from rows already painted for its key. A held, counted staging goes as it does with no run: Main's
-     *  (its SETs ride the held frame, a changed row re-staged), the window list's nothing (its rows' repaint and re-stage
-     *  wait for the run's end). */
+    /** The lists' lanes while a transition is in hand (K1-2 stage 4a for the window list, 4i for Main: the K1-2 spec §5.3,
+     *  `FIRMWARE.md` §7.11; decisions DA (c) 3, DK 2; LO-1, decisions GC 1–3): a list whose staging is not held and
+     *  counted — a level a Select brings, Main arriving with none (a session started inside a window, then Back) — is
+     *  PAINTED a row per loop turn as Main's paint (AF.8), in this lowest-priority step that runs only in a turn with
+     *  nothing to send, ahead of [pumpListBind]'s refusals of a flush in flight or pending, which a run's frames meet for
+     *  much of it. Once its rows are painted a window's list is laid out and its base records written under the run by
+     *  [pumpListBind], behind the gates every writer has (a glyph run's hold, [cacheWritesHeld], keeps it painted only),
+     *  and its count read at the last one's ack; it is offered — LIST and its SETs — at the first poll after the run's end
+     *  ([listBindPoll]). Main arriving with none is painted only; its layout and writes follow the run's end. A held,
+     *  counted staging goes as it does with no run: Main's (its SETs ride the held frame, a changed row re-staged), the
+     *  window list's nothing (its rows' repaint and re-stage wait for the run's end). */
     private suspend fun ListBind.pumpLane(st: LinkState): Boolean = when {
         transition == null -> pumpListBind(st)
-        !listBind.counted -> listBindPaintUnderRun(st)
+        !listBind.counted -> listBindPaintUnderRun(st) || (this !== mainList && pumpListBind(st))
         this === mainList -> pumpListBind(st)
         else -> false
     }
@@ -6705,7 +6722,9 @@ class Shell(
             }
         }
         listBindReprogramPoll()
-        val offer = if (st.bind && b.counted && b.withdrawnFor == null) b.list else null
+        // LO-1 (decisions GC 2): a window's list staged under a run is offered at the first poll after its end — no LIST or
+        // SET of it inside the run; an offer standing at the act (a kept staging: its SETs ride the held frame) stays
+        val offer = if (st.bind && b.counted && b.withdrawnFor == null && !(transition != null && this === windowList && surface.offered == null)) b.list else null
         if (offer !== surface.offered) {
             surface.offered = offer
             if (offer != null) note("offered — $who's ${ms.rows} rows counted on the glasses: list ${offer.list} slot ${offer.slot} " +

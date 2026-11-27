@@ -408,8 +408,17 @@ class WindowListShellTest {
                 for (w in r.rows) w.heavy = false
                 r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
                 r.until("Main again") { r.onLoop { r.shell.currentWindowId() } == null }
-                depth = if (depth == 8) 4 else 8
-                r.shell.updateSettings { it.copy(depth = depth) }      // Main staged whole again, smaller
+                r.done("Main again")        // its return paints the lighter rows again: they changed in the heavy staging
+                // K1-2 S1 §1.2, B083 S3: a row that changed in the last staging keeps the largest band slot and its strip
+                // room for the next staging; the one after it, with no change between, lays the rows out at their own sizes
+                repeat(2) {
+                    val n0 = r.notes("mainstage").count { it.startsWith("staged") || "cannot be staged" in it }
+                    depth = if (depth == 8) 4 else 8
+                    r.shell.updateSettings { it.copy(depth = depth) }
+                    r.until("Main staged whole again at Depth $depth") { r.notes("mainstage").count { it.startsWith("staged") || "cannot be staged" in it } > n0 &&
+                        r.onLoop { r.shell.mainBinding.staging == null || r.shell.mainBinding.counted } }
+                    r.done("Main at Depth $depth")
+                }
                 r.until("Main smaller") { r.onLoop { r.shell.mainBinding.staging?.let { it.end < main.end && r.shell.mainBinding.counted } == true } }
                 r.done("Main smaller")
                 r.open("settings")
@@ -1199,17 +1208,45 @@ class WindowListShellTest {
         assertTrue(met.isEmpty(), "$what: no cache write meets list 1's records at $span: $met")
     }
 
+    /** LO-1: the journal's notes in order — (time, kind, detail). */
+    private fun journalNotes(r: Rig): List<Triple<Long, String, String>> = if (!Files.exists(r.journal)) emptyList() else Files.readAllLines(r.journal)
+        .filter { "\"ev\":\"note\"" in it }
+        .map { Triple(it.substringAfter("\"t\":").substringBefore(",").toLong(), it.substringAfter("\"kind\":\"").substringBefore("\""), it.substringAfter("\"detail\":\"").substringBefore("\"")) }
+
+    /** LO-1: while [on] holds, every cache write RIGHT takes is checked, before the model applies it, against each open
+     *  instance's two read ranges on both lenses (`FIRMWARE.md` §5.6: its program's span and its capture — the meeting
+     *  that closes an instance); the writes that met one. */
+    private fun watchMeets(r: Rig, on: () -> Boolean): MutableList<String> {
+        val met = java.util.concurrent.CopyOnWriteArrayList<String>()
+        r.onImage = { img ->
+            val ws = writtenSpans(img)
+            if (ws.isNotEmpty() && on()) synchronized(r.sim) {
+                for (a in Arm.entries) for ((i, o) in r.sim.motionForTest(a).slots.withIndex()) if (o != null) for (w in ws) {
+                    val s = wm.damage.core.sim.MotionSim.Span(w.first, w.last + 1)
+                    if (s.meets(o.prog.first) || o.cap?.meets(s) == true) met += "slot $i on $a: a write at $w meets ${o.prog.first} / ${o.cap}"
+                }
+            }
+        }
+        return met
+    }
+
+    /** LO-1: RIGHT's in-half body note after [from] notes — (its time, drawn, folded). */
+    private fun inHalfBody(r: Rig, from: Int): Triple<Long, Int, Int> {
+        val n = journalNotes(r).drop(from).first { it.second == "transition" && it.third.startsWith("in half's last step drawn on RIGHT") }
+        val m = assertNotNull(Regex("\\((\\d+) drawn, (\\d+) folded\\)").find(n.third), n.third)
+        return Triple(n.first, m.groupValues[1].toInt(), m.groupValues[2].toInt())
+    }
+
     /**
-     * K1-2 stage 4a (the K1-2 spec §5.3, §6 row "the paint under a transition"; decisions DA (c) 3): a Select from the bound
-     * categories into Global with the run held in its frame phase (its PLAY-AFTER held back) — Global's rows are painted
-     * whole while the run is in hand and nothing is laid out or written: no LIST or SET of list 1 and no cache write into
-     * the span its records take after the run. Once the run ends the staging is laid out from those rows with no row
-     * painted again (the `staged —` note: every row painted under a transition), so the first write after the run goes
-     * at the first idle turn with nothing in flight. Without the lift no row is painted under the run; with the whole lane
-     * under it, Global is laid out (and written) inside it. Prints a loop turn's wait during the paint and after it.
+     * LO-1 (decisions GC 1–3; `FIRMWARE.md` §7.11): a Select from the bound categories into Global with the run held in its
+     * frame phase (its PLAY-AFTER held back) — under a path effect Global's rows are painted, laid out and its base records
+     * written and counted while the run is in hand, and nothing of list 1 is bound in it: no LIST or SET of list 1 and no
+     * offer while the run is held. No write in the run meets an open instance's read ranges. Once the run ends Global is
+     * offered and bound with no row painted again and no staging made again. On the unfixed tree nothing is laid out
+     * under the run (the wait for Global's staging counted under it runs out).
      */
     @Test
-    fun theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a(): Unit = runBlocking {
+    fun theArrivingLevelIsWrittenUnderAHeldRunAndBoundOnlyAfterIt_LO1(): Unit = runBlocking {
         val r = Rig()
         try {
             r.up()
@@ -1218,41 +1255,142 @@ class WindowListShellTest {
             val stagings = r.onLoop { r.shell.windowListBinding.stagings }
             val oldMark = wireMark1(r)
             val at = r.right.size
+            val inRun = java.util.concurrent.atomic.AtomicBoolean(false)
+            val met = watchMeets(r) { inRun.get() }
             r.shell.transitionHoldInHalfForTest = true
+            inRun.set(true)
             r.fire(CfwModes.EV_TAP)
             r.until("a transition in hand") { r.onLoop { r.shell.transitionPhaseForTest() } != null }
-            // each probe is one loop turn's wait — what a gesture arriving now would wait behind a slice
-            val during = ArrayList<Long>()
-            r.until("Global's rows painted whole, or laid out, with the run held", maxMs = 20_000) {
-                val t0 = System.nanoTime()
-                val s = r.onLoop { Triple(r.shell.transitionPhaseForTest(), r.shell.windowListPaintForTest(), r.shell.windowListBinding.staging) }
-                during += System.nanoTime() - t0
-                s.first == "FRAME" && (s.third != null || s.second?.let { it.first == it.second } == true)
+            r.until("Global's staging counted with the run held", maxMs = 20_000) {
+                r.onLoop { r.shell.transitionPhaseForTest() == "FRAME" && r.shell.windowListBinding.staging != null && r.shell.windowListBinding.counted }
             }
             delay(400)                                                      // idle turns with the run still held
-            val after = ArrayList<Long>()
-            repeat(50) { val t0 = System.nanoTime(); r.onLoop { }; after += System.nanoTime() - t0 }
-            val held = r.onLoop { Triple(r.shell.transitionPhaseForTest(), r.shell.windowListPaintForTest(), r.shell.windowListBinding.staging) }
+            val held = r.onLoop { Triple(r.shell.transitionPhaseForTest(), r.shell.windowListBinding.staging, r.shell.windowBoundForTest().first) }
             assertEquals("FRAME", held.first, "the run still held in its frame phase")
-            assertTrue(held.third == null, "nothing laid out under the run: ${r.notes("liststage").takeLast(2)}")
-            val p = assertNotNull(held.second, "the arriving list's paint in hand")
-            assertTrue(p.first == p.second && p.third == p.second, "every row of the arriving list painted under the run: $p")
-            assertEquals(emptyList(), arrivingList1(r, at, r.right.size, oldMark), "nothing of the arriving list 1 while the run is held")
+            val ms = assertNotNull(held.second)
+            assertEquals(null, held.third, "no offer of the window list while the run is held")
+            val heldTo = r.right.size
+            assertEquals(emptyList(), arrivingList1(r, at, heldTo, oldMark), "no LIST or SET of the arriving list 1 while the run is held")
+            val listWrites = r.right.toList().subList(at, heldTo).filter { r.cacheWrite(it) && writtenSpans(it).any { w -> w.first < ms.end && ms.start < w.last + 1 } }
+            assertTrue(listWrites.isNotEmpty(), "Global's base records written under the run")
             r.shell.transitionHoldInHalfForTest = false; r.shell.postIdleTick()
             r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
             val runTo = runEnd(r, at)
+            inRun.set(false)
+            assertEquals(emptyList(), met, "no write in the run met an open instance's read ranges")
+            assertEquals(emptyList(), arrivingList1(r, at, runTo, oldMark), "no LIST or SET of the arriving list 1 before the run's end")
             r.done("Global"); r.windowBound("Global, after the run")
-            val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            assertTrue(r.onLoop { r.shell.windowListBinding.staging } === ms, "the staging made under the run is the one bound")
             assertEquals(stagings + 1, r.onLoop { r.shell.windowListBinding.stagings }, "one staging, of Global")
-            noWriteOfList1(r, at, runTo, ms.start until ms.end, oldMark, "from the Select to the run's end")
-            val (n, paintMs, under) = paintClause(r)
-            assertEquals(n, under, "the staging laid out from rows all painted under the run (none painted again after it)")
-            val inRun = r.right.toList().subList(at, runTo).filter { r.cacheWrite(it) }
-            fun stats(xs: List<Long>) = xs.sorted().let { "median %.2f ms, max %.2f ms over %d".format(it[it.size / 2] / 1e6, it.last() / 1e6, it.size) }
-            println("K12S4a paint under the run (FakeText, the PC; modeled): $n rows in %.1f ms (%.2f ms a slice); a loop turn's wait during the paint ${stats(during)}, after it ${stats(after)}; ".format(paintMs, paintMs / n) +
-                "cache writes from the Select to the run's end: ${inRun.size} (${inRun.joinToString { w -> writtenSpans(w).joinToString("+") { "${it.first}..${it.last + 1}" } }}); list 1's records at ${ms.start}..${ms.end}")
+            val (n, _, under) = paintClause(r)
+            assertEquals(n, under, "every row painted under the run")
+            val inRunAll = r.right.toList().subList(at, runTo).filter { r.cacheWrite(it) }
+            println("LO1 held run (FakeText, the PC; modeled): cache writes from the Select to the run's end ${inRunAll.size}, ${inRunAll.sumOf { it.size }} B; " +
+                "of them list 1's ${listWrites.size}, ${listWrites.sumOf { it.size }} B at ${ms.start}..${ms.end}")
             notch(r, CfwModes.EV_UPROLL, "a notch on Global")
         } finally { r.shell.transitionHoldInHalfForTest = false; r.close() }
+    }
+
+    /**
+     * LO-1 (decisions GC 2): a Select from the bound categories into Global, the run unheld — Global is staged and counted
+     * inside the run and offered by the first pump after its end: the first `liststage` note after RIGHT's in-half body is
+     * `offered —` (on the unfixed tree it is `staged —`: the layout follows the run's end). No LIST or SET of list 1 before
+     * the run's end; no write in the run meets an open instance's read ranges. Prints the run's end → offered and the in
+     * half's drawn and folded steps (modeled; compared with the unfixed tree's in the report).
+     */
+    @Test
+    fun aNewLevelIsOfferedAtTheFirstPumpAfterTheRun_LO1(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up()
+            r.open("settings")
+            r.windowBound("Settings")
+            val oldMark = wireMark1(r)
+            val at = r.right.size
+            val from = journalNotes(r).size
+            val inRun = java.util.concurrent.atomic.AtomicBoolean(true)
+            val met = watchMeets(r) { inRun.get() }
+            r.fire(CfwModes.EV_TAP)
+            r.until("a transition in hand") { r.onLoop { r.shell.transitionPhaseForTest() } != null }
+            r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            val runTo = runEnd(r, at)
+            inRun.set(false)
+            r.done("Global"); r.windowBound("Global, after the run")
+            val (bodyT, drawn, folded) = inHalfBody(r, from)
+            val notes = journalNotes(r).drop(from)
+            val body = notes.indexOfFirst { it.second == "transition" && it.third.startsWith("in half's last step drawn on RIGHT") }
+            val next = notes.drop(body + 1).first { it.second == "liststage" }
+            val offered = notes.drop(body + 1).first { it.second == "liststage" && it.third.startsWith("offered") }
+            println("LO1 unheld run (FakeText, the PC; modeled): the run's end → offered ${offered.first - bodyT} ms; the in half $drawn drawn, $folded folded; " +
+                "the first liststage note after the run's end: ${next.third.take(60)}")
+            assertTrue(next.third.startsWith("offered"), "offered at the first pump after the run's end, staged and counted inside it: ${next.third}")
+            assertEquals(emptyList(), arrivingList1(r, at, runTo, oldMark), "no LIST or SET of the arriving list 1 before the run's end")
+            assertEquals(emptyList(), met, "no write in the run met an open instance's read ranges")
+            notch(r, CfwModes.EV_UPROLL, "a notch on Global")
+        } finally { r.close() }
+    }
+
+    /**
+     * LO-1 (decisions GC 5): a list's base records go back to back and ONE count reading judges them all, launched at the
+     * last one's ack — from the window list's `staged —` note to its `offered —` note one `stage` note proves records,
+     * and it proves every base record. On the unfixed tree a reading goes between the strip and the programs (two notes
+     * of one record each), the strip's ack being the first idle turn with no record in pieces.
+     */
+    @Test
+    fun aListsBaseRecordsAreCountedByOneReadingAtTheLastAck_LO1(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up()
+            r.open("settings")
+            r.windowBound("Settings")
+            val from = journalNotes(r).size
+            r.fire(CfwModes.EV_TAP)
+            r.until("a transition in hand") { r.onLoop { r.shell.transitionPhaseForTest() } != null }
+            r.done("Global"); r.windowBound("Global, after the run")
+            val base = r.onLoop { r.shell.windowListBinding.records.size }
+            val notes = journalNotes(r).drop(from)
+            val staged = notes.indexOfLast { it.second == "liststage" && it.third.startsWith("staged") }
+            val offered = notes.indexOfLast { it.second == "liststage" && it.third.startsWith("offered") }
+            assertTrue(staged in 0 until offered, "staged, then offered: ${notes.filter { it.second == "liststage" }.map { it.third.take(40) }}")
+            val proofs = notes.subList(staged, offered).filter { it.second == "stage" && Regex("proved \\d+ record").containsMatchIn(it.third) }.map { it.third }
+            println("LO1 count readings between staged and offered (the PC; modeled): ${proofs.size} — $proofs; base records $base")
+            assertTrue(base >= 2, "a staging of two base records or more: $base")
+            assertEquals(1, proofs.size, "one reading proves the staging: $proofs")
+            assertTrue(Regex("proved $base record").containsMatchIn(proofs.single()), "it proves every base record ($base): $proofs")
+        } finally { r.close() }
+    }
+
+    /**
+     * LO-1 (decisions GC 1; C3 DM-T's hold, D6): under a glyph run (Encode in every tier) the arriving list is painted only —
+     * nothing of Global is laid out or written while the run is in hand: its records wait for the run's end and the one
+     * in-half period after it (`cacheWritesHeld`, which every writer reads); it is staged and bound after.
+     */
+    @Test
+    fun aGlyphRunHoldsTheArrivingListToItsEnd_LO1(): Unit = runBlocking {
+        val r = Rig(tweak = { s -> wm.damage.core.motion.Transitions.Tier.entries.fold(s) { a, t -> a.withTier(t, effects = listOf("encode")) } })
+        try {
+            r.up()
+            r.open("settings")
+            r.windowBound("Settings")
+            val stagings = r.onLoop { r.shell.windowListBinding.stagings }
+            val at = r.right.size
+            val from = journalNotes(r).size
+            r.fire(CfwModes.EV_TAP)
+            r.until("a transition in hand") { r.onLoop { r.shell.transitionPhaseForTest() } != null }
+            val laidOut = ArrayList<String>()
+            r.until("the run ended", maxMs = 20_000) {
+                val s = r.onLoop { r.shell.transitionPhaseForTest() to r.shell.windowListBinding.stagings }
+                if (s.first != null && s.second != stagings) laidOut += "${s.first}: ${s.second}"
+                s.first == null
+            }
+            val runTo = runEnd(r, at)
+            assertTrue(journalNotes(r).drop(from).any { it.second == "transition" && "ncode" in it.third }, "an Encode run: ${journalNotes(r).drop(from).filter { it.second == "transition" }.map { it.third.take(60) }}")
+            assertEquals(emptyList(), laidOut, "nothing laid out while the glyph run is in hand")
+            r.done("Global"); r.windowBound("Global, after the run")
+            val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            val met = r.right.toList().subList(at, runTo).flatMap { writtenSpans(it) }.filter { it.first < ms.end && ms.start < it.last + 1 }
+            assertEquals(emptyList(), met, "no write of Global's records before the run's end")
+        } finally { r.close() }
     }
 
     /**
