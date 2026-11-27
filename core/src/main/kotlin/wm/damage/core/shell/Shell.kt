@@ -3445,7 +3445,17 @@ class Shell(
                 if (local.active) local.localNote(ev.fields).let { n -> if (n != localNoteSaid) { localNoteSaid = n; journal.note("local", n, ev.atMs) } }
                 post(Msg.Pump)
             }
-            is TransportEvent.LocalBody -> { local.body114(ev.slot, ev.tag, ev.outcome, ev.reason); transitionBody(ev); localBodyRead(ev) }
+            is TransportEvent.LocalBody -> {
+                // stage SBF (`C3-SB1-read.md` finding 1): a body whose tag is in the lanes' range (0xA000–0xAFFF) reports
+                // one of a window's held lanes (`WindowLanes`, slots 0 and 1), which its own reader takes from the `motion`
+                // note ([laneNotify]). The list's two readers take a body by its slot, so they would count a lane's stop
+                // in slot 0 as a list snap-back and give a lane's step count to Main's period: they do not get it. This
+                // rests on a list fire's tag S starting from 0 at a fresh acquire and never reaching 0xA000 in one lease
+                val lane = ev.tag and 0xF000 == WindowLanes.TAG
+                if (!lane) local.body114(ev.slot, ev.tag, ev.outcome, ev.reason)
+                transitionBody(ev)
+                if (!lane) localBodyRead(ev)
+            }
             is TransportEvent.SilentMode ->
                 if (ev.on) enterSleep(SleepReason.SILENT, "the firmware's Silent Mode is on")
                 else when (sleep) {                                 // one read
@@ -6514,6 +6524,9 @@ class Shell(
     /** Tests (on the loop): the cursor of the list view in front (−1: none). */
     internal fun focusedRowForTest(): Int = (focusedView() as? WindowView.ListView)?.model?.cursor ?: -1
     internal fun stepWindowsForTest(): Pair<List<Long>, List<Long>> = mainList.stepWindow.toList() to windowList.stepWindow.toList()
+    /** Stage SBF, tests (on the loop): Main's staging's T (0: none staged), and how many times a window's list was staged. */
+    internal fun mainStagingTForTest(): Int = mainList.listBind.staging?.t ?: 0
+    internal fun windowListStagingsForTest(): Int = windowList.listBind.stagings
     /** Tests (on the loop): the window list's lane has nothing left to write — no window list wanted here (below stage 5,
      *  160 KiB, the window's list not in front: none, or Settings at its adjust level, a cover by design), or a staging for
      *  the view in front counted, offered or refused for its key. C3 DW-2 (decisions DP 8): nothing left to write either

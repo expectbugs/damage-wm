@@ -489,4 +489,46 @@ class FilesTest {
             tmp.toFile().deleteRecursively()
         }
     }
+
+    /** Stage SBF (`C3-SB1-read.md` E; 0.85's first session, measured: the `E files` line 13 ms after the keeper's start):
+     *  Files' quiet ask at registration ran before the PC channel had connected, wrote an ERROR line (a `DAMAGE · files`
+     *  notice through the phone service's log sink), and nothing asked again when the channel came up — Main's summary
+     *  read "0 locations" until he opened Files. Now the ask waits for the channel's hook. The provider stands for the
+     *  channel: its state line is not empty and its `locations()` cannot answer until the test brings it up and calls the
+     *  hook, as the channel's healthy flip does (`ShellService`'s `onState`). */
+    @Test
+    fun theLocationsArriveWhenTheChannelComesUpAndNoErrorLineIsWritten(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-files-channel")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val errors = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val sink = wm.damage.core.util.Log.Sink { level, tag, message ->
+            if (tag == "files" && level == wm.damage.core.util.Log.Level.ERROR) errors += message
+        }
+        wm.damage.core.util.Log.addSink(sink)
+        try {
+            val h = Harness(tmp, pc)
+            val up = java.util.concurrent.atomic.AtomicBoolean(false)
+            val channel = object : FilesProvider by h.provider {
+                override fun stateLine(): String = if (up.get()) "" else "connecting to the PC…"
+                override fun locations(): List<FLocation> =
+                    if (up.get()) h.provider.locations() else throw IllegalStateException("host is not reachable ('files')")
+            }
+            val shell = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true)),
+                Persistence(tmp.resolve("state.json")), null, scope)
+            val win = FilesWindow(FakeText(), channel, scope)
+            shell.register(win)
+            shell.start()                                    // registration: the quiet ask's turn
+            awaitTrue("the shell settled at Main") { shell.isQuiescent() }
+            assertEquals("connecting to the PC…", win.summary().line, "Main's summary says the channel's line")
+            up.set(true)
+            win.channelUp()                                  // the channel's healthy flip
+            awaitTrue("the locations listed once the channel is up") { win.summary().line == "1 locations" }
+            assertEquals(emptyList(), errors.toList(), "no error line for an ask made before the channel was up")
+            shell.stop()
+        } finally {
+            wm.damage.core.util.Log.removeSink(sink)
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
 }

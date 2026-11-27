@@ -29,7 +29,11 @@ import wm.damage.core.windows.music.PlayState
 import wm.damage.core.windows.music.SimMusicPlayer
 import wm.damage.core.windows.music.TrackMeta
 import wm.damage.core.windows.music.TrackRef
+import wm.damage.core.wire.AaFrame
+import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.EvenHubMsg
+import wm.damage.core.wire.Pb
+import wm.damage.core.wire.SettingsMsg
 
 /**
  * Music's motion update, stage L, through the real shell, Music's presenter and the firmware model at ladder stage 5 on a
@@ -174,16 +178,38 @@ class MusicLaneShellTest {
             return out.get(10, java.util.concurrent.TimeUnit.SECONDS)
         }
 
-        /** Up at 480 with Cached text on, Music open at Now Playing, a track playing. */
-        suspend fun up() {
+        /** Up at 480 with Cached text on, Music open at Now Playing, a track playing. [mainOffered] (stage SBF): Music opens
+         *  only once Main's list has been offered on the glasses (the list's rules then hold a record for slot 0). */
+        suspend fun up(mainOffered: Boolean = false) {
             shell.start(); until("start") { shell.isQuiescent() }
             shell.updateSettings { it.copy(heightMode = 480, cachedText = "on") }
             until("the atlas goes live") { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
             until("the idle lanes at rest") { onLoop { shell.noticeLaneDoneForTest() && !shell.cacheWorkInFlight } }
+            if (mainOffered) until("Main's list offered") { notes("mainstage").any { it.startsWith("offered") && "Main" in it } }
             shell.postGesture(EvenHubMsg.EV_CLICK)
             until("music open") { shell.currentWindowId() == "music" }
             player.playQueue(lib.tracks.map { it.ref() }, 0, Mode.QUEUE, "test")
             until("playing") { player.state.play == PlayState.PLAYING }
+        }
+
+        /** Stage SBF: one notify-114 body handed to the transport at its event seam ([StartRig.deliver]) as RIGHT's, in the
+         *  model's own form (`GlassFirmwareSim.sendMotion`: `{1: 3, 2: 0, 114: body}`, the body's fields as an outcome-0
+         *  or -1 body carries them, `DamageMsg.Motion`) — but no sequence (field 1), so the gap rule is handed none RIGHT
+         *  never sent, and an END CRC no instance of this session wrote (the transport compares nothing). */
+        fun body(slot: Int, tag: Int, outcome: Int, steps: Long, stepUs: Long) {
+            val b = Pb.cat(Pb.v(2, slot), Pb.v(3, tag), Pb.v(4, outcome), Pb.v(5, 0), Pb.v(6, steps), Pb.v(7, 0L),
+                Pb.v(8, 0x5BF05BF0L), Pb.v(9, stepUs), Pb.v(11, 1L))
+            t.deliver(Arm.RIGHT, AaFrame.frame(0, SettingsMsg.SID, SettingsMsg.FLAG_RESPONSE,
+                Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(DamageMsg.MOTION_FIELD, b)), AaFrame.TYPE_RESPONSE).single())
+        }
+
+        /** Stage SBF: a body no reader takes (slot 3, a tag no motion of this session uses) at the seam, and its `motion`
+         *  note in the journal. The transport emits each body's note and event in order on one flow, and the loop takes
+         *  them in that order: once this note is written, every body handed in before it has been read by the shell. */
+        suspend fun bodiesRead(marker: Int) {
+            body(3, marker, DamageMsg.OUTCOME_DREW, 1, 1)
+            val said = "tag 0x%04x".format(marker)
+            until("the marker body's note") { notes("motion").any { said in it } }
         }
 
         fun laneTagIn(arm: Arm): Int? = (0..1).firstNotNullOfOrNull { s -> sim.motionTagIn(arm, s)?.takeIf { it and 0xF000 == WindowLanes.TAG } }
@@ -780,6 +806,50 @@ class MusicLaneShellTest {
                 if (q.isNotEmpty()) fail("picture ${i + 1} of ${after.size} after the old chain closed (+${p.atMs - rec.t0} ms) is the old track's Scope " +
                     "at ${q.first() - old}..${q.last() - old} ms from the change")
             }
+        } finally { r.stop() }
+    }
+
+    /** Stage SBF (`C3-SB1-read.md` findings 1, A and D): RIGHT's report of a lane's stretch is the lane's alone. Before the
+     *  cure the hand-off gave every body to the list's two readers, which take one by its slot: a lane closed in slot 0
+     *  once Main's list had been offered was counted as a list snap-back (`snapback cause=burst-end`: 4 of 4 in 0.85's
+     *  first session, measured), a lane's body of exactly Main's T steps became a sample of Main's period (in slot 1
+     *  always, in slot 0 while no window list was staged), and one above T wrote a `not a period sample` line. Case 1 is a
+     *  real chain closed by a pause in its first stretch (slot 0). No real stretch lands on T by construction, so cases 2
+     *  and 3 enter at the transport's event seam in the model's own form ([Rig.body]). Every check's failure is collected,
+     *  so that one run on the unfixed tree shows each case. */
+    @Test
+    fun aLanesReportIsNotTheListsNoSnapBackNoPeriodSampleNoNote(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.up(mainOffered = true)
+            r.until("a chain open on the glasses") { r.laneTagIn(Arm.RIGHT) != null && r.laneTagIn(Arm.LEFT) != null }
+            val tag = assertNotNull(r.sim.motionTagIn(Arm.RIGHT, WindowLanes.SLOT_A)?.takeIf { it and 0xF000 == WindowLanes.TAG },
+                "the chain's first stretch is in slot 0: ${r.onLoop { r.shell.lanesForTest() }}")
+            val windows0 = r.onLoop { r.shell.stepWindowsForTest() }
+            val bad = ArrayList<String>()
+            // case 1: the chain's stop — a pause ends it, the shell closes the stretch, RIGHT reports it (outcome 1)
+            r.onLoop { r.player.pause() }
+            val closed = "slot ${WindowLanes.SLOT_A} tag 0x%04x closed while drawing".format(tag)
+            r.until("RIGHT's body for the closed stretch") { r.notes("motion").any { closed in it } }
+            r.bodiesRead(0x0FF1)
+            r.notes("snapback").takeIf { it.isNotEmpty() }?.let { bad += "case 1: a lane's stop named a list snap-back: $it" }
+            r.onLoop { r.shell.localCountsForTest() }.filterKeys { it.startsWith("snapback.") }.takeIf { it.isNotEmpty() }
+                ?.let { bad += "case 1: snap-back counts after a lane's stop: $it" }
+            // case 2: a lane's body of exactly Main's T steps with a positive step, in slot 0 (no window list staged) and in slot 1
+            val t = r.onLoop { r.shell.mainStagingTForTest() }
+            assertTrue(t > 0, "Main's staging is in force: T $t")
+            assertEquals(0, r.onLoop { r.shell.windowListStagingsForTest() }, "no window list staged: slot 0's fallback reader is Main's")
+            r.body(WindowLanes.SLOT_A, 0xAFF0, DamageMsg.OUTCOME_CLOSED, t.toLong(), 70)   // a bar lane's step: 61–92 µs (measured, 0.85)
+            r.body(WindowLanes.SLOT_B, 0xAFF1, DamageMsg.OUTCOME_CLOSED, t.toLong(), 71)
+            // case 3: a lane's bodies above T — whole stretches (the bar's 255 steps)
+            r.body(WindowLanes.SLOT_A, 0xAFF2, DamageMsg.OUTCOME_DREW, 255, 72)
+            r.body(WindowLanes.SLOT_B, 0xAFF3, DamageMsg.OUTCOME_DREW, 255, 73)
+            r.bodiesRead(0x0FF2)
+            val windows1 = r.onLoop { r.shell.stepWindowsForTest() }
+            if (windows1 != windows0) bad += "case 2: a lane's body of T $t steps moved the step windows (Main's, the window list's): $windows0 -> $windows1"
+            r.notes("local").filter { "not a period sample" in it && Regex("tag 0xa[0-9a-f]{3} ").containsMatchIn(it) }.takeIf { it.isNotEmpty() }
+                ?.let { bad += "case 3: a lane's body above T read by the list's period reader: $it" }
+            assertTrue(bad.isEmpty(), bad.joinToString("\n"))
         } finally { r.stop() }
     }
 
