@@ -284,7 +284,7 @@ class ScrollEffectsTest {
         val d = ListStaging.ScrollMotion.DEFAULT
         assertNull(ms.remakeOwed(d), "nothing owed at the staging's own motion")
         ms.periodInForce = 55
-        assertTrue(ms.remakeOwed(d)!!.contains("55"), "${ms.remakeOwed(d)}")
+        assertTrue(assertNotNull(ms.remakeOwed(d), "Auto at P 55 owes a re-make").contains("55"), "${ms.remakeOwed(d)}")
         val p = assertNotNull((ms.remake(d) as? ListStaging.Remake.Owed)?.programs)
         assertEquals(listOf(5, 55, 46, 1, slots[1]), listOf(p.t, p.periodInForce, p.period, p.slot, p.off), "Auto at P 55: T 5, the floor kept, slot 1")
         val old = ms.pans.first().prog4
@@ -906,7 +906,8 @@ class ScrollEffectsTest {
 
     /** C3 DM-2bF (decisions FA 2): the noise glyph cell [c]'s box [b] shows in [pic] (a panel's nibbles) — the box filled
      *  0 and, at its corner, the glyph its font names for one of [ScrollEffects.NOISE_CODES] at the cell's level through
-     *  `make_lut(L)` (§7.6) — as that glyph's picture (its key), or null. A glyph in [letters] (the off4s of the old and new
+     *  `make_lut(L)` (§7.6) — as that code (its key; C3 DM-2bG, decisions FI: one code drawn in two of Main's faces is two
+     *  pictures, so a key of pictures passed noise of one code), or null. A glyph in [letters] (the off4s of the old and new
      *  letters of every cell over the box) is not noise and is not looked for: cells show those outside their noise steps
      *  (§7.6's schedule) and the letters change in place, so only a glyph none of them names tells that noise steps were
      *  drawn (the caller also skips a box that shows what it shows at the start or at END). The glyph images are decoded from the staged bytes [cache] at the off4 the font names ([seen] keeps them). */
@@ -923,7 +924,7 @@ class ScrollEffectsTest {
                 val v = (if (xx < g.first && yy < g.second) g.third[yy * g.first + xx].toInt() else 0) * c.level / 15
                 if (v != 0) lit = true
                 nibble(pic, b.x + xx, b.y + yy) == v } }
-            if (drawn && lit) return g.third.joinToString("") { (it.toInt() and 0xF).toString(16) } + "/${g.first}"
+            if (drawn && lit) return "$code"
         }
         return null
     }
@@ -987,10 +988,19 @@ class ScrollEffectsTest {
                 val floored = ls.remake(lm, fx)
                 val fp = assertNotNull((floored as? ListStaging.Remake.Owed)?.programs, "$what0: Auto at T' − N < 1 floored at N + 1: ${(floored as? ListStaging.Remake.NoRoom)?.why}")
                 assertEquals(Triple(ScrollEffect.SCRAMBLE, true, nLs + 1), Triple(fp.plays.effect, fp.plays.v2, fp.t), "$what0: Scramble's own pans at T' = N + 1")
-                // the Frames row asking T' = N (no step past the noise; its T is laid by the fit, not floored): NoRoom, said —
-                // a full staging is owed
+                // the Frames row asking T' = N (its T is laid by the fit, not floored): C3 DM-2bG (decisions FH, FI) its noise
+                // max(1, ⌊T'/3⌋) is another than the staged N, so the records rule refuses it before any layout — NoRoom with
+                // records, said: a full staging is owed (under a cover, at his return)
                 val refused = ls.remake(lm.copy(frames = nLs), fx)
-                assertTrue(refused is ListStaging.Remake.NoRoom && "Scramble's re-made pans were refused" in refused.why, "$what0: the Frames row at T' − N < 1 owes a full staging, said: ${(refused as? ListStaging.Remake.Owed)?.programs?.plays}")
+                assertTrue(refused is ListStaging.Remake.NoRoom && refused.records && "Scramble's noise" in refused.why,
+                    "$what0: the Frames row at another noise owes a full staging, said: ${(refused as? ListStaging.Remake.NoRoom)?.why ?: (refused as? ListStaging.Remake.Owed)?.programs?.plays}")
+                // a count of the row that keeps the noise: Scramble's own pans re-made alone over the same records
+                val keep = listOf(4, 6, 8, 10, 12, 16).firstOrNull { maxOf(1, it / 3) == nLs && it != ls.t }
+                if (keep != null) {
+                    val kept = ls.remake(lm.copy(frames = keep), fx)
+                    val kp = assertNotNull((kept as? ListStaging.Remake.Owed)?.programs, "$what0: $keep frames keep the noise $nLs: ${(kept as? ListStaging.Remake.NoRoom)?.why}")
+                    assertEquals(Triple(ScrollEffect.SCRAMBLE, true, keep), Triple(kp.plays.effect, kp.plays.v2, kp.t), "$what0: Scramble's own pans at T $keep")
+                }
                 // a full staging that still refuses (the region one word short of the records) ends at Depth, said, and its
                 // re-makes for Scramble keep that: Depth's pans, no further staging
                 val region = CfwModes.mainRegion(cache, true)

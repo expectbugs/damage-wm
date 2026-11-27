@@ -705,7 +705,11 @@ class ListStaging private constructor(
     private fun autoSteps(want: ScrollMotion): Int = maxOf(ScrollEffects.stepsAt(want, periodInForce, t), autoFloor(want))
 
     private fun autoFloor(want: ScrollMotion): Int =
-        if (recordEffect == ScrollEffect.SCRAMBLE && want.effect == ScrollEffect.SCRAMBLE && want.frames == 0) (staged.recs?.cells?.noise ?: 0) + 1 else 0
+        if (recordEffect == ScrollEffect.SCRAMBLE && want.effect == ScrollEffect.SCRAMBLE && want.frames == 0) (scrambleNoise ?: 0) + 1 else 0
+
+    /** C3 DM-2bG: N, the noise of Scramble's lists in this staging's records ([ScrollEffects.CellTables.noise]); null where
+     *  it holds none. */
+    internal val scrambleNoise: Int? get() = staged.recs?.cells?.noise
 
     /** The period note's words while [autoSteps]' floor is in force for [want] at the period in force: the floor, and the
      *  notch's length against the length asked; "" otherwise. */

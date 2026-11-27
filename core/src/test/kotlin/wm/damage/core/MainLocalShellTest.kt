@@ -893,6 +893,135 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
+    /** C3 DM-2bG: Scramble staged at 450 ms Auto (stage 5, 256 KiB) with Main in front, bound and settled; its staging. */
+    private suspend fun scrambleStagedAt450(r: Rig): ListStaging {
+        r.up()
+        val d0 = r.onLoop { r.shell.mainBinding.staging }
+        r.shell.updateSettings { it.copy(scrollEffect = "scramble", scrollLength = 450) }
+        r.until("Scramble staged at 450 ms") { r.onLoop { r.shell.mainBinding.staging }.let { it != null && it !== d0 &&
+            it.recordEffect == ScrollEffect.SCRAMBLE && it.motion?.lengthMs == 450 } }
+        r.bound("Scramble bound"); r.settle("staged")
+        return r.onLoop { r.shell.mainBinding.staging!! }
+    }
+
+    /**
+     * C3 DM-2bG (decisions FH, FI; `C3-DM2b-V2-a.md` finding 1): Scramble's noise follows the fit. With Main in front, his
+     * `Scroll length` change from 450 to 300 ms under Scramble's records gives another noise (in this rig, modeled: T 14,
+     * N 4 → T 9, N 3), so it is staged again whole: exactly one drop, said, and one full staging; afterwards the pans' T
+     * and the staged noise satisfy N = max(1, ⌊T/3⌋). Before the cure the pans alone were re-made over the old records (T 9
+     * over N 4: the same settings showed two looks until the next full staging).
+     */
+    @Test
+    fun hisLengthChangeThatChangesScramblesNoiseStagesItAgainWhole_DM2bG(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            val ms = scrambleStagedAt450(r)
+            val n = assertNotNull(ms.scrambleNoise, "Scramble's records hold a noise")
+            val m = marks(r)
+            r.shell.updateSettings { it.copy(scrollLength = 300) }
+            r.until("Main's pans asked for 300 ms") { r.onLoop { r.shell.mainBinding.staging }?.motion?.lengthMs == 300 }
+            r.bound("bound at 300 ms"); r.settle("at 300 ms")
+            val ms2 = r.onLoop { r.shell.mainBinding.staging!! }
+            val m2 = marks(r)
+            val notes = r.notes("mainstage")
+            println("DM2bG length 450 → 300 (the PC rig, modeled): staged T ${ms.t} N $n; after it T ${ms2.t} N ${ms2.scrambleNoise}, " +
+                "${m2.staged - m.staged} staging(s), ${m2.dropped - m.dropped} drop(s), ${m2.switched - m.switched} switch(es); " +
+                "${notes.filter { it.startsWith("dropped") || it.startsWith("pans re-made") }.takeLast(2).map { it.take(240) }}")
+            assertEquals(1 to 1, (m2.staged - m.staged) to (m2.dropped - m.dropped), "his length change that changes the noise: one drop and one full staging")
+            assertTrue(notes.any { it.startsWith("dropped") && "Scramble's noise" in it }, "the drop says the noise: ${notes.filter { it.startsWith("dropped") }.takeLast(2)}")
+            assertTrue(ms2 !== ms && ms2.recordEffect == ScrollEffect.SCRAMBLE && ms2.plays.effect == ScrollEffect.SCRAMBLE, "Scramble staged again with its records: ${ms2.plays}")
+            val n2 = assertNotNull(ms2.scrambleNoise, "the new staging's records hold a noise")
+            assertEquals(maxOf(1, ms2.t / 3), n2, "the pans' T ${ms2.t} and the staged noise: N = max(1, ⌊T/3⌋)")
+            assertTrue(n2 != n, "precondition: the fit gives 300 ms another noise than 450 ms ($n → $n2)")
+            r.assertOracle("at 300 ms")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 DM-2bG (decisions FI; `C3-DM2b-V2-f.md` F1, its probe 2's shape): `Scroll frames` stepped under the Settings cover
+     * with Scramble's records staged at 450 ms Auto (N 4 or more here). Auto → 4 → 6: neither count keeps the noise, so
+     * the staging stays under the cover — no drop, no staging — and his return stages once, for the 6 he left the row on.
+     * Auto → 4 → Auto: no drop and no staging at all. Before the cure 4 dropped the staging at once, under the cover.
+     */
+    @Test
+    fun framesThroughFourOnToSixUnderACoverStagesOnceOnHisReturn_DM2bG(): Unit = runBlocking { framesUnderACover(listOf(4, 6)) }
+
+    @Test
+    fun framesThroughFourBackToAutoUnderACoverStagesNothing_DM2bG(): Unit = runBlocking { framesUnderACover(listOf(4, 0)) }
+
+    private suspend fun framesUnderACover(steps: List<Int>) {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            val d1 = scrambleStagedAt450(r)
+            val n = assertNotNull(d1.scrambleNoise, "Scramble's records hold a noise")
+            assertTrue(n >= 3, "precondition: the staged noise $n (T ${d1.t}) is one that 4 and 6 frames (N 1 and 2) change")
+            r.onLoop { r.shell.services.openWindow("settings", null) }
+            r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.until("Settings' transition landed") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.settle("in Settings")
+            val m = marks(r)
+            for (f in steps) { r.shell.updateSettings { it.copy(frames = f) }; delay(300) }
+            delay(2_000)
+            r.settle("after the steps")
+            val m1 = marks(r)
+            val what = "frames Auto → ${steps.joinToString(" → ") { if (it == 0) "Auto" else "$it" }}"
+            println("DM2bG $what under the cover (the PC rig, modeled): staged T ${d1.t} N $n; ${m1.staged - m.staged} staging(s), " +
+                "${m1.dropped - m.dropped} drop(s); ${r.notes("mainstage").takeLast(2).map { it.take(240) }}")
+            assertEquals(0 to 0, (m1.staged - m.staged) to (m1.dropped - m.dropped), "$what under the cover: no drop and no staging")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging } === d1, "$what: the staging stays under the cover")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }
+            if (steps.last() == 0) {
+                r.bound("bound again"); r.settle("back on Main"); delay(2_000); r.settle("back on Main, after 2 s")
+                val m2 = marks(r)
+                println("DM2bG $what after the return: ${m2.staged - m1.staged} staging(s), ${m2.dropped - m1.dropped} drop(s), ${m2.switched - m1.switched} switch(es)")
+                assertEquals(0 to 0, (m2.staged - m1.staged) to (m2.dropped - m1.dropped), "$what: back on its own motion, nothing at his return")
+                assertTrue(r.onLoop { r.shell.mainBinding.staging } === d1, "$what: the same staging")
+            } else {
+                r.until("Main's pans asked for ${steps.last()} frames", 60_000) { r.onLoop { r.shell.mainBinding.staging }?.motion?.frames == steps.last() }
+                r.bound("bound again"); r.settle("back on Main")
+                val m2 = marks(r)
+                val ms = r.onLoop { r.shell.mainBinding.staging!! }
+                println("DM2bG $what after the return: ${m2.staged - m1.staged} staging(s), ${m2.dropped - m1.dropped} drop(s), ${m2.switched - m1.switched} switch(es); " +
+                    "T ${ms.t} N ${ms.scrambleNoise}, plays ${ms.plays.effect.word}")
+                assertEquals(1 to 1, (m2.staged - m1.staged) to (m2.dropped - m1.dropped), "$what: one full staging on his return")
+                assertTrue(ms !== d1 && ms.recordEffect == ScrollEffect.SCRAMBLE && ms.plays.effect == ScrollEffect.SCRAMBLE && ms.t == steps.last(),
+                    "$what: Scramble staged for the ${steps.last()} he left the row on: T ${ms.t}, ${ms.plays}")
+                assertEquals(maxOf(1, ms.t / 3), ms.scrambleNoise, "$what: the pans' T ${ms.t} and the staged noise: N = max(1, ⌊T/3⌋)")
+            }
+            r.assertOracle("after his return")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 DM-2bG (decisions FH; the control of the two pins above): a change of his that keeps Scramble's noise — `Scroll
+     * frames` Auto → the count F of the row with max(1, ⌊F/3⌋) = the staged N (12 for N 4 in this rig) — is a programs-only
+     * re-make with no staging: no drop, Scramble's own pans at T F switched over the same records.
+     */
+    @Test
+    fun hisChangeThatKeepsScramblesNoiseReMakesThePansAlone_DM2bG(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            val ms = scrambleStagedAt450(r)
+            val n = assertNotNull(ms.scrambleNoise, "Scramble's records hold a noise")
+            val f = assertNotNull(listOf(4, 6, 8, 10, 12, 16).firstOrNull { maxOf(1, it / 3) == n && it != ms.t },
+                "precondition: a count of the Frames row keeps the staged noise $n (T ${ms.t})")
+            val m = marks(r)
+            r.shell.updateSettings { it.copy(frames = f) }
+            r.until("Main's pans asked for $f frames") { r.onLoop { r.shell.mainBinding.staging }?.motion?.frames == f }
+            r.bound("bound at $f frames"); r.settle("at $f frames")
+            val m2 = marks(r)
+            val notes = r.notes("mainstage")
+            println("DM2bG frames Auto → $f (the PC rig, modeled): staged T ${ms.t} N $n; ${m2.staged - m.staged} staging(s), ${m2.dropped - m.dropped} drop(s), " +
+                "${m2.switched - m.switched} switch(es); ${notes.filter { it.startsWith("pans re-made") }.takeLast(1).map { it.take(200) }}")
+            assertEquals(0 to 0, (m2.staged - m.staged) to (m2.dropped - m.dropped), "a change that keeps the noise: no drop and no staging")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging } === ms && ms.t == f && ms.scrambleNoise == n &&
+                ms.plays.effect == ScrollEffect.SCRAMBLE && ms.recordEffect == ScrollEffect.SCRAMBLE, "the same staging, Scramble's own pans at T $f over its records: T ${ms.t}, ${ms.plays}")
+            assertTrue(notes.any { it.startsWith("pans re-made — the motion changed") }, "a programs-only re-make, said")
+            r.assertOracle("at $f frames")
+        } finally { r.close() }
+    }
+
     /** K1-1, the brief's pin "no change in a burst": a change of the scroll rows inside a burst writes nothing and SETs
      *  nothing until the burst's lone SETTLE has gone; then the pans are re-made. */
     @Test
@@ -1195,7 +1324,13 @@ class MainLocalShellTest {
             repeat(3) { n -> r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL); delay(r.motionMs() + r.q() + 300) }
             delay(3_000)
             val m4 = marks(r)
+            // C3 DM-2bG (decisions FI; `C3-DM2b-V2-b.md` 2): anchored as the first half is — an Auto re-make was tried after
+            // his change (the slow glass raises the new staging's period), so the count below is not passed empty
+            val remade2 = r.notes("mainstage").count { it.startsWith("pans re-made — the period in force") }
+            println("DM2bG given-up (${effect.word}): after his change ${m4.staged - m3.staged} staging(s), ${m4.dropped - m3.dropped} drop(s); " +
+                "Auto re-make(s) $remade → $remade2")
             assertEquals(0 to 0, (m4.staged - m3.staged) to (m4.dropped - m3.dropped), "Auto's re-makes after it stage nothing")
+            assertTrue(remade2 > remade, "an Auto re-make was tried after his change ($remade → $remade2)")
             r.settle("after his change"); r.assertOracle("after his change")
         } finally { r.close() }
     }
