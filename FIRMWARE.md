@@ -3255,3 +3255,9 @@ phone's keeper applies the hold-back rule before re-arming.
   records only an unbound list names (DW-1a).
 - 2026-11-26 — §8.1: one candidate from Music's motion update (the timer's digits need no cell); §9: Music's four
   held-lane shapes (stages L and S).
+- 2026-11-26 — §5.9, the phone's half: every cache write that shrinks goes as mode 25 while ZWRITE is in force; a
+  refused one is a missing write that field 17's count finds and the shell writes again, and nothing is sent again on
+  the refusal record itself (C3 OM-1, OM-1F, OM-1P). §6.9 and §7.11: Matrix as Main's scroll effect at stage 5, its
+  records part of Main's staging (C3 DM-2a, DM-2aF). §6.10: on the glasses a refusal on LEFT fails no ack; §7.14: a
+  lens's S stays ahead until a release point or a restart. §9: every ship act captured again after OM-1, and
+  `v5-dm-rain-fire` (C3 OM-V, DM-2aV).

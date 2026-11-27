@@ -432,11 +432,11 @@ and create the one we are transitioning to, rather than just smashing over the p
 and the new screen just appearing." The reading kept for every later effect (the lead's, not his words): an effect
 turns the old picture INTO the new one as one motion; a cover and then a reveal read to him as two beats.
 
-**As built** (`HANDOFF.md` §100, §101; the rows and their defaults are `DESIGN.md` §4.2's `Animations`): every tier
+**As built** (`HANDOFF.md` §100–§102; the rows and their defaults are `DESIGN.md` §4.2's `Animations`): every tier
 is built, the transition tiers shown at ladder stage 5 only. Scroll's effect is a Global row, and at ladder stage 5 each app has its own `Scroll effect` row in its Settings
 category ("default" follows the Global row). Main's bound list plays the Global choice; a window's own list, bound at
-stage 5 on a 256 KiB session, plays its app's — None, Depth, Slide or Fall, and asked for Crush or Flip it plays Slide
-or Depth, the row saying so (`FIRMWARE.md` §7.11). Main's list also plays Matrix and Scramble, their records staged
+stage 5 on a 256 KiB session, plays its app's — None, Depth, Slide or Fall, and asked for Crush it plays Slide, for Flip or Matrix
+Depth, the row saying so (`FIRMWARE.md` §7.11). Main's list also plays Matrix and Scramble, their records staged
 with it (`FIRMWARE.md` §6.7); Glitch is not built as a scroll effect. Popups: Unfurl (the phone's frames), Fade and Slide (drawn by the glasses), and the focus timer as
 one engine program (`PopupPrograms.kt`). At ladder stage 5 the wheel's drum is drawn by the glasses: its pictures and
 programs are resident in Main's region and bound as a list while the switcher is open (`Wheel.kt`; C3 DW-1a, DW-1b);
