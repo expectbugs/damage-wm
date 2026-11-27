@@ -3262,3 +3262,9 @@ phone's keeper applies the hold-back rule before re-arming.
   records part of Main's staging (C3 DM-2a, DM-2aF). §6.10: on the glasses a refusal on LEFT fails no ack; §7.14: a
   lens's S stays ahead until a release point or a restart. §9: every ship act captured again after OM-1, and
   `v5-dm-rain-fire` (C3 OM-V, DM-2aV).
+- 2026-11-27 — §6.9 and §7.11: Scramble as Main's scroll effect at stage 5, its records (the noise glyphs, a private
+  font per face, the rows' cells and their tables) part of Main's staging; its noise is part of the records, so a
+  change of length or frames that changes it stages again, and Auto's steps are floored at the noise + 1; §7.12: a
+  drawn cell in a step's cost (C3 DM-2b, DM-2bF, DM-2bG). §6.7, §6.10 and §6.11: on the glasses a refusal at the
+  decode fails no ack on either lens; a failed flush on a refusal is Damage's rig's own choice (DM-2bF). §9:
+  `v5-dm-cells-fire` (DM-2bL).

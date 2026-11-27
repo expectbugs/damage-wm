@@ -13,7 +13,7 @@ own interface on it.
 last frame (the X11 DAMAGE extension). Batching a frame's damage into one Bluetooth message
 instead of one per region is the whole thesis: the round-trip cost is per message, not per region.
 
-## Status (2026-11-26)
+## Status (2026-11-27)
 
 **Built and in daily use since 2026-08-31** (on the author's glasses since first light, 2026-08-30):
 - **The phone APK** drives the glasses: the radio and the shell.
@@ -34,8 +34,8 @@ instead of one per region is the whole thesis: the round-trip cost is per messag
 
 **Built, not yet on the author's devices** (the next build; [`REMINDER.md`](REMINDER.md)): every window's state on the PC's
 record (Music, Games and Settings joined it; the old phone–PC sync is removed), a Settings page and a health view, and
-at ladder stage 5 a window's own list, the switcher's wheel, Matrix as Main's scroll effect and Music's progress bar
-and Scope played by the glasses.
+at ladder stage 5 a window's own list, the switcher's wheel, Matrix and Scramble as Main's scroll effects and Music's
+progress bar and Scope played by the glasses.
 
 **Designed, not built** — the order of work is [`REPLAN.md`](REPLAN.md) §17: four more interfaces present the same windows (the desktop,
 the phone app's own screen, a TV, any browser — `INTERFACES.md`), beside a dashboard and control system

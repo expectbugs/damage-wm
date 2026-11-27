@@ -9722,13 +9722,14 @@ gitignored `private/c3-design/C3-decisions.md` parts BA–CI; each stage's repor
 10. **`python3 tools/ladder.py state|4|5`** sets the phone's ladder stage and arms it without a Claude session
     (`DAILY.md`): stage 4 is the way back if stage 5 misbehaves on a day nobody can send the probe.
 
-## 102. APK 0.85 built, not staged: window lists, the wheel and Matrix played by the glasses, deflated cache writes, Music, Games and Settings on the PC's record, the health view (2026-11-22 → 26)
+## 102. APK 0.85 built, not staged: window lists, the wheel, Matrix and Scramble played by the glasses, deflated cache writes, Music, Games and Settings on the PC's record, the health view (2026-11-22 → 27)
 
 Everything here ran on the simulator's model or the PC's rigs unless it says "measured on his glasses"; nothing was
 flashed and none of it is on his devices. The rulings are in the gitignored `private/c3-design/C3-decisions.md` parts
-CJ–FG and the stage files under `private/build084/` and `private/build085/`; each stage's report is beside its brief.
+CJ–FR and the stage files under `private/c3-design/`, `private/build084/` and `private/build085/`; each stage's report
+is beside its brief.
 
-1. **What 0.85 carries beyond 0.84** (`main` `f9ddf1b4` → `02ff1353`, versionCode 85):
+1. **What 0.85 carries beyond 0.84** (`main` `f9ddf1b4` → `e2147fac`, versionCode 85):
    - **A window's own list played by the glasses** (K1-2, stages 1–5): at stage 5 on a 256 KiB session a window's list
      of two rows or more is staged and bound as list 1 beside Main's, its rows kept current, each app with its own
      `Scroll effect` row; Main on one strip with band slots per row (its region about 100 → 65 KB on the test rows,
@@ -9737,6 +9738,12 @@ CJ–FG and the stage files under `private/build084/` and `private/build085/`; e
      a third list while the switcher is open; the `Switcher` row (Drum, None). Its vectors compared at 0.
    - **Matrix as Main's scroll effect** (C3 DM-2a with its fix stage): Depth's move with noise glyphs raining down
      through the rows, one picture on both lenses, its records part of Main's staging (`FIRMWARE.md` §6.9, §7.11).
+   - **Scramble as Main's scroll effect** (C3 DM-2b with its fix stages): the rows stay in place and their letters
+     change in random order to the new ones, one seed for both lenses; its records (the rows' cells and private copies
+     of the glyphs they use) part of Main's staging as Matrix's are, so the first staging at 256 KiB is 57–78 KB with
+     the PC's faces (counted offline), about 7–10 s on the phone's link (modeled; `FIRMWARE.md` §6.9). After a row's
+     text changes its noise sits on the earlier letters until Main is staged again; the settled row is exact. A play's
+     body counted above its planned steps is noted in the journal (`DAILY.md` says how to read it).
    - **Every cache write that shrinks goes deflated** (C3 OM): since 0.83 a record's later pieces had gone plain
      (deflated later pieces: 279 of 499 on 0.82, 0 of 62 on 0.83, measured on his glasses); now each goes as mode 25,
      and a refused one is a missing write the count finds and writes again (`FIRMWARE.md` §5.9). Modeled on his
@@ -9757,15 +9764,17 @@ CJ–FG and the stage files under `private/build084/` and `private/build085/`; e
    - **The test rigs:** reads of the shell's collections on its loop, one shared clock, tests that decided on a race
      made to decide once, the "Open on PC" opener a required argument (a test walk had opened a file-manager window
      on his desktop), temp folders under the build directory, the walk's stalls a failure; a pong's ping answered
-     before its number is written.
-2. **The battery on `02ff1353`** (2026-11-26, 20:21–20:37 CST, measured on the PC): the core suite 2,265 tests and the
-   desktop suite 77, none failed; the conformance step 275 tests over 266 vector files, every file filled by the
-   fork's runner, the model agreeing with the firmware's C at 0 mismatches (18,574 lens-steps); `LocalSequenceFuzzTest`
+     before its number is written. Two findings of the rig, cured, neither in what runs on his devices: the
+     simulator's slow-glass test hook (set only by tests) could draw a step early and count it again (decisions FM,
+     FN); the ship capture could place a ring input one step early, its read and its input in separate holds of the
+     model's lock (decisions FR).
+2. **The battery on `e2147fac`** (2026-11-27, 09:23–11:14 CST, measured on the PC): the core suite 2,276 tests and the
+   desktop suite 77, none failed; the conformance step 278 tests over 268 vector files, every file filled by the
+   fork's runner, the model agreeing with the firmware's C at 0 mismatches (18,734 lens-steps); `LocalSequenceFuzzTest`
    59 at each of its three timings and in the gate's fuzz step; the oracle walk twice; `--selfcheck` twice, ALL CHECKS
    PASS; `--local-check` and `--motion-check` ALL HOLD; the snapshot judge twice, 99 PC and 98 phone scenes, 0 px
-   against `694a15ac`; the games, feed, music and epub checks pass; the phone build and `check_apk_wiring.py` exit 0;
-   node 217 of 217; the five selftests; the mutation list 731 rows, all applying; lint 0; no `oom_kill`. The upgrade
-   check on a fresh copy of his PC data: 23 checks of 23 (20:37).
+   against `11cf6103`; the games, feed, music and epub checks pass; the phone build and `check_apk_wiring.py` exit 0;
+   node 217 of 217; the five selftests; the mutation list 752 rows, all applying; lint 0; no `oom_kill`. The upgrade
+   check on a fresh copy of his PC data: 23 checks of 23 (11:14).
 3. **Not staged:** the record's migration makes it a deploy in which the PC and the phone change together, on his word
-   (`DAILY.md`); the app lane's protocol is 4 on both builds. What he is asked to look at, and Scramble (DM-2b, in
-   work, not on `main`): `REMINDER.md`.
+   (`DAILY.md`); the app lane's protocol is 4 on both builds. What he is asked to look at: `REMINDER.md`.

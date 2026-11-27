@@ -24,30 +24,29 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   glass, Crush and Flip as scroll effects, the wheel's stage-5 margins. **Told to him at the staging:** a scroll effect
   stepped through several values at once comes back as the first for a moment (0.85 corrects it); on 0.84 the wheel
   is phone-drawn.
-- **0.85 is built and not staged** (§102): `main` `02ff1353`, versionCode 85. The whole battery was green on that tree
-  on 2026-11-26 between 20:21 and 20:37 (the counts below), and the upgrade check on a fresh copy of his PC data held
-  23 checks of 23 against it (20:37). **Why not staged:** it carries the record's migration (S1-5), which runs at the
-  PC's first start on the new build, so the PC and the phone change together, on his word (`DAILY.md`, "The way a
-  deploy that changes the lane protocol or the record is done"); the app lane's protocol is 4 on both builds. **What
-  it carries beyond 0.84:** at stage 5, a window's own list bound on the glasses beside Main's (K1-2: Main on one strip
-  with band slots per row, its region about 100 → 65 KB on the test rows, measured; the rows kept current; each app's
-  `Scroll effect` row), the switcher's wheel drawn by the glasses from a block resident in Main's region (DW; the
-  `Switcher` row, Drum or None) and Matrix as Main's scroll effect (DM-2a); every cache write that shrinks sent
-  deflated (OM: about 1.1 s less link time at each session start and each wake on his records, modeled); every
+- **0.85 is built and not staged** (§102): `main` `e2147fac`, versionCode 85. The whole battery was green on that tree
+  on 2026-11-27 between 09:23 and 11:14 (the counts below), and the upgrade check on a fresh copy of his PC data held 23
+  checks of 23 against it (11:14). **Why not staged:** it carries the record's migration (S1-5), which runs at the PC's
+  first start on the new build, so the PC and the phone change together, on his word (`DAILY.md`, "The way a deploy that
+  changes the lane protocol or the record is done"); the app lane's protocol is 4 on both builds. **What it carries
+  beyond 0.84:** at stage 5, a window's own list bound on the glasses beside Main's (K1-2: Main on one strip with band
+  slots per row, its region about 100 → 65 KB on the test rows, measured; the rows kept current; each app's `Scroll
+  effect` row), the switcher's wheel drawn by the glasses from a block resident in Main's region (DW; the `Switcher`
+  row, Drum or None), and Matrix and Scramble as Main's scroll effects (DM-2a, DM-2b); every cache write that shrinks
+  sent deflated (OM: about 1.1 s less link time at each session start and each wake on his records, modeled); every
   transition filling its tier's length, the rain's plane never behind Global `Depth`, the scroll-effect fix above,
   Encode's costs once an act; Music's first half (S1-4: on the PC's record, the PC as an output) and its progress bar
   and Scope played by the glasses at stage 5; Games and Settings on the PC's record with a Settings page, and the old
   phone–PC sync removed (S1-5; `Profiler`, `Diag overlay` and `Head tracking` removed, `Battery alert` hidden); the
   health view (R-b); a lens the phone still holds a link to connected by its remembered address (BL) and a wake from
-  Silent Mode that keeps the links (BW); the test rigs' fixes and the "Open on PC" opener a required argument. Every
-  vector file is filled by the fork's runner and the model agrees with it at 0 mismatches.
-- **In work, not on `main`:** Scramble as Main's third new scroll effect (DM-2b): its last fix stage, then its two
-  vector files filled by the fork's runner and laid in; it rides the build after 0.85 unless it lands first.
+  Silent Mode that keeps the links (BW); the test rigs' fixes and the "Open on PC" opener a required argument; a journal
+  note where a play's body is counted above its planned steps (`DAILY.md`). Every vector file is filled by the fork's
+  runner and the model agrees with it at 0 mismatches.
 - **Owed before more is built on them:** the APK's `release` variant tried with him there (the phone runs the mirror's
   loops 70–93 times slower than the PC — the debug build is suspected, not measured); a sweep of the whole mutation
   list (`research/mutations-c2.json`, the counts below) on the current tree, machine time only (the last whole sweep:
   0.77's tree, §92.11). The reading of Crush, Flip, Matrix (the transition and the scroll
-  effect), the wheel and OM is closed (no defect open): only an instrument or the glass reopens it.
+  effect), Scramble, the wheel and OM is closed (no defect open): only an instrument or the glass reopens it.
 - **Owed on glass from his earlier looks:** his answer to §97.1's question (in very fast scrolling, are the lenses
   a whole row apart, or the same row at different positions); at his next fast-scroll session the phone's `/log`
   pulled early (the late echoes' cause, §98.6, is inferred until a stock message's arrival is read there); C2's
@@ -69,14 +68,15 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   while rows travel 32; Warp, Flip and Explode centred on the larger height; a notice arriving within about 2 s
   after a fast burst can still double-move Main.
 - **No browser of his is approved yet;** he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
-- **The counts** (simulator; the last full battery, on `main` `02ff1353`, 2026-11-26 20:21–20:37, measured on the PC):
-  the whole core suite 2,265 / 0, desktop 77 / 0; the conformance step 275 tests over 266 vector files, every file
-  filled by the fork's runner, the model agreeing with the firmware's C at 0 mismatches (18,574 lens-steps); the
-  sequence fuzz 59 / 0 at each of its three timings and in the gate's fuzz step; the oracle walk twice (7 and 7);
-  `--selfcheck` twice, ALL CHECKS PASS; `--local-check` and `--motion-check` ALL HOLD; the snapshot judge twice, 99 PC
-  and 98 phone scenes, 0 px against `694a15ac`; `--games-check`, `--feed-check`, `--music-check` and `--epub-check`
-  pass; the phone build and its wiring check exit 0; node 217 / 217; the five selftests (45, 28, 31, 40, 22 cases);
-  the mutation list 731 rows, all applying (not swept whole since 0.77's tree); lint 0; no `oom_kill`.
+- **The counts** (simulator; the last full battery, on `main` `e2147fac` with the PC rig's two cures of §102, 2026-11-27
+  09:23–11:14, measured on the PC): the whole core suite 2,276 / 0, desktop 77 / 0; the conformance step 278 tests over
+  268 vector files, every file filled by the fork's runner, the model agreeing with the firmware's C at 0 mismatches
+  (18,734 lens-steps); the sequence fuzz 59 / 0 at each of its three timings and in the gate's fuzz step; the oracle
+  walk twice (7 and 7); `--selfcheck` twice, ALL CHECKS PASS; `--local-check` and `--motion-check` ALL HOLD; the
+  snapshot judge twice, 99 PC and 98 phone scenes, 0 px against `11cf6103`; `--games-check`, `--feed-check`,
+  `--music-check` and `--epub-check` pass; the phone build and its wiring check exit 0; node 217 / 217; the five
+  selftests (45, 28, 31, 40, 22 cases); the mutation list 752 rows, all applying (not swept whole since 0.77's tree);
+  lint 0; no `oom_kill`.
 
 ## Open from the documents' audit (2026-11-23)
 
@@ -103,9 +103,8 @@ Where the code does not do what a ruled design or the contract says; each docume
 ## Next
 
 The order is `REPLAN.md` §17.3 (every run sized first and both meters read, §17.6).
-1. **The motion kit's shell part (K1) goes on, ahead of S2** (`REPLAN.md` §17.3 items 6 and 8): window lists (K1-2),
-   the wheel bound (DW) and Matrix as a scroll effect are built (0.85); Scramble is in work (above), then scroll
-   effects in other windows.
+1. **The motion kit's shell part (K1) goes on, ahead of S2** (`REPLAN.md` §17.3 items 6 and 8): window lists (K1-2), the
+   wheel bound (DW), Matrix and Scramble as scroll effects are built (0.85); next, scroll effects in other windows.
 2. **S1-4** (Music: his five answers are in, `REPLAN.md` §17.3 item 7; half A is in 0.85, §97.5; then his sitting,
    and half B after it), **S1-5** (his five answers of 11-23, `REPLAN.md` §17.3 item 10: built, in 0.85), **R-b** (one
    health view on every surface, §17.4: built, in 0.85; his look comes with it), then §16.1's order. **Music's motion
@@ -116,9 +115,10 @@ The order is `REPLAN.md` §17.3 (every run sized first and both meters read, §1
    minutes and logs the refusal. His word on what replaces the source, then the change.
 
 **What waits on him:** his word to stage 0.85 and his install; on glass then — text or a row that differs between the
-eyes and stays (the sign that a cache write was lost on one lens: LEFT reports nothing, `FIRMWARE.md` §5.7), Matrix
-judged from sequences, whether a row that scrambles or rains the same way each time reads as repetition. Any change of
-the ladder's stage and any flash, per lens. Also his,
+eyes and stays (the sign that a cache write was lost on one lens: LEFT reports nothing, `FIRMWARE.md` §5.7), Matrix and
+Scramble judged from sequences, whether a row that scrambles or rains the same way each time reads as repetition, and
+Scramble's noise on a row's earlier letters after its text changes (a song's title, a transfer's rate: they stay until
+Main is staged again; the settled row is exact). Any change of the ladder's stage and any flash, per lens. Also his,
 whenever he likes: S1-3's four calls in §89.5 (each reversible); a hardware watchdog for the PC (R-c); the fork's
 records' move to `c1`; which alerts are urgent; deleting the phone's old `feed/` folder.
 

@@ -1789,8 +1789,8 @@ the end state.
 
 On the fork's builds the glasses also play motion from programs the phone writes — Main's `Scroll effect`, the
 notice's timer and arrivals, the full-screen transitions at ladder stage 5 — ruled by `MOTION.md` §7 (its contract
-`FIRMWARE.md` §5–§7, its rows §4.2's `Animations`); at stage 5 also the switcher's drum (§4.3) and Music's bar and
-Scope (`MUSIC.md` §14.2).
+`FIRMWARE.md` §5–§7, its rows §4.2's `Animations`); at stage 5 also a window's own list with its app's `Scroll effect`,
+the switcher's drum (§4.3) and Music's bar and Scope (`MUSIC.md` §14.2).
 
 ### 6.3 Rules
 

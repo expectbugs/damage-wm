@@ -1083,6 +1083,18 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   and mark, one SET per event id (the two scroll entries and the press), `predict` (§6.2 steps 8–9). One holder,
   `Shell.ListBind` (Main's list, and a window's own list as `WindowListBind`). `MainStagingTest`, `MainBindTest`, `MainBindShellTest`,
   `StagePiecesTest`, `desktop --local-check` (`MainLocalCheck`).
+- **A window's own list** (K1-2; `Shell.WindowListBind` through `shell/WindowListSurface.kt`,
+  `ListStaging.assembleWindow`, `Shell.pumpWindowList`): at ladder stage 5 on a 256 KiB session (else nothing of it is
+  sent) a window's list of two rows or more in front is staged in the window form (`ListForm.STRIP_WINDOWS`: its strip
+  and two pan slots; no band forms, no item table, a report-only tap) in Main's region from the wheel's block down to
+  the end of Main's staging (Main wins an overlap), and bound as glasses list 1 (entries 3–5, slot 0; `FIRMWARE.md`
+  §6.9, §7.11). It is kept while Main, the clock or a screen that is not a list is in front and replaced by another list
+  in front; a changed row is found by the compose compare (`composeCompare`) and the round-robin and staged again. It
+  plays its app's own `Scroll effect` row (`ShellSettings.scrollEffectOf`: None · Depth · Slide · Fall,
+  `ScrollEffects.WINDOW_EFFECTS`; at "default" and on Settings' own lists `Animations`' effect, of which Crush plays
+  Slide and any other outside those four Depth, said: `ScrollEffects.playsFor`); a change re-makes its pans alone.
+  `WindowListShellTest`, `WindowListCheck` (`--local-check`'s and `--motion-check`'s window-list cases), the
+  `v5-ship-list1-*` vectors.
 - **The local scroll** (C2, stage 4): a ring notch fires on the glasses from its SET; RIGHT's report (notify 115,
   `TransportEvent.Applied`) is answered by the phone's rules (`local/LocalRules.kt`: COMMIT · DISCARD · SETTLE, one
   answer per bound slot per batch; `Taps` phone · report (the default) · glasses); a mode 27 that did not land is
@@ -1105,7 +1117,7 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   `ListStaging.fastStepMs` (§7.12; four modeled figures, the fourth for Flip's scaled turn), both through `timingOf`;
   Auto frames take the steps that fit `Scroll length`, and the glasses' measured period (notify 114 field 9) raises the
   period. `ScrollEffectsTest`, `MainLocalShellTest` (Matrix's and Scramble's re-stagings), the `v5-dm-rain-fire`,
-  `v5-ship-ring-matrix-352` and `v5-dm-cells-fire` vectors.
+  `v5-ship-ring-matrix-352`, `v5-dm-cells-fire` and `v5-ship-ring-scramble-352` vectors.
 - **The ring list** (C3 DM-0, 0.84): at stage 5, where Main's paint wraps (his eight rows at 288 and 352), the list is
   bound with LIST-RING (`CfwModes.bindListRing`, `BoundList.ring`); the strip carries the other end's rows as margins
   and no wrap record, and the phone measures the cursor modulo the count (`BoundList.distance`). `LocalRulesTest`,
