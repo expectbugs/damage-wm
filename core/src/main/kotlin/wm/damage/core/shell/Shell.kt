@@ -5975,7 +5975,6 @@ class Shell(
         val list = b.listBind.list ?: return
         if (ev.slot != list.slot && ev.slot != ListStaging.WRAP_SLOT) return
         val steps = (ev.drawn ?: 0L) + (ev.folded ?: 0L)
-        val complete = ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_DREW || steps >= ms.t
         // G4 item 2: a local instance's own body (no END written) closed by RIGHT — counted, never a keyframe. Every step
         // drawn: at END. Short of them, the partial step on the panel goes at the next present, which the close makes
         // whole (the stale mark): the answer's — the COMMIT writes END and presents, the DISCARD presents — or, with the
@@ -5988,8 +5987,9 @@ class Shell(
                 journal.note("local", "slot ${ev.slot} tag 0x%04x closed on the glasses after $steps of ${ms.t} steps".format(ev.tag))
             }
         }
+        if (steps > ms.t) journal.note("local", "slot ${ev.slot} tag 0x%04x outcome ${ev.outcome} reported $steps steps against T ${ms.t}: above it, not a period sample".format(ev.tag))
         val us = ev.stepUs ?: return
-        if (!complete || steps != ms.t.toLong() || us <= 0L) return
+        if (steps != ms.t.toLong() || us <= 0L) return
         b.stepWindow.addLast(us)
         while (b.stepWindow.size > PERIOD_WINDOW) b.stepWindow.removeFirst()
         b.periodSamplesSinceChange++
@@ -8203,8 +8203,9 @@ class Shell(
     }
 
     /** K1-2 stage 3c: the per-app `Scroll effect` row's name, its options (the "default" option first, then what a window's
-     *  list plays itself) and its "default" option's words — "default", or "default (plays Slide)" where `Animations`'
-     *  Crush, Flip or Matrix plays its fallback on a window's list (decisions CV). */
+     *  list plays itself) and its "default" option's words — "default", or "default (plays …)" where `Animations`' effect
+     *  is not one of [wm.damage.core.motion.ScrollEffects.WINDOW_EFFECTS] and a window's list plays its fallback
+     *  ([wm.damage.core.motion.ScrollEffects.playsFor]; decisions CV). */
     private fun appScrollOptions(): List<String> = listOf(appScrollDefault()) + wm.damage.core.motion.ScrollEffects.WINDOW_EFFECTS.map { it.word }
     private fun appScrollDefault(): String {
         val g = wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT
