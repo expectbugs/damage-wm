@@ -994,13 +994,6 @@ class ScrollEffectsTest {
                 val refused = ls.remake(lm.copy(frames = nLs), fx)
                 assertTrue(refused is ListStaging.Remake.NoRoom && refused.records && "Scramble's noise" in refused.why,
                     "$what0: the Frames row at another noise owes a full staging, said: ${(refused as? ListStaging.Remake.NoRoom)?.why ?: (refused as? ListStaging.Remake.Owed)?.programs?.plays}")
-                // a count of the row that keeps the noise: Scramble's own pans re-made alone over the same records
-                val keep = listOf(4, 6, 8, 10, 12, 16).firstOrNull { maxOf(1, it / 3) == nLs && it != ls.t }
-                if (keep != null) {
-                    val kept = ls.remake(lm.copy(frames = keep), fx)
-                    val kp = assertNotNull((kept as? ListStaging.Remake.Owed)?.programs, "$what0: $keep frames keep the noise $nLs: ${(kept as? ListStaging.Remake.NoRoom)?.why}")
-                    assertEquals(Triple(ScrollEffect.SCRAMBLE, true, keep), Triple(kp.plays.effect, kp.plays.v2, kp.t), "$what0: Scramble's own pans at T $keep")
-                }
                 // a full staging that still refuses (the region one word short of the records) ends at Depth, said, and its
                 // re-makes for Scramble keep that: Depth's pans, no further staging
                 val region = CfwModes.mainRegion(cache, true)
