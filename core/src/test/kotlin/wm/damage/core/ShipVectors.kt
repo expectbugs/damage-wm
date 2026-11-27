@@ -558,8 +558,8 @@ internal object ShipVectors {
     fun dm2aActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-matrix-352", ScrollEffect.MATRIX, 352, RingForm.NOTCHES, noisy = true))
 
     /** C3 stage DM-2b (decisions DW 6, EP 4): Scramble on Main at stage 5 — Matrix's twin: its ring NOTCHES at 352, its
-     *  cells and private faces staged with the list from Main's runs through the atlas; unfilled until the fork's fill
-     *  (`DM2B_UNFILLED`). C3 DM-2bF (decisions FA 3): captured with [NoisyText], so the fill sees which glyph and which
+     *  cells and private faces staged with the list from Main's runs through the atlas; filled at DM-2bL's comparison.
+     *  C3 DM-2bF (decisions FA 3): captured with [NoisyText], so the fill sees which glyph and which
      *  private font each cell draws. */
     fun dm2bActs(): List<Act> = listOf(RingSpec("${PREFIX}ring-scramble-352", ScrollEffect.SCRAMBLE, 352, RingForm.NOTCHES, noisy = true))
 

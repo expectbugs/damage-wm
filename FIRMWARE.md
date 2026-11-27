@@ -2953,8 +2953,9 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   to a window, a cancel — C3 DW-3; every act captured again after OM-1, each cache write that shrinks sent as mode
   25, §5.9 — C3 OM-V), the wheel's hand-made `v5-dw-fire` (both wheel programs bound on ring lists: fires
   mid-list and at both wraps, the COMMITs of the reports, the report-only tap), Main's hand-made `v5-dm-rain-fire`
-  (Matrix's pans with their rain fired mid-list, at both wraps and in a burst, a reveal-1 rain refused 5 — C3 DM-2a),
-  and Music's four held-lane shapes (`v5-mml-*`: the bar and its chain, stage L; Scope and its chain, stage S), all
+  (Matrix's pans with their rain fired mid-list, at both wraps and in a burst, a reveal-1 rain refused 5 — C3 DM-2a)
+  and `v5-dm-cells-fire` (Scramble's pans with their cells fired mid-list and at both wraps, a pan over the cell cap
+  refused 12 — C3 DM-2b), and Music's four held-lane shapes (`v5-mml-*`: the bar and its chain, stage L; Scope and its chain, stage S), all
   filled by the fork's runner.
   The differential fuzz (`firmware/fuzz_vectors.py`; each switch's text is its docstring) has a switch per build —
   `--c1` (§5.10), `--c2` (§6.10), `--c3` (§7.13) with its widening `--c3x` — and `--dw` (with `--c3`) for the app
