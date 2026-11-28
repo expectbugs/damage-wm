@@ -1384,7 +1384,7 @@ class WindowListShellTest {
                 s.first == null
             }
             val runTo = runEnd(r, at)
-            assertTrue(journalNotes(r).drop(from).any { it.second == "transition" && "ncode" in it.third }, "an Encode run: ${journalNotes(r).drop(from).filter { it.second == "transition" }.map { it.third.take(60) }}")
+            assertTrue(journalNotes(r).drop(from).any { it.second == "transition" && Regex("^owed: \\S+ Encode ").containsMatchIn(it.third) }, "an Encode run: ${journalNotes(r).drop(from).filter { it.second == "transition" }.map { it.third.take(60) }}")
             assertEquals(emptyList(), laidOut, "nothing laid out while the glyph run is in hand")
             r.done("Global"); r.windowBound("Global, after the run")
             val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
@@ -1496,6 +1496,63 @@ class WindowListShellTest {
     /** RIGHT's image-lane refusal record (`FIRMWARE.md` §4, fields 23–25): seen/mode/reason/seq. */
     private fun refRecord(c: GlassFirmwareSim.LensCtx) = "${c.refSeen}/${c.refMode}/${c.refReason}/${c.refSeq}"
 
+    /** LO-1 V2 reader b (E3's release, decisions GC 5): no transition (every tier None); the switcher opened between two of
+     *  Global's base records — RIGHT's and LEFT's answers held (`StartRig.onNotify`, handed late by `deliver`) from the first
+     *  record's write until the wheel is open. The window list's lane writes nothing under the open wheel, so the count is
+     *  read with the wheel open: a record proved while the next is still WANTED. With the switcher clause cut no reading goes. */
+    @Test
+    fun aReadingGoesWhenTheSwitcherOpensBetweenTwoBaseRecords_LO1V2(): Unit = runBlocking {
+        val r = Rig(tweak = { s -> wm.damage.core.motion.Transitions.Tier.entries.fold(s) { a, t -> a.withTier(t, effects = emptyList()) } })
+        val hold = java.util.concurrent.atomic.AtomicBoolean(false)
+        val held = java.util.concurrent.CopyOnWriteArrayList<Pair<Arm, ByteArray>>()
+        try {
+            r.up(); r.open("settings"); r.windowBound("Settings")
+            val ms0 = r.onLoop { r.shell.windowListBinding.staging }
+            r.t.onNotify = { a, p -> if (hold.get()) { held += a to p; null } else p }
+            r.onImage = { img -> r.shell.windowListBinding.staging?.takeIf { it !== ms0 }?.let { ms ->
+                if (r.cacheWrite(img) && writtenSpans(img).any { it.first < ms.end && ms.start < it.last + 1 }) hold.set(true) } }
+            r.fire(CfwModes.EV_TAP)
+            r.until("Global's first base record written, the answers held") { hold.get() }
+            r.onImage = null
+            for (g in listOf(EvenHubMsg.EV_RING_LONG_PRESS, EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, EvenHubMsg.EV_DOUBLE_CLICK)) r.shell.postGesture(g)
+            r.until("the switcher open") { r.shell.switcherIsOpen }
+            val proofs0 = r.notes("stage").count { "proved" in it }
+            val before = r.onLoop { r.shell.windowListBinding.records.map { it.state.name } }
+            hold.set(false); for ((a, p) in held) r.t.deliver(a, p)
+            r.until("a reading with the switcher open", maxMs = 10_000) { r.notes("stage").count { "proved" in it } > proofs0 }
+            val s = r.onLoop { Triple(r.shell.switcherIsOpen, r.shell.windowListBinding.records.map { it.state.name }, r.shell.wheelBoundForTest().first != null) }
+            println("LO1V2 E3 pin (the rig; modeled): held ${held.size} answers; Global's records before the release $before, after the reading ${s.second}; wheel offered ${s.third}; " +
+                "stage notes ${r.notes("stage").takeLast(3)}")
+            assertTrue(s.first && "WANTED" in s.second && "PROVEN" in s.second, "the reading went with the wheel open, between Global's base records: $s")
+        } finally { r.close() }
+    }
+
+    /** LO-1 V2 reader b, for GG 1: no transition (every tier None); a window opened from Main after another — the switcher's
+     *  order changes, so the wheel's block (placed and counted at Main) is kept current for it. No write into the wheel's
+     *  block from the open until the window list's first LIST (its offer's flush): the first notch after an open waits for
+     *  no wheel write. */
+    @Test
+    fun theWheelWaitsForTheWindowListAfterAnOpen_LO1V2(): Unit = runBlocking {
+        val r = Rig(tweak = { s -> wm.damage.core.motion.Transitions.Tier.entries.fold(s) { a, t -> a.withTier(t, effects = emptyList()) } })
+        try {
+            r.up(); r.open("w1")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("Main again") { r.onLoop { r.shell.currentWindowId() } == null }
+            r.done("Main again")
+            val wheel = r.onLoop { assertNotNull(r.shell.wheelBlockForTest(), "the wheel's block placed at Main"); r.shell.wheelBaseForTest() until r.shell.mainRegionForTest().last + 1 }
+            val at = r.right.size
+            r.onLoop { r.shell.services.openWindow("settings", null) }
+            r.until("Settings in front") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.done("Settings"); r.windowBound("Settings")
+            val imgs = r.right.toList().drop(at)
+            val wheelAt = imgs.indices.filter { i -> r.cacheWrite(imgs[i]) && writtenSpans(imgs[i]).any { w -> w.first <= wheel.last && wheel.first <= w.last } }
+            val listAt = imgs.indexOfFirst { img -> r.subs(img).any { r.isListOf(it, 1) } }
+            println("LO1V2 GG1 pin (the rig; modeled): wheel span $wheel; images from the open ${imgs.size}; wheel writes at $wheelAt; first LIST of list 1 at $listAt")
+            assertTrue(wheelAt.isNotEmpty(), "the scene: the wheel's block written after the open (the switcher's order changed)")
+            assertTrue(listAt >= 0 && wheelAt.first() > listAt, "no wheel write before the window list's offer: wheel writes at $wheelAt, LIST at $listAt")
+        } finally { r.close() }
+    }
+
     /**
      * K1-2 stage 4i, item 1 (decisions DK 2; 4a's finding 2): a session started on a window — Main is staged only while it
      * is in front, so it has no staging — then Back to Main with the run held in its frame phase: Main's staging is not held
@@ -1530,6 +1587,7 @@ class WindowListShellTest {
             val span = r.onLoop { r.shell.mainRegionForTest() }
             val at = r.right.size
             val readings0 = readings.size
+            val notes0 = r.notes("mainstage").size
             r.shell.transitionHoldInHalfForTest = true
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             r.until("Main in front, its run held") { r.onLoop { r.shell.currentWindowId() == null && r.shell.transitionPhaseForTest() == "FRAME" } }
@@ -1560,6 +1618,9 @@ class WindowListShellTest {
             r.until("the run ended") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
             val runTo = runEnd(r, at)
             mainBound(r, "Main after the run")
+            val m = r.notes("mainstage").drop(notes0)
+            assertTrue(m.none { "atlas goes first" in it && "(under a transition)" !in it }, "no row of Main painted again after the run: $m")
+            assertTrue(m.any { "atlas goes first" in it && "(under a transition)" in it }, "the scene: Main's rows met an atlas miss under the run: $m")
             assertEquals(emptyList(), list0Traffic(r, at, runTo, span), "nothing of list 0 from the act to the run's end")
             assertEquals(stagings + 1, r.onLoop { r.shell.mainBinding.stagings }, "one staging of Main, after the run")
             assertEquals(p.second, r.onLoop { r.shell.mainBinding.staging?.rows }, "laid out from the rows painted under the run")

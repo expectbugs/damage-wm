@@ -4674,8 +4674,16 @@ class Shell(
      *  at a session start only ([stageSessionStart]) — a lapse's [ledgerReset] re-arms the count, not
      *  the notice. Loop-only. */
     private var cacheOffSaid = false
-    /** No reading before this after a pending or short one (`CacheLedger.REREAD_PACE_MS`, `SETTLE_MS`). */
+    /** No reading before this after a pending or short one: a short one `CacheLedger.SETTLE_MS` on; the atlas count's
+     *  pending one `REREAD_PACE_MS` on; a staged pending one `EARLY_REREAD_MS` on when it is the first since an ack, else
+     *  on that first answer's grid of `REREAD_PACE_MS` (LO-1F, decisions GJ 2: [ledgerEarlyFor]). */
     private var ledgerReadNotBeforeMs = 0L
+    /** LO-1F (decisions GG 2, GJ 2): the last ack's clock (`CacheLedger.lastAckMs`) whose first staged pending answer was
+     *  asked again early, and that answer's clock ([ledgerFirstPendingMs], the origin of the later re-asks' grid). Keyed on
+     *  the ack: a new ack, or a session start (which zeroes the clock, and no reading is pending before a new ack), starts
+     *  it again with no reset code. Loop-only. */
+    private var ledgerEarlyFor = -1L
+    private var ledgerFirstPendingMs = 0L
     /** No reading at all before this after one that was not answered (`CacheLedger.UNANSWERED_PACE_MS`,
      *  0.64 R1). A pace of its own, tested in [tryLedgerRead] so a BASE waits behind it too — the
      *  pending / short pace above is [pumpLedger]'s alone, and a base ignores that one on purpose.
@@ -5145,7 +5153,8 @@ class Shell(
     /** LO-1 (decisions GC 5): [ListBind.listBind]'s staging is between two of its base records — one sent, one still
      *  WANTED — and its lane can write the next now (no reason [pumpListBind] or the lane's own gate gives: Main writes no
      *  base record under a run, the window list none under the open wheel, no list under a glyph run's hold), so the count
-     *  is read once, at the last one's ack, and a lane that has stopped never holds the reading. */
+     *  is first read at the last one's acknowledgement, never between two of its records, and a lane that has stopped never
+     *  holds the reading. */
     private fun ListBind.baseRecordsOpen(st: LinkState): Boolean {
         val b = listBind
         if (b.staging == null || b.counted || cacheWritesHeld() || atlasResendMissing > 0L || listBindBlocked(st) != null) return false
@@ -5336,16 +5345,26 @@ class Shell(
             }
             is CacheLedger.Verdict.Pending -> {
                 // the acked writes have not had their settle window: counts for nothing, asked again paced.
+                // LO-1F (decisions GG 2, GJ 2): for staged records the first pending answer after an ack is asked
+                // again once EARLY_REREAD_MS on, and every later re-ask falls on that answer + n × REREAD_PACE_MS
+                // (today's grid, never a whole pace after the early answer); keyed on the last ack's clock, so a new
+                // ack starts it again. The atlas count's pending answers are asked again REREAD_PACE_MS on.
                 // The note FIRST, then the clock for the pace, then the pump at its end (0.64 R1, review 1a
                 // RD-4): with the clock read before the note, the note's stamp could come after it and a
                 // re-read launched by some other pump was then less than the pace after the NOTE — the
-                // one fact a journal reader (and `StagingTest`'s bound) has. The pump stays last: launched
-                // before the pace it would arrive early after a stall, and the re-read would wait for the
-                // idle tick.
-                if (staged) journal.note("stage", "$from read the generation ${v.missing} short inside the settle window — pending, asked again in ${CacheLedger.REREAD_PACE_MS} ms")
-                else journal.note("atlas", "count pending — $from read the generation ${v.missing} short inside the settle window, asked again in ${CacheLedger.REREAD_PACE_MS} ms")
-                ledgerReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS
-                pumpAfter(CacheLedger.REREAD_PACE_MS)
+                // one fact a journal reader (and `StagingTest`'s bound) has. (The clock read before the note
+                // only sizes the pace the note gives.) The pump stays last: launched before the pace it would
+                // arrive early after a stall, and the re-read would wait for the idle tick.
+                val now = System.currentTimeMillis()
+                val ack = cacheLedger.lastAckMs
+                val early = staged && ledgerEarlyFor != ack
+                if (early) { ledgerEarlyFor = ack; ledgerFirstPendingMs = now }
+                val pace = if (!staged) CacheLedger.REREAD_PACE_MS else if (early) CacheLedger.EARLY_REREAD_MS
+                    else CacheLedger.REREAD_PACE_MS - (now - ledgerFirstPendingMs) % CacheLedger.REREAD_PACE_MS
+                if (staged) journal.note("stage", "$from read the generation ${v.missing} short inside the settle window — pending, asked again in $pace ms")
+                else journal.note("atlas", "count pending — $from read the generation ${v.missing} short inside the settle window, asked again in $pace ms")
+                ledgerReadNotBeforeMs = System.currentTimeMillis() + pace
+                pumpAfter(pace)
             }
             is CacheLedger.Verdict.Short -> {
                 // §73: paced at the settle window, not the re-read pace — the second settled reading
@@ -6508,7 +6527,8 @@ class Shell(
     }
 
     /** K1-2 stage 4a: under a transition, one row of the arriving list's staging painted (loop work only, [pumpLane]) — never
-     *  for a list staged already (a laid-out one waits for the run's end, as its writes do), never while
+     *  for a list staged already (a window's laid-out list goes on to [pumpListBind]'s writes under a path-effect run, LO-1;
+     *  Main's, and any list under a glyph run's hold, waits for the run's end), never while
      *  [listBindBlocked] gives a reason or for a key refused, and, as Main's paint, not while the atlas is being written
      *  (§73: the atlas goes first) — [listBindStage] with `paintOnly` stops before the layout, after which the records are
      *  wanted. True when a row was painted. */
@@ -6815,8 +6835,9 @@ class Shell(
     }
 
     /** Paints Main's staging and puts its records in the registry at their offsets (WANTED). [paintOnly] (K1-2 stage 4a,
-     *  under a transition): the rows painted, nothing laid out — the layout and its writes follow after the run, for the
-     *  same key. */
+     *  under a transition): the rows painted, nothing laid out — for Main arriving with no staging and for a list under a
+     *  glyph run's hold the layout and its writes follow after the run, for the same key; a window's list under a
+     *  path-effect run goes on to its layout and writes in [pumpListBind] (LO-1). */
     private fun ListBind.listBindStage(st: LinkState, now: Long, paintOnly: Boolean = false): Boolean {
         val region = listBindRegion(st)
         val (listD, bandD) = listBindPlanes()
@@ -6862,9 +6883,11 @@ class Shell(
             post(Msg.Pump)
             return true
         }
-        // K1-2 stage 4a: under a run the layout and every write wait for its end; the atlas-first repaint below goes under it
-        // too where the atlas may extend now (not under a glyph run, which holds the atlas to its end), so the rows laid out
-        // after the run are already painted once the atlas holds what they drew
+        // K1-2 stage 4a: with paintOnly (under a run) nothing is laid out here — for Main arriving with no staging and under a
+        // glyph run's hold the layout and every write wait for the run's end, while a window's list under a path-effect run
+        // is laid out and written by [pumpListBind] (LO-1); the atlas-first repaint below goes under the run too where the
+        // atlas may extend now (not under a glyph run, which holds the atlas to its end), so the rows laid out later are
+        // already painted once the atlas holds what they drew
         if (paintOnly) {
             if (ct == null || listBindPaintVersions == (ct.wantVersion to ct.seenVersion) || cacheWritesHeld() || listBind.paints >= ListBinding.PAINTS_MAX) return false
             listBind.paints++; listBindPaint = null
@@ -7216,7 +7239,8 @@ class Shell(
     private fun wheelBase(st: LinkState): Int = wheel.baseIn(mainList.listBindRegion(st).last + 1)
 
     /** C3 DW-1b-2 (decisions DF finding 2, amending CK A3's order of lanes): a window's list in front whose lane has its
-     *  staging still to lay out, write or count — the wheel's block waits behind it, its place reserved above it. Not
+     *  staging still to lay out, write or count — the wheel's block's placement and its in-place writes wait behind it
+     *  (LO-1F, decisions GJ 1), its place reserved above it. Not
      *  under an open switcher (the window list's lane writes nothing then, decisions DA (c) 4, and the wheel's lane writes
      *  what the offer needs, CK A5), nor for a list refused for space, a list covered or adjusting, or no list in front. */
     private fun windowListFirst(): Boolean {
@@ -7319,7 +7343,9 @@ class Shell(
     }
 
     /** The idle chain's step for the wheel's block (after Main's lane and the notice's, before Page staging — CK A3): one
-     *  cell painted, the block placed with its write begun, or one record rewritten in place. True when it did something. */
+     *  cell painted, the block placed with its write begun, or one record rewritten in place. Its placement and its in-place
+     *  writes wait for a window's list in front still to be staged or counted ([windowListFirst]; LO-1F, decisions GJ 1: the
+     *  first notch after an open meets no wheel write). True when it did something. */
     private suspend fun pumpWheel(st: LinkState): Boolean {
         // DW-1b-1: nothing of the block goes while the wheel is bound (the open's entries are a snapshot, the amendment's §3.4);
         // open and not bound, only what the offer needs (CK A5, below); below stage 5 no version-2 record is written, and a
@@ -7356,6 +7382,9 @@ class Shell(
         val cells = if (built != null) wheel.want!!.cells else w.keys.indices.map { wheel.painted.getValue(it).second }
         val fx = effectsToken(st) ?: return false
         val b = wheel.block ?: return wheelPlace(st, w, cells, fx)
+        // LO-1F (decisions GJ 1): its in-place writes (the item table, the programs, a cell) wait for a window's list in front
+        // still to be staged or counted, as its first placement does ([wheelPlace], after the place is reserved)
+        if (windowListFirst()) return false
         // current: nothing changed since the last pump that found every record as sent (a lost write takes its record out
         // of [WheelResident.sent], so the comparison runs again)
         if (wheel.wantFor == w.key && b === wheel.want && wheel.sent.size == b.cells.size + 3) return false
