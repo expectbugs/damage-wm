@@ -295,7 +295,7 @@ class TxBenchTest {
     private fun u16(b: ByteArray, i: Int) = (b[i].toInt() and 0xFF) or ((b[i + 1].toInt() and 0xFF) shl 8)
 
     /**
-     * `v5-txb-bench` (`make_vectors.py`'s `vectors_v5_txb`, inputs for the fork's fill) holds the product's bytes: the
+     * `v5-txb-bench` (`make_vectors.py`'s `vectors_v5_txb`; filled by the fork at TXBL's comparison) holds the product's bytes: the
      * product's [TxBench.cells] given the vector's glyph sequence sets the vector's cells (one layer), and [TxBench.lay] given its
      * faces and cells writes, from the key's offset, exactly the bytes step 0's cache writes leave there — glyph copies,
      * tables, alphabet, lists, image and the six programs at the key's off4s. A difference is a finding, never an edit.
