@@ -103,8 +103,17 @@ class ConformanceVectorTest {
         // two new files, `v5-dm-rain-fire` and Main's Matrix ship act (ended with DM-2aV's comparison), and C3 stage
         // DM-2b's for its two new files, `v5-dm-cells-fire` and Main's Scramble ship act (ended with DM-2bL's comparison)
         // — are gone: every unfilled file in the repo fails like any other.
-        for (n in out.notFilled)
+        // C3 stage LO-1F, one exception for the ship acts LO-1 moved (decisions GJ 3; DM-W's form): the acts whose order
+        // of cache writes, motion control (mode 26) and bindings (mode 27) moved, captured again with their inputs only —
+        // exactly the names in [LO1_UNFILLED], which wait for the fork's fill: reported "not filled" with a count and run
+        // through the model ([theUnfilledVectorsRunThroughTheModel]); a filled one names the exception stale. The
+        // comparison after the fill removes this exception.
+        val lo1 = out.notFilled.filter { it.substringBefore(" (") in LO1_UNFILLED }
+        if (lo1.isNotEmpty()) println("ConformanceVectorTest: ${lo1.size} LO-1 vector(s) not filled until the comparison: ${lo1.joinToString("; ")}")
+        for (n in out.notFilled - lo1.toSet())
             out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        for (m in LO1_UNFILLED) if (Files.exists(dir.resolve("$m.json")) && out.notFilled.none { it.startsWith("$m ") })
+            out.problems += "$m: filled — the stage LO-1F exception LO1_UNFILLED is stale, remove it"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -830,13 +839,19 @@ class ConformanceVectorTest {
             val dm2a = listOf("v5-dm-rain-fire", "v5-ship-ring-matrix-352")
             for (n in dm2a + dm2a.map { "${it}2" })
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
+            // C3 stage LO-1F's exception holds exactly its names: each is reported, not failed, and a name that only begins
+            // like one fails like any other; the comparison after the fork's fill removes this block and the filter
+            val lo1 = LO1_UNFILLED.sorted()
+            assertEquals(listOf("v5-ship-list1-select-level-depth-480", "v5-ship-ring-tap-glasses-last-288", "v5-ship-ring-tap-glasses-last-352", "v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-report-last-352"), lo1, "stage LO-1F's names")
+            for (n in lo1 + lo1.map { "${it}2" })
+                Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-list1-select-level-depth-4802", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", "v5-ship-ring-tap-glasses-last-2882", "v5-ship-ring-tap-glasses-last-3522", "v5-ship-ring-tap-report-last-2882", "v5-ship-ring-tap-report-last-3522", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
                 "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
-            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
+            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-list1-select-level-depth-4802", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", "v5-ship-ring-tap-glasses-last-2882", "v5-ship-ring-tap-glasses-last-3522", "v5-ship-ring-tap-report-last-2882", "v5-ship-ring-tap-report-last-3522", x3t, "${x3t}2", sv2w, x2, "${x2}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
         } finally {
             Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
             Files.delete(dir); Files.delete(other)
@@ -944,6 +959,10 @@ class ConformanceVectorTest {
         /** Stage X3D's model-follows-§7.3 file (`make_vectors.py`): a hinted present with an owner open (the R1.21 row's
          *  names). */
         const val X3_HINT = "v5-x3-hint"
+        /** C3 stage LO-1F (`private/c3-design/C3-LO1F-built.md`; decisions GJ 3): the ship acts whose order of cache writes,
+         *  mode 26 and mode 27 LO-1 moved, captured again with their inputs only, waiting for the fork's fill. Exactly
+         *  these names; the comparison after the fill removes the set. */
+        val LO1_UNFILLED = setOf("v5-ship-list1-select-level-depth-480", "v5-ship-ring-tap-glasses-last-288", "v5-ship-ring-tap-glasses-last-352", "v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-report-last-352")
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
     }
