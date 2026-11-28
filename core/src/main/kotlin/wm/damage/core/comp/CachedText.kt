@@ -1039,6 +1039,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         val a = atlas                                  // one read: the field can be swapped under us
         val e = liveEntry(font, a)
         if (e == null) {
+            if (onRelay) surveyMissed?.add(font to text)   // C3 TXBF: [survey]'s caller counts a face it cannot record
             if (!cacheMetric) { base.draw(surface, x, y, text, font, level); return }
             // §73: not live, and the cache's metric is in force — the host draws each unit where
             // the cache will ([layout]), so what is drawn is as wide as it measures
@@ -1125,6 +1126,9 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
      *  staging's relay counts them). */
     private var surveyed: ArrayList<TextDraw>? = null
     private var surveyCounted = false
+    /** C3 TXBF: set while a [survey] that asks for them runs — each draw on the relay of a face with no live atlas entry
+     *  (drawn as pixels, so no run is recorded for it), as its face and text: what the probe `txbench` says it skipped. */
+    private var surveyMissed: MutableList<Pair<FontSpec, String>>? = null
     private var relayDx = 0
     private var relayDy = 0
     private var relayKeep = Rect(0, 0, 0, 0)
@@ -1152,11 +1156,11 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
     /** C3 DM-2b: [survey] — [counted]: and the draws counted as the staging's relay (`Shell.NO_RECORDS`) counts them (a
      *  face seen, its characters noted, an icon's use counted, so the atlas learns what Main's rows draw; no unpacked
      *  count, no record in the frame's lists) — what Scramble's cells are made from while Main's rows are painted for a staging. */
-    fun survey(tmp: Gray8, counted: Boolean, block: () -> Unit): List<TextDraw> {
-        val prev = surveyed; val pc = surveyCounted
+    fun survey(tmp: Gray8, counted: Boolean, block: () -> Unit, missed: MutableList<Pair<FontSpec, String>>? = null): List<TextDraw> {
+        val prev = surveyed; val pc = surveyCounted; val pm = surveyMissed
         val out = ArrayList<TextDraw>()
-        surveyed = out; surveyCounted = counted
-        try { via(tmp, 0, 0, Rect(0, 0, tmp.w, tmp.h), block) } finally { surveyed = prev; surveyCounted = pc }
+        surveyed = out; surveyCounted = counted; surveyMissed = missed
+        try { via(tmp, 0, 0, Rect(0, 0, tmp.w, tmp.h), block) } finally { surveyed = prev; surveyCounted = pc; surveyMissed = pm }
         return out
     }
 

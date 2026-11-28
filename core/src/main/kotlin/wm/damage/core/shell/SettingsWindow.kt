@@ -373,6 +373,17 @@ class SettingsWindow(
         )
     }
 
+    /** C3 stage TXB: the category [name]'s rows (any case) as a list view the `txbench` probe paints its cells from — read
+     *  only (a commit does nothing), the open page and its cursor untouched; null for no such category. */
+    internal fun categoryView(name: String): WindowView.ListView? {
+        val es = cats().firstOrNull { it.name.equals(name, ignoreCase = true) }?.entries ?: return null
+        return WindowView.ListView(ListModel(), rowCount = { es.size }, paintRow = { g, i, r, _ -> paintRow(g, i, r, es) },
+            paintLens = { g, r, i -> paintLens(g, r, i, es) }, onCommit = {})
+    }
+
+    /** C3 stage TXB: the categories' names, for the probe's refusal. */
+    internal fun categoryNames(): List<String> = cats().map { it.name }
+
     /** Adam's rule, 2026-09-04 (`HOLDEM.md` §3): Main shows the window's ROOT.
      *  Settings has categories, so its root is the category list — leaving it
      *  inside "Music" because that is where it was last is the same surprise
@@ -525,9 +536,9 @@ class SettingsWindow(
         text.draw(g, (xRight - text.measure(s, f)) / 4 * 4, y, s, f, lv)
     }
 
-    private fun paintRow(g: Gray8, i: Int, r: Rect) {
-        val e = entriesAt().getOrNull(i) ?: run {
-            wm.damage.core.util.Log.w("settings", "row $i beyond ${entriesAt().size} entries — blank row"); return
+    private fun paintRow(g: Gray8, i: Int, r: Rect, es: List<Entry> = entriesAt()) {
+        val e = es.getOrNull(i) ?: run {
+            wm.damage.core.util.Log.w("settings", "row $i beyond ${es.size} entries — blank row"); return
         }
         // both columns are FITTED to their own cell: a row value is dynamic
         // (an Output device's product name, a host row's answer) and an
@@ -540,8 +551,8 @@ class SettingsWindow(
             r.right - 24 - (r.x + 280))
     }
 
-    private fun paintLens(g: Gray8, r: Rect, i: Int) {
-        val e = entriesAt().getOrNull(i) ?: return
+    private fun paintLens(g: Gray8, r: Rect, i: Int, es: List<Entry> = entriesAt()) {
+        val e = es.getOrNull(i) ?: return
         IconPaint.drawKind(g, IconKind.SETTINGS, r.x + 12, r.y + 10, 24, Level.HEAD)
         val name = label(e)
         text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, name, fRowB, Level.HEAD)

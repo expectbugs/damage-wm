@@ -4747,6 +4747,98 @@ def vectors_v5_dm2b(kf):
               "scramble": scramble})
     return v
 
+TXB_AREA = (0, 352, 640, 128)                    # the probe's area: rows 352..479, full width (TX spec §1.2)
+TXB_NAMES = ("B0", "B1", "B1a", "B2", "B3", "B4")
+
+def txb_layout(faces, glyph_seq):
+    """`TxBench.cells` in Python: the cells of the probe from glyphs in paint order (face, code, level), taken in turn,
+    each at its own size, set like text across the area (a line one tallest glyph high) until the next glyph would not
+    fit below the last line, or 512 — one layer (C3 TXBF): no two boxes meet. faces[f] maps a code to its (w, h, levels).
+    (Both of the vector's faces have cells, so `TxBench.cells`' dropping of a face with none never applies here.)"""
+    ax, ay, aw, ah = TXB_AREA
+    pitch = max(faces[f][code][1] for f, code, _ in glyph_seq)
+    out, x, y = [], ax, ay
+    while len(out) < 512:
+        for f, code, lvl in glyph_seq:
+            if len(out) == 512: break
+            w, h, _ = faces[f][code]
+            if x + w > ax + aw: x, y = ax, y + pitch
+            if y + h > ay + ah: return out              # the area is full: one layer
+            out.append((x, y, f, code, lvl)); x += w
+    return out
+
+def txb_picture(faces, cells):
+    """`TxBench.picture`: the cells' ink as drawn lit (a source level v at a level-L cell is ⌊v·L/15⌋, 0 never drawn)."""
+    ax, ay, aw, ah = TXB_AREA
+    px = [0] * (aw * ah)
+    for x, y, f, code, lvl in cells:
+        w, h, lv = faces[f][code]
+        for yy in range(h):
+            for xx in range(w):
+                v = lv[yy * w + xx]
+                qx, qy = x + xx - ax, y + yy - ay
+                if v and 0 <= qx < aw and 0 <= qy < ah: px[qy * aw + qx] = v * lvl // 15
+    return px
+
+def vectors_v5_txb(kf):
+    """C3 stage TXB's hand-made input (the TX spec §1.2; DM-W's form): one NEW file, `v5-txb-bench` — every earlier file
+    stays byte-identical. The probe `txbench`'s six programs, laid as `TxBench.lay` lays them in two phases from one
+    offset (phase A: per face its glyph copies and 224-entry table, the alphabet {32}, the three cell lists — the cells
+    (one layer over the area) fill none, the same with fill 0, one cell of code 32 — their table, B0–B3; phase B, written over phase A once B3 has
+    played: the cells' ink as one v2 image, B4), each version 2 with one track over rows
+    352..479 at backdrop level 0 (§5.5 refuses a lone `none`), T 8, lvl0 = lvl1 = 0: B0 the one cell, B1 the cells one
+    area's height down, B1a one up, B2 in place, B3 with fill 0, B4 the image DRAWn at the area's corner. Each PLAYed
+    once in slot 2 at P 128 (the probe plays each five times; one is the shape), woken over its T steps, the next after
+    the last step. The faces and cells are the vector's own (two faces, twelve glyphs); the "txb" key names them, and
+    `TxBenchTest` pins that the product's builder called with them gives these bytes (a difference is a finding, never
+    an edit). The area holds level 0 before the first PLAY (the keyframe's ink stops at row 352), as the probe requires;
+    `kf` is not sent."""
+    v = []
+    T, P = 8, 128
+    sizes = [(9, 20), (11, 20), (7, 20), (13, 20), (10, 20), (8, 20), (12, 26), (14, 26), (10, 26), (16, 26), (11, 26), (13, 26)]
+    faces = [{}, {}]
+    for i, (w, h) in enumerate(sizes):
+        faces[i // 6][65 + i] = (w, h, pattern(w, h, 2100 + i))
+    seq = [(i // 6, 65 + i, 4 + i) for i in range(12)]
+    cells = txb_layout(faces, seq)
+    c = Cache2()
+    at = len(c.buf)
+    fonts = []
+    for f in faces:
+        codes = sorted(f)
+        own = {code: c.add(glyph(*f[code])) for code in codes}
+        first = own[codes[0]]
+        fonts.append(c.add(font224([own.get(k + 32, first) for k in range(224)])))
+    alpha4 = c.add(alphabet([32]))
+    def cl(fill): return c.add(cell_list(alpha4, 0, [cell(x, y, faces[f][code][0], faces[f][code][1], fonts[f], code, code, fill, lvl)
+                                                       for x, y, f, code, lvl in cells]))
+    lists = [cl(0xFF), cl(0), c.add(cell_list(alpha4, 0, [cell(TXB_AREA[0], TXB_AREA[1], 0, 0, fonts[0], 32, 32, 0xFF, 15)]))]
+    table4 = c.add(cell_table(lists))
+    ax, ay, aw, ah = TXB_AREA
+    area = rect(*TXB_AREA)
+    dy = {"B1": ah, "B1a": -ah}
+    progs = [c.add(prog2(track(area, 0, gly(T, CELLS, table4, aux0={"B0": 2, "B3": 1}.get(n, 0), y=dy.get(n, 0), lvl=(0, 0)))))
+             for n in TXB_NAMES[:5]]
+    end_a = len(c.buf)
+    cb = Cache2(at)                                  # phase B: from the same offset, over phase A
+    image4 = cb.add(image2(aw, ah, txb_picture(faces, cells)))
+    progs.append(cb.add(prog2(track(area, 0, d2(T, image4, ax, ay, lvl=(0, 0))))))
+    end_b = len(cb.buf)
+    top = pattern(W, H, 1)[:W * ay] + [0] * (W * (H - ay))         # ink above the area, level 0 in it (the probe's condition)
+    st = [step(tk(1000), {"lease": "acquire"}, flags(FULL5), page(True), msg(keyframe(top)), *[msg(m) for m in c.messages()])]
+    t0 = 2000
+    for i, p4 in enumerate(progs):
+        if i == 5:                                   # phase B's records, once B3 has drawn its last step
+            st.append(step(tk(t0 - P), *[msg(m) for m in cb.messages()]))
+        st.append(step(tk(t0), msg(play(2, P, p4, 0x9000 + i))))
+        st += [step(tk(t0 + k * P), wake()) for k in range(1, T + 1)]
+        t0 += (T + 2) * P
+    v.append({"name": "v5-txb-bench", "steps": st, "contract": 2, "start": "zero", "panel": True, "features": [FEATURES_C3],
+              "txb": {"at": at, "endA": end_a, "endB": end_b, "period": P, "t": T, "slot": 2, "area": list(TXB_AREA),
+                      "faces": [[[code, f[code][0], f[code][1], bytes(f[code][2]).hex()] for code in sorted(f)] for f in faces],
+                      "cells": [list(x) for x in cells], "programs": progs, "table4": table4, "image4": image4}})
+    return v
+
 # ---- the self-check (spec §3 D1): every message decodes by its builder's inverse, every program walks to its
 # own length. It proves the encoders' lengths, not the semantics (that is the C's and the simulator's).
 def walk_prog(buf, off):
@@ -4963,6 +5055,7 @@ def main():
     v5x += vectors_v5_dw(kf)                         # C3 stage DW-3: one new file (`v5-dw-fire`); `v5-ship-wheel-*` are ShipVectors'
     v5x += vectors_v5_dm(kf)                         # C3 stage DM-2a: one new file (`v5-dm-rain-fire`); `v5-ship-ring-matrix-352` is ShipVectors'
     v5x += vectors_v5_dm2b(kf)                       # C3 stage DM-2b: one new file (`v5-dm-cells-fire`); `v5-ship-ring-scramble-352` is ShipVectors'
+    v5x += vectors_v5_txb(kf)                        # C3 stage TXB: one new file (`v5-txb-bench`), the probe's six programs
     n_msgs, n_progs, found3, _ = check_v3(v3)
     m4, p4, found4, _ = check_v3(v4, c2=True)
     m5, p5, found5, g5 = check_v3(v5 + v5x, c3=True)
@@ -4970,7 +5063,7 @@ def main():
     check_found(found3 | found4 | found5)
     n_neutral = check_neutral(v12 + v3)
     n_neutral3 = check_neutral_c3(v12 + v3 + v4)
-    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (lambda k: vectors_v5_x2(k) + vectors_v5_x3(k) + vectors_v5_dw(k) + vectors_v5_dm(k) + vectors_v5_dm2b(k), v5x)):
+    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (lambda k: vectors_v5_x2(k) + vectors_v5_x3(k) + vectors_v5_dw(k) + vectors_v5_dm(k) + vectors_v5_dm2b(k) + vectors_v5_txb(k), v5x)):
         assert json.dumps(build(kf)) == json.dumps(got), f"{build.__name__} is not deterministic"
     print(f"self-check: {len(v3)} C1 vectors, {n_msgs} mode-25/26 messages decoded, {n_progs} named programs walked; "
           f"{len(v4)} C2 vectors, {m4} mode-26/27/28 messages and inputs decoded, {p4} named programs walked; "

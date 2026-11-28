@@ -468,8 +468,9 @@ class Version2MotionTest {
         val dm2a = ShipVectors.dm2aActs().size
         // C3 DM-2b: Main's Scramble act (in `acts()`) and the hand-made v5-dm-cells-fire (its programs pinned by [mainsScramblePansInVDmCellsFireAreTheProductsBytes_DM2b])
         val dm2b = ShipVectors.dm2bActs().size
-        assertEquals(28 + ShipVectors.acts().size + 1 + mml + 1 + 1 + 1, files.size,
-            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2, X2MX2's $x2mx2, SV3's $sv3, K1-2 stage 4f's $k12, stage L's and S's $mml, DW-3's $dw and v5-dw-fire, DM-2a's $dm2a and v5-dm-rain-fire, DM-2b's $dm2b and v5-dm-cells-fire")
+        // C3 TXB: the hand-made v5-txb-bench (its records pinned by TxBenchTest.vTxbBenchHoldsTheProductsBytes_TXB)
+        assertEquals(28 + ShipVectors.acts().size + 1 + mml + 1 + 1 + 1 + 1, files.size,
+            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2, X2MX2's $x2mx2, SV3's $sv3, K1-2 stage 4f's $k12, stage L's and S's $mml, DW-3's $dw and v5-dw-fire, DM-2a's $dm2a and v5-dm-rain-fire, DM-2b's $dm2b and v5-dm-cells-fire, TXB's v5-txb-bench")
         val comparedProg = HashMap<String, Int>(); val comparedTab = HashMap<String, Int>()
         val seenProg = HashSet<String>(); val seenTab = HashSet<String>()
         val inexpressible = LinkedHashMap<String, String>(); val refusedByDsl = LinkedHashMap<String, String>()
