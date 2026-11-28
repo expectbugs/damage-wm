@@ -1508,7 +1508,7 @@ class WindowListShellTest {
         try {
             r.up(); r.open("settings"); r.windowBound("Settings")
             val ms0 = r.onLoop { r.shell.windowListBinding.staging }
-            r.t.onNotify = { a, p -> if (hold.get()) { held += a to p; null } else p }
+            r.t.onNotify = { a, p -> synchronized(held) { if (hold.get()) { held += a to p; null } else p } }
             r.onImage = { img -> r.shell.windowListBinding.staging?.takeIf { it !== ms0 }?.let { ms ->
                 if (r.cacheWrite(img) && writtenSpans(img).any { it.first < ms.end && ms.start < it.last + 1 }) hold.set(true) } }
             r.fire(CfwModes.EV_TAP)
@@ -1516,14 +1516,19 @@ class WindowListShellTest {
             r.onImage = null
             for (g in listOf(EvenHubMsg.EV_RING_LONG_PRESS, EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, EvenHubMsg.EV_DOUBLE_CLICK)) r.shell.postGesture(g)
             r.until("the switcher open") { r.shell.switcherIsOpen }
-            val proofs0 = r.notes("stage").count { "proved" in it }
             val before = r.onLoop { r.shell.windowListBinding.records.map { it.state.name } }
-            hold.set(false); for ((a, p) in held) r.t.deliver(a, p)
-            r.until("a reading with the switcher open", maxMs = 10_000) { r.notes("stage").count { "proved" in it } > proofs0 }
-            val s = r.onLoop { Triple(r.shell.switcherIsOpen, r.shell.windowListBinding.records.map { it.state.name }, r.shell.wheelBoundForTest().first != null) }
-            println("LO1V2 E3 pin (the rig; modeled): held ${held.size} answers; Global's records before the release $before, after the reading ${s.second}; wheel offered ${s.third}; " +
-                "stage notes ${r.notes("stage").takeLast(3)}")
-            assertTrue(s.first && "WANTED" in s.second && "PROVEN" in s.second, "the reading went with the wheel open, between Global's base records: $s")
+            synchronized(held) { hold.set(false); for ((a, p) in held) r.t.deliver(a, p) }   // atomic with the hold: no late answer is left out
+            // the wait decides on the asserted predicate in one on-loop evaluation, and its failure carries the state (C3-LO1FR §3)
+            var s: Triple<Boolean, List<String>, Boolean>? = null
+            try {
+                r.until("the reading went with the wheel open, between Global's base records", maxMs = 10_000) {
+                    s = r.onLoop { Triple(r.shell.switcherIsOpen, r.shell.windowListBinding.records.map { it.state.name }, r.shell.wheelBoundForTest().first != null) }
+                    s!!.first && "WANTED" in s!!.second && "PROVEN" in s!!.second }
+            } catch (e: AssertionError) {
+                throw AssertionError("${e.message}; last (switcher open, Global's records, wheel offered) $s; held ${held.size}; stage ${r.notes("stage").takeLast(4)}", e)
+            }
+            println("LO1V2 E3 pin (the rig; modeled): held ${held.size} answers; Global's records before the release $before, at the reading ${s!!.second}; " +
+                "wheel offered ${s!!.third}; stage notes ${r.notes("stage").takeLast(3)}")
         } finally { r.close() }
     }
 
