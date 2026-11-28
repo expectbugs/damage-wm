@@ -185,8 +185,11 @@ class TransitionShellTest {
         fun notes(kind: String): List<String> = if (!Files.exists(journal)) emptyList() else Files.readAllLines(journal)
             .filter { "\"ev\":\"note\",\"kind\":\"$kind\"" in it }.map { it.substringAfter("\"detail\":\"").substringBefore("\"") }
 
-        suspend fun until(what: String, maxMs: Long = 30_000, cond: () -> Boolean) =
-            waitUntil(maxMs, 5, { "$what — transition ${notes("transition").takeLast(4)}; local ${notes("local").takeLast(3)}; ${shell.quiescenceReport()}" }, cond)
+        suspend fun until(what: String, maxMs: Long = 30_000, cond: () -> Boolean) = until({ what }, maxMs, cond)
+
+        /** C3 LO-1X: [until] whose [what] is read once, as the wait gives up — a state at that moment, not at its start. */
+        suspend fun until(what: () -> String, maxMs: Long = 30_000, cond: () -> Boolean) =
+            waitUntil(maxMs, 5, { "${what()} — transition ${notes("transition").takeLast(4)}; local ${notes("local").takeLast(3)}; ${shell.quiescenceReport()}" }, cond)
 
         suspend fun settle(what: String) = until("$what: settled") { shell.isQuiescent() }
 
