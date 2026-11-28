@@ -10463,8 +10463,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "!pumpStagePiece(st) && !mainList.pumpLane(st) &&\n                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)",
-    "!pumpStagePiece(st) && !pumpWheel(st) && !mainList.pumpLane(st) &&\n                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWindowList(st)) pumpStage(st)"
+    "!pumpStagePiece(st) && !mainList.pumpLane(st) &&\n                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpTxbStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)",
+    "!pumpStagePiece(st) && !pumpWheel(st) && !mainList.pumpLane(st) &&\n                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpTxbStage(st) && !pumpWindowList(st)) pumpStage(st)"
    ]
   ],
   "tests": [
@@ -10473,7 +10473,7 @@
   "expect": [
    "theBlockIsStagedAheadAfterMainsStagingAndCountedWithTheWheelNeverOpened_DW1a"
   ],
-  "note": "C3 DW-1a (CK A3): the wheel's lane ahead of Main's in the idle chain — the block goes before Main's staging at a start in Main",
+  "note": "C3 DW-1a (CK A3): the wheel's lane ahead of Main's in the idle chain — the block goes before Main's staging at a start in Main [re-pointed at C3 TXB: the idle chain gained pumpTxbStage]",
   "from": "DW-1a"
  },
  {
@@ -13947,5 +13947,261 @@
   ],
   "note": "C3 DM-2bH: the hold out — a slow instance's step (stepUsForTest) may fall below the step it last drew, so a direct present inside step 2's window after the fold draws step 2 again and d goes back",
   "from": "DM-2bH"
+ },
+ {
+  "id": "TXB-tag-before-ack",
+  "file": "shell/TxBenchRun.kt",
+  "edits": [
+   [
+    "if (r.acked && tagIn != null && tagIn != t) end(",
+    "if (tagIn != null && tagIn != t) end("
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "everyEndingHandsTheRoomBack_TXB"
+  ],
+  "note": "C3 TXB: slot 2's tag read before the PLAY's flush is acknowledged — the mirror still showing the PLAY before ends the run",
+  "from": "C3-TXB"
+ },
+ {
+  "id": "TXB-play-before-proven",
+  "file": "shell/TxBenchRun.kt",
+  "edits": [
+   [
+    "        if (r.records.any { it.state != StagedRecord.State.PROVEN }) return null\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "theRunPlaysThirtyOneAtATimeAndHandsTheRoomBack_TXB"
+  ],
+  "note": "C3 TXB: a PLAY before every record is counted (the program would read bytes not yet in the cache)",
+  "from": "C3-TXB"
+ },
+ {
+  "id": "TXB-no-phase-b",
+  "file": "shell/TxBenchRun.kt",
+  "edits": [
+   [
+    "        if (r.phase == 0 && r.reported == TxBench.PHASE_B * TxBench.PLAYS) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "theRunPlaysThirtyOneAtATimeAndHandsTheRoomBack_TXB"
+  ],
+  "note": "C3 TXB: B4 played over phase A's bytes — its image record never written",
+  "from": "C3-TXB"
+ },
+ {
+  "id": "TXB-end-keeps-run",
+  "file": "shell/TxBenchRun.kt",
+  "edits": [
+   [
+    "        val r = run ?: return\n        run = null\n",
+    "        val r = run ?: return\n"
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "everyEndingHandsTheRoomBack_TXB"
+  ],
+  "note": "C3 TXB: an ending says so but its records stay in the books (the room not handed back)",
+  "from": "C3-TXB"
+ },
+ {
+  "id": "TXB-notify-any-slot",
+  "file": "shell/TxBenchRun.kt",
+  "edits": [
+   [
+    "if (n.tag != r.tag || detail.substringAfter(\" slot \", \"\").substringBefore(' ') != TxBench.SLOT.toString()) return false",
+    "if (n.tag != r.tag) return false"
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "theRunPlaysThirtyOneAtATimeAndHandsTheRoomBack_TXB"
+  ],
+  "note": "C3 TXB: a report from another slot with the same tag moves the run on",
+  "from": "C3-TXB"
+ },
+ {
+  "id": "TXB-level-unchecked",
+  "file": "shell/TxBenchRun.kt",
+  "edits": [
+   [
+    "        levelZero()?.let { end(it); return null }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "everyEndingHandsTheRoomBack_TXB"
+  ],
+  "note": "C3 TXB: a PLAY while the area holds ink (the level-0 draw would clear it)",
+  "from": "C3-TXB"
+ },
+ {
+  "id": "TXB-b1-not-below",
+  "file": "motion/TxBench.kt",
+  "edits": [
+   [
+    "private val DY = intArrayOf(0, AREA.h, -AREA.h, 0, 0, 0)",
+    "private val DY = intArrayOf(0, AREA.h - 1, -AREA.h, 0, 0, 0)"
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "theSixProgramsAreLaidInTheRoomAsTheSpecSetsThem_TXB",
+   "vTxbBenchHoldsTheProductsBytes_TXB"
+  ],
+  "note": "C3 TXB: B1's cells one row short of wholly below the area (the top row of each draws)",
+  "from": "C3-TXB"
+ },
+ {
+  "id": "TXB-lit",
+  "file": "motion/TxBench.kt",
+  "edits": [
+   [
+    "else -> cells(table, index = when (NAMES[i]) { \"B0\" -> 2; \"B3\" -> 1; else -> 0 }, n = T, y = DY[i], lvl0 = 0, lvl1 = 0)",
+    "else -> cells(table, index = when (NAMES[i]) { \"B0\" -> 2; \"B3\" -> 1; else -> 0 }, n = T, y = DY[i], lvl0 = 0, lvl1 = 15)"
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "theSixProgramsAreLaidInTheRoomAsTheSpecSetsThem_TXB",
+   "vTxbBenchHoldsTheProductsBytes_TXB"
+  ],
+  "note": "C3 TXB: the cells drawn lit by the last step (text appears on the lens)",
+  "from": "C3-TXB"
+ },
+ {
+  "id": "TXB-shell-ink-unseen",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "(y * m.stride until (y + 1) * m.stride).any { p[it].toInt() != 0 }",
+    "(y * m.stride until (y + 1) * m.stride).any { false }"
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest.theProbeRunsOnTheShell*"
+  ],
+  "expect": [
+   "theProbeRunsOnTheShellOverTheModel_TXB"
+  ],
+  "note": "C3 TXB: the shell's level-0 check never sees ink — at 480 the probe starts over Main's rows",
+  "from": "C3-TXB"
+ },
+ {
+  "id": "TXB-closed-ends",
+  "file": "shell/TxBenchRun.kt",
+  "edits": [
+   [
+    "        if (n.outcome == \"closed\" && r.closedThis < CLOSED_MAX) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "aPlayClosedByAFrameIsPlayedAgain_TXB",
+   "theProbeRunsOnTheShellOverTheModel_TXB"
+  ],
+  "note": "C3 TXB: a play closed by a frame meeting its area ends the run (on glass the minute's clock repaint would end about every other run)",
+  "from": "C3-TXB"
+ },
+ {
+  "id": "TXBF-room-floor-kept-end",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val floor = (ms.end + 3) and 3.inv()\n        val cap = st.cacheSize - CfwModes.STAGE_RESERVE\n",
+    "        val floor = (maxOf(ms.end, windowList.listBind.staging?.end ?: 0) + 3) and 3.inv()\n        val cap = st.cacheSize - CfwModes.STAGE_RESERVE\n"
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "theProbeFindsRoomWithAWindowsListKept_TXBF"
+  ],
+  "note": "C3 TXBF (GI 1): the room's floor at a kept window list's END — every kept list ends at the wheel's base, above the 64 KiB cap: refused from the first window he opens with a list",
+  "from": "C3-TXBF"
+ },
+ {
+  "id": "TXBF-room-top-past-kept-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            ws != null && ws.start < cap -> ws.start to \"the kept list of ",
+    "            false -> ws!!.start to \"the kept list of "
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "theProbeFindsRoomWithAWindowsListKept_TXBF"
+  ],
+  "note": "C3 TXBF (GI 1): the room's top ignores a kept window list's START below the 64 KiB cap — the probe's records would go over that list",
+  "from": "C3-TXBF"
+ },
+ {
+  "id": "TXBF-close-under-transition",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (!txb.closeOwed || transition != null || notifications.active) return\n",
+    "            if (!txb.closeOwed) return\n"
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "anInputThatOpensAWindowThroughATransitionSendsNoCloseUnderItsOutHalf_TXBF"
+  ],
+  "note": "C3 TXBF (GI 3): the hand-back CLOSE of slot 2 sent while a transition or a notice is in hand — it can follow their PLAY to RIGHT and end the out half or the arrival",
+  "from": "C3-TXBF"
+ },
+ {
+  "id": "TXBF-cells-wrap",
+  "file": "motion/TxBench.kt",
+  "edits": [
+   [
+    "            if (y + im.h > AREA.bottom) break@fill        // the area is full: one layer\n",
+    "            if (y + im.h > AREA.bottom) y = AREA.y\n"
+   ]
+  ],
+  "tests": [
+   "*TxBenchTest*"
+  ],
+  "expect": [
+   "theCellsFillTheAreaOnceAndStop_TXBF",
+   "vTxbBenchHoldsTheProductsBytes_TXB"
+  ],
+  "note": "C3 TXBF (GI 2): the cells wrap back to the top for a second layer — B2 then draws more ink than B4's one opaque area and R_pic reads high",
+  "from": "C3-TXBF"
  }
 ]
