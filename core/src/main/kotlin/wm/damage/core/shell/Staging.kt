@@ -361,8 +361,15 @@ class CacheLedger {
          *  bumps up to ~1 s after the ack on the phone's link). A pace, not a bound: nothing is dropped
          *  or given up inside it, the reading is only asked again. */
         const val SETTLE_MS = 2_000L
-        /** No second reading sooner than this after a pending or short one. */
+        /** The pace of the re-asks after a pending reading. The atlas count's: this long after each pending answer. A
+         *  staged record's (LO-1F, decisions GG 2, GJ 2): the first pending answer since an ack is asked again
+         *  [EARLY_REREAD_MS] after it, and every later re-ask falls on that first answer + n × this (today's grid). A short
+         *  reading is asked again [SETTLE_MS] on. */
         const val REREAD_PACE_MS = 500L
+        /** LO-1F (decisions GG 2, GJ 2): a staged record's first pending answer since an ack is asked again this long after
+         *  it, once (on the phone's link a bump lands up to about a second after its ack, often far sooner). A pace, not a
+         *  bound: nothing is given up; a reading it brings is still Pending inside [SETTLE_MS], never Short. */
+        const val EARLY_REREAD_MS = 150L
         /** No reading sooner than this after one that was NOT ANSWERED (0.64 R1: the transport's null —
          *  its first write failed or its session is ending). A pace, not a bound: the reading is asked
          *  again when it ends; the bound is the shell's count of unanswered readings in a row. */

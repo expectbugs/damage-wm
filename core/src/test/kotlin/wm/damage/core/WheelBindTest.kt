@@ -74,7 +74,7 @@ class WheelBindTest {
 
     private class Rig(stage: Int = 5, kib: Int = 256, nRows: Int = 3, text: wm.damage.core.text.TextRasterizer = FakeText(),
                       val extra: List<DamageWindow> = emptyList(), names: (Int) -> String = { "W$it" }, taps: Taps = Taps.REPORT,
-                      tweak: (ShellSettings) -> ShellSettings = { it }) {
+                      tweak: (ShellSettings) -> ShellSettings = { it }, restored: String? = null) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-wheelbind")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0xdff }
@@ -83,6 +83,9 @@ class WheelBindTest {
         val journal = tmp.resolve("journal.jsonl")
         val persistence = Persistence(tmp.resolve("state.json")).also { p ->
             p.put("shell.settings", tweak(ShellSettings().copy(heightMode = 352, cachedText = "on", taps = taps)).toJson())
+            // LO-1F: a window restored in front, as a process start finds it (`Shell`'s restore of `shell.state`)
+            if (restored != null) p.put("shell.state", kotlinx.serialization.json.buildJsonObject {
+                put("current", kotlinx.serialization.json.JsonPrimitive(restored)); put("mode", kotlinx.serialization.json.JsonPrimitive("WINDOW")) })
         }
         val shell = Shell(CachedText(text), t, persistence, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val rows = (0 until nRows).map { Win("w$it", names(it)) }
@@ -937,6 +940,33 @@ class WheelBindTest {
             r.until("the open's note") { r.notes("wheel").drop(notes0).any { it.startsWith("closed") } }
             val note = r.notes("wheel").drop(notes0).first { it.startsWith("closed") }
             assertTrue("mid-open (at the open: " in note, "the open was not offered until None's programs were written: $note")
+        } finally { r.close() }
+    }
+
+    /**
+     * LO-1F (decisions GJ 1; LO-1 V2 reader a, F1): a PROCESS start with Settings restored in front — a fresh shell, so the
+     * wheel's place is not reserved yet ([WheelResident.reserved]). The block's first placement reserves its place before
+     * it waits for the window's list, so the list is laid out under it once: it never yields to the block and is staged
+     * once. (Held on `7b9942e8`; it fails on the form that holds the wheel ahead of its first placement and cuts the check
+     * after the reservation — the list laid out from the region's end, where the block goes, then dropped and staged again.)
+     */
+    @Test
+    fun aProcessStartInsideAListWindowStagesTheListOnceUnderTheBlocksPlace_LO1F(): Unit = runBlocking {
+        val r = Rig(restored = "settings")
+        try {
+            r.shell.start()
+            r.until("the atlas goes live") { r.shell.cachedTextActive && r.shell.cachedFontsLive.isNotEmpty() }
+            r.until("Settings in front") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.until("Settings bound and the block placed") {
+                r.onLoop { r.shell.slot0ForTest() == "window" && r.shell.wheelBlockForTest() != null } && r.entriesOn(Arm.RIGHT, 1).size == 3 }
+            r.done("the start inside Settings")
+            val notes = r.notes("liststage").filter { "staged —" in it || "dropped —" in it || "offered —" in it }
+            val b = assertNotNull(r.block())
+            val ms = assertNotNull(r.onLoop { r.shell.windowListBinding.staging })
+            println("LO1F process start (the rig; modeled): list at ${ms.start}..${ms.end}, block at ${b.base}..${b.end}; liststage notes ${notes.map { it.take(90) }}")
+            assertEquals(0, r.notes("liststage").count { "the list yields" in it }, "the window list never yields to the block: $notes")
+            assertEquals(1, r.onLoop { r.shell.windowListStagingsForTest() }, "one staging of the window list: $notes")
+            assertTrue(ms.end <= b.base, "the list lies under the block: ${ms.start}..${ms.end} against ${b.base}..${b.end}")
         } finally { r.close() }
     }
 

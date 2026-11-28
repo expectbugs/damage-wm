@@ -88,6 +88,9 @@ class StagingTest {
         @Volatile var shortCountAfterEveryAtlas = false
         /** While set and not complete, a `stage check` reading waits before it is asked. */
         @Volatile var holdStageChecks: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+        /** LO-1F: every `stage check` reading waits this long before it is asked (an answer then never lands on the
+         *  millisecond its pace ended in). */
+        @Volatile var stageCheckDelayMs = 0L
         val stageChecksAsked = java.util.concurrent.atomic.AtomicInteger(0)
         /** 1-based ordinals of STAGE flushes whose completion the shell sees as not ok (the ack never came). */
         @Volatile var failStageDone: Set<Int> = emptySet()
@@ -102,7 +105,7 @@ class StagingTest {
             if (ev is wm.damage.core.transport.TransportEvent.FlushDone && ev.id in failIds) ev.copy(ok = false, error = "test: the ack never came") else ev
         }
         override suspend fun telemetry(label: String): wm.damage.core.wire.DamageMsg.Telemetry? {
-            if (label == "stage check") { stageChecksAsked.incrementAndGet(); holdStageChecks?.await() }
+            if (label == "stage check") { stageChecksAsked.incrementAndGet(); holdStageChecks?.await(); if (stageCheckDelayMs > 0) delay(stageCheckDelayMs) }
             if (label == "cache count") {
                 countAskedAtMs.add(System.currentTimeMillis())
                 if (nullCountReads.getAndUpdate { maxOf(0, it - 1) } > 0) return null
@@ -544,6 +547,50 @@ class StagingTest {
             }
             assertTrue(stage.any { "proved" in it }, "and the record was proven: $stage")
             assertTrue(rig.notes("stage").none { "shortfall" in it || "never landed" in it }, "a pending reading counts for nothing")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * LO-1F (decisions GG 2, GJ 2): the first pending answer after an ack is asked again once after 150 ms
+     * (`CacheLedger.EARLY_REREAD_MS`); every later re-ask falls on that first answer + n × [CacheLedger.REREAD_PACE_MS] —
+     * today's grid — never a whole pace after the early answer. Read from the shell's own notes: the first pending note
+     * says 150, every later one a figure under 500 (today's form and the form "500 from the early answer" both say
+     * exactly 500), then the strip is proven; and each note's figure is a lower bound on the gap to the next note (the
+     * note first, then the clock: 0.64 R1, RD-4). Every stage check is held 3 ms, so no answer lands on the grid's own
+     * millisecond. The decode lags every STAGE write until the third pending note. No upper bound by wall clock.
+     * On the paced link (the pins above say why).
+     */
+    @Test
+    fun theFirstPendingReadingIsAskedAgainEarlyThenOnItsOwnGrid_LO1F(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, SimTransport.Timing(ackMs = 5, bytesPerSec = 5_000_000.0, instant = false))
+        try {
+            rig.spy.lagEveryStageWrite = true
+            rig.spy.stageCheckDelayMs = 3
+            rig.shell.start(); rig.settle("start")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("doc", null) }
+            rig.settle("open doc")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            fun pending() = rig.notes("stage").filter { "pending, asked again in" in it }
+            rig.until("three pending readings of the staged strip", maxMs = 20_000) { pending().size >= 3 }
+            rig.spy.lagEveryStageWrite = false; rig.spy.lagging = false     // the decode landed: the count is right from here
+            rig.until("the strip proven", maxMs = 15_000) { rig.notes("stage").any { "proved" in it } }
+            fun t(line: String) = Regex("\"t\":(\\d+)").find(line)!!.groupValues[1].toLong()
+            fun pace(line: String) = Regex("asked again in (\\d+) ms").find(line)!!.groupValues[1].toLong()
+            val stage = rig.notes("stage")
+            val first = stage.indexOfFirst { "pending, asked again in" in it }
+            val end = (maxOf(first, 0) until stage.size).firstOrNull { "proved" in stage[it] } ?: throw AssertionError("no proof after the pending readings: $stage")
+            val run = stage.subList(maxOf(first, 0), end).filter { "pending, asked again in" in it }
+            println("LO1F early re-ask (the rig; modeled): pending paces ${run.map { pace(it) }}, gaps ${run.zipWithNext { a, b -> t(b) - t(a) }}; " +
+                "then ${stage[end]}")
+            assertTrue(run.size >= 3, "three pending readings before the proof: $stage")
+            assertEquals(150L, pace(run[0]), "the first pending answer after the ack is asked again early: ${run[0]}")
+            for (l in run.drop(1)) assertTrue(pace(l) < CacheLedger.REREAD_PACE_MS, "a later re-ask falls on the first answer's grid, not a whole pace on: $l")
+            for ((a, b) in run.zipWithNext()) assertTrue(t(b) - t(a) >= pace(a), "nothing is read sooner than the pace the note gives: $a → $b")
             rig.shell.stop()
         } finally {
             scope.cancel()

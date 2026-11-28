@@ -102,8 +102,9 @@ class ConformanceVectorTest {
         // OM-V's for every ship act written again after OM-1 (ended with OM-V's comparison), C3 stage DM-2a's for its
         // two new files, `v5-dm-rain-fire` and Main's Matrix ship act (ended with DM-2aV's comparison), and C3 stage
         // DM-2b's for its two new files, `v5-dm-cells-fire` and Main's Scramble ship act (ended with DM-2bL's comparison),
-        // and C3 stage TXB's for its one new file, `v5-txb-bench` (ended with TXBL's comparison) — are gone: every
-        // unfilled file in the repo fails like any other.
+        // C3 stage TXB's for its one new file, `v5-txb-bench` (ended with TXBL's comparison), and C3 stage LO-1F's for
+        // the twelve ship acts LO-1 moved (ended with LO-1L's comparison) — are gone: every unfilled file in the repo
+        // fails like any other.
         for (n in out.notFilled)
             out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
@@ -831,17 +832,22 @@ class ConformanceVectorTest {
             val dm2a = listOf("v5-dm-rain-fire", "v5-ship-ring-matrix-352")
             for (n in dm2a + dm2a.map { "${it}2" })
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
+            // C3 stage LO-1F's exception for the ship acts LO-1 moved ended with LO-1L's comparison: its names, and names
+            // that only begin like them, fail like any other
+            val lo1 = listOf("v5-ship-list1-adjust-none-288", "v5-ship-list1-app-slide-352", "v5-ship-list1-count-fall-288", "v5-ship-list1-kept-fall-352", "v5-ship-list1-notches-depth-352", "v5-ship-list1-select-level-depth-480", "v5-ship-ring-tap-glasses-last-288", "v5-ship-ring-tap-glasses-last-352", "v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-report-last-352", "v5-ship-wheel-commit-window-480", "v5-ship-wheel-yield-480")
+            for (n in lo1 + lo1.map { "${it}2" })
+                Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // C3 stage TXB's exception for its one new file ended with TXBL's comparison: its name, and a name that only
             // begins like it, fail like any other
             for (n in listOf("v5-txb-bench", "v5-txb-bench2"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", "v5-txb-bench", "v5-txb-bench2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-list1-adjust-none-288", "v5-ship-list1-adjust-none-2882", "v5-ship-list1-app-slide-352", "v5-ship-list1-app-slide-3522", "v5-ship-list1-count-fall-288", "v5-ship-list1-count-fall-2882", "v5-ship-list1-kept-fall-352", "v5-ship-list1-kept-fall-3522", "v5-ship-list1-notches-depth-352", "v5-ship-list1-notches-depth-3522", "v5-ship-list1-select-level-depth-480", "v5-ship-list1-select-level-depth-4802", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", "v5-ship-ring-tap-glasses-last-288", "v5-ship-ring-tap-glasses-last-2882", "v5-ship-ring-tap-glasses-last-352", "v5-ship-ring-tap-glasses-last-3522", "v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-report-last-2882", "v5-ship-ring-tap-report-last-352", "v5-ship-ring-tap-report-last-3522", x3t, "${x3t}2", sv2w, x2, "${x2}2", "v5-ship-wheel-commit-window-480", "v5-ship-wheel-commit-window-4802", "v5-ship-wheel-yield-480", "v5-ship-wheel-yield-4802", "v5-txb-bench", "v5-txb-bench2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
                 "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
-            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", x3t, "${x3t}2", sv2w, x2, "${x2}2", "v5-txb-bench", "v5-txb-bench2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
+            assertEquals(listOf("a-one-unfilled", "v5-dm-rain-fire", "v5-dm-rain-fire2", "v5-one-unfilled", "v5-ship-list1-adjust-none-288", "v5-ship-list1-adjust-none-2882", "v5-ship-list1-app-slide-352", "v5-ship-list1-app-slide-3522", "v5-ship-list1-count-fall-288", "v5-ship-list1-count-fall-2882", "v5-ship-list1-kept-fall-352", "v5-ship-list1-kept-fall-3522", "v5-ship-list1-notches-depth-352", "v5-ship-list1-notches-depth-3522", "v5-ship-list1-select-level-depth-480", "v5-ship-list1-select-level-depth-4802", "v5-ship-one-unfilled", sv2, "${sv2}2", "v5-ship-ring-crush-one-unfilled", svr, "${svr}2", "v5-ship-ring-matrix-352", "v5-ship-ring-matrix-3522", "v5-ship-ring-one-unfilled", "v5-ship-ring-tap-glasses-last-288", "v5-ship-ring-tap-glasses-last-2882", "v5-ship-ring-tap-glasses-last-352", "v5-ship-ring-tap-glasses-last-3522", "v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-report-last-2882", "v5-ship-ring-tap-report-last-352", "v5-ship-ring-tap-report-last-3522", x3t, "${x3t}2", sv2w, x2, "${x2}2", "v5-ship-wheel-commit-window-480", "v5-ship-wheel-commit-window-4802", "v5-ship-wheel-yield-480", "v5-ship-wheel-yield-4802", "v5-txb-bench", "v5-txb-bench2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
         } finally {
             Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
             Files.delete(dir); Files.delete(other)

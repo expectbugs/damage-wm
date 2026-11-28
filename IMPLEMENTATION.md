@@ -963,7 +963,8 @@ The focused document's next and previous strips as v2 image records in the cache
   atlas's writer tag); `stageDone` feeds the ledger; `launchLedgerRead` (op 1; `pumpLedger` is the count's one reader,
   for atlas writes and strips alike) and `ledgerVerdict` prove or drop; `stagePlacements` before every assemble;
   `paintDocSlice` blits a PROVEN record's lines. Both write lanes hold while a reading is on its way; a short reading
-  inside `CacheLedger.SETTLE_MS` (2 s) of the last ack is pending, re-read paced 500 ms, and only two settled short
+  inside `CacheLedger.SETTLE_MS` (2 s) of the last ack is pending and re-read paced (a staged record's first pending
+  answer since an ack 150 ms on, then on that answer's 500 ms grid; the atlas count's 500 ms on), and only two settled short
   readings make a shortfall (§66.1: bumps land up to ~1 s after the ack); an extra bump re-bases, drops nothing; a
   shortfall costs staging only, never the atlas (its own read-back judges it). Clears:
   `stageSessionStart`, `atlasReset`/`atlasLapsed`/`atlasDisable`/`atlasLive`, Silent Mode, the row off, `stage.retain`
@@ -1089,8 +1090,11 @@ its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review harde
   and two pan slots; no band forms, no item table, a report-only tap) in Main's region from the wheel's block down to
   the end of Main's staging (Main wins an overlap), and bound as glasses list 1 (entries 3–5, slot 0; `FIRMWARE.md`
   §6.9, §7.11). It is kept while Main, the clock or a screen that is not a list is in front and replaced by another list
-  in front; a changed row is found by the compose compare (`composeCompare`) and the round-robin and staged again. It
-  plays its app's own `Scroll effect` row (`ShellSettings.scrollEffectOf`: None · Depth · Slide · Fall,
+  in front; a changed row is found by the compose compare (`composeCompare`) and the round-robin and staged again. A
+  list arriving under a transition is painted under the run and, under a path effect, laid out, written and counted in
+  it (the count first read at its last record's ack, never between two of its records), then bound at the run's end;
+  under Encode and Matrix its records
+  follow the run (`Shell.pumpLane`, LO-1). It plays its app's own `Scroll effect` row (`ShellSettings.scrollEffectOf`: None · Depth · Slide · Fall,
   `ScrollEffects.WINDOW_EFFECTS`; at "default" and on Settings' own lists `Animations`' effect, of which Crush plays
   Slide and any other outside those four Depth, said: `ScrollEffects.playsFor`); a change re-makes its pans alone.
   `WindowListShellTest`, `WindowListCheck` (`--local-check`'s and `--motion-check`'s window-list cases), the
@@ -1459,7 +1463,9 @@ the sections cited):
   (`shell/ListStaging.kt`, `ListBinding.kt`): the strip covers every row; the row key is what the row DRAWS (never a
   value that moves without the picture — the Music row's progress as its lit blocks); one strip at every cache size — a
   row-form change withdraws the list, writes the row and binds it again; the band slots are sized per row, with two
-  spares. The instruments: `LocalSequenceFuzzTest` (eight invariants), `desktop --local-check`,
+  spares; a row whose band form or row form changed in the last staging keeps the largest band slot and its strip room
+  in the next staging, and its own size from the staging after (K1-2 S1 §1.2, B083 S3).
+  The instruments: `LocalSequenceFuzzTest` (eight invariants), `desktop --local-check`,
   `research/mutations-c2.json`.
 
 ## Verification

@@ -280,6 +280,7 @@ def main(paths, since_ms=0, glasslog=False):
         loop_report(notes)
         local_report(notes)
         wheel_report(notes)
+        list_open_report(notes)
         refusal_report(notes)
         present_report(presents)
         battery_report(notes)
@@ -367,6 +368,7 @@ def main(paths, since_ms=0, glasslog=False):
     loop_report(notes)
     local_report(notes)
     wheel_report(notes)
+    list_open_report(notes)
     whole_report(joined, notes)
     # §41: the cache's account — rects shipped as draws, and why the rest
     # were pixels (the compositor's own reasons, per flush)
@@ -1054,6 +1056,47 @@ def wheel_report(notes):
         print(f'\nfield 38 (reports the glasses could not send, since their boot): +{r38} over the journal\'s `local` readings'
               f' (the first read {first38}; {restarts} restart(s) of the counter seen)')
 
+def list_open_report(notes):
+    """LO-1 (decisions GC 8, GG 4): a window's list after a transition — for each `liststage` `offered —` note that follows a
+    transition's `owed:` note (the act) and a `liststage` `staged —` note after it, the act → offered and the run's end →
+    offered (the run's end: RIGHT's in-half body note or an `ended in` note), path effects and glyph runs (the `owed:`
+    label, its third word) apart; per open the count's pending readings after its staging and the first pending → the
+    last `proved` before the offer, and the in half's folded steps. An act is forgotten at a `dropped — another list is in
+    front` after its run's end (Back to Main, then another window's list); an offer with no staging since its act (a
+    kept staging) or no act before it is not counted. Prints nothing without such an open."""
+    act = None
+    opens = []
+    for n in notes:
+        k, d, t = n.get('kind'), n.get('detail', ''), n.get('t', 0)
+        if k == 'transition' and d.startswith('owed:'):
+            w = d.split(' ')
+            act = {'t': t, 'glyph': len(w) > 2 and w[2] in ('Encode', 'Matrix'), 'end': None, 'staged': False, 'pend': [], 'proved': None, 'folded': None}
+        elif act is None: continue
+        elif k == 'transition' and act['end'] is None and (d.startswith("in half's last step drawn on RIGHT") or ' ended in ' in d):
+            act['end'] = t
+            m = re.search(r'\((\d+) drawn, (\d+) folded\)', d)
+            if m: act['folded'] = int(m.group(2))
+        elif k == 'liststage' and d.startswith('dropped — another list is in front') and act['end'] is not None: act = None
+        elif k == 'liststage' and d.startswith('staged —'): act['staged'] = True
+        elif k == 'stage' and act['staged'] and '— pending' in d: act['pend'].append(t)
+        elif k == 'stage' and act['staged'] and re.search(r' proved \d+ record', d): act['proved'] = t
+        elif k == 'liststage' and d.startswith('offered —'):
+            if act['staged']: opens.append(dict(act, off=t))
+            act = None
+    for glyph, what in ((False, 'path effects'), (True, 'glyph runs')):
+        g = [o for o in opens if o['glyph'] == glyph]
+        if not g: continue
+        a = [o['off'] - o['t'] for o in g]; e = [o['off'] - o['end'] for o in g if o['end'] is not None]
+        p = [o for o in g if o['pend']]; pp = [o['proved'] - o['pend'][0] for o in p if o['proved'] is not None and o['proved'] > o['pend'][0]]
+        f = [o['folded'] for o in g if o['folded']]
+        print(f'\nthe window list after a transition (LO-1, the `transition`, `liststage` and `stage` notes), {what}: {len(g)} open(s) — act → offered '
+              f'median {med(a):,} ms (min {min(a):,}, max {max(a):,})'
+              + (f"; the run's end → offered median {med(e):,} ms (min {min(e):,}, max {max(e):,})" if e else '')
+              + (f"; {len(a) - len(e)} with no run's end in the journal" if len(e) < len(a) else '')
+              + (f"; {len(p)} with a pending reading ({sum(len(o['pend']) for o in p)} in all)" if p else '; no pending reading')
+              + (f", the first pending → proved median {med(pp):,} ms (max {max(pp):,})" if pp else '')
+              + (f"; the in half folded {sum(f)} step(s) in {len(f)} open(s)" if f else '; no in-half step folded'))
+
 def selftest():
     """The report's own checks (0.64 R1; review 1a, RD-1 and RD-2): `main` run over the synthetic journals
     under tools/fixtures/journal_report/ and its text read. Every fixture line was written by hand from
@@ -1224,6 +1267,17 @@ def selftest():
          and wrow('staging', 'the first staging since the process started') == ['1', '19000']
          and wrow('re-stage', 'a row outgrew its segment: the tail laid out again') == ['1', '6628']
          and 'whole repaints by cause (7; 0.08 h painting' in wt and 'MAIN (no input)' not in wt, wt[:600] or '(no table)')
+    # LO-1 (decisions GC 8): act → offered per open of a window's list after a transition — synthetic notes written from the
+    # shell's own strings (`transitionBody`, `listBindPoll`), values made up by hand; an act with no offer and an offer with no
+    # act are left out
+    lo = run(['liststage-lo1.jsonl'])[1]
+    case("LO-1: act → offered per open of a path effect, the run's end → offered, the pending readings and the folds",
+         "path effects: 2 open(s) — act → offered median 1,150 ms (min 900, max 1,400); the run's end → offered median 406 ms (min 113, max 700); "
+         "1 with a pending reading (1 in all), the first pending → proved median 160 ms (max 160); the in half folded 1 step(s) in 1 open(s)" in lo,
+         line(lo, 'the window list after a transition'))
+    case("LO-1: glyph runs apart; a stale act (Back, then another window's list), an offer with no act and a re-offer with no staging not counted",
+         "glyph runs: 1 open(s) — act → offered median 1,500 ms (min 1,500, max 1,500); the run's end → offered median 600 ms (min 600, max 600); "
+         "no pending reading; no in-half step folded" in lo and lo.count('the window list after a transition') == 2, lo[-700:])
     missed = 0
     for name, holds, said in results:
         print(('ok    ' if holds else 'MISS  ') + name + ('' if holds else '\n        said: ' + (said or '(no such line)')))

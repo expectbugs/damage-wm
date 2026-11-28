@@ -172,6 +172,18 @@ internal object ShipVectors {
     private fun slotWords(sim: GlassFirmwareSim, arm: Arm, slots: List<Int>): String = slots.joinToString(" ") { s ->
         sim.motionForTest(arm).slots[s]?.let { i -> "$s:%04x %d/%d %s".format(i.tag, i.d, i.T, if (i.drawing) "drawing" else "done") } ?: "$s:-" }
 
+    /** C3 LO-1X: [m]'s slot [s] as `tag t d/T drawing|done [local]`, or `empty` — called inside the model's lock. */
+    private fun slotState(m: MotionSim, s: Int): String = m.slots[s]?.let { i ->
+        "tag %04x %d/%d %s%s".format(i.tag, i.d, i.T, if (i.drawing) "drawing" else "done", if (i.local) " local" else "") } ?: "empty"
+
+    /** C3 LO-1X: [b]'s list [l] and the entries naming it, as the model holds them — called inside the model's lock. */
+    private fun bindState(b: wm.damage.core.sim.BindSim, l: Int): String {
+        val x = b.lists[l]
+        val entries = b.entries.filterNotNull().filter { it.list == l }.joinToString(" ") { "id ${it.eventId} slot ${it.slot} prog %04x".format(it.prog) }
+        return "bind live ${b.live} seq ${b.seq}; list $l items %04x count %d cursor %d pitch %d mark %d ring %s newest %s; entries [%s]"
+            .format(x.items, x.count, x.cursor, x.pitch, x.mark, x.ring, x.newest, entries)
+    }
+
     /** C3 B2X: an event in a few words — an input's event id, an image's sub-messages as mode/sub. */
     private fun eventWords(e: Event): String = if (e.msg == null) "input ${e.input!!.joinToString(",")}" else
         "image " + subs(e.msg).joinToString(",") { if (it.size >= 2) "${it[0].toInt() and 0x7F}/${it[1].toInt() and 0xFF}" else "${it[0].toInt() and 0x7F}" }
@@ -683,7 +695,18 @@ internal object ShipVectors {
         fun fire(eventId: Int) = r.fire(eventId) { record(eventId) }
         /** C3 SVR: the hook alone on both lenses — the stock echo goes later ([echo]), as the rubber band sends a fast
          *  burst's queued scroll messages after it (`FIRMWARE.md` §6.1, §6.7 P5). */
-        fun hook(eventId: Int) = r.inputs(eventId) { record(eventId) }
+        fun hook(eventId: Int, also: () -> Unit = {}) = r.inputs(eventId) { record(eventId); also() }
+        /** C3 LO-1X: the largest d this recorder saw for each instance in [slot] on [arm] (tag to d); call it inside the
+         *  model's lock (the poller writes these maps inside it). */
+        fun seenIn(arm: Arm, slot: Int): Map<Int, Int> = (if (arm == Arm.LEFT) seenL else seenR)
+            .filterKeys { it ushr 16 == slot }.mapKeys { it.key and 0xFFFF }
+        /** C3 LO-1X: the tags this recorder has counted in [slot] on [arm] so far (inside the model's lock) — a wait's [before]. */
+        fun tagsIn(arm: Arm, slot: Int): Set<Int> { prog(arm); return seenIn(arm, slot).keys.toSet() }
+        /** C3 LO-1X: an instance in [slot] on [arm] whose tag is not in [before] has drawn [steps] steps, by this recorder's own
+         *  count (refreshed here; inside the model's lock). It stays true once met — done, closed or replaced — where the model's
+         *  `drawing && d < T` lasts only while the pan runs, and not at all when a late wake draws the pan in one step
+         *  (`C3-LO1X-built.md`: drawn 1, folded 18). */
+        fun drewNew(arm: Arm, slot: Int, before: Set<Int>, steps: Int): Boolean { prog(arm); return seenIn(arm, slot).any { (tag, d) -> tag !in before && d >= steps } }
         /** Inside the model's lock, just before both lenses take the input: the input at the progress it lands at. */
         private fun record(eventId: Int) {
             events += Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), prog(Arm.RIGHT), act.get(), at = slotWords(r.sim, Arm.RIGHT, slots))
@@ -751,11 +774,11 @@ internal object ShipVectors {
                 ScrollForm.BURST -> {
                     val from = rec.events.size
                     for (k in 1..3) {
-                        val tag0 = synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[0]?.tag }
+                        val before = synchronized(r.sim) { rec.tagsIn(Arm.RIGHT, 0) }
                         rec.fire(CfwModes.EV_UPROLL)
-                        // the next notch goes while this pan is in motion on RIGHT: its own instance, at step 2 or later, not done
-                        if (k < 3) r.until("${spec.name}: pan $k drawing on RIGHT") { synchronized(r.sim) {
-                            r.sim.motionForTest(Arm.RIGHT).slots[0]?.let { it.tag != tag0 && it.drawing && it.d >= minOf(2, it.T - 1) && it.d < it.T } == true } }
+                        // the next notch once this pan has begun on RIGHT: its own instance at step 2 or later (C3 LO-1X: by the
+                        // recorder's count, so a pan drawn whole between two polls still lets the act go on)
+                        if (k < 3) r.until("${spec.name}: pan $k begun on RIGHT") { synchronized(r.sim) { rec.drewNew(Arm.RIGHT, 0, before, minOf(2, spec.t - 1)) } }
                     }
                     ended(from, 3, "a burst of three notches down")
                 }
@@ -1023,10 +1046,25 @@ internal object ShipVectors {
                     val from = rec.events.size
                     rec.act.set(true)
                     val tag0 = synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[0]?.tag }
-                    rec.hook(CfwModes.EV_DOWNROLL)                          // row 1 → row 0
-                    r.until("${spec.name}: the first pan drawing on RIGHT") { synchronized(r.sim) {
-                        r.sim.motionForTest(Arm.RIGHT).slots[0]?.let { it.tag != tag0 && it.drawing && it.d >= 1 && it.d < it.T } == true } }
-                    rec.hook(CfwModes.EV_DOWNROLL)                          // row 0 → the last row, inside the first's motion
+                    // C3 LO-1X: RIGHT as the hook went in (inside its hold) and as the wait gives up (one hold), for the text
+                    var atHook = ""; var sent0 = 0; var matched0 = 0L; var before = emptySet<Int>()
+                    rec.hook(CfwModes.EV_DOWNROLL) {                       // row 1 → row 0
+                        val m = r.sim.motionForTest(Arm.RIGHT); val b = r.sim.bindForTest(Arm.RIGHT)
+                        atHook = "slot 0 ${slotState(m, 0)}; ${bindState(b, ListStaging.LIST)}"; sent0 = m.sent.size; matched0 = b.matched
+                        before = rec.tagsIn(Arm.RIGHT, 0) }
+                    val hookedAt = System.currentTimeMillis()
+                    // C3 LO-1X: the first pan begun — a new tag on slot 0 that drew a step, by the recorder's count: met during the
+                    // pan as before, and after it when a late wake draws it whole between two polls (two of 300 captures)
+                    r.until({ "${spec.name}: the first pan begun on RIGHT — " + synchronized(r.sim) {
+                        val m = r.sim.motionForTest(Arm.RIGHT); val b = r.sim.bindForTest(Arm.RIGHT)
+                        val since = m.sent.drop(sent0)
+                        val bodies = since.filter { it.first == DamageMsg.MOTION_FIELD }.map { DamageMsg.parseMotion(Pb.l(DamageMsg.MOTION_FIELD, it.second))!! }
+                        "RIGHT ${System.currentTimeMillis() - hookedAt} ms after the hook: slot 0's tag before it %04x; at the hook ".format(tag0 ?: 0) +
+                            "[$atHook]; now [slot 0 ${slotState(m, 0)}; ${bindState(b, ListStaging.LIST)}]; the recorder saw in slot 0 " +
+                            rec.seenIn(Arm.RIGHT, 0).entries.joinToString(" ", "{", "}") { "%04x:%d".format(it.key, it.value) } +
+                            "; matched since the hook ${b.matched - matched0}; 114 since the hook ${bodies.size} [${said(bodies, 0..3)}]; " +
+                            "115 since the hook ${since.count { it.first == DamageMsg.APPLIED_FIELD }}" } }) { synchronized(r.sim) { rec.drewNew(Arm.RIGHT, 0, before, 1) } }
+                    rec.hook(CfwModes.EV_DOWNROLL)                          // row 0 → the last row, inside the first's motion (or just after it)
                     r.until("${spec.name}: both reports held") { held.size == 2 }
                     hold.set(false); start.onNotify = null
                     // the shell's loop pumps after every message, so a report is answered by the next flush whenever the link
@@ -1050,11 +1088,11 @@ internal object ShipVectors {
                     rec.act.set(true)
                     val from = rec.events.size
                     for (k in 1..3) {
-                        val tag0 = synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.SLOT]?.tag }
+                        val before = synchronized(r.sim) { rec.tagsIn(Arm.RIGHT, ListStaging.SLOT) }
                         rec.fire(CfwModes.EV_UPROLL)
-                        // the next notch as RIGHT's pan holds its step FAST_STEP: inside its motion, past Crush's phase 1
-                        if (k < 3) r.until("${spec.name}: pan $k at its step $FAST_STEP on RIGHT") { synchronized(r.sim) {
-                            r.sim.motionForTest(Arm.RIGHT).slots[ListStaging.SLOT]?.let { it.tag != tag0 && it.drawing && it.d >= FAST_STEP && it.d < it.T } == true } }
+                        // the next notch once RIGHT's pan has drawn its step FAST_STEP: inside its motion, past Crush's phase 1 (C3
+                        // LO-1X: by the recorder's count, so a pan drawn whole between two polls still lets the act go on)
+                        if (k < 3) r.until("${spec.name}: pan $k past its step $FAST_STEP on RIGHT") { synchronized(r.sim) { rec.drewNew(Arm.RIGHT, ListStaging.SLOT, before, FAST_STEP) } }
                     }
                     ended(from, 3, "three notches down about 120 ticks apart")
                     r.settle("${spec.name}: after the three")
