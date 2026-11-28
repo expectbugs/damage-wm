@@ -10782,19 +10782,19 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        return windowList.pumpLane(st)\n",
-    "        return windowList.pumpListBind(st)      // (mutant) the whole lane under a run\n"
+    "b.withdrawnFor == null && !(transition != null && this === windowList && surface.offered == null)) b.list",
+    "b.withdrawnFor == null) b.list"
    ]
   ],
   "tests": [
    "*WindowListShellTest.aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a",
-   "*WindowListShellTest.theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
+   "*WindowListShellTest.theArrivingLevelIsWrittenUnderAHeldRunAndBoundOnlyAfterIt_LO1"
   ],
   "expect": [
    "aSelectFromABoundListStagesTheNewLevelAfterTheRun_K12S3a",
-   "theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
+   "theArrivingLevelIsWrittenUnderAHeldRunAndBoundOnlyAfterIt_LO1"
   ],
-  "note": "pin 11 / spec §5.3 (K1-2 stage 4a re-points it at the lift): the window list's whole lane runs under a transition — the new level laid out, written and SET inside the run (K1-2 stage 4i: re-pointed at pumpLane)",
+  "note": "pin 11 / spec §5.3 (K1-2 stage 4a re-points it at the lift): the window list's whole lane runs under a transition — the new level laid out, written and SET inside the run (K1-2 stage 4i: re-pointed at pumpLane) [re-pointed at LO-1: the lane now writes under a path-effect run (decisions GC 1); what stays of the row's intent is no LIST or SET of list 1 inside the run — the offer held to the run's end (GC 2)]",
   "from": "K12S3a"
  },
  {
@@ -11801,14 +11801,14 @@
    ]
   ],
   "tests": [
-   "*WindowListShellTest.theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a",
+   "*WindowListShellTest.theArrivingLevelIsWrittenUnderAHeldRunAndBoundOnlyAfterIt_LO1",
    "*WindowListShellTest.aNotchInTheInHalfOfASelectIntoANewLevelGoesAsToday_K12S4a"
   ],
   "expect": [
-   "theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a",
+   "theArrivingLevelIsWrittenUnderAHeldRunAndBoundOnlyAfterIt_LO1",
    "aNotchInTheInHalfOfASelectIntoANewLevelGoesAsToday_K12S4a"
   ],
-  "note": "K1-2 stage 4a (decisions DA (c) 3; the K1-2 spec §5.3, §6): nothing of the window list's lane under a transition — the arriving list's rows are first painted after the run, so its first write waits a paint turn per row (K1-2 stage 4i: re-pointed at pumpLane)",
+  "note": "K1-2 stage 4a (decisions DA (c) 3; the K1-2 spec §5.3, §6): nothing of the window list's lane under a transition — the arriving list's rows are first painted after the run, so its first write waits a paint turn per row (K1-2 stage 4i: re-pointed at pumpLane) [LO-1: the held-run pin is now theArrivingLevelIsWrittenUnderAHeldRunAndBoundOnlyAfterIt_LO1]",
   "from": "K12S4a"
  },
  {
@@ -11821,12 +11821,14 @@
    ]
   ],
   "tests": [
-   "*WindowListShellTest.theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
+   "*WindowListShellTest.aGlyphRunHoldsTheArrivingListToItsEnd_LO1",
+   "*WindowListShellTest.mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i"
   ],
   "expect": [
-   "theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
+   "aGlyphRunHoldsTheArrivingListToItsEnd_LO1",
+   "mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i"
   ],
-  "note": "K1-2 stage 4a: the paint under a run goes on to the layout (the records wanted) inside the run — every write is to follow the run's end, from a staging laid out after it",
+  "note": "K1-2 stage 4a: the paint under a run goes on to the layout (the records wanted) inside the run — every write is to follow the run's end, from a staging laid out after it [LO-1: a window's list is laid out under a path-effect run by design (GC 1); the paint-only stop still holds a glyph run's list and Main arriving with none]",
   "from": "K12S4a"
  },
  {
@@ -11876,13 +11878,12 @@
    ]
   ],
   "tests": [
-   "*WindowListShellTest.theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a",
-   "*WindowListShellTest.aNotchInTheInHalfOfASelectIntoANewLevel*"
+   "*WindowListShellTest.mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i"
   ],
   "expect": [
-   "theArrivingLevelIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4a"
+   "mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i"
   ],
-  "note": "K1-2 stage 4a: no atlas-first repaint under a run — rows whose paint met characters the atlas did not hold are painted again only after the run, so the paint made under it is thrown away and the first write waits a paint turn per row",
+  "note": "K1-2 stage 4a: no atlas-first repaint under a run — rows whose paint met characters the atlas did not hold are painted again only after the run, so the paint made under it is thrown away and the first write waits a paint turn per row [LO-1F (decisions GG 5, GJ 5): what the clause guards since LO-1 is Main arriving with no staging under a run — a window's list goes on to the full staging, whose own repaint masks it, and a glyph run's hold returns at cacheWritesHeld(); pinned by K12S4i's scene: Main's rows meet an atlas miss under the run and none is painted again after it]",
   "from": "K12S4a"
  },
  {
@@ -12401,8 +12402,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        !listBind.counted -> listBindPaintUnderRun(st)\n",
-    "        !listBind.counted -> this === windowList && listBindPaintUnderRun(st)\n"
+    "        !listBind.counted -> listBindPaintUnderRun(st) || (this !== mainList && pumpListBind(st))\n",
+    "        !listBind.counted -> (this === windowList && listBindPaintUnderRun(st)) || (this !== mainList && pumpListBind(st))\n"
    ]
   ],
   "tests": [
@@ -12411,7 +12412,7 @@
   "expect": [
    "mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i"
   ],
-  "note": "K1-2 stage 4i (decisions DK 2): nothing of Main's lane under a transition when it has no staging — its rows are first painted after the run, so its first write waits a paint turn per row",
+  "note": "K1-2 stage 4i (decisions DK 2): nothing of Main's lane under a transition when it has no staging — its rows are first painted after the run, so its first write waits a paint turn per row [re-pointed at LO-1: the line now also lets a window's list write under a path-effect run]",
   "from": "K12S4i"
  },
  {
@@ -14203,5 +14204,230 @@
   ],
   "note": "C3 TXBF (GI 2): the cells wrap back to the top for a second layer — B2 then draws more ink than B4's one opaque area and R_pic reads high",
   "from": "C3-TXBF"
+ },
+ {
+  "id": "LO1-lane-paint-only-under-run",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        !listBind.counted -> listBindPaintUnderRun(st) || (this !== mainList && pumpListBind(st))\n",
+    "        !listBind.counted -> listBindPaintUnderRun(st)\n"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.theArrivingLevelIsWrittenUnderAHeldRunAndBoundOnlyAfterIt_LO1",
+   "*WindowListShellTest.aNewLevelIsOfferedAtTheFirstPumpAfterTheRun_LO1"
+  ],
+  "expect": [
+   "theArrivingLevelIsWrittenUnderAHeldRunAndBoundOnlyAfterIt_LO1",
+   "aNewLevelIsOfferedAtTheFirstPumpAfterTheRun_LO1"
+  ],
+  "note": "LO-1 (decisions GC 1, 3): the window list is only painted under a path-effect run — its layout, records and count follow the run's end, and its first notches there go as today",
+  "from": "LO-1"
+ },
+ {
+  "id": "LO1-read-between-base",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (based && lists.any { it.baseRecordsOpen(st) }) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aListsBaseRecordsAreCountedByOneReadingAtTheLastAck_LO1"
+  ],
+  "expect": [
+   "aListsBaseRecordsAreCountedByOneReadingAtTheLastAck_LO1"
+  ],
+  "note": "LO-1 (decisions GC 5): the count read between two base records of one staging — the strip proved alone, the programs record waiting behind that reading",
+  "from": "LO-1"
+ },
+ {
+  "id": "LO1-glyph-run-list-writes",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (cacheWritesHeld()) return false               // C3 DM-T (D6): its staging and its re-make wait for the run's end\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aGlyphRunHoldsTheArrivingListToItsEnd_LO1"
+  ],
+  "expect": [
+   "aGlyphRunHoldsTheArrivingListToItsEnd_LO1"
+  ],
+  "note": "LO-1 (decisions GC 1; C3 DM-T D6): a list's staging laid out and written under an Encode or Matrix run, whose reads reach Main's region",
+  "from": "LO-1"
+ },
+ {
+  "id": "LO1F-wheel-in-place-before-list",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (windowListFirst()) return false\n        // current: nothing changed since the last pump",
+    "        // current: nothing changed since the last pump"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.theWheelWaitsForTheWindowListAfterAnOpen_LO1V2"
+  ],
+  "expect": [
+   "theWheelWaitsForTheWindowListAfterAnOpen_LO1V2"
+  ],
+  "note": "LO-1F (decisions GG 1, GJ 1): the wheel's in-place writes (the item table, the programs, a cell) go while a window's list in front is still to be staged or counted — after an open that changes the switcher's order the rewrite goes ahead of the list's records, and the first notch waits behind it",
+  "from": "LO-1F"
+ },
+ {
+  "id": "LO1F-early-reask",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "val pace = if (!staged) CacheLedger.REREAD_PACE_MS else if (early) CacheLedger.EARLY_REREAD_MS\n",
+    "val pace = if (!staged) CacheLedger.REREAD_PACE_MS\n"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.theFirstPendingReadingIsAskedAgainEarlyThenOnItsOwnGrid_LO1F"
+  ],
+  "expect": [
+   "theFirstPendingReadingIsAskedAgainEarlyThenOnItsOwnGrid_LO1F"
+  ],
+  "note": "LO-1F (decisions GG 2, GJ 2): the early re-ask cut — a staged record's first pending answer since an ack is asked again a whole pace on, not 150 ms",
+  "from": "LO-1F"
+ },
+ {
+  "id": "LO1-e3-switcher-clause",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (if (this === mainList) transition != null else switcher.open) return false\n",
+    "        if (this === mainList && transition != null) return false\n"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aReadingGoesWhenTheSwitcherOpensBetweenTwoBaseRecords_LO1V2"
+  ],
+  "expect": [
+   "aReadingGoesWhenTheSwitcherOpensBetweenTwoBaseRecords_LO1V2"
+  ],
+  "note": "LO-1 E3 (decisions GC 5, GJ 7): the switcher's release cut — a window's list between two base records holds the count's reading while the open wheel stops its lane, so no reading goes with the switcher open",
+  "from": "LO-1F"
+ },
+ {
+  "id": "LO1-e3-glyph-hold-clause",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (b.staging == null || b.counted || cacheWritesHeld() || atlasResendMissing > 0L || listBindBlocked(st) != null) return false\n",
+    "        if (b.staging == null || b.counted || atlasResendMissing > 0L || listBindBlocked(st) != null) return false\n"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aReadingGoesWhenTheSwitcherOpensBetweenTwoBaseRecords_LO1V2",
+   "*WindowListShellTest.aListsBaseRecordsAreCountedByOneReadingAtTheLastAck_LO1"
+  ],
+  "expect": [
+   "(declared, no pin: no scene ends a lane between two base records by this clause — LO-1 V2 reader b found and ran none; two hunts (readers a and b) found E3 false at every stop; decisions GJ 7)"
+  ],
+  "note": "LO-1 E3 (decisions GC 5, GJ 7): the glyph run's release cut (`cacheWritesHeld()`) — the reading held while a glyph run holds the list's writes",
+  "from": "LO-1F"
+ },
+ {
+  "id": "LO1-e3-atlas-resend-clause",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (b.staging == null || b.counted || cacheWritesHeld() || atlasResendMissing > 0L || listBindBlocked(st) != null) return false\n",
+    "        if (b.staging == null || b.counted || cacheWritesHeld() || listBindBlocked(st) != null) return false\n"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aReadingGoesWhenTheSwitcherOpensBetweenTwoBaseRecords_LO1V2",
+   "*WindowListShellTest.aListsBaseRecordsAreCountedByOneReadingAtTheLastAck_LO1"
+  ],
+  "expect": [
+   "(declared, no pin: no scene ends a lane between two base records by this clause — LO-1 V2 reader b found and ran none; two hunts (readers a and b) found E3 false at every stop; decisions GJ 7)"
+  ],
+  "note": "LO-1 E3 (decisions GC 5, GJ 7): the atlas re-send's release cut (`atlasResendMissing`) — the reading held while only its own verdict can clear the re-send that holds the lane",
+  "from": "LO-1F"
+ },
+ {
+  "id": "LO1-e3-blocked-clause",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (b.staging == null || b.counted || cacheWritesHeld() || atlasResendMissing > 0L || listBindBlocked(st) != null) return false\n",
+    "        if (b.staging == null || b.counted || cacheWritesHeld() || atlasResendMissing > 0L) return false\n"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aReadingGoesWhenTheSwitcherOpensBetweenTwoBaseRecords_LO1V2",
+   "*WindowListShellTest.aListsBaseRecordsAreCountedByOneReadingAtTheLastAck_LO1"
+  ],
+  "expect": [
+   "(declared, no pin: no scene ends a lane between two base records by this clause — LO-1 V2 reader b found and ran none; two hunts (readers a and b) found E3 false at every stop; decisions GJ 7)"
+  ],
+  "note": "LO-1 E3 (decisions GC 5, GJ 7): the blocked lane's release cut (`listBindBlocked`) — the reading held while the lane gives a reason it cannot write",
+  "from": "LO-1F"
+ },
+ {
+  "id": "LO1-e3-main-run-clause",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (if (this === mainList) transition != null else switcher.open) return false\n",
+    "        if (this !== mainList && switcher.open) return false\n"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aReadingGoesWhenTheSwitcherOpensBetweenTwoBaseRecords_LO1V2",
+   "*WindowListShellTest.aListsBaseRecordsAreCountedByOneReadingAtTheLastAck_LO1",
+   "*WindowListShellTest.mainArrivingWithNoStagingUnderABackIsPaintedUnderTheRunAndWrittenOnlyAfterIt_K12S4i"
+  ],
+  "expect": [
+   "(declared, no pin: no scene ends a lane between two base records by this clause — LO-1 V2 reader b found and ran none; two hunts (readers a and b) found E3 false at every stop; decisions GJ 7)"
+  ],
+  "note": "LO-1 E3 (decisions GC 5, GJ 7): Main's run release cut — Main's staging between two base records holds the reading under a run, where Main writes no base record",
+  "from": "LO-1F"
+ },
+ {
+  "id": "LO1-lane-counted-window-list-under-run",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        this === mainList -> pumpListBind(st)\n        else -> false\n",
+    "        else -> pumpListBind(st)\n"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.theArrivingLevelIsWrittenUnderAHeldRunAndBoundOnlyAfterIt_LO1",
+   "*WindowListShellTest.aNewLevelIsOfferedAtTheFirstPumpAfterTheRun_LO1",
+   "*WindowListShellTest.aNotchInTheInHalfOfAnArrivalAtAKeptStagingIsRefused19AndAppliedAsToday_K12S4a"
+  ],
+  "expect": [
+   "(declared, no pin: no scene ends a lane between two base records by this clause, and no scene re-stages a counted window list's changed row inside a run — kept by reader a (C3-LO1-V2-a, the open points): through pumpListBind a kept staging's changed row would be re-staged by withdrawal inside the in half, and the re-stage after the run covers it; decisions GJ 7)"
+  ],
+  "note": "LO-1 (decisions GC 3, GJ 7): pumpLane's `else -> false` folded into one arm with Main's — a counted window list under a run goes through pumpListBind",
+  "from": "LO-1F"
+ },
+ {
+  "id": "LO1-offer-gate-drops-standing-offer",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "b.withdrawnFor == null && !(transition != null && this === windowList && surface.offered == null)) b.list",
+    "b.withdrawnFor == null && !(transition != null && this === windowList)) b.list"
+   ]
+  ],
+  "tests": [
+   "*WindowListShellTest.aNotchInTheInHalfOfAnArrivalAtAKeptStagingIsRefused19AndAppliedAsToday_K12S4a"
+  ],
+  "expect": [
+   "aNotchInTheInHalfOfAnArrivalAtAKeptStagingIsRefused19AndAppliedAsToday_K12S4a"
+  ],
+  "note": "LO-1 (decisions GC 2, GG 7): the offer gate also holds an offer standing at the act — a kept staging's SETs no longer ride the held frame, and a notch in the in half is not refused 19",
+  "from": "LO-1F"
  }
 ]
