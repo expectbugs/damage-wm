@@ -1,11 +1,29 @@
 {"t": 1799999999900, "ev": "submit", "id": 1, "epoch": 1, "label": "MAIN", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "fill", "bytes": 18}]}
 {"t": 1799999999960, "ev": "done", "id": 1, "ok": true, "ackMs": 60, "bytes": 18}
-{"t": 1800000000000, "ev": "note", "kind": "transition", "detail": "owed: 5 steps a half at P 16, records 1200 B"}
-{"t": 1800000000787, "ev": "note", "kind": "transition", "detail": "in half's last step drawn on RIGHT (5 drawn, 0 folded), 787 ms after the act"}
-{"t": 1800000000845, "ev": "note", "kind": "liststage", "detail": "staged — 5392 B in 2 record(s) at 210720..216112 of the 256 KiB cache: settings level 3"}
-{"t": 1800000001819, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 3 rows counted on the glasses: list 1 slot 0 mark 4, 3 entries"}
-{"t": 1800000005000, "ev": "note", "kind": "transition", "detail": "owed: 5 steps a half at P 16, records 1200 B"}
-{"t": 1800000009000, "ev": "note", "kind": "transition", "detail": "owed: 5 steps a half at P 16, records 1200 B"}
-{"t": 1800000009700, "ev": "note", "kind": "transition", "detail": "in half's last step drawn on RIGHT (5 drawn, 0 folded), 700 ms after the act"}
-{"t": 1800000009705, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 20 rows counted on the glasses: list 1 slot 0 mark 5, 3 entries"}
-{"t": 1800000015000, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 21 rows counted on the glasses: list 1 slot 0 mark 6, 3 entries"}
+{"t": 1800000000000, "ev": "note", "kind": "transition", "detail": "owed: Select Warp over 0,0 640x352, 5 steps a half at P 16, records 1200 B at off4 23552 (out 600 B, in 600 B), C out 40 / in 40 u; tags out 0x0101 in 0x0102"}
+{"t": 1800000000010, "ev": "note", "kind": "liststage", "detail": "dropped — another list is in front (settings level 2 'global'): its staging replaces this one; the window list is offered again once it is staged and counted"}
+{"t": 1800000000300, "ev": "note", "kind": "liststage", "detail": "staged — 11004 B in 2 record(s) at 210720..223932 of the 256 KiB cache: settings level 2 'global' — 20 rows in the window form"}
+{"t": 1800000000700, "ev": "note", "kind": "stage", "detail": "the stage check read the generation 1 short inside the settle window — pending, asked again in 150 ms"}
+{"t": 1800000000787, "ev": "note", "kind": "transition", "detail": "in half's last step drawn on RIGHT (5 drawn, 1 folded), 787 ms after the act"}
+{"t": 1800000000860, "ev": "note", "kind": "stage", "detail": "the stage check proved 2 record(s) — 12 drawable, 0 B in the reserve"}
+{"t": 1800000000900, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 20 rows counted on the glasses: list 1 slot 0 mark 4, 3 entries"}
+{"t": 1800000005000, "ev": "note", "kind": "transition", "detail": "owed: Select Fall over 0,0 640x352, 5 steps a half at P 16, records 1200 B at off4 23552 (out 600 B, in 600 B), C out 40 / in 40 u; tags out 0x0103 in 0x0104"}
+{"t": 1800000005200, "ev": "note", "kind": "liststage", "detail": "staged — 5392 B in 2 record(s) at 210720..216112 of the 256 KiB cache: settings level 3"}
+{"t": 1800000005700, "ev": "note", "kind": "transition", "detail": "in half's last step drawn on RIGHT (5 drawn, 0 folded), 700 ms after the act"}
+{"t": 1800000005900, "ev": "note", "kind": "liststage", "detail": "dropped — the window list's strip left the stage registry (the stage notes say why); the window list is offered again once it is staged and counted"}
+{"t": 1800000006000, "ev": "note", "kind": "liststage", "detail": "staged — 5392 B in 2 record(s) at 210720..216112 of the 256 KiB cache: settings level 3"}
+{"t": 1800000006400, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 3 rows counted on the glasses: list 1 slot 0 mark 5, 3 entries"}
+{"t": 1800000010000, "ev": "note", "kind": "transition", "detail": "owed: Back Warp reversed over 0,0 640x352, 5 steps a half at P 16, records 1200 B at off4 23552 (out 600 B, in 600 B), C out 40 / in 40 u; tags out 0x0105 in 0x0106"}
+{"t": 1800000010700, "ev": "note", "kind": "transition", "detail": "in half's last step drawn on RIGHT (5 drawn, 0 folded), 700 ms after the act"}
+{"t": 1800000020000, "ev": "note", "kind": "liststage", "detail": "dropped — another list is in front (torrents): its staging replaces this one; the window list is offered again once it is staged and counted"}
+{"t": 1800000020300, "ev": "note", "kind": "liststage", "detail": "staged — 4100 B in 2 record(s) at 210720..214820 of the 256 KiB cache: torrents"}
+{"t": 1800000020600, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 9 rows counted on the glasses: list 1 slot 0 mark 6, 3 entries"}
+{"t": 1800000030000, "ev": "note", "kind": "transition", "detail": "owed: Select Encode over 0,0 640x352, 5 steps a half at P 16, records 1200 B at off4 23552 (out 600 B, in 600 B), C out 40 / in 40 u, glyph walk 900 B; tags out 0x0107 in 0x0108"}
+{"t": 1800000030010, "ev": "note", "kind": "liststage", "detail": "dropped — another list is in front (settings level 2 'global'): its staging replaces this one; the window list is offered again once it is staged and counted"}
+{"t": 1800000030900, "ev": "note", "kind": "transition", "detail": "in half's last step drawn on RIGHT (5 drawn, 0 folded), 900 ms after the act"}
+{"t": 1800000031100, "ev": "note", "kind": "liststage", "detail": "staged — 11004 B in 2 record(s) at 210720..223932 of the 256 KiB cache: settings level 2 'global'"}
+{"t": 1800000031500, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 20 rows counted on the glasses: list 1 slot 0 mark 7, 3 entries"}
+{"t": 1800000040000, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 21 rows counted on the glasses: list 1 slot 0 mark 8, 3 entries"}
+{"t": 1800000050000, "ev": "note", "kind": "transition", "detail": "owed: Select Warp over 0,0 640x352, 5 steps a half at P 16, records 1200 B at off4 23552 (out 600 B, in 600 B), C out 40 / in 40 u; tags out 0x0109 in 0x010a"}
+{"t": 1800000050700, "ev": "note", "kind": "transition", "detail": "in half's last step drawn on RIGHT (5 drawn, 0 folded), 700 ms after the act"}
+{"t": 1800000050800, "ev": "note", "kind": "liststage", "detail": "offered — the window list's 21 rows counted on the glasses: list 1 slot 0 mark 9, 3 entries"}
