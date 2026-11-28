@@ -9828,6 +9828,6 @@ is beside its brief.
    11-27, "can wait until Monday"; the K12S3a rate job; the rig's clock read moved inside the lock (it touches every
    test on the rig); `FIRMWARE.md`'s statement that glyphs go "a pixel at a time". Declined and listed: Page staging's
    first strip behind the wheel's write (GP 2). His week reached 100 % on 11-27 about 15:20; from there the lanes ran
-   on his usage credits: $125.00 at list by the ledger (22 lanes, 15:22 on 11-27 to 01:37 on 11-28, measured), the
+   on his usage credits: $125.00 at list by the ledger (21 lanes, 15:22 on 11-27 to 01:37 on 11-28, measured), the
    lead's own turns beside that. The live handler stopped at its $185 cap on 11-27 21:11; the lead took its results.
 
