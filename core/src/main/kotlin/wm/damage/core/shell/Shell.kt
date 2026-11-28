@@ -1344,6 +1344,7 @@ class Shell(
             localSessionStart()                   // build C2 (P1): the start's bind batch rides the keyframe's tail
             noticeReset(); noticeStepsSaid.clear()  // build K1-4a: a fresh lease frees the cache — the notice's programs go again
             lanes.reset("session start"); laneSaid.clear()   // stage L: and the held lanes' areas; every instance ended with the lease
+            txb.end("a new session started (the lease's fresh acquire frees the cache)")   // C3 stage TXB
             // fix round 2 (R2.4): only an AWAKE start enables the atlas. A start that rests has no flags in force
             // (`draw2` false): it built a v1 atlas and moved the layout metric, every window re-wrapped while asleep,
             // and the wake's session moved it back and re-wrapped again before its first flush. Every wake is a
@@ -1649,6 +1650,7 @@ class Shell(
 
     private fun handleInput(type: Int, source: Int) {
         if (testHold) releaseHold("an input event")     // the `hold=on` dev probe never outlives a gesture
+        txb.end("an input event")                       // C3 stage TXB: nor does the txbench probe (the latest real input wins)
         // a ring event while the glasses are silent: the person is there —
         // check now rather than at the next pacing tick (§36, §37.0); the
         // input itself is handled normally, the surface stays current.
@@ -1793,6 +1795,7 @@ class Shell(
      *  or a tap ends the long-press chord. */
     private fun gestureBookkeeping(type: Int) {
         if (testHold) releaseHold("an input event")     // the `hold=on` dev probe never outlives a gesture
+        txb.end("an input event")                       // C3 stage TXB: nor does the txbench probe (the latest real input wins)
         if (type == EvenHubMsg.EV_SCROLL_TOP || type == EvenHubMsg.EV_SCROLL_BOTTOM || type == EvenHubMsg.EV_CLICK) chordArmedAtMs = 0L
         val newEcho = when (type) {
             // a FIXED vocabulary (`InputEcho`): the status cell is measured for it
@@ -3068,7 +3071,141 @@ class Shell(
     private var laneInForceWas = false
 
     /** The stage lane's own books beside the registry — the notice's programs and the lanes' areas — for the ledger. */
-    private fun ownRecs(): List<StagedRecord> = noticeProgs.map { it.rec } + lanes.records
+    private fun ownRecs(): List<StagedRecord> = noticeProgs.map { it.rec } + lanes.records + txb.records   // C3 stage TXB: the probe's
+
+    // ------------------------------------------------------------------ C3 stage TXB: the probe `txbench`
+    /** The probe's run (`TxBenchRun`; `private/c3-design/TX-spec.md` §1.2): only `probe txbench=<list>` starts one. */
+    private val txb = TxBenchRun { kind, detail -> journal.note(kind, detail) }
+
+    /** Why the probe may not run now — §1.2's conditions, read again at every pump while it runs (null: it may). */
+    private fun txbBlocked(st: LinkState): String? = when {
+        !linkUpAndSteady(st) -> "the link is down or the session is rebuilding"
+        glassesSilent -> "the glasses are asleep (Silent Mode or a rest)"
+        !st.effects -> "stage 5 is not in force (EFFECTS)"
+        !st.bind || st.cacheSize != CfwModes.CACHE2_MAX_RIDERS -> "the session's cache is ${st.cacheSize} B${if (st.bind) "" else " without BIND"}, not 256 KiB with Main's own region"
+        !st.draw2 || !st.leaseHeld -> "DRAW2 or the lease is not in force"
+        stageFailed || !ledgerReadable(st) -> "the stage lane or the cache count is not available this session"
+        mode != Mode.MAIN -> "Main is not in front"
+        switcher.open || menu.open || keyboard.open -> "an overlay is open"
+        transition != null -> "a transition is in hand (slot 2 is its out half's)"
+        notifications.active -> "a notice is up (slot 2 is its)"
+        else -> null
+    }
+
+    /** What the probe's room is made of, by identity: Main's staging and a kept window list's. */
+    private fun txbFingerprint(): List<Any?> = listOf(mainList.listBind.staging, windowList.listBind.staging)
+
+    /** The probe's room (C3 TXBF, GI 1): from the end of Main's staging in its own region to the lowest of the cache's top
+     *  64 KiB, a kept window list's START (a window's list is laid from the wheel's base down, so one is kept behind Main
+     *  from the first window he opens with a list) and, with none kept, the wheel's base. The 64 KiB cap stays: the wheel's
+     *  block is not in [txbFingerprint] and is placed at 208,896 or higher. With the room, the words naming its bounds;
+     *  else why there is none, naming the list that set the top and Main's Scroll effect. */
+    private fun txbRoom(st: LinkState): Pair<IntRange?, String> {
+        val own = mainList.listBindRegion(st)
+        if (own.last + 1 >= st.cacheSize) return null to "Main has no region of its own this session (the atlas lies over it)"
+        val ms = mainList.listBind.staging?.takeIf { it.regionStart == own.first } ?: return null to "Main's list is not staged in its region"
+        val floor = (ms.end + 3) and 3.inv()
+        val cap = st.cacheSize - CfwModes.STAGE_RESERVE
+        val ws = windowList.listBind.staging
+        val (top, by) = when {
+            ws != null && ws.start < cap -> ws.start to "the kept list of ${windowList.stagedFor?.takeIf { it.first === ws }?.second?.words() ?: "a window"} at ${ws.start}..${ws.end}"
+            ws == null && wheelBase(st) < cap -> wheelBase(st) to "the wheel's base at ${wheelBase(st)}"
+            else -> cap to "the cache's top 64 KiB at $cap"
+        }
+        return if (top > floor) (floor until top) to "the room $floor..$top (from Main's staging's end to $by)"
+            else null to "no room: ${txbMainWords(ms)} ends at ${ms.end}, at or past $by" + txbChooseAnother(ms)
+    }
+
+    /** Main's staging named with its Scroll effect, for the probe's refusals: "Main's staging (Scroll effect Scramble, its
+     *  records 30736 B last)". */
+    private fun txbMainWords(ms: ListStaging): String = "Main's staging (Scroll effect " +
+        (ms.recordEffect?.let { "${it.word}, its records ${ms.blobs.last().bytes.size} B last" }
+            ?: (wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT).word) + ")"
+
+    /** Where Main's staging carries its effect's records (Scramble's are about 30 KB on his glasses), the cure: another effect. */
+    private fun txbChooseAnother(ms: ListStaging): String =
+        if (ms.recordEffect == null) "" else " — choose another Scroll effect for Main and send the probe again"
+
+
+    /** Why the area is not level 0 on both lenses as the mirror holds them (null: it is) — [open] also refuses a motion
+     *  instance open over it (at the start; between its own PLAYs the mirror may hold the last one's area a little longer). */
+    private fun txbLevelZero(open: Boolean): String? {
+        val m = transport.mirror
+        if (!m.exact) return "the mirror here is not exact: it cannot vouch for the area"
+        val a = wm.damage.core.motion.TxBench.AREA
+        for (arm in Arm.entries) {
+            val why = m.readPanel(arm) { p ->
+                if (open && m.unknownAreas(arm).any { it.overlaps(a) }) "a motion instance is open over the area on the ${arm.name.lowercase()} lens"
+                else (a.y until a.bottom).firstOrNull { y -> (y * m.stride until (y + 1) * m.stride).any { p[it].toInt() != 0 } }
+                    ?.let { "the ${arm.name.lowercase()} lens holds ink in row $it (rows ${a.y}..${a.bottom - 1} must be level 0)" }
+            }
+            if (why != null) return why
+        }
+        return null
+    }
+
+    /** `probe txbench=<list>`: a second while one runs ends it; else §1.2's conditions, the list's rows painted (their text
+     *  runs surveyed, nothing counted: the atlas learns nothing from it), the records laid in the room, and the run begun.
+     *  Every refusal is a `txbench` note with its reason. Loop-confined. */
+    private fun txbStart(list: String) {
+        if (txb.running) { txb.end("a second probe txbench=$list (send it again to start one)"); return }
+        fun no(why: String) = journal.note("txbench", "txbench=$list not started — $why")
+        val st = transport.state.value
+        txbBlocked(st)?.let { return no(it) }
+        val (room, roomWords) = txbRoom(st)
+        if (room == null) return no(roomWords)
+        txbLevelZero(open = true)?.let { return no(it) }
+        val view = (if (list.equals("main", ignoreCase = true)) mainList.surface.view() else settingsWindow.categoryView(list))
+            ?: return no("no list '$list' (main, or a Settings category: ${settingsWindow.categoryNames().joinToString(", ")})")
+        val ct = cachedText ?: return no("cached text is off: no text runs are recorded")
+        val fx = effectsToken(st) ?: return no("the version-2 gate refuses (the mainstage note says why)")
+        val bench = try { TxBenchRun.bench(view, kit, layout, ct, room.first, room.last + 1, fx) }
+            catch (e: wm.damage.core.geom.LintError) {
+                val ms = mainList.listBind.staging
+                return no("its records cannot be made: ${e.message} ($roomWords${if (ms == null) "" else "; ${txbMainWords(ms)}"})" + (ms?.let { txbChooseAnother(it) } ?: ""))
+            }
+        txb.start(list, bench, txbFingerprint(), roomWords)
+        post(Msg.Pump)
+    }
+
+    /** The idle pump's step for the probe's records (as the lanes' areas are written, [pumpLaneStage]) — only while the
+     *  room is the one the run began with, so a record never goes over a staging made since. */
+    private suspend fun pumpTxbStage(st: LinkState): Boolean {
+        if (!txb.running) return false
+        val rec = txb.wanted() ?: run {
+            for (r in txb.records) if (r.state == StagedRecord.State.SENT && stageInFlightRec !== r) r.state = StagedRecord.State.WANTED
+            txb.wanted()
+        } ?: return false
+        if (cacheWritesHeld() || txbBlocked(st) != null || !txb.roomHolds(txbFingerprint())) return false
+        return stageOwnRecord(rec, st, whole = true)
+    }
+
+    /** After the frame: the probe's checks (each a reason it ends) and its next PLAY alone. */
+    private suspend fun txbAfter(st: LinkState) {
+        if (!txb.running) {
+            // an ended run hands slot 2 back: one CLOSE where RIGHT's slot 2 still holds a tag of the probe's, only on a
+            // live link with the engine in force (else there is nothing to close, or a later session starts clean).
+            // C3 TXBF (GI 3): none while a transition or a notice is in hand — their own PLAY in slot 2 closes the probe's
+            // instance (§5.5), and a CLOSE queued now could reach RIGHT after that PLAY (the mirror is fed at the write, not
+            // the submit) and end the out half or the notice's arrival; it stays owed, and the next pump after they end
+            // reads the mirror again
+            if (!txb.closeOwed || transition != null || notifications.active) return
+            txb.closeOwed = false
+            val tag = transport.mirror.motionTagIn(Arm.RIGHT, wm.damage.core.motion.TxBench.SLOT)
+            if (!TxBenchRun.ownTag(tag) || !linkUpAndSteady(st) || glassesSilent || !st.effects) return
+            try {
+                transport.submit(FlushRequest(emptyList(), comp.epoch, "TXB", tail = listOf(CfwModes.motionClose(wm.damage.core.motion.TxBench.SLOT))))
+                journal.note("txbench", "slot ${wm.damage.core.motion.TxBench.SLOT} handed back: its last instance (tag 0x%04x) closed".format(tag))
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { journal.note("txbench", "slot ${wm.damage.core.motion.TxBench.SLOT}'s CLOSE was not submitted (${e.message}): its last instance stays until a write meets it") }
+            return
+        }
+        val msg = txb.pump(txbBlocked(st), txbFingerprint(), transport.mirror.motionTagIn(Arm.RIGHT, wm.damage.core.motion.TxBench.SLOT)) {
+            txbLevelZero(open = false) } ?: return
+        try { txb.sent(transport.submit(FlushRequest(emptyList(), comp.epoch, "TXB", tail = listOf(msg)))) }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { txb.notSent(e.message ?: e::class.simpleName ?: "the submit failed") }
+    }
 
     /** The session can run held lanes (the look a window paints follows it: [ShellServices.lanesInForce]). */
     private fun lanesInForce(st: LinkState): Boolean = lanes.off == null && st.effects && st.draw2 && st.leaseHeld &&
@@ -3548,6 +3685,7 @@ class Shell(
                 if (ev.kind == "motion") wm.damage.core.motion.TestPrograms.playedName(ev.detail)?.let { testProgramEndIntoBelief(it) }
                 if (ev.kind == "motion") noticeNotify(ev.detail)          // build K1-4a: a refused notice PLAY
                 if (ev.kind == "motion") laneNotify(ev.detail)            // stage L: a held lane's stretch drew, was closed or refused
+                if (ev.kind == "motion" && txb.notify(ev.detail)) post(Msg.Pump)   // C3 stage TXB: RIGHT reported the probe's PLAY
             }
             is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses; §4: its path
                 journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path, ev.atMs)
@@ -3562,6 +3700,7 @@ class Shell(
         // build K1-4a: the flush that carried the notice's PLAY failed — the phone's steps for that box
         if (ev.id == noticePlayFlush) { noticePlayFlush = null; if (!ev.ok && !glassesSilent) noticeFallback("the flush carrying its PLAY failed (${ev.error})") }
         if (lanes.flushDone(ev.id, ev.ok, System.currentTimeMillis(), ev.wroteAtMs, ev.ackAtMs)) post(Msg.Pump)   // stage L: a lane's PLAY landed
+        txb.flushDone(ev.id, ev.ok, ev.error)          // C3 stage TXB: the probe's PLAY landed (its tag named) or failed
         transitionFlushDone(ev)                       // build C3 (DP2): the records' write, the out half, the PLAY-AFTER, a frame's
         val a = inflightFlushes.remove(ev.id)
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
@@ -5863,6 +6002,8 @@ class Shell(
      *                      Mode wake does. Every other case is a `rest` note saying why nothing was done.
      *                      Sent to glass only on Adam's word.
      *   hold = on | off    the feel session (2026-11-18): no frame is submitted until hold=off or an input event.
+     *   txbench = <list>   C3 stage TXB: six test programs at level 0 below row 352, each five times, to time a text
+     *                      cell against a picture on the glasses (`TxBenchRun`); <list> is `main` or a Settings category.
      *
      * True when the name is the shell's: the host then does not hand it to the transport. Any thread.
      * The probe is run ON the loop, and only in the session it was taken in ([sessionSerial]): one taken
@@ -5889,6 +6030,17 @@ class Shell(
             post(Msg.Run(dropped = { journal.note("hold", "hold=$value not taken — the session ended") }) {
                 if (serial != sessionSerial) journal.note("hold", "hold=$value not taken — the session changed")
                 else holdProbe(value)
+            })
+            return true
+        }
+        if (name == "txbench") {
+            // C3 stage TXB: the probe that times text cells against a picture on the glasses (`TxBenchRun`), on his word only
+            Log.i("shell", "probe: $name=$value")
+            journal.note("probe", "$name=$value")
+            if (!running) { journal.note("txbench", "txbench=$value not started — no session"); return true }
+            val serial = sessionSerial
+            post(Msg.Run(dropped = { journal.note("txbench", "txbench=$value not started — the session ended") }) {
+                if (serial != sessionSerial) journal.note("txbench", "txbench=$value not started — the session changed") else txbStart(value)
             })
             return true
         }
@@ -8905,6 +9057,7 @@ class Shell(
             atlasForeignWriter = st.cacheWriter
             noticeReset()                         // build K1-4a: the notice's programs are cache bytes another writer may have
             lanes.reset("another writer touched the cache")   // stage L: so are the lanes' areas
+            txb.end("another writer touched the cache")        // C3 stage TXB: and the probe's records
             journal.note("atlas", "the texture cache was written by '${st.cacheWriter}' mid-session — the atlas is dropped, cached text is pixels until the next session or a Cached text toggle")
             atlasReset()
         }
@@ -9165,6 +9318,7 @@ class Shell(
                     if (noticeTail != null) noticePlayFlush = id
                     transitionSubmitted(id, assembled.keyframe, playAfter != null)
                     if (assembled.keyframe) lanes.keyframed()          // stage L: it closed every instance
+                    if (assembled.keyframe) txb.end("a keyframe closed every instance")   // C3 stage TXB
                     if (localTail.isNotEmpty()) { localTailFlushes += id; for (h in lists) h.listBind.tailSent(id, h.listBindEntriesSent()) }
                     inflightFlushes[id] = assembled
                     flushesSubmitted++
@@ -9216,9 +9370,10 @@ class Shell(
             // the wheel's preview over Main before Main's staging step (decisions AL.1): a staging's paint turns are not
             // what the preview waits for
             if (!animated && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !mainList.pumpLane(st) &&
-                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)
+                !pumpNoticeStage(st) && !pumpLaneStage(st) && !pumpTxbStage(st) && !pumpWheel(st) && !pumpWindowList(st)) pumpStage(st)
         }
         lanesAfter()                          // stage L: the chain's PLAY or PLAY-AFTER alone, after the frame
+        txbAfter(st)                          // C3 stage TXB: the probe's next PLAY alone, after the frame
 
         // animations continue on the next completion or message; make sure one
         // arrives even in instant-transport tests
