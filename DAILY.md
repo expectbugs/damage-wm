@@ -175,6 +175,10 @@ without writing a row.
   and the APK asks at every session start, `PHY after the link request: 2M/2M`). `telemetry=read` and
   `flags=probe|clear` answer only on a Damage firmware build (an upstream build ignores them and the `probe` note
   says so). The glasses' battery changes are `battery` notes (the report's battery section).
+- **The text-rate probe** (0.86; `HANDOFF.md` §103.4): `probe:txbench=<list>` (`global`, `main`, …) plays six test
+  programs on the glasses, about 35 s, and writes `txbench` notes and `motion` reports (tags 0x9…) to the journal.
+  On his word each time: stage 5, Main in front and quiet, Main's `Scroll effect` not Scramble, the named list
+  opened once in the session. Any input, notice or window ends the run, said.
 - **The timed rest hour** (his word on glass): start below the gauge's top band (it reads 100 from raw 97
   up, `HANDOFF.md` §74 A3: an hour begun at 100 % reads low); note whether the pair is worn (with the lease released
   the stock head-up dashboard and the temples are stock's); rest from the host that owns the radio; `probe:rest=on`;

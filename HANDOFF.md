@@ -9784,3 +9784,50 @@ is beside its brief.
    and 54 Games from the PC's store; no error line. The 0.84 phone connected at once and the PC said `different builds`
    for games, music and settings (the app lane's protocol is 4 on both builds); the PC's setup log shows the staged APK
    fetched at 12:29 and the phone's lane back with no difference said. What he is asked to look at: `REMINDER.md`.
+
+## 103. APK 0.86, staged 2026-11-28: a window's list loaded during its opening transition; the text-rate probe; the end design of the lists sized, not started
+
+1. **His look at 0.85 (2026-11-27).** Matrix and Scramble on Main: fine. On every other window the scroll effects
+   looked "much worse" (K1-2's smaller form: the selection box still, the row's second text gone during the motion),
+   and "the first couple notches of scroll after opening an app or window don't use the animation". His rule, the same
+   day: consistency across the whole WM, every window as good as Main, and no interim form that leaves the same
+   problem for later. From his journal (measured): a window's list was offered a median 1.96 s after the act over 14
+   opens (1.42–2.86 s); one open traced note by note showed the load starting only after the transition's end and one
+   fixed 500 ms re-ask of the stage check — about 1.4 of 1.8 s.
+2. **The reads** (reports under `private/c3-design/`; rulings in `C3-decisions.md` Parts GA–GP). `C3-WF2-read.md`: band
+   cells give Main's pixels to lists of 3 to about 30 rows (modeled); a larger cache is a format change and a flash
+   for 64 KiB at most. `TX-spec.md`: the fork already draws glyphs by runs, so the number that decides whether the
+   glasses can draw a list's text rows themselves needs no firmware build — a probe measures it; its §1.3 holds the
+   thresholds; the whole firmware text stage is sized there (modeled), one flash sitting. `OF-spec.md` (every window's
+   list by Main's code): SHELVED on his word — the lead had started it on a misreading of "fix it properly", which
+   meant the agreed plan carried out in full, not a new interim build.
+3. **The plan he agreed (11-27):** 0.86 = the load-order fix and the probe; after the probe's number a staged plan for
+   the end design goes to him with the specs' prices; nothing of the firmware text stage starts without his word.
+4. **TXB, the probe `txbench`** (phone code only; `TxBench.kt`, `TxBenchRun.kt`; reports `C3-TXB-built.md`,
+   `C3-TXBF-built.md`): `probe txbench=<list>` plays six test programs five times each on slot 2 (about 35 s) from the
+   free span above Main's staging and writes `txbench` notes and `motion` reports (tags 0x9…) to the journal. From
+   them: X_off = (B1 − B0)/512, X_text = (B2 − B0)/512, R_pic = (B2 − B0)/(B4 − B0). **The ask to him:** stage 5, Main
+   in front and quiet, Main's `Scroll effect` not Scramble; open the list once in the session (Settings → Global),
+   back to Main, then `python3 tools/glassdrive.py aphone TOKEN probe:txbench=global`, hands off about 35 s. Built,
+   reviewed, fixed, its vectors filled by the fork's runner; landed 11-27 22:12.
+5. **LO-1, the load order** (`private/packs/LO-1.md`; reports `C3-LO1*-*.md`): a window list's records are written
+   inside the opening transition's run; the stage check is read at the last ack, a short reading asked again once
+   after 150 ms and then at 500 ms; the wheel's block waits behind a window list that is owed. Built, two review
+   passes (no defect in its product code after the fix), one focused read; the twelve ship acts it moved were filled
+   again by the fork's runner and compared at 0 mismatches. Its last chain had one red, the rig's capture of
+   `v5-ship-ring-burst-352` (1 in 300 alone). Caught twice in 300 with the failure text carrying RIGHT's slot 0
+   (measured): the test rig's wake loop reads its clock outside the model's lock, so a pan could draw one step and
+   fold the rest, and a wait for "a pan in motion" never saw one. Test-only cure (`3bf8935b`: the wait is met by the
+   recorder's count; the two other waits of that shape too), watched 3 of 3 red on the old wait and 3 of 3 green,
+   then 300 of 300. Staging on a rest in Main (LO-2) is not built. **Staged 2026-11-28 03:29–03:32** from `main`
+   `8edbfb1d` after the whole battery on that tree (01:40–03:28; the counts: `REMINDER.md`): both artifacts built
+   first, 0.85's jar and APK to `~/.damage/backup/`, the record files to `pre-0.86/`, the PC's first start with its
+   epoch kept and no error line. The install is his.
+6. **Owed, and what it cost.** After the reset of Mon 2026-11-30 15:00, with other changes: the local-rules race
+   (Part GJ 6: cure (a), the fuzz harness's lane model on LO-1's timing, seed 100101104 at `stage5`) — his word of
+   11-27, "can wait until Monday"; the K12S3a rate job; the rig's clock read moved inside the lock (it touches every
+   test on the rig); `FIRMWARE.md`'s statement that glyphs go "a pixel at a time". Declined and listed: Page staging's
+   first strip behind the wheel's write (GP 2). His week reached 100 % on 11-27 about 15:20; from there the lanes ran
+   on his usage credits: $125.00 at list by the ledger (22 lanes, 15:22 on 11-27 to 01:37 on 11-28, measured), the
+   lead's own turns beside that. The live handler stopped at its $185 cap on 11-27 21:11; the lead took its results.
+

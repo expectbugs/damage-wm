@@ -1,7 +1,7 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §102** (0.85, on his phone and PC since 11-27) → **§101** (stage 5 on his glasses; APK 0.84) →
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §103** (0.86, staged 11-28: a window's list loaded during its opening transition, the text-rate probe) → **§102** (0.85) → **§101** (stage 5 on his glasses; APK 0.84) →
 **§100** (APK 0.83: the scroll rules, Main's scroll effects, the notice on the engine and the transitions in one
 build; the ring list built and read once) → **§99** (C3 flashed on both lenses, the first sessions and the stage-4
 trial) → **§98** (C3's final candidate and its flash-readiness review; the transitions; his fast-scroll session read
@@ -17,11 +17,20 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   2026-11-20 12:33 (`HANDOFF.md` §99); the rollback is C2's `b3f04453…`, kept in `fws/`. Stage 5 (the transitions)
   is armed since 2026-11-21 12:41 on his word (§101.1). The way back from stage 5 without a session: `python3
   tools/ladder.py 4` (`DAILY.md`).
-- **His phone and the PC run 0.85** (§102.3; versionCode 85, staged on his word on 2026-11-27 from `main` `34d97e25`):
-  the PC since 11:52, when the record's migration ran once (13 Settings rows, 19 Music, 54 Games written from the PC's
-  store; no error line); the phone since his install — the PC's setup log shows the staged file fetched at 12:29 and
-  the phone's lane back with no build difference said. 0.84's jar, APK and the record files as they stood at the stop
-  are in `~/.damage/backup/` (`pre-0.85/`; the way back: `DAILY.md`). Nothing of 0.85 is reported from the glasses yet.
+- **The PC runs 0.86 and the staged APK is 0.86** (§103.5; versionCode 86, staged 2026-11-28 03:29–03:32 from `main`
+  `8edbfb1d`, on his words of 11-27 and 11-28): the PC since 03:31 (the record opened with its epoch kept, 138 entries;
+  no migration, no error line). **His phone runs 0.85 until he installs 0.86** — read the PC's setup log (`/damage-apk
+  served`) before saying which. 0.85's jar and APK, and the record files as they stood at the stop, are in
+  `~/.damage/backup/` (`pre-0.86/`; the way back: `DAILY.md`).
+- **What 0.86 carries beyond 0.85** (the code of `main` `8edbfb1d`; the whole battery was green on that tree on
+  2026-11-28 between 01:40 and 03:28, the counts below): a window's own list is written and counted while its opening
+  transition runs (LO-1; on 0.85 the list was offered a median 1.96 s after the act, measured on his glasses over 14
+  opens — the aim, not yet measured on glass, is the list offered at about the transition's end), and the probe
+  `txbench` (TXB: six test programs, about 35 s, run only on his word; its number decides the end design of the
+  windows' lists, `private/c3-design/TX-spec.md` §1.3). No picture differs from 0.85 (the snapshot judge: 0 px).
+- **Owed after the reset of Mon 2026-11-30 15:00, with other changes** (§103.6): the local-rules race that can leave
+  the cursor on two rows (his word of 11-27: it can wait); the rate job for `WindowListShellTest`'s K12S3a; the test
+  rig's wake loop reading its clock outside the model's lock; `FIRMWARE.md`'s "a pixel at a time" for glyphs.
 - **What 0.85 carries beyond 0.84** (the code of `main` `e2147fac`: the whole battery was green on that tree on
   2026-11-27 between 09:23 and 11:14, the counts below, and the upgrade check on a fresh copy of his PC data held 23
   checks of 23 against it): at stage 5, a window's own list bound on the glasses beside Main's (K1-2: Main on one strip with band
@@ -64,15 +73,15 @@ for firmware. Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md
   while rows travel 32; Warp, Flip and Explode centred on the larger height; a notice arriving within about 2 s
   after a fast burst can still double-move Main.
 - **No browser of his is approved yet;** he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
-- **The counts** (simulator; the last full battery, on `main` `e2147fac` with the PC rig's two cures of §102, 2026-11-27
-  09:23–11:14, measured on the PC): the whole core suite 2,276 / 0, desktop 77 / 0; the conformance step 278 tests over
-  268 vector files, every file filled by the fork's runner, the model agreeing with the firmware's C at 0 mismatches
-  (18,734 lens-steps); the sequence fuzz 59 / 0 at each of its three timings and in the gate's fuzz step; the oracle
-  walk twice (7 and 7); `--selfcheck` twice, ALL CHECKS PASS; `--local-check` and `--motion-check` ALL HOLD; the
-  snapshot judge twice, 99 PC and 98 phone scenes, 0 px against `11cf6103`; `--games-check`, `--feed-check`,
-  `--music-check` and `--epub-check` pass; the phone build and its wiring check exit 0; node 217 / 217; the five
-  selftests (45, 28, 31, 40, 22 cases); the mutation list 752 rows, all applying (not swept whole since 0.77's tree);
-  lint 0; no `oom_kill`.
+- **The counts** (simulator; the last full battery, on `main` `8edbfb1d`, 2026-11-28 01:40–03:28, measured on the PC):
+  the whole core suite 2,296 / 0, desktop 78 / 0; the conformance step 279 tests over 269 vector files, every file
+  filled by the fork's runner, the model agreeing with the firmware's C at 0 mismatches (18,852 lens-steps); the
+  sequence fuzz 59 / 0 at each of its three timings and in the gate's fuzz step; the oracle walk twice (7 and 7);
+  `--selfcheck` twice, ALL CHECKS PASS; `--local-check` and `--motion-check` ALL HOLD; the snapshot judge twice, 99 PC
+  and 98 phone scenes, 0 px against `e2147fac`; `--games-check`, `--feed-check`, `--music-check` and `--epub-check`
+  pass; the phone build and its wiring check exit 0; node 217 / 217; the five selftests (45, 30, 31, 40, 22 cases); the
+  mutation list 778 rows, all applying (not swept whole since 0.77's tree); the upgrade check on a fresh copy of his PC
+  data, no check failed; lint 0; no `oom_kill`.
 
 ## Open from the documents' audit (2026-11-23)
 
@@ -100,8 +109,10 @@ Where the code does not do what a ruled design or the contract says; each docume
 
 The order is `REPLAN.md` §17.3 (every run sized first and both meters read, §17.6).
 1. **The motion kit's shell part (K1) goes on, ahead of S2** (`REPLAN.md` §17.3 items 6 and 8): window lists (K1-2), the
-   wheel bound (DW), Matrix and Scramble as scroll effects are built (0.85); in work: Scramble and Matrix, then Crush
-   and Flip, on a window's own list.
+   wheel bound (DW), Matrix and Scramble as scroll effects are built (0.85); the end design of the windows' lists
+   waits on the probe's number (`private/c3-design/TX-spec.md` §1.3: text rows drawn by the glasses, band cells, or
+   pictures kept); the one-form rebuild (`OF-spec.md`) is shelved and DM-W (`wip/085-dmw`) held; the firmware text
+   stage is sized, not started, and starts only on his word (§103.3).
 2. **S1-4** (Music: his five answers are in, `REPLAN.md` §17.3 item 7; half A is in 0.85, §97.5; then his sitting,
    and half B after it), **S1-5** (his five answers of 11-23, `REPLAN.md` §17.3 item 10: built, in 0.85), **R-b** (one
    health view on every surface, §17.4: built, in 0.85; his look comes with it), then §16.1's order. **Music's motion
@@ -111,7 +122,8 @@ The order is `REPLAN.md` §17.3 (every run sized first and both meters read, §1
    feeds on 2026-11-13; measured 11-21 on both of the PC's network paths: HTTP 404. The service still asks every 15
    minutes and logs the refusal. His word on what replaces the source, then the change.
 
-**What waits on him:** his look at 0.85 on glass — text or a row that differs between the
+**What waits on him:** his install of 0.86, one run of the probe on his word (the ask: `HANDOFF.md` §103.4) and his
+look at the first notches after a window opens; still open from 0.85 — text or a row that differs between the
 eyes and stays (the sign that a cache write was lost on one lens: LEFT reports nothing, `FIRMWARE.md` §5.7), Matrix and
 Scramble judged from sequences, whether a row that scrambles or rains the same way each time reads as repetition, and
 Scramble's noise on a row's earlier letters after its text changes (a song's title, a transfer's rate: they stay until
