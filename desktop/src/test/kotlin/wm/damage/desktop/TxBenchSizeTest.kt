@@ -17,8 +17,8 @@ class TxBenchSizeTest {
         val bad = ArrayList<String>()
         for (h in listOf(288, 352)) {
             val b = TxBenchCheck.global(AwtText(), h, at, 256 * 1024)
-            println("TXB size (AwtText, height $h): ${b.cells} cells in ${b.faces} faces; phase A ${b.bytes(0)} B to ${b.end(0)}, " +
-                "phase B ${b.bytes(1)} B to ${b.end(1)}; room ${end - at} B from $at")
+            println("TXB size (AwtText, height $h): ${b.cells} cells (one layer) in ${b.faces} faces; phase A ${b.bytes(0)} B to ${b.end(0)}, " +
+                "phase B ${b.bytes(1)} B to ${b.end(1)}; room ${end - at} B from $at; ${b.source}")
             for (k in 0..1) if (b.end(k) > end) bad += "height $h phase ${"AB"[k]}: ${b.end(k) - at} B past the room's ${end - at} B"
         }
         assertTrue(bad.isEmpty(), "the probe's records do not fit his room: $bad")

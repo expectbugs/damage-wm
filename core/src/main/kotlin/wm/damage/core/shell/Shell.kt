@@ -3095,16 +3095,37 @@ class Shell(
     /** What the probe's room is made of, by identity: Main's staging and a kept window list's. */
     private fun txbFingerprint(): List<Any?> = listOf(mainList.listBind.staging, windowList.listBind.staging)
 
-    /** The probe's room: from the end of Main's staging in its own region (or of a kept window list's, where higher) to the
-     *  start of the cache's top 64 KiB or the wheel's base, whichever is lower — or why there is none. */
-    private fun txbRoom(st: LinkState): Pair<IntRange?, String?> {
+    /** The probe's room (C3 TXBF, GI 1): from the end of Main's staging in its own region to the lowest of the cache's top
+     *  64 KiB, a kept window list's START (a window's list is laid from the wheel's base down, so one is kept behind Main
+     *  from the first window he opens with a list) and, with none kept, the wheel's base. The 64 KiB cap stays: the wheel's
+     *  block is not in [txbFingerprint] and is placed at 208,896 or higher. With the room, the words naming its bounds;
+     *  else why there is none, naming the list that set the top and Main's Scroll effect. */
+    private fun txbRoom(st: LinkState): Pair<IntRange?, String> {
         val own = mainList.listBindRegion(st)
         if (own.last + 1 >= st.cacheSize) return null to "Main has no region of its own this session (the atlas lies over it)"
         val ms = mainList.listBind.staging?.takeIf { it.regionStart == own.first } ?: return null to "Main's list is not staged in its region"
-        val floor = (maxOf(ms.end, windowList.listBind.staging?.end ?: 0) + 3) and 3.inv()
-        val top = minOf(st.cacheSize - CfwModes.STAGE_RESERVE, wheelBase(st))
-        return if (top > floor) (floor until top) to null else null to "no room above Main's staging (it ends at $floor, the room's top is $top)"
+        val floor = (ms.end + 3) and 3.inv()
+        val cap = st.cacheSize - CfwModes.STAGE_RESERVE
+        val ws = windowList.listBind.staging
+        val (top, by) = when {
+            ws != null && ws.start < cap -> ws.start to "the kept list of ${windowList.stagedFor?.takeIf { it.first === ws }?.second?.words() ?: "a window"} at ${ws.start}..${ws.end}"
+            ws == null && wheelBase(st) < cap -> wheelBase(st) to "the wheel's base at ${wheelBase(st)}"
+            else -> cap to "the cache's top 64 KiB at $cap"
+        }
+        return if (top > floor) (floor until top) to "the room $floor..$top (from Main's staging's end to $by)"
+            else null to "no room: ${txbMainWords(ms)} ends at ${ms.end}, at or past $by" + txbChooseAnother(ms)
     }
+
+    /** Main's staging named with its Scroll effect, for the probe's refusals: "Main's staging (Scroll effect Scramble, its
+     *  records 30736 B last)". */
+    private fun txbMainWords(ms: ListStaging): String = "Main's staging (Scroll effect " +
+        (ms.recordEffect?.let { "${it.word}, its records ${ms.blobs.last().bytes.size} B last" }
+            ?: (wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT).word) + ")"
+
+    /** Where Main's staging carries its effect's records (Scramble's are about 30 KB on his glasses), the cure: another effect. */
+    private fun txbChooseAnother(ms: ListStaging): String =
+        if (ms.recordEffect == null) "" else " — choose another Scroll effect for Main and send the probe again"
+
 
     /** Why the area is not level 0 on both lenses as the mirror holds them (null: it is) — [open] also refuses a motion
      *  instance open over it (at the start; between its own PLAYs the mirror may hold the last one's area a little longer). */
@@ -3131,16 +3152,19 @@ class Shell(
         fun no(why: String) = journal.note("txbench", "txbench=$list not started — $why")
         val st = transport.state.value
         txbBlocked(st)?.let { return no(it) }
-        val (room, roomWhy) = txbRoom(st)
-        if (room == null) return no(roomWhy!!)
+        val (room, roomWords) = txbRoom(st)
+        if (room == null) return no(roomWords)
         txbLevelZero(open = true)?.let { return no(it) }
         val view = (if (list.equals("main", ignoreCase = true)) mainList.surface.view() else settingsWindow.categoryView(list))
             ?: return no("no list '$list' (main, or a Settings category: ${settingsWindow.categoryNames().joinToString(", ")})")
         val ct = cachedText ?: return no("cached text is off: no text runs are recorded")
         val fx = effectsToken(st) ?: return no("the version-2 gate refuses (the mainstage note says why)")
         val bench = try { TxBenchRun.bench(view, kit, layout, ct, room.first, room.last + 1, fx) }
-            catch (e: wm.damage.core.geom.LintError) { return no("its records cannot be made: ${e.message} (room ${room.first}..${room.last + 1})") }
-        txb.start(list, bench, txbFingerprint())
+            catch (e: wm.damage.core.geom.LintError) {
+                val ms = mainList.listBind.staging
+                return no("its records cannot be made: ${e.message} ($roomWords${if (ms == null) "" else "; ${txbMainWords(ms)}"})" + (ms?.let { txbChooseAnother(it) } ?: ""))
+            }
+        txb.start(list, bench, txbFingerprint(), roomWords)
         post(Msg.Pump)
     }
 
@@ -3160,8 +3184,12 @@ class Shell(
     private suspend fun txbAfter(st: LinkState) {
         if (!txb.running) {
             // an ended run hands slot 2 back: one CLOSE where RIGHT's slot 2 still holds a tag of the probe's, only on a
-            // live link with the engine in force (else there is nothing to close, or a later session starts clean)
-            if (!txb.closeOwed) return
+            // live link with the engine in force (else there is nothing to close, or a later session starts clean).
+            // C3 TXBF (GI 3): none while a transition or a notice is in hand — their own PLAY in slot 2 closes the probe's
+            // instance (§5.5), and a CLOSE queued now could reach RIGHT after that PLAY (the mirror is fed at the write, not
+            // the submit) and end the out half or the notice's arrival; it stays owed, and the next pump after they end
+            // reads the mirror again
+            if (!txb.closeOwed || transition != null || notifications.active) return
             txb.closeOwed = false
             val tag = transport.mirror.motionTagIn(Arm.RIGHT, wm.damage.core.motion.TxBench.SLOT)
             if (!TxBenchRun.ownTag(tag) || !linkUpAndSteady(st) || glassesSilent || !st.effects) return

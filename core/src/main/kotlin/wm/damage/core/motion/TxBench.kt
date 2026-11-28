@@ -36,15 +36,16 @@ object TxBench {
     const val PERIOD = 128
     /** The notice's and a transition's out half's slot (`CLAUDE.md`'s four slots): neither may be up while it plays. */
     const val SLOT = 2
-    /** The cells B1–B3 draw (§7.6: a list's most). */
+    /** A cell list's most (§7.6): the cells stop here if the area is not full first (C3 TXBF: one layer). */
     const val CELLS = 512
     /** The track's area: the rows below 352, full width (§1.2). */
     val AREA = Rect(0, 352, Geometry.PANEL_W, Geometry.PANEL_H - 352)
     /** Each program's y offset: B1 one area's height down (every cell's top at or past the area's bottom), B1a one up. */
     private val DY = intArrayOf(0, AREA.h, -AREA.h, 0, 0, 0)
 
-    /** One face's private copies: its codes ascending, each with its v1 glyph record `[w][h][RLE]` and levels. */
-    class Face(val codes: IntArray, val glyphs: List<TextureCache.Image>)
+    /** One face's private copies: its codes ascending, each with its v1 glyph record `[w][h][RLE]` and levels; [spec] the
+     *  face it copies (for the start note; null where a test builds one by hand). */
+    class Face(val codes: IntArray, val glyphs: List<TextureCache.Image>, val spec: FontSpec? = null)
 
     /** One cell: its box corner on the panel (inside [AREA]), its face (an index into the faces), its code and level. */
     class Cell(val x: Int, val y: Int, val face: Int, val code: Int, val level: Int)
@@ -55,6 +56,10 @@ object TxBench {
     /** The laid records: [phases] (A, B), each its writes (offset, bytes) in write order from [at]; the six [programs]
      *  in [NAMES]' order. */
     class Bench(val at: Int, val phases: List<List<Pair<Int, ByteArray>>>, val programs: List<MotionProgram>, val cells: Int, val faces: Int) {
+        /** C3 TXBF (GI 4): what the cells came from — the faces used, of how many the list draws, the characters skipped
+         *  for a face the atlas has no entry for — set by the survey's caller ([wm.damage.core.shell.TxBenchRun.bench]),
+         *  said in the start note; empty where no list was surveyed. */
+        var source = ""
         /** Phase [k]'s end; [end] the larger. */
         fun end(k: Int): Int = phases[k].maxOf { (o, b) -> o + b.size }
         val end: Int get() = phases.indices.maxOf { end(it) }
@@ -68,9 +73,11 @@ object TxBench {
 
     /**
      * The probe's faces and cells from a list's packed glyphs in paint order ([glyphs]: `CellLists.glyphs` of its rows'
-     * runs; [images] each face's atlas images by code − 32): taken in turn, again from the first once all are used, until
-     * [CELLS], each at its own size, set like text across [AREA] (a line one tallest glyph high, back to the top once the
-     * area is full — the next layer). Refused: no glyph, or one larger than the area.
+     * runs; [images] each face's atlas images by code − 32): taken in turn, again from the first once all are used, each at
+     * its own size, set like text across [AREA] (a line one tallest glyph high) until the next glyph would not fit below
+     * the last line, or [CELLS]. One layer (C3 TXBF, reader a's finding 1): no two boxes meet, so B2 draws exactly the ink
+     * of B4's one opaque area and R_pic = (B2 − B0)/(B4 − B0) compares like with like; X_off and X_text divide by the
+     * run's own N (the start note says it). Refused: no glyph, or one larger than the area.
      */
     fun cells(glyphs: List<Pair<FontSpec, CellLists.Glyph>>, images: (FontSpec) -> List<TextureCache.Image>): Pair<List<Face>, List<Cell>> {
         if (glyphs.isEmpty()) throw LintError("the list draws no text the atlas holds")
@@ -80,19 +87,22 @@ object TxBench {
         glyphs.firstOrNull { (s, g) -> img(s, g.code).let { it.w > AREA.w || it.h > AREA.h } }?.let { throw LintError("a glyph of ${it.second.code} is larger than the area $AREA") }
         val out = ArrayList<Cell>(CELLS)
         var x = AREA.x; var y = AREA.y
-        while (out.size < CELLS) for ((s, g) in glyphs) {
+        fill@ while (out.size < CELLS) for ((s, g) in glyphs) {
             if (out.size == CELLS) break
             val im = img(s, g.code)
             if (x + im.w > AREA.right) { x = AREA.x; y += pitch }
-            if (y + im.h > AREA.bottom) y = AREA.y
+            if (y + im.h > AREA.bottom) break@fill        // the area is full: one layer
             out += Cell(x, y, specs.indexOf(s), g.code, g.level)
             x += im.w
         }
-        val faces = specs.mapIndexed { i, s ->
+        // only the faces the cells reach (one layer may end before a later face's first glyph): a face with no cells
+        // would have no copy for its table's unused entries
+        val used = specs.indices.filter { i -> out.any { it.face == i } }
+        val faces = used.map { i ->
             val codes = out.filter { it.face == i }.map { it.code }.distinct().sorted().toIntArray()
-            Face(codes, codes.map { img(s, it) })
+            Face(codes, codes.map { img(specs[i], it) }, specs[i])
         }
-        return faces to out
+        return faces to out.map { c -> Cell(c.x, c.y, used.indexOf(c.face), c.code, c.level) }
     }
 
     /** The cells' ink as the glasses draw them lit, in list order (a glyph's 0 pixels never drawn; a level-L cell draws a

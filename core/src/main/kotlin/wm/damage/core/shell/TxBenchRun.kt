@@ -67,11 +67,15 @@ class TxBenchRun(private val say: (kind: String, detail: String) -> Unit) {
         }
     }
 
-    /** A run of [bench] (laid for [list]) begins with phase A's records; [room] the room's fingerprint. */
-    fun start(list: String, bench: TxBench.Bench, room: List<Any?>) {
+    /** A run of [bench] (laid for [list]) begins with phase A's records; [room] the room's fingerprint; [roomWords] the
+     *  room and the bounds that set it, for the start note. */
+    fun start(list: String, bench: TxBench.Bench, room: List<Any?>, roomWords: String = "") {
         run = Run(list, bench, room, recordsOf(bench, 0))
-        say("txbench", "started on '$list': ${bench.cells} cells in ${bench.faces} face(s); records at ${bench.at}: phase A ${bench.bytes(0)} B to ${bench.end(0)} " +
-            "(B0–B3), phase B ${bench.bytes(1)} B to ${bench.end(1)} (B4's image, over phase A); ${TxBench.NAMES.joinToString(" ")} each ${TxBench.PLAYS} times " +
+        say("txbench", "started on '$list': ${bench.cells} cells in one layer over the area (X_off and X_text divide by ${bench.cells}; B3's boxes " +
+            "at its first step are not counted here)" + (if (bench.source.isEmpty()) " in ${bench.faces} face(s)" else ", ${bench.source}") +
+            "; records at ${bench.at}: phase A ${bench.bytes(0)} B to ${bench.end(0)} " +
+            "(B0–B3), phase B ${bench.bytes(1)} B to ${bench.end(1)} (B4's image, over phase A)" + (if (roomWords.isEmpty()) "" else ", in $roomWords") +
+            "; ${TxBench.NAMES.joinToString(" ")} each ${TxBench.PLAYS} times " +
             "in slot ${TxBench.SLOT}, T ${TxBench.T} at P ${TxBench.PERIOD}, level 0 over rows ${TxBench.AREA.y}..${TxBench.AREA.bottom - 1}")
     }
 
@@ -158,25 +162,48 @@ class TxBenchRun(private val say: (kind: String, detail: String) -> Unit) {
     companion object {
         /** The packed glyphs of [view]'s rows at [layout] — each row's row form, then each row's band form — as [ct]'s atlas
          *  holds them, from runs [ct] surveys while each is painted into a scratch: nothing is counted (no face seen, no
-         *  character noted), so the atlas learns nothing from the probe. */
-        internal fun glyphsOf(view: WindowView.ListView, kit: ContentKit, layout: wm.damage.core.geom.Layout, ct: wm.damage.core.comp.CachedText): List<Pair<wm.damage.core.text.FontSpec, wm.damage.core.motion.CellLists.Glyph>> {
+         *  character noted), so the atlas learns nothing from the probe. With them (C3 TXBF, GI 4) every face the rows
+         *  draw, in paint order, and the characters of each face with no live atlas entry (drawn as pixels, so no run and
+         *  no cell comes from them: skipped). */
+        internal fun glyphsOf(view: WindowView.ListView, kit: ContentKit, layout: wm.damage.core.geom.Layout, ct: wm.damage.core.comp.CachedText): Survey {
             val atlas = ct.atlas ?: throw LintError("no atlas holds the list's faces")
             val out = ArrayList<Pair<wm.damage.core.text.FontSpec, wm.damage.core.motion.CellLists.Glyph>>()
+            val drawn = LinkedHashSet<wm.damage.core.text.FontSpec>()
+            val skipped = LinkedHashMap<wm.damage.core.text.FontSpec, Int>()
             for (band in listOf(false, true)) for (i in 0 until view.rowCount()) {
                 var got: List<wm.damage.core.comp.TextDraw> = emptyList()
-                val via: (Gray8, () -> Unit) -> Unit = { g, b -> got = ct.survey(g, false, b) }
+                val missed = ArrayList<Pair<wm.damage.core.text.FontSpec, String>>()
+                val via: (Gray8, () -> Unit) -> Unit = { g, b -> got = ct.survey(g, false, b, missed) }
                 if (band) ListStaging.paintBandForm(view, kit, layout, i, via) else ListStaging.paintStripRow(view, layout, i, via)
+                for (d in got) drawn += d.spec
+                for ((f, text) in missed) { drawn += f; skipped.merge(f, text.count { it != ' ' }, Int::plus) }
                 out += wm.damage.core.motion.CellLists.glyphs(got, { atlas.entry(it) }, { ct.kernOf(it) })
             }
-            return out
+            return Survey(out, drawn.toList(), skipped)
         }
 
-        /** The probe's records for [view]'s text laid in `[at, end)` (refused, [LintError], where they do not fit). */
+        /** What [glyphsOf] found: the glyphs, every face the rows draw, and the characters skipped by face. */
+        internal class Survey(val glyphs: List<Pair<wm.damage.core.text.FontSpec, wm.damage.core.motion.CellLists.Glyph>>,
+                              val drawn: List<wm.damage.core.text.FontSpec>, val skipped: Map<wm.damage.core.text.FontSpec, Int>) {
+            /** For the start note: "from F of the M faces the list draws (names)[; not reached in one layer: names][; K
+             *  character(s) skipped: no atlas entry for names]" — [used] the faces the cells came from. */
+            fun words(used: List<wm.damage.core.text.FontSpec>): String = "from ${used.size} of the ${drawn.size} faces the list draws (${used.joinToString(", ") { nameOf(it) }})" +
+                (drawn.filter { it !in used && it !in skipped }.takeIf { it.isNotEmpty() }?.let { n -> "; not reached in one layer: ${n.joinToString(", ") { nameOf(it) }}" } ?: "") +
+                (if (skipped.isEmpty()) "" else "; ${skipped.values.sum()} character(s) skipped: no live atlas entry for ${skipped.keys.joinToString(", ") { nameOf(it) }} (drawn as pixels) " +
+                    "(open the list once in this session, go back to Main, and send the probe again)")
+        }
+
+        /** A face by name for the notes: "list 24 bold". */
+        fun nameOf(s: wm.damage.core.text.FontSpec): String = "${s.face.name.lowercase()} ${s.sizePx}" + (if (s.bold) " bold" else "") + (if (s.italic) " italic" else "") + (if (s.raw) " raw" else "")
+
+        /** The probe's records for [view]'s text laid in `[at, end)` (refused, [LintError], where they do not fit); their
+         *  [TxBench.Bench.source] says which faces the cells came from. */
         internal fun bench(view: WindowView.ListView, kit: ContentKit, layout: wm.damage.core.geom.Layout, ct: wm.damage.core.comp.CachedText, at: Int, end: Int,
                            fx: wm.damage.core.motion.Motion.Effects): TxBench.Bench {
             val atlas = ct.atlas ?: throw LintError("no atlas holds the list's faces")
-            val (faces, cells) = TxBench.cells(glyphsOf(view, kit, layout, ct)) { atlas.entry(it)!!.images.toList() }
-            return TxBench.lay(faces, cells, TxBench.picture(faces, cells), at, end, fx)
+            val survey = glyphsOf(view, kit, layout, ct)
+            val (faces, cells) = TxBench.cells(survey.glyphs) { atlas.entry(it)!!.images.toList() }
+            return TxBench.lay(faces, cells, TxBench.picture(faces, cells), at, end, fx).also { it.source = survey.words(faces.mapNotNull { f -> f.spec }) }
         }
 
         /** Its tags: 0x9000 + a counter, apart from the lanes' 0xA000, the wrap's 0xB000, a transition's 0xC000 / 0xD000
@@ -185,7 +212,8 @@ class TxBenchRun(private val say: (kind: String, detail: String) -> Unit) {
         /** A tag of the probe's own (0x9000..0x9FFF). */
         fun ownTag(tag: Int?): Boolean = tag != null && tag and 0xF000 == TAG
         /** A play closed by a frame (`FIRMWARE.md` §5.6: a flush meeting the area closes the instance first — any cached
-         *  text run counts to the panel's bottom-right, so the clock's repaint does) is played again, this many times
+         *  text run counts to the panel's bottom-right, so any cached text Main flushes does: the clock, the status cell,
+         *  a row) is played again, this many times
          *  running; one more ends the run. A count, not a clock: the run's plays are at most 30 × (1 + this). */
         const val CLOSED_MAX = 3
         /** A record's most bytes: the records go as one deflated message each where the stage lane can (mode 25's inflate,

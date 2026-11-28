@@ -4751,9 +4751,10 @@ TXB_AREA = (0, 352, 640, 128)                    # the probe's area: rows 352..4
 TXB_NAMES = ("B0", "B1", "B1a", "B2", "B3", "B4")
 
 def txb_layout(faces, glyph_seq):
-    """`TxBench.cells` in Python: the cells of the probe from glyphs in paint order (face, code, level), taken in turn
-    until 512, each at its own size, set like text across the area (a line one tallest glyph high, back to the top once
-    the area is full). faces[f] maps a code to its (w, h, levels)."""
+    """`TxBench.cells` in Python: the cells of the probe from glyphs in paint order (face, code, level), taken in turn,
+    each at its own size, set like text across the area (a line one tallest glyph high) until the next glyph would not
+    fit below the last line, or 512 — one layer (C3 TXBF): no two boxes meet. faces[f] maps a code to its (w, h, levels).
+    (Both of the vector's faces have cells, so `TxBench.cells`' dropping of a face with none never applies here.)"""
     ax, ay, aw, ah = TXB_AREA
     pitch = max(faces[f][code][1] for f, code, _ in glyph_seq)
     out, x, y = [], ax, ay
@@ -4762,7 +4763,7 @@ def txb_layout(faces, glyph_seq):
             if len(out) == 512: break
             w, h, _ = faces[f][code]
             if x + w > ax + aw: x, y = ax, y + pitch
-            if y + h > ay + ah: y = ay
+            if y + h > ay + ah: return out              # the area is full: one layer
             out.append((x, y, f, code, lvl)); x += w
     return out
 
@@ -4782,8 +4783,8 @@ def txb_picture(faces, cells):
 def vectors_v5_txb(kf):
     """C3 stage TXB's hand-made input (the TX spec §1.2; DM-W's form): one NEW file, `v5-txb-bench` — every earlier file
     stays byte-identical. The probe `txbench`'s six programs, laid as `TxBench.lay` lays them in two phases from one
-    offset (phase A: per face its glyph copies and 224-entry table, the alphabet {32}, the three cell lists — 512 cells
-    fill none, the same with fill 0, one cell of code 32 — their table, B0–B3; phase B, written over phase A once B3 has
+    offset (phase A: per face its glyph copies and 224-entry table, the alphabet {32}, the three cell lists — the cells
+    (one layer over the area) fill none, the same with fill 0, one cell of code 32 — their table, B0–B3; phase B, written over phase A once B3 has
     played: the cells' ink as one v2 image, B4), each version 2 with one track over rows
     352..479 at backdrop level 0 (§5.5 refuses a lone `none`), T 8, lvl0 = lvl1 = 0: B0 the one cell, B1 the cells one
     area's height down, B1a one up, B2 in place, B3 with fill 0, B4 the image DRAWn at the area's corner. Each PLAYed
